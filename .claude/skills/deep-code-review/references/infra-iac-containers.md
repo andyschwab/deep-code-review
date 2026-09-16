@@ -44,6 +44,38 @@ them before the domain audits, because they fail late and silently otherwise:
   hours because the data-populating script never ran, is exactly this failure —
   and a liveness-only health check cannot see it, because it was never asked to
   look.
+- **Deploy artifact size is a budget — externalize heavy, slow-changing assets.**
+  A deploy upload can be **silently rejected** past a size limit: the stream sends
+  the full body, then dies at the gateway's timeout with an HTTP/2 framing error or a bare `504`
+  (no response body), while the app keeps serving the **old** pod — "the latest
+  deploy didn't ship," and a build-logs view that shows only the last *successful*
+  build hides the failed one. Treat artifact size as a first-class budget and flag
+  growth past the last-known-good by a large factor; serve media from object
+  storage / a CDN and fetch large data at runtime rather than baking either into
+  the image (baking a large data bundle also couples data-freshness to a full
+  redeploy). Bisect a suspected size rejection: a lean artifact lands where the
+  heavy one fails.
+- **A deploy upload's HTTP status is not the deploy's outcome.** On a platform
+  that builds the image **synchronously inside the request**, every upload returns
+  a `504` (or an HTTP/2 stream reset) at the gateway's timeout **whether the build
+  later succeeds or fails** — so the status code is useless as a success/failure signal, and an agent
+  that trusts it either abandons a good deploy or blindly re-uploads (a blind
+  re-upload can hit a *"deploy already in progress"* `409` lock). Verify by the
+  **effects**: a new build/deployment id, a booted pod/replica, a changed served
+  version — that is the source of truth. Read the returned code before re-uploading
+  (a `409` means wait; a timeout means it was likely accepted), and prefer a deploy
+  API that returns a durable deployment id + async status over one that blocks on
+  the build inside the gateway window.
+- **Confirm promotion on a byte only the *new* build serves — never on `/health`.**
+  A liveness endpoint both the old and new artifact answer cannot confirm a
+  promotion: on a build-then-promote platform the **old** pod keeps returning
+  `/health` = 200 throughout a slow build's `504`, so polling it "proves" a success
+  that never happened (the old artifact answering). Pick a **discriminator** that
+  differs between the artifacts and poll that — a static asset path the new build
+  ships and the old lacked (`404` → `200` exactly when the new pod takes over), a
+  build/commit id, a changed response header. A response byte only the new build can
+  serve is the honest promotion signal (sharpens the effect-verification above:
+  `/health` is an effect **both** builds produce).
 
 ---
 

@@ -48,6 +48,28 @@ without regressing a deliberate design.
   (2.2 new: Focus Not Obscured).
 - Focus is managed on route change, modal open/close (trap + restore), and
   async content insertion.
+- A **global focus/scroll-into-view correction** handler (the *Focus Not
+  Obscured* remedy) must yield to an open overlay and scope to the focused
+  element's own scroll container — detector below.
+
+**Global focus-correction vs. an open overlay**
+
+A **document-level focus/scroll-into-view correction** handler — the common remedy
+for *Focus Not Obscured* (nudge the scroll so a focused control clears sticky
+chrome) — must **bail while an overlay is open** (gate on the open-dialog state, the
+`:modal` element / `aria-modal`, or a focus-trap boundary) and **scope its scroll to
+the focused element's own scroll container**, never a page-level one. A global handler
+missing both guards fires for a control *inside* an open modal/drawer, measures it
+against the **background** chrome, and scrolls the background out from under the
+overlay — the a11y remedy for one rule silently breaks `product-ux-quality.md`'s rule
+that a detail drawer overlays so "the user keeps their place", never moving the
+background. Container scoping is the more general fix (it also covers any nested scroll
+region).
+
+**🚩 grep**: a `document`/`window`-level `focusin`/`focus` listener or a
+`scrollIntoView`/`scrollTo`/`scrollBy` correction with no open-overlay guard and no
+scroll-container scoping; exercise it — focus a field inside an open overlay and
+confirm the background does not move.
 
 **New in WCAG 2.2 — verify explicitly**
 - **Target Size (Minimum) 24×24 CSS px** for pointer targets (or adequate
@@ -61,6 +83,25 @@ without regressing a deliberate design.
 **Perceivable**
 - Contrast: text ≥ 4.5:1 (large text ≥ 3:1); UI components & graphical objects
   ≥ 3:1 (1.4.11). Don't convey meaning by color alone.
+- **Guard a deliberately-decorative / sub-AA token at its point of *use*, not its
+  value.** A token pinned below the text-contrast threshold and documented
+  "decorative only" is only decorative if *no component paints **real, informational
+  text** with it* — WCAG 1.4.3 holds informational text to 4.5:1 (large text 3:1), so
+  a `className`/style that colours a **visible label, status word, or helper line**
+  with it fails the audit on every route sharing that chrome, while a value-only test
+  asserting the token stays sub-AA stays green. Add a lint/test that **fails when the
+  token colours a real text node** — fail-closed, but **with an escape**: admit a
+  pinned `a11y-exempt` marker for the text 1.4.3 genuinely exempts (an `aria-hidden`
+  or purely-decorative glyph, a logotype, large text already meeting 3:1), so the gate
+  is *narrowed to the standard, not stricter than it* — the same gate-vs-standard
+  discipline as the disabled-control exemption note below. Allow the token freely on
+  non-text (borders, backgrounds, icon fills with an accessible-name sibling), and have
+  the self-test plant **both** a real-text use (guard fires) and a pinned-exempt use
+  (guard stays silent). This closes the runtime-binding gap the encoding self-test only
+  *warns* about (`product-ux-quality.md`, the Phase-6 gate). General form: when a test
+  encodes an intent ("stays decorative", "stays internal", "never renders"), assert the
+  **property**, not the value it is derived from — the gap between them is where a
+  green suite ships a regression.
 - All non-text content has a text alternative; decorative images `alt=""`.
 - Content reflows to 320 CSS px wide without loss (1.4.10); works at 200% zoom.
 - Respect `prefers-reduced-motion`; no content flashes > 3×/sec.

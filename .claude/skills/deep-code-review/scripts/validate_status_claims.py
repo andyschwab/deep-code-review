@@ -9,6 +9,31 @@ caveat / mostly / but see …) and no downgrade marker (⚠️ / ❌ / ✗ / par
 blocked / unverified) — i.e. a claim that is only true after a non-default action,
 reported green.
 
+A second detector (issue #192) flags a positive status whose row also carries
+parity vocabulary (parity / renders / restyled / screen / "matches the design" …)
+yet names NO verification surface — no URL / port and no rendered sha. When more
+than one tree can serve the app, a parity claim that names no surface is INVALID
+(there is nothing to downgrade): it may be true about the author's tree yet false
+on every surface a human opens, so this detector fires even on a ⚠️-downgraded row.
+The sha test requires >= 7 hex chars with both a hex letter and a digit (so neither
+a hex-looking word nor a plain number passes as a commit).
+
+A third detector (issue #198) flags a positive status that leans on a screenshot
+(screenshot / screen capture / .png) yet names none of the pixel-defect checklist
+STEMS (overlap / clip / truncat / intersect / contrast / disabl / bbox / geometr) — a
+screenshot proves a render happened, not that the render is correct. It fires even on
+a ⚠️-downgraded row; the discriminator is the inspection stem, matched as a substring
+so an inflected citation ("nothing overlapping / clipped") still exempts. That
+substring match will also exempt a row that mentions "disabled"/"contrast" for an
+unrelated reason — the acceptable direction for an exemption set (under-flag, never a
+false alarm on a genuine inspection).
+
+A fourth detector (issue #200) flags a positive parity claim carrying a population
+quantifier (all / every / whole / "the product" / "the app" / "all pages") but no N/M
+coverage fraction — a sample generalized to the whole product. It requires a
+parity-context word (so "all tests pass" is spared) and fires even on a ⚠️-downgraded
+row; the discriminator is the coverage fraction ("1/6", "1 of 6"), not the marker.
+
 It is an aid to human judgement, not a proof. It can over-flag a prose line that
 merely contains both a status word and a conditional; a flagged line is a lead to
 re-check — downgrade to partial/blocked with the condition as the headline, or
@@ -23,7 +48,8 @@ no listed pattern matched. Known false negatives:
     ("no partial coverage") can silence a genuine hedged-green on that line;
   * the token lists are fixed — a completion or hedge word not listed slips past.
 
-Exit 0 = no hedged-green lines, 1 = candidate(s) found, 2 = usage/unreadable.
+Exit 0 = no candidate lines (none of the four detectors fired), 1 = candidate(s)
+found, 2 = usage/unreadable.
 Stdlib only. Reports line numbers + the tokens matched, not full line content.
 """
 from __future__ import annotations
@@ -50,6 +76,66 @@ HEDGES = (
 DOWNGRADE = (
     "⚠️", "⚠", "❌", "✗", "partial", "blocked", "changes-requested", "unverified",
 )
+# UI / parity vocabulary: marks a status line as a design / parity claim, which
+# must name a verification surface. A positive parity status naming no surface is
+# the failure the second detector catches (issue #192 — "which tree served it?",
+# ambiguous the moment more than one tree can serve the app). A broad single word
+# ("screen" …) can over-flag a non-parity row ("screen-reader"); a flag is a lead.
+SURFACE_VOCAB = (
+    "parity", "renders", "rendered", "restyled", "restyle",
+    "matches the design", "matches the reference", "looks the same", "screen",
+)
+# The detector flags a parity row that names NEITHER a URL / port NOR a rendered
+# sha (either one present = a surface is named → no flag; issue #192's "no URL and
+# no sha"). The sha needs >= 7 hex chars with BOTH a hex letter and a digit, so a
+# hex-looking prose word ("defaced") and a plain number ("1234567") are neither
+# mistaken for a commit; the URL needs a real host, so a time ("12:30") is not a port.
+_URL_RE = re.compile(r"https?://|\blocalhost\b|\b\d{1,3}(?:\.\d{1,3}){3}\b", re.IGNORECASE)
+_SHA_RE = re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b", re.IGNORECASE)
+# Screenshot / render-artifact vocabulary: marks a UI status leaning on an image. A
+# positive status that cites an image but names no inspection is the failure the third
+# detector catches (issue #198 — a screenshot is an artifact, not an inspection).
+SHOT_VOCAB = (
+    "screenshot", "screen shot", "screencap", "screen capture", ".png",
+)
+# Inspection STEMS: the pixel-defect checklist a UI status cites (product-ux gate 1),
+# matched as SUBSTRINGS (not word-bounded). This is an EXEMPTION set — a row that cites
+# its inspection in any inflection ("no overlapping, nothing clipped") must be spared,
+# and failing toward exempting is the safe direction here (unlike the claim sets, where
+# the word boundary keeps "verified" out of "unverified"). "state" is deliberately NOT
+# here: a shot labelled only with its data state, with no defect attestation, is exactly
+# what #198 catches, so citing the state does not clear the flag.
+INSPECT_STEMS = (
+    "overlap", "intersect", "clip", "truncat", "contrast", "disabl",
+    "bbox", "bounding", "geometr",
+)
+# Population quantifiers + parity context: an aggregate parity claim that names no
+# coverage fraction generalizes a sample to the whole product (issue #200). The fourth
+# detector fires on a positive parity claim carrying a population word but no N/M
+# fraction; it fires regardless of a downgrade marker (⚠️ "the whole app matches" is as
+# unscoped as the green form; the issue's honest example carries ⚠️ AND a fraction). It
+# also requires a parity-context word, so "all tests pass" (no parity claim) is spared.
+POP_QUANTIFIER = (
+    "all", "every", "whole", "entire", "everywhere",
+    "the product", "the app", "all pages", "all screens",
+    # aggregate-completion phrases that generalize without a population word:
+    "parity achieved", "parity complete", "port complete", "migration complete",
+    "restyle complete",
+)
+PARITY_CTX = (
+    "parity", "matches", "match", "prototype", "design", "reference",
+    "screen", "page", "port", "restyle", "renders", "rendered", "looks the same",
+)
+# A coverage fraction (N/M or "N of M", each operand <= 2 digits and N <= M) scopes the
+# claim → exempt. The operand bound and N <= M reject a slash-date ("2026/09", "28/09");
+# an ambiguous small MM/DD like "09/12" can still read as a fraction — an accepted
+# residual for a heuristic aid.
+_FRACTION_RE = re.compile(r"\b(\d{1,2})\s*(?:/|of)\s*(\d{1,2})\b", re.IGNORECASE)
+
+
+def _has_fraction(line: str) -> bool:
+    """A coverage fraction present: N/M or "N of M", each <= 2 digits with N <= M."""
+    return any(int(m.group(1)) <= int(m.group(2)) for m in _FRACTION_RE.finditer(line))
 
 
 def die(code: int, msg: str) -> NoReturn:
@@ -86,26 +172,78 @@ def main(argv: list[str]) -> int:
     except (OSError, UnicodeError):
         die(2, "unreadable input")
 
-    flagged: list[tuple[int, list[str], list[str]]] = []
+    flagged: list[tuple[int, list[str], list[str]]] = []       # hedged-green
+    surfaceless: list[tuple[int, list[str], list[str]]] = []   # UI/parity, no surface
+    uninspected: list[tuple[int, list[str], list[str]]] = []   # screenshot, no inspection
+    overscoped: list[tuple[int, list[str], list[str]]] = []    # parity claim, no N/M scope
     for n, line in enumerate(text.splitlines(), start=1):
         low = line.lower()
         pos = find(POSITIVE, low, line)
         if not pos:
             continue
-        if find(DOWNGRADE, low, line):  # already honestly downgraded
+        # Surfaceless-parity detector runs FIRST and regardless of a downgrade
+        # marker: a parity claim that names no surface is INVALID, not merely
+        # downgraded — a ⚠️ does not rescue it (report-format.md), so the downgrade
+        # marker must not suppress this half.
+        surf = find(SURFACE_VOCAB, low, line)
+        if surf and not _URL_RE.search(line) and not _SHA_RE.search(line):
+            surfaceless.append((n, pos, surf))
+        # Screenshot-without-inspection detector, also regardless of a downgrade
+        # marker: a UI status leaning on an image but citing no pixel-defect checklist
+        # item is unverified (issue #198). The discriminator is the inspection token,
+        # not the marker — a row that cites overlap/clip/contrast/... is exempt.
+        shot = find(SHOT_VOCAB, low, line)
+        if shot and not any(stem in low for stem in INSPECT_STEMS):
+            uninspected.append((n, pos, shot))
+        # Aggregate-scope detector (issue #200), also regardless of a downgrade marker:
+        # a parity claim carrying a population quantifier but no N/M coverage fraction
+        # generalizes a sample to the whole product. The discriminator is the fraction;
+        # a parity-context word is required so "all tests pass" is not a false hit.
+        pop = find(POP_QUANTIFIER, low, line)
+        if pop and find(PARITY_CTX, low, line) and not _has_fraction(line):
+            overscoped.append((n, pos, pop))
+        # Hedged-green detector: an honest downgrade already surfaces the caveat, so
+        # a downgraded line is not the failure THIS half catches.
+        if find(DOWNGRADE, low, line):
             continue
         hedge = find(HEDGES, low, line)
         if hedge:
             flagged.append((n, pos, hedge))
 
-    if flagged:
+    if flagged or surfaceless or uninspected or overscoped:
         for n, pos, hedge in flagged:
             print(
                 f"L{n}: green status {pos} carries a hedge {hedge} — "
                 "downgrade (partial/blocked, condition as the headline) or split "
                 "into a two-status verdict. A ✅ that needs an asterisk is a ✗."
             )
-        print(f"validate_status_claims: {len(flagged)} hedged-green line(s) to re-check")
+        for n, pos, surf in surfaceless:
+            print(
+                f"L{n}: green UI/parity status {pos} names no verification surface "
+                f"(vocab {surf}) — a parity claim with no URL and no rendered sha is "
+                "INVALID, not downgraded; name url · tree/worktree · branch · sha, or "
+                "make no claim (#192)."
+            )
+        for n, pos, shot in uninspected:
+            print(
+                f"L{n}: green UI status {pos} leans on an image {shot} but names no "
+                "inspection — cite the pixel-defect checklist (overlap / clip / "
+                "contrast / disabled-looks-disabled, product-ux gate 1), or it "
+                "is unverified, not verified (#198)."
+            )
+        for n, pos, pop in overscoped:
+            print(
+                f"L{n}: green parity status {pos} generalized over {pop} with no "
+                "coverage fraction — scope it to the screens verified (N/M) or name the "
+                "correspondence table; a claim over the product from a sample is a High "
+                "communication defect (#200)."
+            )
+        total = len(flagged) + len(surfaceless) + len(uninspected) + len(overscoped)
+        print(
+            f"validate_status_claims: {total} line(s) to re-check "
+            f"({len(flagged)} hedged-green, {len(surfaceless)} surfaceless parity, "
+            f"{len(uninspected)} uninspected screenshot, {len(overscoped)} overscoped parity)"
+        )
         return 1
     print("validate_status_claims: ok")
     return 0

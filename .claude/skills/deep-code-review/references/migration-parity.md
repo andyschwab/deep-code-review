@@ -52,6 +52,41 @@ divergence is structural, not per-screen.
   component (`product-ux-quality.md`, one component per concept, #123); two
   *different behaviors* stay **separate wrappers over one shared style**.
 
+## Own the shared shell before the page lanes spawn — one writer per shell primitive
+
+Unifying the chrome/shell (above) is a **precondition**; the moment a multi-screen
+port/restyle **fans out to parallel page lanes**, that shared shell becomes contested
+write state. Every page lane needs the same handful of files — layout, nav, design
+tokens, shared chrome primitives — so lanes editing them concurrently **clobber or
+silently revert** each other's token/shell changes, and a reviewer reading any one
+lane's diff cannot see the collision: a per-PR review passes each lane while the defect
+lives **between** them.
+
+Before spawning any page lane, the lead publishes a **shell-ownership ledger** on the
+integration PR — the same table shape as the fan-out **Unit manifest**
+(`parallel-audit.md` §1, lead-owned, filled before spawn); do **not** restate it. Its
+load-bearing rules:
+
+- **Exactly one lane owns each shared-shell path** (layout, nav, tokens, chrome
+  primitives). Ownership is a **partition**, not a suggestion: two lanes listing the
+  same shell path is the collision, on paper, before a line is written.
+- **The shell lands first.** Page lanes branch from / rebase onto the merged shell, so
+  they restyle **against** the unified chrome, not alongside a moving one.
+- **A page lane editing a shared-shell path it does not own is a finding** — even when
+  its diff is correct in isolation — because it silently diverges the shell the other
+  lanes built on (the per-surface-divergence, unbounded-defect-stream failure this file
+  opens with).
+
+**Severity.** Spawning a restyle fan-out onto a shared shell **with no ownership
+ledger** is a **High** coordination defect (do-no-harm, principle 4 — the lanes will
+clobber the shell and the cost stays invisible until integration). A cross-lane
+shell-path edit is raised as its own finding against the owning lane.
+
+These are **review-side** detections — a reviewer reads a fan-out and finds a missing
+ledger, an unpartitioned shell path, or a cross-lane shell edit. The write-lane
+mechanics that *enforce* single-writer ownership belong to a delivery overlay, not to
+this review-only rule, which stays self-contained.
+
 ## Verify parity surface-by-surface, on real data — never from a structural or seed-data audit
 
 A structural component audit, a green test suite, and a section-by-section
@@ -66,6 +101,34 @@ default state, every field, every sub-view/mode, data population — not its sta
 screenshot. Treat every "matches well" as **unverified** until the real surface is
 exercised against the real reference. (The structural / green-suite / seed-screenshot
 stand-ins are the "Beware the proxy" completion trap — `report-format.md`.)
+
+## Scope a parity claim to the correspondence table — one screen verified is not the product
+
+`product-ux-quality.md` gate 4 already defines *done* on a parity task as the
+present-or-absent lists empty **"for every screen in the correspondence table."** That
+table **is** the coverage ledger; #200's rule is only that it **exists before any
+claim** and that a claim is **scoped to the rows actually verified**, never phrased over
+the product.
+
+- **Enumerate every in-scope route/screen as a row before claiming parity.** Each row
+  carries its own state: `verified` (rendered and compared, with the evidence) /
+  `unverified` / `n-a (out of scope, reason)`. An unrendered screen is an **unprobed
+  surface** — `unverified`, not matched (`SKILL.md` principle 2: an absence is evidence
+  only after a positive control fires).
+- **A parity status is scoped to the `verified` rows and may never be phrased over the
+  product.** Aggregate phrasing — "the app matches," "parity achieved," "all pages" — is
+  valid **only** when **every** row reads `verified`; otherwise the honest form is
+  `N of M screens verified — remaining: <list>`. Generalizing a claim from a sample to
+  the population is a **High** communication defect: it retires the verification task —
+  the owner stands the lanes down and stops checking — and the mismatch surfaces later
+  as the trust-collapse dynamic (`product-ux-quality.md`'s repeated-owner-rejection
+  rule). The verdict cap lives in `report-format.md` (capped below Approve while any
+  in-scope screen is `unverified`).
+- **Sample the strongest screen first, not the cheapest.** When screens are verified
+  incrementally, verify a **chrome-bearing, data-dense** screen first; a static prose /
+  changelog page is the **weakest** possible sample — it exercises almost none of the
+  shared shell, and this file already puts shell unification ahead of screens, so a
+  screen with no shell proves almost nothing about the shell.
 
 ## Anchor findings on treatment, not data-volume — a sparse mockup is not a feature spec
 
@@ -83,17 +146,91 @@ Separate three kinds of "gap" explicitly — they have **opposite** fixes:
 - **(b) data-volume artifact** — the surface is larger because it holds real data;
   the fix is **progressive disclosure / capping / pagination**, *never* deletion.
 - **(c) a real extra feature** the production surface has and the mockup lacks —
-  **preserve it**; a design mockup is a look reference, not a feature spec.
+  **preserve it**: preserve the *capability* and **restyle it into the target's
+  design language**, never delete it (see *Restyle an app-only feature into the
+  target's design language* below for the classification, its **High** severity, and
+  the ledger). A design mockup is a look reference, not a feature spec.
 
 **"Drop / replace / remove X to match the reference" is a review smell** for any
 surface that renders real data: it is a path to deleting working features and
 violates do-no-harm (principle 4) and the never-remove-a-working-feature-without-
-confirmation bar. Rewrite the recommendation as "adopt the reference's layout and
-default; move the extra content behind progressive disclosure." A page-height or
-item-count delta versus a seed-data mockup is a **notice, not a defect** — say so
+confirmation bar — and when the *X* is app-only **functionality** (removing it loses
+a user capability), deleting it without a named owner approval is not merely a smell
+but a **High**-severity finding (*Restyle an app-only feature into the target's
+design language* below). Rewrite the recommendation as "adopt the reference's layout
+and default; move the extra content behind progressive disclosure" for a data-volume
+gap, or "restyle the feature into the target's design language" for a real app-only
+feature. A page-height or item-count delta versus a seed-data mockup is a
+**notice, not a defect** — say so
 in the finding, so a downstream implementer does not read it as a cut order. Before
 recommending any structural change to a real surface from a mockup, confirm the
 difference is **treatment** (reproducible on **equal** data), not volume.
+
+## Restyle an app-only feature into the target's design language — don't delete it, don't leave it old
+
+`product-ux-quality.md`'s parity differ runs **both ways** and flags an **app-only
+element** (present in the app, absent from the design) as a finding. That rule and
+the *preserve-a-real-extra-feature* rule above read as **opposites** — one says "an
+app-only element is a mismatch," the other says "preserve it" — and when two rules
+collide an implementer reaches for the **harsher** one: *delete it to match.* That is
+the wrong default and the most expensive mistake on a restyle. Resolve the tension by
+**classifying** the app-only element with the differ's operative test — *does
+removing it lose a user capability?* (`product-ux-quality.md` owns that test) — into
+exactly one of three buckets:
+
+- **Decoration / pure shell** (no capability, no real data — an extra header, a
+  "Showing N of N" line, a duplicated label) → **remove-to-match.** This is the only
+  bucket that deletes, and it deletes nothing a user can *do*.
+- **Real functionality** (removing it loses a capability — a filter, a view tab, an
+  upvote, a deep link) → **restyle it into the target's design language.** Re-express
+  the capability in the reference's own primitives (its button, its tab, its filter
+  control) so the **look** reaches parity while the **capability** is preserved.
+  *Preserve* means preserve-the-capability — **not** "leave it in the old visual
+  language," **not** "escalate and wait." The affirmative deliverable is the restyled
+  feature. Only when **no** target primitive fits does that single element escalate to
+  owner adjudication — the **fallback**, never the default.
+- **Owner-approved removal** → a **named decision**: an owner has accepted losing the
+  capability to reach parity. Record who accepted it and where.
+
+**Severity.** Deleting — or recommending the deletion of — app-only **functionality**
+to reach visual parity **without a named owner approval** is **High** (do-no-harm,
+principle 4): a serious defect that **blocks unless a named owner accepts** (`SKILL.md`
+severity rubric). The *owner-approved-removal* bucket **is** that acceptance; absent
+it, the delete blocks. Removing pure **decoration** is not this finding — no
+capability is lost.
+
+**Fill an exception ledger before implementing a restyle** — one row per app-only
+element: `element · bucket (decoration / functionality / owner-approved) · verdict
+(remove / restyle / named-removal) · target primitive it restyles into`. The ledger
+is the artifact that proves each app-only element was **classified**, not silently
+deleted; a restyle that deletes an unledgered element is the do-no-harm finding above.
+
+## Match the chrome, never the mock's data — copying a sample value is fabrication
+
+Separate **chrome** (layout, colour, geometry, tab set, headers, control
+affordances — **must match**) from **data** (values, counts, denominators, series —
+**must stay real**). A mock is built to *look* complete, so it fills every number
+with plausible sample values; those are the one thing that must **not** cross into
+the product. **Copying a mock's number into the real product is fabrication**
+(principle 3) — a Blocker-class data-integrity defect that surfaces weeks later when
+someone trusts a value lifted from an illustration, not computed. This is the
+**inverse** of the treatment-not-volume smell above: there the mock's *sparse* data
+tempts a wrong cut, here its *invented* values tempt a wrong copy — a design mockup
+is neither a feature spec nor a data spec.
+
+- **Read the prototype's own disclaimers first.** Mocks routinely label their
+  sample numbers ("values marked *sample* are illustrative until the backend is
+  wired"); that label is the boundary between chrome-to-match and data-to-ignore.
+- **Brief the chrome-vs-data split into every parallel worker.** A lane without the
+  caveat will "helpfully" reconcile the numbers and inject fabricated data, invisible
+  to the coordinator until it ships (`agentic-delivery`).
+- **This is why the parity differ ignores text values entirely** — the differ's
+  rule follows from this one; see the Phase-6 parity-differ gate (which owns the
+  differ's exact scope) in `product-ux-quality.md`.
+
+**Acceptance:** every number in the matched product traces to a real computation or
+an honest empty state; no value present in the product originates from the design
+mock.
 
 ## Flow-cost — navigation cost, scroll burden, and cognitive load are first-class
 
@@ -163,9 +300,30 @@ a separate move: `product-ux-quality.md`, *Match a named standard*.)
 
 - A parity claim ("matches the reference") backed only by a structural audit, a
   green suite, or seed-data screenshots — with no surface-by-surface real-data pass.
+- A parity / completion claim phrased over **the product / the app / all pages** with
+  **no correspondence table** and no `N/M` coverage fraction — a sample generalized to
+  the population (a **High** communication defect); worse when the one screen verified
+  is a static, shell-less page.
+- A **"matches"** claim on a parity task with **no mechanical differ** — no diff
+  image or structured mismatch list attached, only an assertion.
+- A **structural** divergence (different columns / grouping / composition)
+  characterised as **"close" / "1:1" / "mostly there"** — a category error; a
+  different structure is a different screen.
+- A number in the matched product **copied from the design mock's *sample* value** —
+  present in the product but tracing to the mock, not a real computation.
 - A recommendation to **drop / remove / replace** a surface or its content to match
   a **prototype / mockup** reference (real data → progressive disclosure, not
   deletion).
+- An app-only **feature** (removing it loses a capability) **deleted or slated for
+  deletion** to reach visual parity, with **no named owner approval** and **no
+  restyle-into-target attempt** — a **High** do-no-harm finding, not a parity win.
+- A restyle that resolves app-only elements with **no exception ledger** classifying
+  each as decoration / functionality / owner-approved before implementation.
+- A multi-screen restyle **fanned out to parallel page lanes with no shell-ownership
+  ledger** (single owner per shared-shell path, shell-lands-first) — a **High**
+  coordination defect.
+- A page lane's diff that **edits a shared-shell path it does not own** (layout / nav
+  / tokens / chrome primitive), even when the diff is correct in isolation.
 - A comparison treating **page height / row count** versus a seed-data mockup as a
   defect rather than a notice.
 - "Match the reference and use judgment" with **no cited heuristic** named behind a

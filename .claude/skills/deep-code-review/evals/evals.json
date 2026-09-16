@@ -432,6 +432,449 @@
         "Requires per-row owning-entity attribution and capping/paginating the union at aggregate scope",
         "Distinguishes the single-vs-aggregate scope axis from a feature-prop-present-at-one-mount-site axis, and from a section-set superset across sibling per-entity surfaces"
       ]
+    },
+    {
+      "id": "overlay-guard-for-global-focus-handler",
+      "prompt": "To satisfy WCAG 'Focus Not Obscured' I added a document-level focusin handler that scrolls the focused control clear of our sticky header. It works. Anything to flag?",
+      "expected_output": "Yes -- a global focus/scroll-correction handler needs an open-overlay guard and scroll-container scoping, or it scrolls the background out from under an open modal. When a dialog/drawer is open, the same document-level handler fires for a control INSIDE the overlay, measures it against the still-present background chrome, and scrolls the background -- moving the page out from under an overlay meant to keep the user in place. Bail while an overlay is open (gate on the open-dialog state, the :modal element / aria-modal, or a focus-trap boundary) AND scope the scroll to the focused element's own scroll container, never a page-level one (container scoping also covers nested scroll regions). The Focus-Not-Obscured remedy then stops violating the product rule that a detail drawer overlays so the user keeps their place -- the background never moves out from under it. Exercise it: focus a field inside an open overlay and confirm the background does not move. (frontend-a11y.md.)",
+      "expectations": [
+        "Flags a document-level focus/scroll-correction handler with no open-overlay guard",
+        "Requires bailing while a modal/dialog/drawer is open, keyed on the open-overlay state rather than a heuristic",
+        "Requires scoping the scroll to the focused element's own scroll container rather than a page-level container",
+        "Names the conflict -- the Focus-Not-Obscured remedy violating the overlay-never-scrolls-the-background invariant -- and requires exercising a field inside an open overlay"
+      ]
+    },
+    {
+      "id": "reproduce-gate-finding-with-gates-own-detector",
+      "prompt": "A CI schema-validator gate failed on our config. I wrote a quick grep that checks the field it complained about, the grep passes now, so the fix is verified -- right?",
+      "expected_output": "Not verified -- your probe observes a different thing than the gate, so a passing grep can 'reproduce' a passing state while the gate stays red. A hand-rolled approximation of an automated gate (linter, schema/contract validator, audit/policy gate) can target the wrong cause: the gate stays red next run, or goes green for an unrelated reason and the real defect ships. Read the gate's own detection source (its rule, query, or script) and replicate it exactly -- same matcher, inputs, config, and file/state -- or better, run the actual gate against the change. Reproduce the gate's RED for the same reason first, then confirm the fix turns both green. A bespoke probe is a fallback only when the gate cannot run, and must mirror its mechanism. This is repro fidelity w.r.t. the detector -- distinct from the gate being wrong or unrun, from reproducing at low concurrency, and from a fix you could not reproduce at all. (method.md.)",
+      "expectations": [
+        "Rejects a hand-rolled probe that approximates rather than replicates the gate's detection as proof of a fix",
+        "Requires reading the gate's own detection source and replicating it exactly, or running the actual gate",
+        "Requires reproducing the gate's red for the same reason before confirming the fix turns it green",
+        "Distinguishes probe-fidelity-w.r.t.-the-detector from the gate being wrong or unrun and from a fix that could not be reproduced"
+      ]
+    },
+    {
+      "id": "verify-input-reference-fresh-and-complete",
+      "prompt": "I'm building a mirror of our design system from an exported spec bundle a teammate handed me. The build passes all its own checks. Good to ship the mirror?",
+      "expected_output": "Check the export is current and complete first -- the build passes its own gates on whatever the export contains, so a stale or partial export yields a confidently-wrong mirror that still 'passes.' Before building on any exported reference (a design export, a spec bundle, a data snapshot), confirm its revision/timestamp and its completeness (actual vs expected item count) against the authoritative source; an export that silently lost half its items produces a mirror that faithfully reproduces the loss. This is the build-time analog of verify-before-you-report -- a cheap up-front freshness/completeness check is owed by any build-against-a-reference workflow. (method.md.)",
+      "expectations": [
+        "Does not accept 'the build passed its own checks' as sufficient when the input is an exported reference",
+        "Requires verifying the export's revision/timestamp and completeness against the authoritative source before building",
+        "Explains that a stale or partial reference yields confidently-wrong output that still passes its own gates",
+        "Frames the check as the build-time analog of verify-before-you-report"
+      ]
+    },
+    {
+      "id": "fanout-gate-distinguishes-corruption-from-shared-value",
+      "prompt": "Our field-integrity gate fails closed when a unique-per-company handle appears on two records. This refresh it flagged 33 violations, about 32 of them sub-teams that legitimately now share their parent org's handle, and blocked the publish. Lower the gate's strictness?",
+      "expected_output": "Don't lower or disable it -- refine what it hard-blocks. The gate is right that a unique-to-one value on two entities CAN be corruption, but it false-positives during legitimate coverage expansion: many related entities newly and correctly sharing one value (sub-teams adopting a parent org's handle -- co-branding) each trip the fanout arm. Distinguish the shapes: hard-block only a value ABSORBED from a now-departed distinct record (two records collapsed into one); for a newly-shared STANDING value among related entities, keep a human at the gate or a small reviewed allowlist, and stop re-refusing an unchanged standing shared value every run (that just gets the gate switched off). Never 'green' the run by lowering the baseline -- acknowledge the intended shared values explicitly, per field, with a reason. (data-quality.md.)",
+      "expectations": [
+        "Refuses to lower or disable the gate or its baseline to pass the run",
+        "Distinguishes corruption (a value absorbed from a now-departed distinct record) from a legitimately newly-shared standing value among related entities",
+        "Hard-blocks only the corruption shape; routes legitimate shared values to a human or a reviewed allowlist",
+        "Flags re-refusing an unchanged standing shared value every run as what gets the gate disabled"
+      ]
+    },
+    {
+      "id": "measure-existing-coverage-before-new-enrichment",
+      "prompt": "We're scoping a set of paid scrapers and enrichment APIs to hit a coverage target for our company list. The plan is ready -- greenlight the spend?",
+      "expected_output": "Measure existing-source coverage for that exact list first -- re-querying your internal warehouse is frequently the largest, cheapest lever and can match a from-scratch enrichment plan's target at zero marginal cost, often surfacing already-reconciled fields (a stable entity id, dated events, location) the working copy lacks. Scope the external, paid acquisition to the measured RESIDUAL only. A plan that adds scrapers before measuring what you already have over-scopes -- and paid calls sit behind free/keyless pre-gates and the usual spend caps regardless. (data-quality.md.)",
+      "expectations": [
+        "Requires measuring existing-source (warehouse) coverage for the target set before scoping new acquisition",
+        "Identifies re-querying existing data as the largest and cheapest coverage lever",
+        "Scopes external or paid enrichment to the measured residual only",
+        "Treats the pre-measurement plan as over-scoped"
+      ]
+    },
+    {
+      "id": "no-name-join-and-test-config-maps-vs-real-values",
+      "prompt": "Two data-integrity things in this pipeline: (a) we resolve companies by matching on the name string, and (b) we have a geography-to-multiplier lookup. Unit tests for both pass. Ship?",
+      "expected_output": "Both are traps that pass unit tests while failing in production. (a) Never resolve identity on a bare name string -- namesake collisions merge distinct records, and a wrong merge is worse than a missed one. Resolve by stable id, then normalized domain/handle, then a name only as a last resort behind a collision (namesake) guard, and surface the unresolved/ambiguous count as a first-class output. (b) Test the geography-to-multiplier map against the source's REAL value distribution: if it's keyed on region names while the source emits ISO-3166 alpha-2 codes (plus lowercase and placeholders), it silently no-ops -- carrying its cost, delivering nothing -- and unit tests pass because they feed it the literals it expects. SELECT DISTINCT the real values and test against those. (data-quality.md.)",
+      "expectations": [
+        "Rejects name-string identity joins; requires stable id then normalized domain then name-behind-a-collision-guard, with the unresolved count surfaced",
+        "Requires testing the enum/config map against the source's real value distribution (SELECT DISTINCT), not chosen literals",
+        "Explains that a mis-keyed map silently no-ops while unit tests still pass",
+        "Treats a passing unit test as insufficient for either trap"
+      ]
+    },
+    {
+      "id": "backtest-proxy-metric-vs-ground-truth",
+      "prompt": "We built a runway estimate from public proxies (last-round size / headcount x burn). Unit tests pass and the formula looks sound. Ship it as a ranking signal?",
+      "expected_output": "Not until you backtest it against ground truth -- a plausible proxy formula that passes unit tests can be near-useless for its actual job. For any derived or scored value from indirect proxies, require a validation step in review that reports MAE / correlation / base-rate against real self-reported actuals. Unit tests prove the math; only a backtest proves the value. If it can't rank (large MAE, weak correlation, a base rate far off the real one), demote or gate it -- a coarse band plus 'corroboration-required' -- rather than shipping it as a ranker. (data-quality.md.)",
+      "expectations": [
+        "Requires a ground-truth backtest (MAE / correlation / base-rate vs actuals) before shipping a proxy-derived metric",
+        "Distinguishes unit tests proving the math from a backtest proving the value",
+        "Demotes or gates a metric that fails the backtest instead of shipping it as a ranker"
+      ]
+    },
+    {
+      "id": "ordinal-rank-validated-by-concordance-not-mae",
+      "prompt": "Our score correlates with the target at about r=0.34 -- weak but real. MAE is too big to show a point estimate on the 0-24 month runway we're predicting, so we'll publish the estimate with a +/-22 month band. Validate it with MAE and ship?",
+      "expected_output": "Don't publish a point estimate or a +/-22-month band -- on a 0-24-month decision range that band is self-refuting noise on screen. A weak-but-nonzero predictor can still be useful as an ORDINAL RANK. Validate the ranking with concordance / a C-index against an OBSERVABLE binary event ('raised within 6 months', 'shut down within 6 months') -- not MAE on the noisy latent quantity, which measures the wrong thing. Emit an ordinal tier, not a number, when MAE is large relative to the decision range. Match the validation metric to the claim the score actually makes. (data-quality.md.)",
+      "expectations": [
+        "Rejects the point estimate and the band when the band is wide relative to the decision range",
+        "Requires validating rank quality with concordance / a C-index against an observable binary event, not MAE",
+        "Outputs an ordinal tier rather than a point estimate when MAE is large relative to the decision range",
+        "Frames it as matching the validation metric to the claim the score makes"
+      ]
+    },
+    {
+      "id": "split-composite-score-never-sum-heterogeneous",
+      "prompt": "We're rolling raise-timing and financial-distress into one 'urgency' score by summing them, so a high number means 'act now.' Good?",
+      "expected_output": "Don't sum them -- they're heterogeneous constructs that imply OPPOSITE actions, so one blended number manufactures false positives and hides which action is warranted. Raise-timing overdue means 'introduce to investors'; distress/contraction means 'triage or support.' A record high on one and low on the other averages to a middling 'urgency' that tells you nothing. Score each construct separately and derive the action from the combination -- a 2x2 or tiering -- never from one summed number. (data-quality.md.)",
+      "expectations": [
+        "Refuses to sum heterogeneous constructs into one composite score",
+        "Explains the constructs imply opposite actions, so a blended number hides which is warranted",
+        "Requires scoring each construct separately and deriving the action from the combination (a 2x2 or tiering)"
+      ]
+    },
+    {
+      "id": "externalize-heavy-assets-not-bake-into-deploy-image",
+      "prompt": "Our deploy started failing -- the upload streams the whole body then dies at ~60s with a 504 and no response body, and the app keeps serving the old version. The artifact grew from ~3MB to ~19MB after we baked in a big JSON dataset and pre-cached media. What's wrong and the fix?",
+      "expected_output": "The oversized artifact is being silently rejected past a size limit -- the stream sends the full body, the gateway kills it at ~60s (504 / HTTP/2 framing error, no body), and the old pod keeps serving, so 'the latest deploy didn't ship.' Confirm by bisecting: a lean artifact lands where the heavy one fails. Fix: treat deploy artifact size as a first-class budget and flag growth past the last-known-good by a large factor; externalize the heavy, slow-changing assets -- serve media from object storage / a CDN and fetch the large data at runtime rather than baking either into the image. Baking a large data bundle also couples data-freshness to a full redeploy, a second reason to externalize. (infra-iac-containers.md.)",
+      "expectations": [
+        "Identifies the oversized artifact silently rejected at a size limit (not an app bug) as the cause",
+        "Treats deploy artifact size as a first-class budget flagged against last-known-good",
+        "Externalizes heavy slow-changing assets (media to object storage/CDN, large data fetched at runtime) instead of baking them into the image",
+        "Notes that baking large data also couples freshness to a full redeploy"
+      ]
+    },
+    {
+      "id": "verify-deploy-by-effects-not-http-status",
+      "prompt": "Our deploy platform builds the image synchronously inside the upload request, so every deploy returns a 504 at ~60s. My script reads that 504 as 'deploy failed' and re-uploads. Right approach?",
+      "expected_output": "No -- on a synchronous-build platform the upload's HTTP status is useless: it returns a 504 (or a stream reset) at ~60s whether the build later succeeds OR fails, so reading it as 'failed' is wrong, and a blind re-upload can hit a 'deploy already in progress' 409 lock. Verify by the EFFECTS instead: does a new build/deployment id appear, does a new pod/replica boot, does the served version change? That is the source of truth. Read the returned code before re-uploading -- a 409 means wait, a timeout means it was likely accepted -- and prefer a deploy API that returns a durable deployment id plus async status over one that blocks on the build inside the gateway window. (infra-iac-containers.md.)",
+      "expectations": [
+        "Rejects the deploy upload's HTTP status as a success/failure signal on a synchronous-build platform",
+        "Verifies by effects (a new deployment id, a booted pod, a changed served version) as the source of truth",
+        "Reads the code before re-uploading (409 lock means wait, timeout means likely accepted) rather than blindly re-uploading",
+        "Prefers an async deploy API that returns a durable id and status"
+      ]
+    },
+    {
+      "id": "audit-platform-injected-proxy-logs-for-pii",
+      "prompt": "I reviewed our app's logging code and it never logs PII -- clean. The app runs on a managed platform that puts an nginx auth-proxy in front of it. Are we good on log hygiene?",
+      "expected_output": "Not necessarily -- the app's own code is only half the trust boundary. A managed platform's injected auth-proxy sidecar often logs, on every authenticated request, the signed-in user's email in plaintext, partial token material, and the full permission-scope list, to the platform's shared log store -- none of which appears in the app's code. Read the RUNTIME logs as actually emitted (app AND the injected proxy), not just the app's log statements. Flag per-request PII, token material, and authz-scope dumps to the platform owner as a log-hygiene issue (drop or redact), and treat the shared platform log store as a data-egress surface for user PII. (observability.md.)",
+      "expectations": [
+        "Does not conclude 'clean' from the app's own logging code alone",
+        "Includes platform-injected sidecars/proxies in the logging/PII trust boundary",
+        "Reads the runtime logs as actually emitted (app plus the injected proxy)",
+        "Treats the shared platform log store as a PII data-egress surface"
+      ]
+    },
+    {
+      "id": "gate-sensitive-derived-value-at-source",
+      "prompt": "We compute an exact cash-runway figure per company and write it to a shared sheet the whole team sees, and our enrichment agent pulls the per-row runway values into its context to summarize. Fine?",
+      "expected_output": "Gate the sensitive derived value at the source. (1) The exact runway should live only in a local, gitignored cache; emit only a COARSE BAND to the shared sheet, and even that behind an off-by-default flag pending sign-off -- writing an exact sensitive derived value (runway, valuation, cash) to a shared or wide surface is the finding. (2) Don't pull per-row runway values into the agent's context: compute statistics in SQL and hand the model the AGGREGATE, not the rows -- per-row sensitive financials in context are an exfiltration surface (a later injection, a logged prompt, or a tool call can carry them out). Aggregate-only reads by default. (privacy-compliance.md + security-ai-agents.md.)",
+      "expectations": [
+        "Keeps the exact sensitive derived value local/gitignored and emits only a coarse band to shared surfaces, behind an off-by-default flag",
+        "Flags writing an exact sensitive derived value to a shared or wide surface as the defect",
+        "Refuses to pull per-row sensitive values into the agent/model context when an aggregate query would do",
+        "Frames per-row sensitive data in context as an exfiltration surface (aggregate-only reads by default)"
+      ]
+    },
+    {
+      "id": "confidence-as-tier-not-bare-number",
+      "prompt": "Our dashboard shows each lead's confidence as '87%' next to the name -- precise, and users like a number. Ship?",
+      "expected_output": "Flag it -- a confidence surfaced as a raw number ('87%', or 'score: 0.92') claims a calibration the pipeline usually doesn't have and invites over-trust. Put confidence on a small set of LABELED TIERS instead -- text plus a colourblind-safe cue (not colour alone), not a percentage or an opaque point score. Also flag a model-authored number published as precision. How to DEFINE the tiers (and why source reliability and corroboration stay independent axes) is a data-product-output rule -- product-output-safety's -- not a UI concern. (product-ux-quality.md.)",
+      "expectations": [
+        "Flags confidence rendered as a raw number or percentage as false precision",
+        "Requires a small set of labeled tiers (text plus a colourblind-safe cue, not colour alone) instead",
+        "Flags a model-authored number published as precision",
+        "Treats it as a UI-display defect distinct from how the tiers are defined"
+      ]
+    },
+    {
+      "id": "gate-green-covers-only-enumerated-surface",
+      "prompt": "Our security gate and test suite are green on this release. Clear to ship the new admin route?",
+      "expected_output": "Green proves clearance only for the surface the gate actually enumerated -- confirm the new admin route was in the gate's coverage set. A route the sweep never requested, a state no fixture built, or a path a CI filter excluded is unverified under that green, not clean. Read the gate's coverage set and check it includes the admin route before reading the pass as a clearance; an absence is evidence only after a positive control fires (principle 2), at gate-coverage scope. This is the unvisited surface -- distinct from a gate that cannot fail and from a probe that observed the wrong thing. (method.md.)",
+      "expectations": [
+        "Does not accept a green gate as clearance for a surface the gate never enumerated",
+        "Requires confirming the specific route/state is in the gate's coverage set (CI path-filters, fixtures, sweep targets)",
+        "Marks an unenumerated surface unverified, not clean; fabricates no coverage it did not check"
+      ]
+    },
+    {
+      "id": "isolated-lanes-pass-union-untested",
+      "prompt": "Every module's unit tests pass in isolation and each feature flag works on its own. Good enough to ship the combined build?",
+      "expected_output": "Lanes green in isolation say nothing about the integrated path they compose -- a regression can live only in the combination (a shared resource, an ordering, a flag interaction) that no single-lane run exercises. Gate the union that actually ships, not only the parts; a suite that only ever runs the parts has left the combination surface unenumerated. Same coverage principle: the union is a positive control no lane fired. (method.md.)",
+      "expectations": [
+        "Does not accept isolated per-module/per-flag passes as clearing the integrated build",
+        "Names the combination (shared state, ordering, flag interaction) as the untested surface",
+        "Requires gating the shipped union, not only the parts"
+      ]
+    },
+    {
+      "id": "activity-absence-not-decline-per-row-coverage",
+      "prompt": "We score each account's engagement from activity signals. Accounts with no events in the last quarter get a low score and we surface them as 'declining.' Ship it?",
+      "expected_output": "Distinguish observed-low from unobserved before the number implies a trend -- no events in a window can mean the account declined OR that the source was never collected for that window, and reading a coverage gap as 'declining' manufactures a false trend (an absence is evidence only after a positive control fires, principle 2). Keep the recency component monotone in elapsed time -- more time since the last event can only lower freshness, never raise it, so a non-monotone curve fakes 're-activation.' And stamp each row with which inputs were actually present (a per-row coverage/provenance flag) so a thin-input score is not read as equal-confidence to a fully-covered one, keeping the derivation glass-box (the inputs that drove the number are recoverable). (data-quality.md.)",
+      "expectations": [
+        "Distinguishes observed-low from unobserved -- a coverage gap is not a decline",
+        "Requires the recency/freshness component to be monotone in elapsed time",
+        "Requires a per-row coverage/provenance flag so thin-input scores are not read as equal-confidence",
+        "Keeps the score glass-box (derivation recoverable); fabricates no trend from missing data"
+      ]
+    },
+    {
+      "id": "empty-state-names-coverage-not-false-all-clear",
+      "prompt": "The risk dashboard shows no flagged items and the activity feed is empty, so the board can report all-clear this quarter, right?",
+      "expected_output": "An empty view is not 'nothing happened' -- 'no rows shown' can mean the source was never queried, not that there is genuinely nothing. Distinguish no-data-collected-or-covered from collected-and-genuinely-none before anyone reads all-clear; a bare empty over an unprobed source is a false all-clear, not an honest empty (an absence is evidence only after a positive control fires, principle 2, at the UI layer). The empty state names its coverage, not only the remedy. (product-ux-quality.md.)",
+      "expectations": [
+        "Rejects reading an empty dashboard/feed as a substantive all-clear conclusion",
+        "Requires distinguishing no-data-collected/covered from collected-and-genuinely-none",
+        "Requires the empty state to name coverage (was the source actually probed), not imply a false all-clear"
+      ]
+    },
+    {
+      "id": "parity-claim-gated-on-mechanical-differ",
+      "prompt": "The approved design ships in the repo as a runnable prototype. The agent rebuilt each screen to match it and reports 'pixel-1:1, matches' after glancing at a screenshot. The reviewer keeps replying that screens still look different. Sign off?",
+      "expected_output": "No -- a 'matches' from a screenshot glance is an assertion, not verification, and repeated correction means the verification METHOD is broken, not that the reviewer needs to point at more examples. Build a mechanical differ before further pixel-matching and gate every 'matches' claim on it: it drives both reference and target per screen and emits a side-by-side + pixel-diff image plus a structured mismatch list (nav/tab labels present or absent each side, header strings, bounding-box deltas) -- the artifact shown is the diff image, never a sentence. Read the reference at its highest fidelity: diff against an existing running build of the design if one is in the repo, else read its source element-by-element; a screenshot of the design is last-resort. Report only what was actually inspected on the target ('the nav now reads Overview, Pipeline, Settings -- I looked at it'), never a blanket 'it matches'; 'not yet verified' beats a false positive. Done = the differ reports zero structural mismatches and a pixel delta under the agreed threshold for every screen, diff images attached. (product-ux-quality.md.)",
+      "expectations": [
+        "Rejects a 'matches / pixel-1:1' claim resting on a screenshot glance or any proxy",
+        "Requires building a mechanical differ and gating every 'matches' claim on its diff artifact",
+        "Treats repeated stakeholder correction as a broken verification method to change, not more examples to request",
+        "Reads the reference at highest fidelity (running build > source > screenshot), not a lossy picture"
+      ]
+    },
+    {
+      "id": "match-chrome-never-copy-mock-sample-data",
+      "prompt": "Our app's metric counts differ from the approved design prototype's (its columns show different tallies and denominators). Should we reconcile our numbers to match the prototype so it's pixel-identical?",
+      "expected_output": "No -- match the chrome, never the data. Chrome (layout, colour, geometry, tab set, headers) must match; data (values, counts, denominators) must stay real. A prototype fills every number with plausible SAMPLE values to look complete, and copying one into the real product is fabrication (principle 3) -- a Blocker-class data-integrity defect that surfaces weeks later when someone trusts a value lifted from an illustration. Read the prototype's own disclaimer first (mocks routinely mark numbers 'sample / illustrative until the backend is wired') -- that label is the boundary. The parity differ therefore diffs structure and style, not text values, or it flags real data as a mismatch and tempts the copy. Every number in the matched product must trace to a real computation or an honest empty state. (migration-parity.md.)",
+      "expectations": [
+        "Refuses to change a real computed value to a mock's sample value",
+        "Frames copying a mock's number into the product as fabrication / a data-integrity defect, not a styling fix",
+        "Reads the prototype's own sample/illustrative disclaimer as the chrome-vs-data boundary",
+        "Keeps chrome matching while every product number traces to a real computation or honest empty state"
+      ]
+    },
+    {
+      "id": "structural-divergence-is-not-close-to-parity",
+      "prompt": "The board I built has columns [Unclassified, Manual, Planned, In progress]; the design's are [Up next, In progress, In review, Live]. I'd call it close to 1:1, just needs a little polish. Fair?",
+      "expected_output": "Not close -- that is a category error. A different column / tab model (or a flat list where the design groups by team, or a different page composition) is a STRUCTURAL divergence, not a cosmetic one: it is a different screen, a rebuild, not a polish pass. Classify every difference as structural (components, grouping, column/tab model, composition) vs cosmetic (colour, radius, spacing), establish structural parity FIRST, and only then pursue cosmetic. Never characterise a structural divergence as 'close', 'mostly there', or '1:1' -- say plainly that the structure differs and size it as a rebuild. (product-ux-quality.md.)",
+      "expectations": [
+        "Rejects calling a structural (column/tab-model/grouping) divergence 'close' or '1:1'",
+        "Classifies the difference as structural vs cosmetic and requires structural parity first",
+        "Sizes a structural divergence as a rebuild, not a tweak/polish"
+      ]
+    },
+    {
+      "id": "confidential-export-held-to-stricter-tier-than-dashboard",
+      "prompt": "Our dashboard API checks a token and team-scopes the confidential tier. We also have a CSV export route and some server-rendered pages showing the same data. The dashboard is locked down -- are we good?",
+      "expected_output": "No -- one hardened route is not a control if a sibling surface serves the same rows unguarded. Enumerate EVERY surface serving the sensitive dataset (each API route, each SSR page, every export/download) and confirm each applies the same server-side authorization; a divergence where one redacts and another returns the full object is Critical when world-reachable. An export/download is a SHARPER leak surface than an on-screen view -- the file is redistributable beyond the auth boundary -- so hold it to a stricter tier (public-tier rows only, or the same token AND scope as the API), never an unauthenticated or unscoped dump. Confidential per-viewer data belongs behind an authenticated, server-scoped API the client calls, not baked into an SSR page whose identity is client-side only (the server cannot scope what it never receives). Don't rest the model on an out-of-band platform gate the app itself cannot enforce. (security-appsec.md.)",
+      "expectations": [
+        "Requires enumerating every surface (API + SSR + export) and applying the same server-side authorization",
+        "Treats a downloadable export as a sharper leak surface held to a stricter tier than the dashboard",
+        "Rejects SSR delivery of confidential per-viewer data scoped only by client-side identity",
+        "Does not accept a single hardened route or an out-of-band platform gate as the control"
+      ]
+    },
+    {
+      "id": "boolean-parser-accepts-all-shapes-exclusion-fails-closed",
+      "prompt": "Our ingest uses bool(v) = v === true || String(v).toLowerCase() === 'true' to read flags like is_fund and is_discontinued from the warehouse. Fine?",
+      "expected_output": "No -- that maps a warehouse 1, 'yes', 'y', 't' to false, so an is_fund: 1 or is_discontinued: 'yes' row reads as operating and can reach a live shortlist (a dead or ineligible entity presented as a target). A boolean/categorical parser for external data must accept every shape the source emits (true/false, 1/0, yes/no, y/n, t/f), and for a gate that EXCLUDES (is_fund, is_discontinued, is_deleted) an unrecognised non-empty value must fail CLOSED -- treat it as exclude/unknown, never a silent false. Test the parser against the values the source actually emits (SELECT DISTINCT), the same way config maps are tested. (data-quality.md.)",
+      "expectations": [
+        "Flags a boolean coercion that recognises only 'true' as accepting too few shapes",
+        "Requires the full shape set (true/false, 1/0, yes/no, and so on)",
+        "Requires exclusion gates to fail closed on an unrecognised non-empty value, not default to false",
+        "Requires testing the parser against the source's real emitted values"
+      ]
+    },
+    {
+      "id": "suppression-match-is-exact-set-not-substring",
+      "prompt": "We drop deals to suppress with (dealStatus ?? '').toLowerCase().includes('pass'), copy-pasted at each funnel stage. Ship it?",
+      "expected_output": "No -- a substring match drops far more than intended: includes('pass') matches 'passed term sheet to legal' and 'compass' as readily as the intended 'need to pass', and because the dropped rows are filtered out before rendering the wrong suppression is invisible. Match against an EXACT value set (a Set like {'need to pass'}) through ONE shared predicate, not a copy-pasted includes at each stage (three copies drift independently), and emit a row-level audit of everything auto-excluded so a wrong suppression is visible, not silent. Flag any includes/indexOf used for a categorical status or gate decision. (data-quality.md.)",
+      "expectations": [
+        "Rejects a substring includes/indexOf for a categorical status/suppression decision",
+        "Requires exact matching against an explicit value set",
+        "Requires one shared predicate rather than copy-pasted matchers",
+        "Requires an audit trail of auto-excluded rows so a wrong suppression is visible"
+      ]
+    },
+    {
+      "id": "external-source-feasibility-probes-freshness-not-just-schema",
+      "prompt": "We probed an external dataset for a distress/liveness signal: the API works, the schema has the right per-entity metrics, and ~13% of our targets match host-exact. Greenlight building the classifier and scoring on it?",
+      "expected_output": "Not yet -- API-works, has-the-fields, and adequate match-rate can all be green while the data is silently months stale, describing last year's state instead of current. Before building a current-state signal, query the MAX timestamp per metric (per-metric, since columns in one table lag differently) and compare to today; if the newest sample lags many months, the signal is real but describes the past, and the decision flips from 'build and wire it' to 'keep a re-runnable probe + route the revisit to the owner.' Label any derived signal by the recency of the metric it is actually computed from, not the freshest column. Run the cheapest decisive go/no-go query first -- freshness, not match-rate, was the real kill-question. The probe itself is the deliverable. (data-quality.md.)",
+      "expectations": [
+        "Requires a max-timestamp / freshness check per metric before greenlighting a current-state signal",
+        "Does not accept API-works + schema + match-rate as sufficient feasibility",
+        "Labels a derived signal by the recency of the metric it is computed from",
+        "Treats the re-runnable probe (and a 'too stale' finding) as the valuable deliverable"
+      ]
+    },
+    {
+      "id": "no-regression-gate-keys-on-reachability-not-nav-position",
+      "prompt": "Our no-regressions check flags this PR because a settings section that used to be a top-level nav item is now nested under a new 'Admin' parent. Is that a removed feature to block on?",
+      "expected_output": "No -- a moved feature is not a removed one. A destructive-change gate that keys on surface position (a top-level nav slot, a route path) false-fires on a legitimate reorganisation, and -- worse -- a label-presence check misses a genuinely orphaned route (still in the menu, reachable by nobody). Key the invariant on REACHABILITY over the before-vs-after route/navigation graph: every prior capability still reachable through some path, with its history preserved, is not a regression no matter where it now sits; a capability reachable by no path IS a regression no matter what label lingers. Relocation is not removal, and a stable label is not proof of reachability. (method.md.)",
+      "expectations": [
+        "Does not treat a relocated (still-reachable) feature as a removed feature",
+        "Computes the no-regression invariant over the route/navigation reachability graph, not nav-position stability",
+        "Still catches a genuinely orphaned/unreachable route despite a lingering label"
+      ]
+    },
+    {
+      "id": "confirm-deploy-on-new-build-byte-not-health",
+      "prompt": "Our deploy build timed out with a 504, but /health still returns 200, so the new version is live -- right?",
+      "expected_output": "No -- /health cannot confirm a promotion when both the old and new artifact answer it. On a build-then-promote platform the OLD pod keeps returning /health = 200 throughout a slow build's 504, so polling it 'proves' a success that never happened (the old artifact answering). Pick a DISCRIMINATOR that differs between the artifacts and poll that: a static asset path the new build ships and the old lacked (404 -> 200 exactly when the new pod takes over), a build/commit id, or a changed response header. A response byte only the new build can serve is the honest promotion signal; verify by that effect, not a liveness endpoint both builds produce. (infra-iac-containers.md.)",
+      "expectations": [
+        "Rejects /health = 200 as proof the new build was promoted",
+        "Explains that the old pod can keep answering /health during a slow build's timeout",
+        "Requires polling a discriminator only the new build serves (new asset path, build id, changed header)"
+      ]
+    },
+    {
+      "id": "measure-distribution-before-confidence-ui",
+      "prompt": "We want to add a 'confirmed by N sources' badge and an X% match-confidence to our provenance UI. Build it?",
+      "expected_output": "Measure the field's distribution on real data first -- even a tier is false precision if the signal is near-constant. If corroborationCount is 1 on almost every row (e.g. 16,008 of 16,012), a 'confirmed by N sources' badge fires on a fraction of a percent of rows and reads '1 source' everywhere else; if match-confidence is 0.9 on ~70% and 0.8 on the rest, it is effectively binary and 'X% confidence' manufactures precision the pipeline lacks. If the field barely varies, showing it is false precision, not transparency -- drop it or reframe to something that actually varies (how an entity was matched, not a number). A misleading signal is worse than an honest blank (empty beats fabricated). (product-ux-quality.md.)",
+      "expectations": [
+        "Requires measuring the actual field distribution before designing the confidence/corroboration display",
+        "Treats a near-constant field shown as a confidence/corroboration signal as false precision",
+        "Recommends dropping or reframing to a signal that actually varies (how matched, not a number)",
+        "Invokes empty-beats-fabricated: a misleading signal is worse than an honest blank"
+      ]
+    },
+    {
+      "id": "verify-gate-proven-idempotent-not-just-clean-clone",
+      "prompt": "Our verify pipeline is a standalone typecheck then a build (the build has typescript.ignoreBuildErrors, so it doesn't re-check types), and it's green on a fresh clone in CI. But a teammate says tsc fails when they re-run it locally. Is CI's green enough?",
+      "expected_output": "No -- prove the gate idempotent by running it twice, not just green from a clean clone. A gate whose steps write artifacts a later step consumes can pass once and fail on the next run against what the first run generated: here the build emits generated route types (.next/types/**) that a subsequent standalone tsc --noEmit then rejects, so a clean-clone CI run never sees it while the local re-run hits a confusing red -- the gate is order-dependent, not flaky. Run it twice (or clean the generated dirs first) and treat the second-run failure as a real finding. One concrete trigger: a non-handler export (a helper/constant/classifier) from a framework route module (a Next.js App Router route.ts) makes the generated validator reject the module -- move the pure logic to a sibling module. (method.md.)",
+      "expectations": [
+        "Does not accept green-from-a-clean-clone as proof; requires running the gate twice (or cleaning generated dirs)",
+        "Identifies an order-dependent gate where a build writes artifacts a later step consumes",
+        "Flags a non-handler export from a framework route module and moves pure logic to a sibling",
+        "Treats the second-run failure as a real finding, not flakiness"
+      ]
+    },
+    {
+      "id": "decorative-token-guarded-at-use-not-value",
+      "prompt": "We keep a brand-grey token below AA on purpose ('decorative only') and a unit test asserts its value stays sub-AA. Good enough to prove it's accessible?",
+      "expected_output": "No -- that test pins the wrong end. It proves the token's value stays decorative; it never proves no component paints real, informational TEXT with it. WCAG 1.4.3 holds informational text to 4.5:1 (large text 3:1), so a className/style that colours a visible label, status word, or helper line with the decorative token fails the audit on every route sharing that chrome, while the value-only test stays green (the fast tier can't see it; only the browser/a11y gate can). Add a lint/test that fails when the token colours a real text node -- fail-closed, but with an escape: admit a pinned a11y-exempt marker for text 1.4.3 genuinely exempts (aria-hidden or purely-decorative glyphs, logotypes, large text meeting 3:1), so the gate is narrowed to the standard, not stricter than it. Allow the token freely on non-text (borders, backgrounds, icon fills with an accessible-name sibling), and plant both a real-text use (guard fires) and a pinned-exempt use (guard stays silent). Assert the usage constraint, not just the value. Generally: when a test encodes an intent ('stays decorative', 'stays internal', 'never renders'), verify the property, not the value it is derived from. (frontend-a11y.md.)",
+      "expectations": [
+        "Rejects a value-only test as proof the decorative token is accessible",
+        "Requires a use-site guard that fails when the token colors a text node",
+        "Guards real text use but admits a pinned-exempt marker for genuinely-decorative / aria-hidden / logotype text, so the gate is not stricter than SC 1.4.3",
+        "Generalizes to asserting the property, not the value it is derived from"
+      ]
+    },
+    {
+      "id": "classify-failure-by-config-and-baseline-before-regression",
+      "prompt": "The browser suite OOM-killed at the default worker count, so I ran it with --workers=1 and two specs failed. Should I file those as regressions?",
+      "expected_output": "Not yet -- classify by config and baseline first. Cutting workers to fit memory changes the execution model, not just speed: serial specs sharing one stateful backend can pollute a later spec's precondition, so a failure seen ONLY under --workers=1 can be a harness artifact the sharded CI config never hits, not a product regression. The mirror error is as easy -- a change can genuinely make a suite serial-fragile -- so 'it's just --workers=1' is also unverified. Two cheap runs: (config axis) reproduce the suspect specs under CI's actual worker config (a few specs won't OOM) -- pass there and it is not a gate failure; (baseline axis) run them under the identical reduced config on the merge-base -- pass-baseline + fail-branch is a real code-introduced sensitivity, fail-both is a pre-existing harness artifact. Report which config and which baseline the failure belongs to; 'fails under --workers=1 locally' and 'fails the gate CI runs' are different findings. (method.md.)",
+      "expectations": [
+        "Does not report a --workers=1-only failure as a regression without classifying it",
+        "Reproduces the suspect specs under CI's actual (parallel) worker config as the config axis",
+        "Runs the identical reduced config on the merge-base as the baseline axis",
+        "Names which config and which baseline the failure belongs to"
+      ]
+    },
+    {
+      "id": "parity-is-set-equality-flag-app-only-elements",
+      "prompt": "Our differ confirmed every element and control in the design is present in the app, so we signed off parity. (The app also renders an extra header, view tabs, a filter bar, a 'Showing N of N' line, and per-card upvote arrows the design doesn't have -- but those are intentional extra functionality.) Good?",
+      "expected_output": "No -- that checked only one direction (design subset of app) and missed the other (app subset of design). Visual parity is SET EQUALITY, not containment: an element present on exactly one side is a finding regardless of which side, and 'intentional extra functionality' is the rationalization that ships the mismatch. Diff both ways per screen, list what the app renders that the design doesn't, then apply the operative test to each app-only item -- does removing it lose a user capability? Pure shell loses none: the extra header and the 'Showing N of N' line default to remove-to-match. Capability-bearing chrome IS a feature, not a bonus: the view tabs (navigating), the filter bar (filtering), and the per-card upvote arrows (upvoting) each is a feature to RESTYLE into the target's design language (re-express the capability in the reference's own primitives) so the look reaches parity while the capability is preserved -- never self-cut to match, and deleting app-only functionality to reach parity without a named owner approval is a High do-no-harm finding; escalate to the owner only as a fallback when no target primitive fits (migration-parity's restyle-an-app-only-feature rule). Scope this to chrome/features; data (values, counts, series) legitimately differs. Sign-off needs the design->app list empty and the app->design list empty or every entry resolved -- restyled into the target language, decoration removed, or an owner-adjudicated keep/removal. (product-ux-quality.md.)",
+      "expectations": [
+        "Rejects a one-directional (design subset of app) check; requires diffing app->design too",
+        "Applies the operative test -- does removing an app-only element lose a user capability?",
+        "Classifies the filter bar, view tabs, and per-card upvote arrows as capability-bearing features to restyle into the target design language, not shell to delete",
+        "Removes pure shell (extra header, 'Showing N of N' line) to match, but restyles features into the target design language (escalating only as a fallback) rather than deleting or self-certifying"
+      ]
+    },
+    {
+      "id": "restyle-app-only-feature-not-delete-to-match-mock",
+      "prompt": "We're porting the app to a design mockup. The app has a filter bar and a per-row action menu the mockup doesn't show. To reach visual parity a reviewer proposes deleting both. There's no owner sign-off on dropping them. What's the correct call?",
+      "expected_output": "Don't delete them to match a look reference -- a mockup is a look reference, not a feature spec. Classify each app-only element by the operative test: does removing it lose a user capability? The filter bar (filtering) and the action menu (its actions) are real functionality, so the deliverable is to RESTYLE them into the target's design language -- re-express each capability in the reference's own primitives (its button, its menu, its filter control) so the look reaches parity while the capability is preserved. That is what 'preserve' means here: preserve the capability, not leave it in the old visual language and not escalate-and-wait. Deleting app-only functionality to reach parity without a named owner approval is a High do-no-harm finding -- it blocks unless a named owner accepts the loss (that acceptance is the only path that removes a real feature). Only pure decoration (an extra header, a count line) removes-to-match; escalation to the owner is the fallback when no target primitive fits. Fill the exception ledger -- element, bucket (decoration/functionality/owner-approved), verdict, target primitive -- before implementing, so nothing is silently deleted. (migration-parity.md.)",
+      "expectations": [
+        "Rejects deleting the filter bar and action menu to match the mockup",
+        "Prescribes restyling the real features into the target's design language, preserving the capability",
+        "Names deleting app-only functionality without a named owner approval as a High do-no-harm finding (blocks unless an owner accepts)",
+        "Requires classifying each app-only element (decoration / functionality / owner-approved) via the exception ledger before implementing, citing migration-parity.md"
+      ]
+    },
+    {
+      "id": "parity-claim-names-served-tree",
+      "prompt": "I'm reviewing a visual restyle a write lane committed in its own worktree (branch feat/restyle). A dev server is already running on http://localhost:3000 -- but it was launched from the owner's own checkout, which is on main and never pulled feat/restyle. Can I tell the owner 'the restyle is live, open localhost:3000 to see it'?",
+      "expected_output": "No. That URL is serving the owner's tree (main), not the tree under review (feat/restyle) -- the change never rendered there, so 'it's live, open localhost:3000' is a claim about the wrong surface: true about your branch, false on every surface the owner can open. Name the verification surface explicitly -- url-or-port, tree/worktree path, branch, and the sha actually rendered (the VERIFY_SURFACE field) -- and flag that the served tree is NOT the tree under review. Do not say 'it's live' or 'check it locally' until you have served feat/restyle yourself (its own worktree/build) or confirmed the served sha equals feat/restyle's head, the way a deploy is confirmed -- by fetching a byte only the new build serves, not by assuming a rebuild happened. A parity claim that names no URL and no rendered sha is invalid, not merely downgraded. (report-format.md.)",
+      "expectations": [
+        "Refuses to tell the owner 'it's live / check localhost:3000' while the served tree is main, not feat/restyle",
+        "Requires naming the surface (url-or-port, tree/worktree, branch, sha actually rendered) and flagging that the served tree is not the tree under review",
+        "Requires serving the change's tree or confirming served-sha equals feat/restyle head (deploy-confirmation style) before any live claim",
+        "States a parity claim naming no URL and no sha is invalid, not downgraded, citing report-format.md"
+      ]
+    },
+    {
+      "id": "parity-delta-needs-both-sides-same-width",
+      "prompt": "Mirroring an approved design into our app. From a cropped screenshot of the design, I see the app has a stepper with up/down arrows the design doesn't show, and the app is missing a 'filters' control the design has. I'm about to remove the stepper and add a filters control to reach parity. Right?",
+      "expected_output": "Not yet -- a cropped screenshot of one side is a hypothesis, not evidence, and every 'extra'/'missing' call here is one destructive edit away. Before claiming either delta, render BOTH sides at the same viewport width and diff the corresponding region directly. Then confirm each element's state on the other side: the stepper's arrows may be present-but-disabled-by-data (one item, nothing to step to) rather than extra, and the 'filters' control may be present-but-collapsed or present-in-a-menu in the app rather than missing. 'Absent in this crop' is not 'absent in the design'. If a source comment claims an element 'moved', trust the current rendered reference over the comment. Only once a delta is confirmed by same-width renders of both sides does it get classified (decoration / functionality / owner-approved, migration-parity.md) -- a delta that does not exist has no bucket, and removing the stepper or duplicating a control to fix a non-existent delta is the destructive edit to avoid. (product-ux-quality.md.)",
+      "expectations": [
+        "Refuses to remove or add anything based on a one-sided cropped screenshot",
+        "Requires rendering both sides at the same viewport width and diffing the corresponding region",
+        "Requires confirming element state (disabled-by-data / collapsed / in-a-menu) before calling it extra or missing",
+        "Warns the destructive edit would fix a non-existent delta and ties a confirmed delta to the restyle classification"
+      ]
+    },
+    {
+      "id": "wrong-base-for-integration-branch-high",
+      "prompt": "This repo uses git-flow: features integrate into develop, which is ~40 commits ahead of main. A contributor's large visual-port PR (touching ~30 files) is based on main, not develop. Stage is growth. How do I rate the base?",
+      "expected_output": "High -- a wrong-base coordination defect, not Medium merge-debt. The PR is built against a product state that no longer exists on the integration line (develop carries ~40 commits main lacks), so merging it into develop will conflict with or revert those commits, and the cost compounds with every commit added on the wrong base -- so the High is intrinsic, and stage (growth here) sets only the urgency to block now, not the severity. Measure and state the divergence -- git rev-list --left-right --count develop...<branch> -- and name the fix in the finding: retarget/rebase onto develop BEFORE more work lands. This sits above the Medium merge-debt row, which is for a long-lived branch diverged from main (a different case). Rating it only 'diverged long-lived branch -> Medium' misses that the base itself is wrong. (branch-and-merge-hygiene.md.)",
+      "expectations": [
+        "Rates the wrong-base as High, not Medium merge-debt",
+        "Explains the port is built against a product state absent on the integration line (develop ahead of main)",
+        "Requires measuring and stating the left/right divergence count (git rev-list --left-right --count)",
+        "Names retarget/rebase onto develop before more work lands as the fix"
+      ]
+    },
+    {
+      "id": "restyle-fanout-requires-ownership-ledger",
+      "prompt": "We're fanning out a 12-screen restyle to parallel page lanes, each lane restyling one screen. They will all touch the shared layout, nav, and design tokens as needed. Ready to spawn the lanes?",
+      "expected_output": "Not yet -- spawning page lanes onto a shared shell (layout, nav, design tokens, chrome primitives) with no ownership ledger is a High coordination defect: the lanes will edit those shared files concurrently and clobber or silently revert each other's shell changes, invisible in any single lane's diff. Before spawning, publish a shell-ownership ledger (same shape as the fan-out unit manifest): exactly one lane owns each shared-shell path (a partition -- two lanes listing the same path IS the collision), and the shell lands FIRST so page lanes rebase onto the unified chrome rather than a moving one. During review, a page lane's diff that edits a shared-shell path it does not own is a finding even when the diff is correct in isolation, because it diverges the shell the other lanes built on. (migration-parity.md.)",
+      "expectations": [
+        "Refuses to spawn the lanes before a shell-ownership ledger exists (High coordination defect)",
+        "Requires exactly one lane owning each shared-shell path (a partition), reusing the unit-manifest shape",
+        "Requires the shell to land first, with page lanes rebasing onto it",
+        "Flags a page lane editing an unowned shared-shell path as a finding even when its diff is correct"
+      ]
+    },
+    {
+      "id": "budget-aware-ci-for-agent-swarm",
+      "prompt": "Our agent swarm is restyling 12 screens. Plan: each lane opens its own small PR as it finishes, and CI runs the full browser + a11y matrix on every push to every PR. That's 12 PRs, fast to review individually. Good CI plan?",
+      "expected_output": "No -- 12 fragment PRs each re-triggering the full browser/a11y matrix multiplies shared runner minutes without improving review (the same matrix runs 12 times on work that could review once). Report it ONCE as a cost defect in the fan-out's shape (batched, not one finding per PR), with the staged remedy: prefer one reviewable PR per concern; keep draft iteration on a cheap, path-filtered gate and reserve the browser/a11y matrix for a full-ci label / manual dispatch / the final pre-merge gate; add a concurrency group keyed by PR/ref to cancel superseded runs; keep a one-command local full suite and require the labelled full run before merging an app change. Two hard constraints: path filters must FAIL CLOSED on an unknown path (a filter that skips the gate is a gate exclusion -- a green gate over an unfiltered path is a false pass), and privacy/security checks are never path-filtered out. State the residual risk explicitly -- the cheap gate will NOT catch browser-only regressions until the local or labelled full run, so an unrun matrix is unverified, not a pass. Severity is Medium (recoverable runner cost), not High; only the fail-open filter or a filtered-out security check carries higher severity. (parallel-audit.md.)",
+      "expectations": [
+        "Rejects 12 fragment PRs each triggering the full matrix; reports it once as a batched cost defect, not per-PR",
+        "Prescribes the staged pattern: one PR per concern, cheap path-filtered draft gate, browser/a11y reserved for a full-ci label / dispatch / merge gate, concurrency-group cancellation, local full suite plus labelled full run before merge",
+        "Requires path filters to fail closed (a skip is a gate exclusion) and never path-filters out privacy/security checks",
+        "States the residual risk (cheap gate misses browser-only regressions until the full run; an unrun matrix is unverified) and rates the cost Medium not High"
+      ]
+    },
+    {
+      "id": "screenshot-is-not-inspection-cite-the-checklist",
+      "prompt": "A restyled entity-detail route: unit tests pass (they assert the pill and label render with the right classes), type-check and lint pass, and a screenshot of the route is attached. Status row: 'route X rendered/verified -- screenshot attached'. In the screenshot, the status pill overlaps the entity's own label at the default width. Sign off?",
+      "expected_output": "No. A screenshot proves a render happened, not that it is correct -- 'screenshot attached' with no cited inspection is unverified, not verified. The passing unit tests assert the classes render, not where they land; an overlap is geometric and no class assertion catches it. Inspect the image against the pixel-defect checklist and cite what you found: here the OVERLAP item fails -- the status pill intersects the entity label, so the primary text is unreadable at the default width. Report that as a finding (its mechanical proof is a bounding-box non-intersection assertion, testing-and-evals.md). Also name the other items you checked (clip / contrast / disabled-looks-disabled) and which data state the shot is of. A UI status that leans on the image without naming the inspection is an artifact read as the verification it is not. (product-ux-quality.md.)",
+      "expectations": [
+        "Refuses to sign off 'verified' on the strength of the screenshot plus passing class-assertion tests",
+        "Reports the overlap as a finding, citing the overlap checklist item",
+        "Explains a class assertion cannot catch a geometric overlap; the proof is a bounding-box assertion",
+        "Requires the status to cite the pixel-defect checklist (overlap/clip/contrast/disabled/state), else unverified"
+      ]
+    },
+    {
+      "id": "layout-claim-proven-by-geometry-not-class-assertion",
+      "prompt": "A component test asserts the badge is present and carries the intended utility classes -- it passes. But at the narrow width the badge overlaps its adjacent label. How should the layout be tested, and is the class assertion enough?",
+      "expected_output": "The class assertion is insufficient evidence for a layout claim -- it only proves the author wrote the class they typed; it passes while the two elements render on top of each other. Overlap is geometric, so the test that counts is a rendered bounding-box non-intersection assertion: read both elements' boundingBox() and assert they do not intersect (and neither collapsed to zero width). Run it at EACH width the project screenshots -- an overlap is width-dependent and usually appears only at the narrow one -- and show it red before / green after the fix. Two companions share the mechanism: clip via scrollWidth > clientWidth, and disabled-looks-disabled via the computed affordance (opacity/cursor), not the attribute. Do NOT assert an absolute pixel position or exact width -- those are renderer- and font-metric-dependent and produce cross-OS flake; the invariant is 'these two do not overlap', never 'this is 132px wide'. (testing-and-evals.md.)",
+      "expectations": [
+        "Calls the class assertion insufficient evidence for the layout claim",
+        "Prescribes a rendered bounding-box non-intersection assertion, run at each width, red-before/green-after",
+        "Names the clip (scrollWidth>clientWidth) and disabled-looks-disabled (computed affordance) companions",
+        "Refuses an absolute-pixel/exact-width assertion as the fix (renderer flake); asserts non-intersection only"
+      ]
+    },
+    {
+      "id": "parity-claim-scoped-to-verified-screens-not-the-product",
+      "prompt": "A visual port: reference design plus six app routes. So far only the changelog page (static prose, almost no shared chrome) has been rendered and compared -- it matches. Can I report 'the app now matches the design'?",
+      "expected_output": "No -- that generalizes one verified screen to the whole product. Scope the claim to the rows actually verified: report '1/6 screens verified' and list the five unverified routes; an unrendered screen is an unprobed surface, unverified, not matched (an absence is evidence only after a positive control fires). Aggregate phrasing ('the app matches', 'parity achieved') is valid only when every row in the correspondence table reads verified. Cap the verdict below Approve while any in-scope screen is unverified, and carry a 'Parity coverage: 1/6' line in the ground-truth block. Generalizing a sample to the population is a High communication defect -- it retires the verification task and the owner stops checking, then the mismatch surfaces later. Also: the changelog page is the weakest possible sample -- it exercises almost none of the shared shell -- so verify a chrome-bearing, data-dense route next, not another static page. (migration-parity.md.)",
+      "expectations": [
+        "Refuses 'the app matches the design'; scopes the claim to 1/6 verified and lists the unverified routes",
+        "Treats an unrendered screen as unprobed/unverified (coverage kernel); aggregate phrasing valid only when every row is verified",
+        "Caps the verdict below Approve and carries a Parity coverage: N/M line; rates the over-generalization a High communication defect",
+        "Flags the changelog page as an unrepresentative (shell-less) sample and names a chrome-bearing, data-dense screen to verify next"
+      ]
     }
   ]
 }

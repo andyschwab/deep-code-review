@@ -3,44 +3,442 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
-## [1.72.0] — 2026-09-15
+## [1.88.0] — 2026-09-16
 
-Consumability: the review says what it did **not** look at as loudly as what it
-found, and its output can be read by a program. Distilled from field runs where
-this skill fed a multi-tool evaluation pipeline as one scanner beside a
-repo-readiness method and two deterministic instruments: no per-domain coverage
-in the output, no machine shape (each run hand-ported the table), no cross-run
-identity (the "none of the prior Criticals were fixed" result was a hand-written
-table), and fan-out output that drifted per run. No change to phases, domains,
-or the severity rubric.
+Wave 11f of the dogfooding batch: one screen verified is not the product — scope a
+parity claim to the correspondence table (#200).
 
 ### Added — deep-code-review
-- **`references/machine-report.md`** — one YAML file per run beside the full
-  table (same ids and severities): per-finding `area`, `severity`, `polarity`
-  (gap / strength — the "Invariants verified to hold" rows), `confidence`
-  (`CONFIRMED` / `CORROBORATED` / `PLAUSIBLE` / `unverified`), `latent`,
-  `mechanism_unproven`, `compounds`, evidence, fix; a **coverage row for every
-  domain A–W** (the Phase-0 ledger reconciled at Phase 5, with finder +
-  lead-read on a fan-out); ground truth with what was not run and why; and
-  `prior_id` / `prior_status` / `prior_not_rechecked`. Same disclosure rule as
-  the report (out-of-tree by default; ids/severities/areas/coverage only on a
-  public remote). Routed from the scope modes, Phase 5, `report-format.md`,
-  `method.md`, and `parallel-audit.md` §3.
-- **`PRIOR <path>`** scope modifier — re-verify every finding of an earlier
-  machine report first (fixed / still-open / changed at `START_SHA`), list what
-  was not re-checked, then hunt.
+- **`migration-parity.md` — the correspondence table is a coverage ledger (#200).** An
+  agent that verified one route (a cheap, shell-less changelog page) reported that *the
+  product* matched — the other screens never rendered, and did not match. Gate 4's
+  correspondence table (`product-ux-quality.md`) is that ledger; the new rule is it
+  **exists before any claim** and each row carries its state (`verified` / `unverified`
+  / `n-a`). A parity status is **scoped to the verified rows and never phrased over the
+  product**; aggregate phrasing ("the app matches," "all pages") is valid only when
+  every row is `verified`, else the honest form is `N of M screens verified — remaining:
+  …`. An unrendered screen is an unprobed surface (`SKILL.md` principle 2). Sample a
+  **chrome-bearing, data-dense** screen first — a static page proves almost nothing about
+  the shell.
+- **`report-format.md` — verdict cap + coverage line (#200).** Mirroring the
+  `Authz posture` cap: the verdict is **capped below Approve** while any in-scope screen
+  is `unverified`, and the ground-truth block carries a `Parity coverage: N/M` line.
+- **`scripts/validate_status_claims.py` — fourth detector (#200).** Flags a positive
+  parity claim carrying a population quantifier (all / every / whole / the app) but no
+  N/M coverage fraction; it requires a parity-context word (so "all tests pass" is
+  spared) and fires even on a downgraded row.
+- **Severity: High, not Blocker.** The issue proposed Blocker; the `SKILL.md` rubric
+  reserves Blocker for "won't build/run/test, live data corruption, live exploited vuln"
+  and Critical for a monotonic-quality breach that *will* ship wrong data. A parity claim
+  generalized past its sample ships neither — it is a serious defect that **blocks unless
+  a named owner accepts** (the High band), because it retires the verification task. Rated
+  High accordingly.
+- One new eval (83 total). Lockstep bump to 1.88.0.
+
+Closes #200.
+
+## [1.87.0] — 2026-09-16
+
+Wave 11e of the dogfooding batch: a screenshot is an artifact, not an inspection (#198),
+and prove a layout claim with geometry, not class names (#199).
+
+### Added — deep-code-review
+- **`product-ux-quality.md` gate 1 — the screenshot's inspection contract (#198).** A
+  screenshot proves a render happened, not that it is correct: "screenshot attached"
+  with no cited inspection is `unverified`, not `verified` (the treatment a parity claim
+  with no named surface gets). Gate 1 now defines a **pixel-defect checklist** once —
+  overlap / clip-truncation / contrast (`frontend-a11y.md`) / disabled-looks-disabled /
+  state — that a UI status must cite. `report-format.md` requires the surface **and** the
+  inspection for a UI claim.
+- **`testing-and-evals.md` — prove a layout claim with geometry, not class names (#199).**
+  A class assertion (`toHaveClass`, `toBeVisible`, a snapshot) passes while two elements
+  render on top of each other. New section: a rendered **bounding-box non-intersection**
+  assertion at each screenshot width (red-before / green-after), with clip
+  (`scrollWidth > clientWidth`) and disabled-looks-disabled (computed affordance)
+  companions. **Scope discipline:** non-intersection and non-clipping only — never
+  absolute pixels / widths (renderer flake). This is the mechanical proof behind gate 1's
+  overlap / clip items.
+- **`scripts/validate_status_claims.py` — third detector (#198).** Flags a positive UI
+  status leaning on a screenshot (`screenshot` / `.png` / `captured`) that names no
+  inspection token (overlap / clip / contrast / disabled / bbox / geometry); it fires even
+  on a downgraded row, exempting a row that cites what it inspected.
+- Two new evals (82 total). Lockstep bump to 1.87.0.
+
+Closes #198, #199.
+
+## [1.86.0] — 2026-09-16
+
+Wave 11d of the dogfooding batch: budget the CI an agent swarm triggers (#195).
+
+### Added — deep-code-review
+- **`parallel-audit.md` — budget the CI a fan-out triggers (#195).** A write fan-out
+  that opens many small PRs, each re-triggering the full browser/a11y/e2e matrix,
+  multiplies shared runner minutes without improving review. New section: prefer one
+  reviewable PR per concern; keep draft iteration on a cheap, path-filtered gate and
+  reserve the expensive matrices for a `full-ci` label / manual dispatch / the final
+  merge gate; cancel superseded runs with a concurrency group keyed by PR/ref; keep a
+  documented one-command local full suite and require the labelled full run before
+  merging an app change. **Path filters must fail closed** — a filter that skips a gate
+  on an unknown path is a gate exclusion (`method.md`), and privacy/security checks are
+  never path-filtered out. **State the residual risk** — the cheap gate will not catch
+  browser-only regressions until the full run, so an unrun matrix is `unverified`, not a
+  pass (principle 2). The wasted-runner-minutes cost is **Medium**, batched as one
+  finding (`branch-and-merge-hygiene.md` §7); only the fail-open filter carries higher
+  severity.
+- One new eval (80 total). Lockstep bump to 1.86.0.
+
+Closes #195.
+
+## [1.85.0] — 2026-09-16
+
+Wave 11c of the dogfooding batch: coordinate a parallel restyle fan-out (#194) — own
+the shared shell before spawning page lanes, and flag work built on the wrong
+integration base as High.
+
+### Added — deep-code-review
+- **`migration-parity.md` — shell-ownership ledger before a restyle fan-out (#194a).**
+  When a multi-screen port/restyle fans out to parallel page lanes, the shared shell
+  (layout, nav, tokens, chrome primitives) becomes contested write state that a per-PR
+  review passes lane-by-lane while the collision lives between them. Before spawning,
+  the lead publishes an ownership ledger (same shape as `parallel-audit.md` §1's unit
+  manifest, by reference): exactly one lane owns each shared-shell path (a partition),
+  and the shell lands first. Spawning with no ledger is a **High** coordination defect;
+  a page lane editing a shell path it does not own is a finding even when its diff is
+  correct.
+- **`branch-and-merge-hygiene.md` — check the base of in-flight work (#194b).** §2 now
+  enumerates open branches/PRs and verifies each base against the detected integration
+  target (reusing §3's `git rev-list --left-right --count`); §7 rates a large or
+  long-lived change built on the **wrong** integration target (two long-lived branches,
+  `STAGE` growth/mature) as **High** — above the Medium merge-debt row, because the cost
+  compounds per commit on the wrong base — with the retarget/rebase command named.
+- Two new evals (79 total). Lockstep bump to 1.85.0.
+
+Closes #194.
+
+## [1.84.0] — 2026-09-16
+
+Wave 11b of the dogfooding batch: name the parity verification surface (#192), and
+prove a design delta before acting on it (#196).
+
+### Added — deep-code-review
+- **`SKILL.md` / `report-format.md` — name the verification surface (#192).** A
+  `VERIFY_SURFACE` first-response field (url-or-port · tree/worktree · branch · sha,
+  or `NONE_RUNNING`), required on a web / port / parity task: `TREE_STATE` is where
+  you edit, `VERIFY_SURFACE` is what a human would see, and the two are routinely
+  different trees. `report-format.md` sharpens the surface rule — when more than one
+  tree can serve the app, "the default served state" is whichever process holds the
+  port, so a parity claim names the running instance built from the tree under review
+  (URL + branch + sha); a parity claim naming no surface is **invalid, not
+  downgraded**; and never direct a human to a URL whose served sha you have not just
+  confirmed (per #182).
+- **`scripts/validate_status_claims.py` — second detector (#192).** Beside the
+  hedged-green detector, flags a positive UI/parity status that names no verification
+  surface (no URL, no sha). The sha test requires >= 7 hex chars with a digit, so an
+  all-letter hex-looking word is not mistaken for a commit.
+- **`product-ux-quality.md` — establish a delta before acting on it (#196).** A
+  cropped screenshot of one side is a hypothesis, not evidence: render **both sides at
+  the same viewport width** and diff the corresponding region; confirm each app-only /
+  design-only element's **state** (present-but-collapsed / disabled-by-data /
+  in-a-menu) before calling it a delta; and trust the current rendered reference over
+  a stale source comment. A delta that does not exist has no bucket (it feeds the #193
+  restyle classification).
+- Two new evals (77 total). Lockstep bump to 1.84.0.
+
+Closes #192, #196.
+
+## [1.83.0] — 2026-09-16
+
+Wave 11a of the dogfooding batch: reconcile bidirectional parity (#189) with the
+preserve-a-feature rule — restyle an app-only feature, don't delete it (#193).
 
 ### Changed — deep-code-review
-- **`report-format.md`** — the findings report gains a `## Coverage` table
-  (one row per domain) and a `## Re-verification` table; the human-readable
-  scorecard gains a ⚪ "not checked this time" status so a traffic light never
-  implies coverage that did not happen.
-- **`method.md`** Phase 5 — emit the machine report with the full table; fill
-  coverage from the ledger; the `PRIOR` procedure.
-- **`parallel-audit.md`** §3 — units return findings and `checked_sound` as rows
-  in the machine-report shape; the lead merges into one report and one file.
-- Lockstep bump to **1.72.0** (deep-code-review, agentic-delivery, idea-critic,
-  plugin). Content: deep-code-review only.
+- **`migration-parity.md`** — new *Restyle an app-only feature into the target's
+  design language* section resolves the tension between the parity differ's "app-only
+  element is a finding" (#189) and the preserve-a-real-extra-feature rule: classify
+  each app-only element as **decoration** (→ remove-to-match), **real functionality**
+  (→ **restyle into the target's design language**, preserving the capability — the
+  affirmative default, not escalate-and-wait), or **owner-approved removal** (a named
+  decision). Deleting app-only functionality to reach visual parity **without a named
+  owner approval is High** (do-no-harm, principle 4 — blocks unless a named owner
+  accepts). Fill an **exception ledger** (element · bucket · verdict · target
+  primitive) before a restyle; the review-smell paragraph and 🚩 signals carry the
+  severity.
+- **`product-ux-quality.md`** — the bidirectional-parity gate's app-only *feature*
+  verdict changes from "escalate to the owner" to **restyle into the target's design
+  language** (escalation demoted to the fallback when no target primitive fits);
+  *Done* and the parity checklist now read every app→design entry **resolved**
+  (restyled / decoration-removed / owner-adjudicated), not "empty". Refines #189.
+- One new eval; the #189 eval updated to the restyle-default reading (75 total).
+
+Closes #193.
+
+## [1.82.0] — 2026-09-16
+
+Wave 10 of the dogfooding batch: design parity is bidirectional (#189).
+
+### Added — deep-code-review
+- **`product-ux-quality.md`** — the parity differ must check **set equality, not
+  containment**: run the mismatch list in both directions per screen (design→app AND
+  app→design), and don't wave through app-only elements as "intentional extras". The
+  operative test for an app-only element is *does removing it lose a user capability?*
+  — pure shell (an extra header, a "Showing N of N" line) defaults to
+  remove-to-match; a capability-bearing element (a filter bar, view tabs, per-card
+  upvote arrows) is a feature that **escalates to the owner** (never self-cut to match
+  a look reference — `migration-parity.md`'s preserve-a-real-feature rule). The
+  app→design list routes to owner adjudication, not an automatic differ fail. One new
+  eval (#189).
+
+Closes #189.
+
+## [1.81.0] — 2026-09-16
+
+Wave 9 of the dogfooding batch: assert the property, not its proxy (#187, #188).
+
+### Added — deep-code-review
+- **`frontend-a11y.md`** — guard a deliberately-decorative / sub-AA colour token at
+  its point of **use**, not its value: WCAG 1.4.3 holds informational text to 4.5:1,
+  so a value-only test that pins the token sub-AA stays green while a component paints
+  text with it and fails the audit. Add a use-site guard that fails when the token
+  colours a real text node — fail-closed but with a pinned-exempt escape for text
+  1.4.3 genuinely exempts (aria-hidden / decorative / logotype / large text), so the
+  gate is narrowed to the standard, not stricter than it. General form: assert the
+  property a test encodes, not the value it is derived from (#187).
+- **`method.md`** — classify a failure by **config** and **baseline** before calling
+  it a regression: a failure seen only under a memory-mitigated `--workers=1` serial
+  run can be a shared-state harness artifact the parallel CI config never hits.
+  Reproduce under CI's actual worker config (config axis) and under the identical
+  reduced config on the merge-base (baseline axis) before reporting a code defect
+  (#188).
+- Two new behavioral evals.
+
+Closes #187, #188.
+
+## [1.80.0] — 2026-09-16
+
+The offline half of the live eval harness (#61) — the split-rubric runner, no live
+model call yet.
+
+### Added
+- **`scripts/run-evals.py`** — the execution layer over every skill's `evals.json`.
+  `--dry-run` (default) enumerates and classifies every eval as **hard** (a
+  deterministic `eval_predicates.py` predicate is bound) or **soft** (needs the LLM
+  judge), re-runs the hard-axis golden-pair discrimination, and prints a coverage
+  report as JSON — no model, no network, no spend. `--selftest` proves the runner's
+  guards offline (the decorrelation guard aborts on an equal *or missing* model id;
+  the spend-cap guard aborts on a missing/non-positive cap; the live path refuses
+  without configuration). Wired into CI as an offline gate.
+- The hard/soft split is derived from `eval_predicates.BINDINGS`, so no `evals.json`
+  is tagged and no skill version is forced by it.
+
+### Owner-gated (issue #61 stays open)
+- The live model call is an explicit un-built stub — this ships no model-calling
+  code, so `--live` cannot spend. Filling the model client + per-call spend
+  accounting, the scheduled/dispatch workflow (where the key lives), the committed
+  results-freshness gate, and the axis tag across all evals remain owner steps.
+
+## [1.79.0] — 2026-09-16
+
+Wave 8 of the dogfooding batch: verify-the-real-thing (#180, #181, #182). Each lens
+extends a shipped one and points at it rather than restating it.
+
+### Added — deep-code-review
+- **`infra-iac-containers.md`** — confirm a deploy on a byte only the *new* build
+  serves, never `/health`: on a build-then-promote platform the old pod keeps
+  answering `/health` = 200 through a slow build's `504`, so poll a discriminator (a
+  new-build-only asset path 404 -> 200, a build id, a changed header). Sharpens the
+  verify-by-effects rule (#148) (#182).
+- **`method.md`** — prove a verify gate *idempotent* (run it twice), not just green
+  from a clean clone: a gate whose steps write artifacts a later step consumes can
+  pass once and fail on re-run; a non-handler export from a framework route module
+  (`.next/types/**`) is one concrete order-dependent trigger (#180).
+- **`product-ux-quality.md`** — measure a field's distribution before building a
+  confidence/corroboration UI: a near-constant field is false precision even as a
+  tier — drop it or reframe to what actually varies (extends the confidence-tier
+  detector #155) (#181).
+- Three new behavioral evals.
+
+Closes #180, #181, #182.
+
+## [1.78.0] — 2026-09-16
+
+Wave 7 of the dogfooding batch: gate- and probe-honesty (#157, #165, #166, #167,
+#168). Each lens points at existing content rather than restating it.
+
+### Added — deep-code-review
+- **`security-appsec.md`** (A01) — a downloadable export is a *sharper* leak surface
+  than an on-screen view: enumerate every surface serving a sensitive dataset and hold
+  exports no weaker than the dashboard; deliver confidential per-viewer data via an
+  authenticated, server-scoped API, not an SSR page scoped only by client-side identity
+  (#165). Points at the existing dual-surface census, does not restate it.
+- **`method.md`** — a no-regressions gate keys on **reachability** over the
+  before-vs-after route graph, not surface-position stability: a relocated feature is
+  not a removed one, but a genuinely orphaned route is a regression despite a lingering
+  label (#157).
+- **`data-quality.md`** — §7: a boolean/categorical parser accepts every shape the
+  source emits, and an exclusion gate (`is_fund`, `is_deleted`) fails **closed** on an
+  unrecognised value, never a silent `false` (#166); a suppression/allow-list match
+  compares an **exact value set** through one shared predicate with a row-level audit,
+  never a substring (#167). §11: a feasibility probe for a current-state signal gates
+  on **freshness** (max-timestamp per metric), not just schema and match-rate (#168).
+- Five new behavioral evals; new data-quality 🚩 signals.
+
+Closes #157, #165, #166, #167, #168.
+
+## [1.77.0] — 2026-09-16
+
+Wave 6 of the dogfooding batch: the design-parity **verification** cluster (#169,
+#170, #171, #177, #178) — how to *check* an implementation against a design without
+rubber-stamping a mismatch. Each lens points at existing parity content rather than
+restating it.
+
+### Added — deep-code-review
+- **`product-ux-quality.md`** — a **parity differ** as a fourth Phase-6 enforcing
+  gate: build a mechanical comparator before pixel-matching and gate every "matches"
+  claim on its diff image + structured mismatch list, never a sentence; it proves
+  equivalence (not that someone looked) and states what it cannot prove
+  (intentional-improvement-vs-regression; threshold agreed, not derived) (#177). Read
+  the reference at its highest fidelity — running build > design source > screenshot
+  (#169). Classify every diff **structural vs cosmetic**, get structural parity first,
+  and never call a structural divergence "close / 1:1" — a different structure is a
+  different screen (#170). Repeated correction of a "matches" claim means the
+  verification **method** is broken — build the comparator, do not outsource
+  verification back to the reviewer (#171). The four-axes structure/styling split was
+  sharpened so *presence* is structural and *rendered look* is cosmetic (one taxonomy).
+- **`migration-parity.md`** — match the **chrome**, never the mock's **data**:
+  copying a design mock's *sample* value into the real product is fabrication
+  (principle 3), a Blocker that surfaces weeks later; read the mock's own "sample"
+  disclaimer as the boundary; brief the split into every parallel worker (#178).
+- Three new behavioral evals; new parity 🚩 signals; one pre-ship checklist line.
+
+Closes #169, #170, #171, #177, #178.
+
+## [1.76.0] — 2026-09-16
+
+Wave 5 of the #143–#164 dogfooding batch: the coverage cluster. All five lenses
+apply one existing canonical kernel — principle 2, *"an absence is evidence only
+after a positive control fires"* (`SKILL.md`) — at five different scopes, and each
+**references** it rather than restating it (the anti-duplication thesis).
+
+### Added — deep-code-review
+- **`method.md`** — two gate-coverage axes. A green gate clears only the surface it
+  enumerated, not one it never visited: an unvisited route / state / branch is
+  `unverified` under that green, not clean, and is distinct from a config-declared
+  exclusion (#159). And per-lane / per-flag passes in isolation do not clear the
+  shipped union — a regression can live only in the combination no single-lane run
+  exercises (#158).
+- **`data-quality.md`** — §8: an absent activity window is not a decline (distinguish
+  observed-low from unobserved before a number implies a trend), and recency must be
+  monotone in elapsed time (#163). §7: carry a per-row coverage / provenance flag and
+  keep each score glass-box, so a thin-input score is not read as equal-confidence to
+  a fully-covered one (#164).
+- **`product-ux-quality.md`** — an empty state must name its coverage
+  (no-data-collected vs collected-and-genuinely-none), never imply a false all-clear
+  over an unprobed source (#156).
+- Four new behavioral evals: gate-coverage, lanes-vs-union, activity-absence,
+  empty-state-coverage.
+
+Closes #156, #158, #159, #163, #164.
+
+## [1.75.0] — 2026-09-16
+
+Wave 4 of the #143–#164 dogfooding batch: confidence as a defined tier, not a
+false-precision number (#155) — spanning the product-output-safety skill (the rule)
+and deep-code-review (the review detector).
+
+### Changed — product-output-safety (1.1.0)
+- **`SKILL.md`** — MANAGE's "show uncertainty" rule sharpened: render confidence as
+  a defined coarse tier (Confirmed / Corroborated / Single-source / Unverified; text
+  plus a colourblind-safe cue), never a false-precision number; publish a definition
+  per tier (undefined verbal-probability terms are read inconsistently — Kent,
+  *Words of Estimative Probability*); keep source reliability and claim corroboration
+  as independent axes; never publish the model's own confidence number as precision
+  (#155). One new eval.
+
+### Added — deep-code-review
+- **`product-ux-quality.md`** — a review detector: confidence surfaced as a bare
+  number ("87%", a raw score) is false precision — flag it and require labeled tiers;
+  the tier-definition rule is product-output-safety's, not restated here (#155). One
+  new eval.
+
+### Docs
+- `docs/standards-index.md` — logged Kent, *Words of Estimative Probability* (read
+  from the declassified CIA primary source this session) and the Admiralty Code
+  (Wikipedia-verified, cited by name only).
+
+## [1.74.0] — 2026-09-16
+
+Wave 3 of the #143–#164 dogfooding batch: four delivery / observability / privacy
+lenses across four references, each pre-distinguished from the section it extends.
+
+### Added — deep-code-review
+- **`infra-iac-containers.md`** — the deploy-contract preflight gains two lenses:
+  deploy artifact size is a first-class budget — externalize heavy, slow-changing
+  assets to object storage / a CDN and fetch large data at runtime; a size-rejected
+  upload fails silently while the old pod keeps serving (#147); and a deploy upload's
+  HTTP status is not the deploy's outcome on a synchronous-build platform — verify by
+  effects (a new deployment id / booted pod / changed served version), and read
+  409-vs-timeout before re-uploading (#148).
+- **`observability.md`** — audit the logs a platform injects (an auth-proxy sidecar
+  dumping per-request PII and an authz-scope list to a shared store), not only your
+  app's own log statements (#150).
+- **`privacy-compliance.md`** + **`security-ai-agents.md`** — gate a sensitive derived
+  value at the source: the exact value stays in a local gitignored cache, only a
+  coarse band crosses a boundary (behind an off-by-default flag), and never pull the
+  per-row values into a model's context when an aggregate query would do (#154).
+- Four new evals (deep-code-review 51 → 55).
+
+## [1.73.0] — 2026-09-16
+
+Wave 2 of the #143–#164 dogfooding batch: six data-quality review lenses, all in
+`deep-code-review/references/data-quality.md`, each pre-distinguished from the
+section it extends.
+
+### Added — deep-code-review
+- **`data-quality.md`** — six lenses:
+  - a fanout/uniqueness gate false-blocks legitimate coverage expansion — hard-block
+    only a value *absorbed from a now-departed distinct record*, not a newly-shared
+    *standing* value among related entities (#149);
+  - the resolution order when no stable id exists, and surfacing the unresolved
+    count as a first-class output (#153a);
+  - never sum heterogeneous constructs into one composite score (#162);
+  - test every enum/config mapping against the source's real value distribution,
+    not the literals a unit test feeds it (#153b);
+  - backtest a proxy-derived metric against ground truth before shipping, and match
+    the validation metric to the claim — an ordinal rank validated by concordance /
+    a C-index, not MAE (#151, #161);
+  - measure existing-source coverage before scoping new enrichment/scrapers, and
+    scope to the measured residual (#152).
+  - Plus new 🚩 red-flag detectors and a Cyrillic-to-Latin typo fix.
+- Six new evals (deep-code-review 45 → 51).
+
+## [1.72.0] — 2026-09-15
+
+Wave 1 of a new dogfooding batch (#143–#164): five field lenses from peer
+dogfooding and live-build runs, each pre-distinguished from a shipped neighbor.
+Content in deep-code-review + agentic-delivery.
+
+### Added — deep-code-review
+- **`frontend-a11y.md`** — a global focus/scroll-into-view correction handler
+  (the WCAG 2.2 *Focus Not Obscured* remedy) must yield to an open overlay and
+  scope to the focused element's own scroll container, or it scrolls the
+  background out from under an open modal — the a11y remedy silently breaking
+  `product-ux-quality.md`'s rule that a drawer overlays so "the user keeps their
+  place" (#143).
+- **`method.md`** — reproduce a gate's finding with the gate's **own detector**,
+  not a hand-rolled probe that can "reproduce" a passing state (a repro-fidelity
+  axis distinct from the gate being wrong or unrun) (#146); and an **input
+  reference is stale until you check its revision + completeness** before building
+  on it — the build-time analog of verify-before-you-report (#160).
+- Three new evals.
+
+### Added — agentic-delivery
+- **`fast-agentic-delivery.md`** — a subagent's transcript size or mtime is
+  **not a liveness signal**: never kill (a destructive, shared-state action —
+  principle 9) or trust a lane on transcript staleness; judge liveness from the
+  agent's actual product (#144); and **serve and commit from separate trees** —
+  a long-running process that rewrites a tracked, gate-asserted config dirties
+  every commit from the same tree (#145).
+- Two new evals.
 
 ## [1.71.0] — 2026-09-15
 

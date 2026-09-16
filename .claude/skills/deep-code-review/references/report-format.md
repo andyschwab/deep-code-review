@@ -15,6 +15,14 @@ subsystem — give a **two-status verdict**, each scoped: e.g. "🟡 running sys
 (On a networked target the verdict is **capped below Approve** while any
 data-bearing entry point is still listed as untested in `Authz posture` —
 unprobed is `unverified`, not clean.)
+(On a UI/parity target the verdict is **capped below Approve** while any in-scope
+screen is still `unverified` in the correspondence table (`migration-parity.md`) — **or
+while no correspondence table exists at all**, since an absent table is *total* absence
+of coverage, not coverage. An unrendered screen is an unprobed surface, `unverified`,
+not matched. A parity or
+completion claim **generalized past the screens actually inspected** is a **High**
+communication defect: unlike a hedged ⚠️ that tells the owner to keep checking, a false
+"the product matches" tells them to **stop**.)
 Counts: Blocker N · Critical N · High N · Medium N · Low N · Nit N
 
 ## Ground truth
@@ -28,6 +36,8 @@ Counts: Blocker N · Critical N · High N · Medium N · Low N · Nit N
   `unverified`/skipped with reason — skip caps self-test only>
 - Lint/type/scan: <results>
 - Authz posture: <N entry points · anon probed N · cross-account M · untested: …>
+- Parity coverage: <N/M screens verified · unverified: …, or N/A> (UI/parity target;
+  the correspondence table's row states, `migration-parity.md`)
 - Pipeline/app run: <before-state metrics, or not-run + why>
 
 ## Coverage
@@ -83,7 +93,24 @@ above rather than one green label with a footnote. And a status
 names the **surface** its evidence came from; for a UI / product parity claim the
 canonical surface is the **default served state** a user lands on (signed-out /
 no-role / default route / local default), not only a mock or a hand-picked state
-(`product-ux-quality.md`).
+(`product-ux-quality.md`). **When more than one tree can serve the app** — the
+normal agent topology, each write lane in its own worktree while a human runs a dev
+server from a different (often dirty) checkout — "the default served state" silently
+means *whichever process holds the port*, not the tree that contains the change, and
+a claim can be literally true about the author's tree and false on every surface a
+human can open. So a parity claim names the **running instance built from the tree
+under review**, identified by **URL + branch + sha actually rendered** (the
+`VERIFY_SURFACE` field, `SKILL.md`). A parity claim carrying **no URL and no sha of
+the rendered tree is invalid — not downgraded to ⚠️**, because nothing was named to
+downgrade. And **never direct a human to a URL whose served sha you have not just
+confirmed** — confirm it the way `infra-iac-containers.md` confirms a deploy (#182),
+by fetching a byte only the new build serves, not by assuming a rebuild happened. And
+for a UI claim the **surface and the inspection are both required**: a screenshot is
+the *artifact* (a render happened), the cited **pixel-defect checklist** is the
+*evidence* (`product-ux-quality.md` gate 1 — overlap / clip / contrast /
+disabled-looks-disabled). `✅ route X verified — screenshot attached` with **no
+cited inspection** is downgraded to ⚠️/`unverified` — the image alone is read as a
+verification it is not.
 
 **Beware the proxy.** A passing test, a green build, a merged PR, or a
 hand-configured render is a **proxy** for the user's outcome, not the outcome —
@@ -109,8 +136,12 @@ completion status carries a
 against) — and states what was *not* checked** in the same breath. A heuristic
 checker for the "✅ that needs an asterisk" ships at
 `scripts/validate_status_claims.py` (`--file <status-table>`): it flags a positive
-status co-occurring with a hedge and no downgrade marker (exit 1 = candidates to
-re-check, exit 0 = clean). A flag is a lead for judgement — downgrade, or split
+status co-occurring with a hedge and no downgrade marker, and — on a second detector
+— a positive status whose row also carries parity vocabulary (parity / renders /
+restyled / screen / "matches the design") and names **no verification surface** (no
+URL, no sha — this half fires even on a downgraded row, since a surfaceless parity
+claim is invalid, not downgradable) (exit 1 = candidates to re-check, exit 0 =
+clean). A flag is a lead for judgement — downgrade, or split
 into a two-status verdict — not an automatic defect. It ships beside the skill and
 is copied by `install.sh`.
 

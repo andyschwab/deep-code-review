@@ -717,6 +717,72 @@ else
   else
     record 1 "status-claim: a clean status table passes"
   fi
+  # Planted RED (#192): a green UI/parity status naming no verification surface
+  # (no URL, no sha) is INVALID — the second detector must flag it.
+  printf '%s\n' '| Home | ✅ screen matches the design |' >"$WORK/status.nosurface.md"
+  if python3 "$STATUSCHK" --file "$WORK/status.nosurface.md" >/dev/null 2>&1; then
+    record 1 "status-claim: flags a UI/parity status naming no surface (planted RED)"
+  else
+    record 0 "status-claim: flags a UI/parity status naming no surface (planted RED)"
+  fi
+  # Discrimination: the SAME green parity status WITH a URL + rendered sha names a
+  # surface and must stay clean — proving the surface check, not the downgrade word.
+  printf '%s\n' '| Home | ✅ screen matches the design http://localhost:3000 @ abc1234 |' >"$WORK/status.surface.md"
+  if python3 "$STATUSCHK" --file "$WORK/status.surface.md" >/dev/null 2>&1; then
+    record 0 "status-claim: a parity status naming url+sha passes"
+  else
+    record 1 "status-claim: a parity status naming url+sha passes"
+  fi
+  # Planted RED (#192, invalid-not-downgraded): a surfaceless parity claim carrying a
+  # ⚠️ downgrade is still INVALID — the surface detector must fire regardless of the
+  # downgrade marker (a ⚠️ cannot rescue a claim that named no surface).
+  printf '%s\n' '| Home | ⚠️ screen matches the design, partial |' >"$WORK/status.dg-nosurface.md"
+  if python3 "$STATUSCHK" --file "$WORK/status.dg-nosurface.md" >/dev/null 2>&1; then
+    record 1 "status-claim: flags a downgraded surfaceless parity claim (invalid-not-downgraded)"
+  else
+    record 0 "status-claim: flags a downgraded surfaceless parity claim (invalid-not-downgraded)"
+  fi
+  # Planted RED (#198): a green UI status leaning on a screenshot but naming no
+  # pixel-defect inspection is unverified -- the third detector must flag it.
+  printf '%s\n' '| route X | ✅ verified -- screenshot attached |' >"$WORK/status.noinspect.md"
+  if python3 "$STATUSCHK" --file "$WORK/status.noinspect.md" >/dev/null 2>&1; then
+    record 1 "status-claim: flags a screenshot status naming no inspection (planted RED)"
+  else
+    record 0 "status-claim: flags a screenshot status naming no inspection (planted RED)"
+  fi
+  # Discrimination: the SAME green status citing the inspection checklist is clean --
+  # proving the inspection-token check, not the downgrade word.
+  printf '%s\n' '| route X | ✅ verified -- screenshot inspected: overlap ok, clip ok, contrast ok |' >"$WORK/status.inspected.md"
+  if python3 "$STATUSCHK" --file "$WORK/status.inspected.md" >/dev/null 2>&1; then
+    record 0 "status-claim: a screenshot status citing the inspection checklist passes"
+  else
+    record 1 "status-claim: a screenshot status citing the inspection checklist passes"
+  fi
+  # Discrimination (inflected): the exemption must survive natural-language inflection
+  # ("overlapping" / "clipped"), not only the bare stems -- INSPECT_STEMS is substring-
+  # matched. If this row flags, the exemption regressed to word-boundary matching.
+  printf '%s\n' '| route X | ✅ verified -- screenshot: no elements overlapping, nothing clipped |' >"$WORK/status.inflected.md"
+  if python3 "$STATUSCHK" --file "$WORK/status.inflected.md" >/dev/null 2>&1; then
+    record 0 "status-claim: an inflected inspection citation (overlapping/clipped) passes"
+  else
+    record 1 "status-claim: an inflected inspection citation (overlapping/clipped) passes"
+  fi
+  # Planted RED (#200): a parity claim generalized over a population (whole / every /
+  # all) with no N/M coverage fraction -- the aggregate-scope detector must flag it.
+  printf '%s\n' '| A | ✅ every page matches the prototype |' >"$WORK/status.overscoped.md"
+  if python3 "$STATUSCHK" --file "$WORK/status.overscoped.md" >/dev/null 2>&1; then
+    record 1 "status-claim: flags a parity claim generalized past a coverage fraction (planted RED)"
+  else
+    record 0 "status-claim: flags a parity claim generalized past a coverage fraction (planted RED)"
+  fi
+  # Discrimination: the SAME claim scoped with an N/M fraction is clean -- proving the
+  # fraction check, not the population word.
+  printf '%s\n' '| A | ✅ every page matches the prototype, 6/6 done |' >"$WORK/status.scoped.md"
+  if python3 "$STATUSCHK" --file "$WORK/status.scoped.md" >/dev/null 2>&1; then
+    record 0 "status-claim: a parity claim scoped with an N/M fraction passes"
+  else
+    record 1 "status-claim: a parity claim scoped with an N/M fraction passes"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

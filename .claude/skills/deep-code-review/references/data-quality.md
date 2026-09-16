@@ -50,6 +50,18 @@ Also run a **run-over-run drift guard** on derived-field population counts:
 enrichment is additive, so any populated-column count that falls beyond known
 record attrition is a regression.
 
+**A uniqueness violation is corruption only if the value was *absorbed from a
+now-departed distinct record* — not when it is newly and legitimately *shared*.**
+The within-dataset invariant above false-positives during legitimate coverage
+expansion: many related entities newly and correctly sharing one value (sub-teams
+adopting a parent org's handle — co-branding) each trip the fanout arm. Hard-block
+only the collapse-of-two-distinct-records shape; for a newly-shared *standing*
+value among related entities keep a human at the gate or a small reviewed
+allowlist, and never re-refuse an unchanged standing shared value every run (that
+just gets the gate switched off) — and don't relax the gate's baseline to pass,
+which the never-lower-a-baseline rule under *Scoring & config discipline* already
+governs.
+
 ## 2. No fabrication in the data itself
 
 - **Skip a field rather than guess it.** An empty cell beats a confident-looking
@@ -68,9 +80,13 @@ record attrition is a regression.
 
 ## 3. Entity resolution — bias false-exclude over false-merge
 
-- **Identity requires a stable id or same-person/же-entity proof — never a
+- **Identity requires a stable id or same-person/same-entity proof — never a
   name-only match.** Two distinct records wrongly merged is worse than two left
   separate.
+- **Resolution order when no stable id exists:** normalized domain/handle first,
+  then a name **only as a last resort behind a collision (namesake) guard** — and
+  surface the **unresolved/ambiguous count as a first-class output**, never a
+  silent drop.
 - Matches must clear a threshold on **multiple independent signals**; ambiguous
   or conflicting matches are **flagged for review, never auto-merged**.
 - Prefer revealed-preference, hard-to-game, multi-signal evidence over a single
@@ -170,6 +186,44 @@ rate), validity (schema/format/range). For each:
   build pass.** An intended drop is acknowledged explicitly, per field, with a
   stated reason. (This is the monotonic invariant applied to the *gates
   themselves*.)
+- **Never sum heterogeneous constructs into one composite score.** A blended
+  "urgency"/"risk" number often merges constructs that imply *opposite* actions —
+  raise-timing overdue (introduce to investors) vs distress/contraction (triage) —
+  so summing them manufactures false positives and hides which action is warranted.
+  Score each construct separately and derive the action from the combination (a
+  2×2 / tiering), never from one blended number.
+- **Test every enum/config mapping against the source's *real* value
+  distribution.** A lookup keyed on the wrong domain — a geography→multiplier map
+  keyed on region names while the source emits ISO-3166 alpha-2 codes (plus
+  lowercase and placeholder values) — silently no-ops: it carries its cost and
+  delivers nothing, and unit tests pass because they feed the map the literals it
+  expects. `SELECT DISTINCT` the real values and test against them before trusting
+  the map.
+- **A boolean / categorical parser accepts every shape the source emits — and an
+  exclusion gate fails *closed*.** `bool(v) = v === true || String(v) === "true"`
+  silently maps a warehouse `1`, `"yes"`, `"y"`, `"t"` to `false`; a row with
+  `is_fund: 1` or `is_discontinued: "yes"` then reads as operating and reaches a
+  live shortlist — a dead or ineligible entity presented as a target. Accept the
+  full shape set (`true/false`, `1/0`, `yes/no`, `y/n`, `t/f`), and for a gate that
+  **excludes** (`is_fund`, `is_discontinued`, `is_deleted`) treat an unrecognised
+  non-empty value as **exclude / unknown**, never a silent `false` — fail closed,
+  and test the parser against the values the source actually emits (as with the
+  config maps above).
+- **A suppression / allow-list / status match compares an *exact value set*, never
+  a substring.** `status.toLowerCase().includes("pass")` matches "passed term sheet
+  to legal" and "compass" as readily as the intended "need to pass", silently
+  dropping rows — invisibly, when the dropped rows are filtered out before
+  rendering. Match against an explicit `Set` through **one shared predicate** (not a
+  copy-pasted `includes` at each funnel stage), and emit a **row-level audit** of
+  everything auto-excluded so a wrong suppression is visible, not silent.
+- **Carry a per-row coverage flag; keep each score glass-box.** A score computed
+  on partial inputs is a weaker claim than one computed on full inputs — stamp
+  each row with which inputs were actually present (a coverage / provenance flag)
+  so a consumer never reads a thin-input score as equal-confidence to a
+  fully-covered one, and keep the derivation inspectable (the inputs that drove
+  this row's number are recoverable), never an opaque scalar. Principle 2 at row
+  scope: a missing input is not a low input. (The *interpretation* rule — an
+  absent window is not a decline — is in §8; this owns the per-row mechanism.)
 
 ## 8. Measuring the outcome honestly
 
@@ -179,6 +233,31 @@ rate), validity (schema/format/range). For each:
   quality as *unmeasured* until an expert rates a frozen, labeled cohort; don't
   stack features on an unvalidated base. See `testing-and-evals.md` for the
   eval-harness pattern.
+- **Backtest a proxy-derived metric against ground truth before shipping it — a
+  plausible formula that passes unit tests can be near-useless.** For any
+  derived/scored value built from indirect proxies (estimating runway from
+  last-round size ÷ headcount × burn, say), require a ground-truth validation step
+  in review — report MAE / correlation / base-rate against real actuals. Unit
+  tests prove the math; only a backtest proves the *value*. On failure, **demote
+  or gate** it (a coarse band + "corroboration-required"), never ship it as a
+  ranker.
+- **Match the validation metric to the claim the score makes.** A predictor whose
+  correlation is weak but nonzero, with MAE too large to publish a point estimate,
+  can still rank usefully — but validate ranking with **concordance / a C-index
+  against an observable binary event** ("raised within 6 months", "shut down within
+  6 months"), *not* MAE on the noisy latent quantity. Emit an ordinal tier, not a
+  point estimate, when MAE is large relative to the decision range, and reject a
+  self-refuting "±N" band — a band wider than the decision range is noise on
+  screen.
+- **An absent window is not a decline — and recency must be monotone in elapsed
+  time.** A time/activity score must not read a coverage gap (no observation in a
+  window, a source that went quiet, a period not yet collected) as a substantive
+  low value ("declining", "churned", "at risk"): distinguish *observed-low* from
+  *unobserved* before the number implies a trend. And a recency/freshness score
+  must be **monotone in elapsed time** — more time since the last event can only
+  lower freshness, never raise it; a non-monotone recency curve manufactures false
+  "re-activation". Principle 2 again: the quiet window is evidence only once a
+  positive control confirms the source was actually read for it.
 
 ## 9. The model's role in a data pipeline (if any)
 
@@ -215,6 +294,25 @@ rate), validity (schema/format/range). For each:
 - **Data-specific precision floor:** a gate that **drops/deletes** records needs
   far higher measured precision than one that merely enriches — refuse a
   whole-dataset apply unless it is scoped to a verified subset.
+- **Measure existing-source coverage for the target set before scoping new
+  enrichment or scrapers.** Re-querying the internal warehouse is frequently the
+  largest, cheapest coverage lever — it can match a from-scratch enrichment plan's
+  target at zero marginal cost and surface already-reconciled fields (a stable
+  entity id, dated events, location) the working copy lacks. Scope external
+  acquisition to the **measured residual** only; a plan that adds scrapers before
+  measuring over-scopes.
+- **A feasibility probe for a *current-state* signal gates on freshness, not just
+  schema and match-rate.** An external source can pass API-works, has-the-fields,
+  and adequate identity-match yet still describe *last year's* state. Query the
+  **max timestamp per metric** (`... MAX(sample_date) ... GROUP BY metric` —
+  per-metric, since columns in one table lag differently) and compare to today
+  **before** designing anything on it. Label a derived signal by the recency of the
+  metric it is **actually computed from**, not the freshest column in the table
+  (overstating freshness in a deliverable is a silent correctness bug; the freshness
+  dimension itself is §4). Run the **cheapest decisive go/no-go query first** —
+  match-rate can look like the kill-question while staleness is the real one — and
+  keep the probe **re-runnable**: a finding of *too stale to use* outvalues a
+  polished pipeline built on a stale signal.
 
 ---
 
@@ -227,4 +325,14 @@ call that returns a score or a boolean gate; weights inlined in code with no
 snapshot; a consumer/export that re-queries raw instead of the filtered set;
 written artifact with no reader; mass status-change on an upstream error; live
 counts hard-coded into docs; a coverage threshold lowered in the same diff that
-would otherwise fail it.
+would otherwise fail it; a composite score that **sums** heterogeneous
+constructs; a ranker validated with **MAE** instead of concordance, or a "±N"
+band wider than the decision range; a config/enum map never tested against a
+`SELECT DISTINCT` of real source values; a fanout/uniqueness gate that
+blanket-blocks a newly-shared standing value; new enrichment scoped before
+existing-source coverage was measured; a per-row score with no coverage/provenance
+flag or no recoverable derivation; a time/activity score that reads an unobserved
+window as a decline; a non-monotone recency curve; a boolean parser that recognises
+only `"true"`, or an exclusion gate defaulting an unrecognised value to `false`; a
+substring `includes`/`indexOf` driving a categorical status / suppression decision;
+an external-source feasibility sign-off with no max-timestamp freshness check.

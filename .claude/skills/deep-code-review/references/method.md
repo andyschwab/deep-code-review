@@ -149,12 +149,87 @@ and any wired security/dependency scanners. Then, before trusting "green":
   (principle 4): record the citation and **narrow the gate, saying so in writing**
   — narrowing an over-strict rule and weakening a real one look identical in the
   diff and are opposite acts.
+- **Reproduce a gate's finding with the gate's own detector, not a hand-rolled
+  probe.** Validating a fix aimed at an automated gate (linter, schema/contract
+  validator, audit/policy gate) with a **bespoke approximation** ("I grep for
+  X") that observes a *different thing* than the gate can "reproduce" a
+  **passing** state (or a different failure): the fix targets the wrong cause,
+  the gate stays red next run — or goes green for an unrelated reason and the
+  real defect ships. **Read the gate's own detection source** (its rule, query,
+  or script) and replicate it exactly — same matcher, inputs, config, and
+  file/state — or better, **run the actual gate**; a probe is a fallback only
+  when the gate cannot run, and must mirror its mechanism (reproduce the gate's
+  **red** for the same reason first, then confirm the fix turns both green).
+  This is repro fidelity w.r.t. the **detector** — distinct from the gate itself
+  being wrong or unrun (the bullets above and `domain-checklists.md`'s "a
+  non-empty result is not proof the layer ran"), from repro-fidelity w.r.t.
+  **conditions** (`parallel-audit.md`'s reproduce-at-low-concurrency), and from
+  `report-format.md`'s `mechanism-unproven` (a fix you *could not* reproduce;
+  this is a repro you *did* run, with the wrong mechanism).
+- **A green gate clears only the surface it enumerated — not one it never
+  visited.** A gate that ran and passed proves something about the routes,
+  states, and inputs its coverage set actually reached; a surface it never
+  enumerated (a route the sweep never requested, a state no fixture constructed,
+  a branch no test input exercises) is `unverified` under that green, not clean.
+  (A gate the config *declares* excluded is a different gap — enumerate those per
+  the gate-exclusion bullet above; this is the surface nothing pointed at.) Read
+  the gate's coverage set and confirm it **includes** the surface in question
+  before reading its pass as a clearance — SKILL.md principle 2 (*an absence is
+  evidence only after a positive control fires*) at gate-coverage scope. This is
+  the **unvisited** surface: distinct from a gate that cannot fail (above) and
+  from a probe that observed the wrong thing (detector fidelity, above) — here
+  the gate fails correctly, it was simply never pointed here.
+- **Lanes that pass in isolation do not clear their union.** Per-module,
+  per-lane, or per-flag gates each green on their own say nothing about the
+  integrated path they compose: a regression can live only in the combination —
+  a shared resource, an ordering, a flag interaction — that no single-lane run
+  exercises. Gate the **union that actually ships**, not only the parts; a suite
+  that only ever runs the parts has left the combination surface unenumerated
+  (same principle-2 scope: the union is a positive control no lane fired).
+- **A no-regressions gate keys on *reachability*, not surface-position stability.**
+  A destructive-change gate that watches a surface label or slot (a top-level nav
+  entry, a route path, a menu position) false-fires on a legitimate reorganisation —
+  a feature **moved** under a new parent reads as **removed** — and, worse, a
+  label-presence check misses a genuinely **orphaned** route (still in the menu,
+  reachable by nobody). Compute the invariant over the **before-vs-after reachability
+  graph**: every prior capability still reachable through *some* path is not a
+  regression no matter where it now sits; a capability reachable by no path is a
+  regression no matter what label lingers. (For a nav/route reorg, "reachable" also
+  means its deep-link history still resolves, not just that a menu entry exists.)
+  Relocation is not removal, and a stable label is not proof of reachability.
+- **Prove a verify gate *idempotent* — run it twice — not just green from a clean
+  clone.** A gate whose steps **write artifacts a later step consumes** can pass
+  once and fail on the **next** run against what the first run generated. Archetype:
+  a `typecheck → build` pipeline where the build emits generated route types
+  (`.next/types/**`) that a *subsequent* standalone `tsc --noEmit` then rejects — CI
+  on a clean clone never sees it, the human re-running locally hits a confusing red,
+  and the gate looks flaky when it is actually **order-dependent**. Run the gate
+  **twice** (or clean the generated dirs first) and treat a second-run failure as a
+  real finding. One concrete trigger: a **non-handler export from a framework route
+  module** (a helper, constant, or classifier beside the handlers in a Next.js App
+  Router `route.ts`) makes the generated validator reject the module — move pure
+  logic to a sibling module.
 - **Read the host CI, not only your own shell.** Fetch the base branch's latest
   pipeline conclusion (`gh run list --branch <base> --limit 5`, or the forge
   equivalent); "green locally" is not "green in CI" (different OS image, browser
   binaries, gate set). A red, unexplained base is `unverified` ground truth — say
   whether it is a flake, pre-existing and unrelated, or caused by this work — and
   you cannot show a change "regresses no axis" against a baseline already failing.
+- **Classify a failure by *config* and *baseline* before calling it a regression.**
+  A suite OOM-killed at its default parallel fan-out and re-run at `--workers=1` to
+  fit memory changes the **execution model**, not just the speed: serial specs
+  sharing one stateful backend pollute a later spec's precondition, so a failure
+  seen *only* under the reduced config can be a harness artifact the sharded CI
+  config never hits — not a product regression. The mirror error is as easy: a
+  change *can* genuinely make a suite serial-fragile, so "it's just `--workers=1`" is
+  also unverified. Two cheap runs settle it — **config axis:** reproduce the suspect
+  specs under CI's *actual* worker config (a handful of specs won't OOM); pass there
+  and it is not a gate failure. **Baseline axis:** run them under the *identical*
+  reduced config on the merge-base; pass-baseline + fail-branch is a real
+  code-introduced sensitivity worth hardening, fail-both is a pre-existing harness
+  artifact (the baseline half of the unexplained-base rule above). Report which
+  config and which baseline the failure belongs to — "fails under `--workers=1`
+  locally" and "fails the gate CI runs" are different findings.
 - **Deploy-contract preflight** (containerized/serverless targets): lockfile
   committed ↔ install command, entrypoint/CMD file mode, build-time vs runtime
   data dependencies, and **boot the documented-minimal config and hit the
@@ -174,6 +249,18 @@ count a script emits, grep the script for a `limit`/`slice`/`head`/`take`/`break
 or early return on that collection and label the number `>= n` when one exists —
 an instrument that stops recording at six reports six, not the total (distinct
 from the caps *you* impose).
+
+**An input reference is stale until you check its revision and completeness.** A
+build/mirror/import task that consumes an **exported reference** — a design export, a
+spec bundle, a data snapshot — is only as current and complete as that export: confirm
+its **revision/timestamp** and **completeness** (actual vs expected item count) against
+the authoritative source *before* building on it, or the output is confidently wrong and
+still passes its own gates (the build-time analog of verify-before-you-report — an export
+that silently lost half its items yields a mirror that faithfully reproduces the loss;
+distinct from `data-quality.md`'s freshness/completeness *scoring dimensions* for a target's
+own pipeline — this is input-export hygiene before you build). A cheap up-front
+freshness/completeness check is owed by any "build against a reference"
+workflow.
 
 **Memory-unsafe code raises the floor.** If the target contains native C/C++ or
 `unsafe` Rust on a reviewed path, a plain green test run is not ground truth: run
