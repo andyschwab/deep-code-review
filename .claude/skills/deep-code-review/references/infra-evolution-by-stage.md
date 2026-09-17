@@ -2,7 +2,8 @@
 
 Read this when the going-forward roadmap (`report-format.md`) must advise how a
 project's **infrastructure and architecture** should evolve for its `STAGE`, or
-when the ask is "how should I structure my infra / deploy / architecture now?"
+when the ask is "how should I structure my infra / deploy / architecture now?" or
+"should this become its own package or a separate repo?"
 This is the **when-to-add** lens. The **how-to-secure / what-to-check** for infra
 that already exists lives in `infra-iac-containers.md` (domain L) — do not
 duplicate it. The stage model itself is in `SKILL.md` (Project stage).
@@ -45,7 +46,13 @@ orchestration, IaC, tracing, feature-flag platforms) — never that floor.
 | feature flags | long-lived branches block release cadence; need to decouple deploy from release, canary, or hold a kill-switch (then manage flags as inventory) |
 | orchestration (k8s) | you already have rapid provisioning + monitoring + rapid deploy AND are hand-managing enough services/hosts to cross the complexity threshold — below that it is premium with no payoff |
 | microservices / service extraction | the monolith is genuinely too complex to manage AND the boundaries are stable AND the prerequisites above exist; then peel from the edges |
+| internal package → separate repo | a part has an **independent change cadence AND distinct external consumers AND its own release + ownership**; until then carve an **internal package** (a named import boundary) inside the one repo — cheaper and reversible |
 | SLOs + error budget | users now have reliability expectations you must trade against release speed |
+
+**Splitting is earned like the rest.** A repo split is org/deploy structure, not a substitute for
+a module boundary — carve the internal package first, or the split just relocates the tangle
+across repos. Co-evolving artifacts (schema ↔ validator ↔ types ↔ docs) stay **co-located**;
+spread across repos with no parity guard they silently drift (domain H).
 
 ## What the review CANNOT decide from the repo (route to the owner)
 Repo-observable signals set the *read*; these business/ops facts set the *mandate*,
@@ -57,7 +64,7 @@ stage-appropriate step and name the observable signal behind it; **route anythin
 gated on these six to the owner** rather than mandating the build.
 
 ## Standards (by name; verify a URL before adding one to `docs/standards-index.md`)
-Monolith-first, YAGNI, microservice-premium and microservice-prerequisites,
+Monolith-first, modular monolith, YAGNI, microservice-premium and microservice-prerequisites,
 infrastructure-as-code, continuous delivery, feature toggles (Fowler);
 choose-boring-technology / innovation tokens (McKinley); the Twelve-Factor App;
 DORA delivery metrics (the set and names have been revised — check the current
