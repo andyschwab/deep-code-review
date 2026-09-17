@@ -226,6 +226,26 @@ LLM-backed feature, add cases that assert the guardrail holds:
   denylist of dangerous-command regexes is bypassable by construction (an
   `rm -rf` pattern misses `-fr` / `-f -r` / `--force`); treat containment, not
   pattern-matching, as the boundary.
+- **Quarantine the reader from the actor.** The controls above (spotlight, schema-validate,
+  least-privilege) still live inside **one** agent identity that both **ingests untrusted
+  content** (tool results, MCP responses, fetched pages, another agent's output) **and holds the
+  privileges** to act (credentials, write, egress, tool dispatch) — a confused deputy waiting for
+  one injection to land. The architectural control is to **split the roles**: a **reader** that
+  consumes untrusted content has **no credentials, no write, no egress**, and emits only
+  **structured, schema-validated data operands** — the extracted facts, **never the action to
+  take**. The **action is fixed by the trusted task plan**, not derived from untrusted input: a
+  **privileged actor** selects the operation from that plan, validates it against an **allowlist
+  of actions this task permits**, and consumes the reader's value **only as an operand** — never
+  as raw text, and never as an action / `intent` selector (a schema validates *shape*, not
+  authority, so a schema-valid `{intent: "merge_pr"}` from the reader would still be a privileged
+  action chosen by untrusted input). An injection that lands in the reader can then at most
+  corrupt an *operand* (rejected or bounded at the boundary), not choose a privileged *action* —
+  the action space was fixed on the trusted side before any untrusted byte was read.
+  Review it as an **architecture** question a per-file diff cannot answer: does any single
+  identity both read untrusted input **and** wield the credentials? For MCP specifically,
+  **trust the transport, not the payload** — a signed or allowlisted server connection
+  authenticates *where the bytes came from*, never that their *content* is safe to act on
+  (cross-ref the poisoned-MCP-server risk above and `security-agent-skills.md`).
 - **When the tool *is* code execution, reframe the output-handling test.** For a
   shell / `ipython` / code-interpreter agent, "model output reaches `exec`" is
   the product, not a bug, so LLM10's raw-sink test collapses. The controls to
