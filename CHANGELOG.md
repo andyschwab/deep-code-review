@@ -3,6 +3,21 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.118.0] — 2026-09-18
+
+Wave 39 of the dogfooding batch: #300 — measure pipeline flow before adopting a platform or a second methodology.
+
+### Added — deep-code-review
+- **`release-engineering.md` — "Measure the flow before adopting a platform or a second
+  methodology"** (#300). Placed beside the existing DORA section (domain K, not observability): the
+  DORA metrics say whether the pipeline is healthy; a cheaper set of **iteration signals**
+  (time-to-green, queue/runner wait, rerun/flake rate — explicitly **not** DORA metrics) says where
+  the loop hurts. Before buying a build/merge platform or adopting a **second delivery
+  methodology**, measure both on a p50/p95 basis, attribute the p95 to a stage, take the cheap fix
+  first. Adoption bar: *which measured metric does it move, and by how much?* — no number, no
+  adoption (route the spend to the owner with the measurement). **One delivery methodology per
+  repo** (a measured bottleneck justifies switching, never running both). One new eval (122 total).
+
 ## [1.117.0] — 2026-09-18
 
 Wave 38 of the dogfooding batch: #299 — modularize before splitting the repo.
