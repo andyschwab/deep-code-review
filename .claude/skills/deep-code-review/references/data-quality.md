@@ -438,6 +438,21 @@ rate), validity (schema/format/range). For each:
   lower freshness, never raise it; a non-monotone recency curve manufactures false
   "re-activation". Principle 2 again: the quiet window is evidence only once a
   positive control confirms the source was actually read for it.
+- **Observability is a per-entity-*class* property, not only a per-window one.**
+  The rule above corrects a *temporal* coverage gap; a distinct, cross-sectional
+  one is that whole **classes** of entity are structurally less observable on
+  public signal — people who work in public (engineers, researchers, OSS
+  contributors) over-represent, and those whose work is private or gated
+  (operators, investors) under-represent — independent of any time window.
+  Uncorrected, an empty profile reads as **inactive** when it means **not publicly
+  observable**. Label each entity's **public-footprint class** (high vs low
+  observability) and carry it into every consumer: an empty / low profile in a
+  low-observability class renders as *not observed*, never *inactive*, and a
+  ranking must not read *unobserved* as *low-activity* — that systematically
+  penalizes the very members the public surface can't see. Empty-beats-fabricated
+  at the coverage layer. (Distinct from §7's per-row coverage flag, which is
+  *post-hoc* — which inputs a given run populated; a public-footprint class is
+  *a priori*, a structural property of the class known before any fetch runs.)
 - **A freshness *window* is observable; a freshness *decay curve* is fabricated.** A **binary
   in-window gate** — `now − retrieved_at ≤ window_for_type` — is honest: elapsed time is an
   observable input, and a per-signal-type window that gates routing ("act on this only within N
@@ -470,6 +485,19 @@ rate), validity (schema/format/range). For each:
   the TLS handshake and HTTP/2 frame ordering, so a browser token on a
   non-browser client is a **stronger** bot signal than an honest one. Prefer an
   official API to scraping; exhaust free/public sources before paid ones.
+- **A connector/transform *pivot graph* multiplies both risks per hop — gate every
+  hop, not just the chain end.** A pivot engine (identifier → transform → new
+  entities → next transform; the Maltego / SpiderFoot pattern) is powerful for
+  coverage but compounds two hazards a single-source lane does not have. (1)
+  **Attribution risk multiplies:** a wrong entity at hop 2 poisons every entity
+  derived at hops 3+, so each transform's *output* entities must re-pass the
+  identity / fanout gate (§1 fanout arm, §3 false-merge) **before** attribution —
+  not once at the end of the chain. (2) **Identity-disclosure risk multiplies:**
+  each hop contacts a new host directly, so a pivot toward a gated host routes
+  through a contracted broker under a declared collection-identity policy
+  (anonymous / identified / brokered) — never spoof (above) — and a pivot must not become a
+  rate-limit-evasion fan-out. A pivot graph without per-hop guards is both a
+  fanout amplifier and an identity-exposure amplifier.
 - Enforce data-subject suppression/erasure **once at the export/publish
   boundary**, so every downstream consumer inherits it.
 
@@ -563,7 +591,8 @@ band wider than the decision range; a config/enum map never tested against a
 blanket-blocks a newly-shared standing value; new enrichment scoped before
 existing-source coverage was measured; a per-row score with no coverage/provenance
 flag or no recoverable derivation; a time/activity score that reads an unobserved
-window as a decline; a non-monotone recency curve; a boolean parser that recognises
+window as a decline; an entity's structurally-low-observability class read as
+inactive rather than not-observed; a non-monotone recency curve; a boolean parser that recognises
 only `"true"`, or an exclusion gate defaulting an unrecognised value to `false`; a
 substring `includes`/`indexOf` driving a categorical status / suppression decision;
 an external-source feasibility sign-off with no max-timestamp freshness check; a
