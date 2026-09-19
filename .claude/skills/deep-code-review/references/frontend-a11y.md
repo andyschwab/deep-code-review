@@ -57,6 +57,14 @@ without regressing a deliberate design.
   (2.2 new: Focus Not Obscured).
 - Focus is managed on route change, modal open/close (trap + restore), and
   async content insertion.
+- **Hidden interactive content leaves the tab order — no "phantom focus."** A closed
+  off-canvas menu, collapsed accordion, inactive tab panel, or CSS-hidden dropdown must
+  remove its focusable descendants from the tab sequence (`inert`, conditional unmount,
+  or `tabindex="-1"` on each). And `aria-hidden="true"` must **never** sit on a container
+  with a focusable child (the **4th rule of ARIA**: don't put `aria-hidden` or
+  `role="presentation"` on a focusable element) — otherwise a keyboard user tabs into an
+  element a screen reader can't announce, the mirror of the open-dialog focus-trap above.
+  Detector: tab through every collapsed / closed region and confirm focus never lands in it.
 - A **global focus/scroll-into-view correction** handler (the *Focus Not
   Obscured* remedy) must yield to an open overlay and scope to the focused
   element's own scroll container — detector below.
@@ -113,7 +121,31 @@ confirm the background does not move.
   green suite ships a regression.
 - All non-text content has a text alternative; decorative images `alt=""`.
 - Content reflows to 320 CSS px wide without loss (1.4.10); works at 200% zoom.
-- Respect `prefers-reduced-motion`; no content flashes > 3×/sec.
+- Respect `prefers-reduced-motion`; no content flashes > 3×/sec. A CSS
+  `@media (prefers-reduced-motion: reduce)` override does **not** reach a JS-driven
+  animation (a `requestAnimationFrame` loop, an autoplaying motion library, a
+  scroll/parallax handler) — the JS path must itself consult
+  `matchMedia('(prefers-reduced-motion: reduce)')`. Vestibular-safety best practice; for
+  the **interaction-triggered** subset (scroll/parallax, hover/click transitions) this is
+  WCAG **2.3.3 Animation from Interactions** (AAA — SC 2.2.2 governs the *automatically*
+  started case instead).
+
+**Timing & motion** (WCAG 2.2.1, 2.2.2 — both Level A)
+- **A time limit that logs out or discards unsaved input needs a warn-and-extend path.**
+  A silent idle-logout or silent data loss fails **2.2.1 Timing Adjustable**: warn before
+  expiry and let the user extend with one simple action (≥ 20 s to react), or let them
+  turn the limit off / lengthen it. Exceptions: real-time events, a limit whose extension
+  invalidates the activity, limits > 20 h. Note the **security ↔ a11y tension** — a short
+  idle timeout is a security ask, but it still needs the warn+extend affordance before it
+  fires (cross-ref `security-appsec.md` A07 session lifetime).
+- **Auto-starting motion / auto-updating content needs a user control (2.2.2, Level A).**
+  **Moving / blinking / scrolling** content that starts automatically, lasts **> 5 s**, and
+  runs alongside other content needs a visible **pause / stop / hide** (an auto-advancing
+  carousel is the classic case) — unless the motion is essential. **Auto-updating** content
+  (an auto-refreshing feed / dashboard) needs the same pause/stop/hide **or** a control over
+  its update **frequency**, unless the updating itself is essential — and it gets **no** 5 s
+  grace period. Distinct from the 3×/sec flash limit above (seizure risk; this is
+  attention / distraction).
 
 **Forms**
 - Every input has a programmatic label; errors are announced (not color-only),
@@ -232,10 +264,18 @@ production-like server).
 ## Reliability & performance (Core Web Vitals)
 
 - **LCP** (loading) ≤ 2.5 s, **INP** (interactivity — replaced FID in 2024)
-  ≤ 200 ms, **CLS** (visual stability) ≤ 0.1 at the 75th percentile.
-- No layout shift on the critical render path (reserve space for images/embeds);
-  no long tasks blocking input; images sized/lazy-loaded; fonts with
-  `font-display: swap`; bundle split and tree-shaken; ship less JS.
+  ≤ 200 ms, **CLS** (visual stability) ≤ 0.1 at the 75th percentile. That **p75 is a
+  field measurement** (CrUX / RUM / PageSpeed field data) — a green Lighthouse or a single
+  CI lab run is a lab snapshot, not the field p75, so "Lighthouse passed" is **not** "meets
+  Core Web Vitals" (the same lab-vs-field caveat this file already applies to automated a11y
+  scanners; state which was measured).
+- No layout shift on the critical render path (reserve space for images/embeds — and for
+  late-injected chrome like a consent banner or promo bar); no long tasks blocking input
+  (a synchronous third-party script — tag manager, chat/ads widget — is the usual cause);
+  images sized/lazy-loaded; fonts with `font-display: swap`; bundle split and tree-shaken;
+  ship less JS — and hold JS / image / font byte-weight to a **committed budget a CI check
+  fails on** when it regresses, the same size-ratchet discipline as
+  `skill-authoring-and-size.md` (never a silently-raised ceiling).
 - Degrades under slow/failed network; no infinite spinners.
 
 ## Security & compatibility
