@@ -281,6 +281,15 @@ rate), validity (schema/format/range). For each:
   false-merge in shared code), but state plainly whether it is currently reachable. A silent merge
   is the false-merge §3 warns against — bias to false-exclude (surface both, flag ambiguous) over
   collapsing two entities into one.
+- **A dedup/idempotency key must hash the *full* content, not a truncated display slug.** A
+  human-readable id built as `slug(source, key, text.slice(0, N))` — any id whose uniqueness
+  component is computed **after** truncation — collides for any two payloads that share the
+  first N characters (a common prefix, a boilerplate lead-in, a shared title stem). If that id
+  also gates dedup or an idempotency upsert, the second payload is silently dropped or
+  overwrites the first. Keep the readable slug and the **collision-resistant key separate**:
+  hash the full, untruncated content (or a natural unique key) for identity, and let the
+  truncated part be display-only. Test two inputs that differ only *past* the truncation point
+  and confirm both survive.
 - **Batch membership is an explicit batch id, never a shared timestamp.**
   Selecting "the latest batch/generation" via `WHERE col = max(col)` (or
   `ORDER BY col DESC LIMIT`-as-batch) is silently repointed by *any* single-row
@@ -288,6 +297,19 @@ rate), validity (schema/format/range). For each:
   generation/batch id and select on it (cross-ref A in `SKILL.md`).
 - **Machine-computed fields are owned by the pipeline** — never hand-edited.
   Reject any change or proposal that mutates them.
+- **A dual-registered entity has one write target *per field* — the store the read path treats
+  as authoritative.** When the same entity lives in two stores (a legacy CSV/table row and a
+  newer per-entity file/record), an edit tool must write each field to whichever store the
+  read/compile path actually reads for **that** field — not "whichever is easier" or "both."
+  Writing the legacy row for a field the reader now takes from the new file makes the edit a
+  **silent no-op** (the change never shows); writing both without a defined precedence lets them
+  **drift** into two disagreeing values. Map read-authority per field first, point the write
+  there, and test that an edit is observable through the read path. (This is the field-granularity
+  case of §5's artifact→consumer census — the target store *has* readers, just not for **this**
+  field — and the steady-state sibling of the dual-write family in `reliability-error-handling.md`
+  (cross-system) and `performance-db-cost.md` (same-table migration); distinct from §1's
+  write-authority arbitration over one field's *value*, and §12's train/serve data contract —
+  this is *which store* to write.)
 - **Never mass-close, expire, or delete records on a failed or partial upstream
   fetch.** Mutate status only when the refresh provably ran. Prefer insert-only
   / least-mutation with an explicit, documented edit allow-list; fail-fast on
@@ -660,13 +682,15 @@ rate), validity (schema/format/range). For each:
 ---
 
 **🚩 red flags**: unconditional `UPDATE`/upsert that ignores existing
-confidence; `merge` on a single fuzzy field; dedup on non-normalized keys;
+confidence; `merge` on a single fuzzy field; dedup on non-normalized keys; a dedup/idempotency
+key hashed over a truncated display slug;
 "latest wins" clobbering verified data; a metric scored `0` where it doesn't
 apply; failure types excluded from the denominator; absent/empty/false/list
 collapsed in completeness or CAS; freshness derived from `fetched_at`; a model
 call that returns a score or a boolean gate; weights inlined in code with no
 snapshot; a consumer/export that re-queries raw instead of the filtered set;
-written artifact with no reader; mass status-change on an upstream error; a read / JOIN / COUNT on a soft-delete table with no `deleted_at IS NULL`
+written artifact with no reader; an edit written to a store the read path does not
+read for that field; mass status-change on an upstream error; a read / JOIN / COUNT on a soft-delete table with no `deleted_at IS NULL`
 filter (deleted rows leak into results); a `UNIQUE` column on a soft-delete table with no
 partial-index carve-out (cannot re-create a soft-deleted value); a hard delete leaving dangling
 foreign keys on an unenforced/`SET NULL` FK, or an `ON DELETE CASCADE` that over-deletes
