@@ -53,7 +53,9 @@ failure paths that *produce* these signals are section F /
   **structured telemetry: counts and metadata, never the raw prompt/response payload** (redact per
   *Logs & traces* below; token *counts* need no prompt text). The **OpenTelemetry GenAI semantic
   conventions** (`gen_ai.*`) name these signals — adopt the convention **names** for portability,
-  but that spec is still at *Development* stability, so **pin no version and expect churn**. A
+  but that spec was **moved to a separate GenAI semantic-conventions repository** (the
+  `gen_ai.*` entries in the main registry are now marked *Deprecated*), so **pin no version and
+  re-fetch the current source before citing**. A
   silent, un-traced agent that errors or burns tokens with no signal is the finding (cross-ref the
   cost-and-value lens in `performance-db-cost.md`).
 
@@ -106,6 +108,26 @@ failure paths that *produce* these signals are section F /
   context must be injected into the envelope by hand (W3C `traceparent`) instead of
   riding an instrumented HTTP client; such a boundary that starts a fresh root span
   silently blinds the trace, and nothing fails until an incident needs it.
+- **Telemetry carries a stable resource identity, or per-cohort analysis silently
+  merges.** Every emitted signal (log, metric, span) should stamp *which service,
+  version, and instance* produced it and *which environment/tier* it belongs to — the
+  OpenTelemetry resource attributes `service.name` / `service.version` /
+  `service.instance.id` / `service.namespace` and `deployment.environment.name` (all
+  **Stable**), or an equivalent version+environment dimension. Distinct from the
+  request-identity family above (that is *which request*; this is *which emitter*), and
+  without it two things this skill demands elsewhere quietly break. A **canary's named
+  halt metric** (`release-engineering.md`) is uncomputable as canary-vs-baseline unless
+  the telemetry is partitioned by `service.version` (or a cohort tag) — you cannot
+  regress-check a signal you cannot split from the baseline's. And **multi-window
+  burn-rate SLO math** (`role-coverage.md`, SRE lens) corrupts when environments
+  collide in one backend — which is the **default**, not an edge case: the OTel spec
+  states `deployment.environment.name` "does not affect the uniqueness constraints
+  defined through the `service.namespace`, `service.name` and `service.instance.id`
+  resource attributes," so `service.name=frontend` in production and in staging
+  "MUST be considered to be identifying the same service," and staging errors land in
+  the production SLO unless an environment/namespace dimension separates them. **Verify:**
+  the pipeline sets a stable service+version+instance identity and an environment tag; a
+  canary or per-environment dashboard reading an unpartitioned metric is measuring a blend.
 - **Audit the logs a platform injects, not only your app's log statements.** A
   managed platform often runs an nginx / auth-proxy **sidecar** in front of each
   app that logs, on **every authenticated request**, per-request user PII and the full
