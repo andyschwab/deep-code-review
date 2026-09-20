@@ -243,6 +243,19 @@ swallows; and (3) **document the routing** so the orchestrator delegates merges 
 trial-and-error. **🚩** an auto-mode loop whose merge tick runs but lands zero PRs while sub-agent merges
 succeed — a classifier asymmetry, not a slow agent.
 
+## When no autonomous path exists, surface the human-run escape hatch up front — don't narrate "holding"
+
+Distinct from the delegation asymmetry above (where a sub-agent *can* act): when an agent is blocked from a
+gated terminal step (a merge, a deploy, a paid call) and has **no autonomous route** — its own call denied
+*and* delegation unavailable or also gated — a closed gate with verified work piled behind it is an **escalation, not a hold** (distinct from "holding is a valid response" below: that rule forbids *manufacturing* new work at a terminus; this governs what the *truthful status* must contain when banked-verified work is stacked behind the gate). The failure mode is looping "gated / holding" every scheduler tick while banked,
+green, mergeable work stays at **zero landed** — invisible to an operator who watches only the integration
+branch, so a done-but-unlanded agent reads as slow or idle. On the **first** denial, convert the block into a
+**one-action ask**: a single copy-pasteable command the human runs themselves (in host CLIs that provide a user-executed shell prefix — e.g. Claude Code's `! <command>` — that command executes as the *user*, outside the agent's own auto-mode classifier: a legitimate escape hatch, **not** permission-laundering, because the human issues it — the agent must not run the prefix itself or re-route the denied action through any agent-controlled path) or one GUI action, surfaced prominently and repeated, not
+buried under status ticks. **Track banked-verified vs landed**: when banked>0 and landed=0 for more than a tick
+or two, escalate the human ask rather than re-reporting the block. Never let "the gate is closed" become a
+steady state the agent narrates. **🚩** an unattended run reporting "holding / gated" across many ticks with a
+growing pile of verified-but-unlanded work and no single human-runnable unblock surfaced.
+
 ## A third gate-epistemology case: a correct, external, fleet-wide finding
 
 Principle 3 separates *the check could not run* (`UNVERIFIED` — never a pass, and
