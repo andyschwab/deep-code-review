@@ -26,10 +26,22 @@ path per line, blank lines and `#`-comments ignored. Default allowlist path is
 target repo can point it anywhere, e.g. a per-repo policy file it already
 tracks).
 
+STALE ENTRIES
+-------------
+An allowlist row is a reasoned exception to a *current* violation. Once the
+file it names is fixed (deleted, renamed, or no longer at a banned extension)
+the row is stale: it now exempts nothing, and the next PR that tightens this
+gate goes red for a violation count that no longer matches reality (see
+`references/gate-epistemology.md`, "a stale-allowlist-entry case"). This gate
+FAILS on a stale row rather than silently accepting it, so the PR that fixes
+the violation is forced to remove its own allowlist entry in the same change.
+
 EXIT CODES (fail-closed)
 -------------------------
-  0  no un-allowlisted tracked file matched a banned extension.
-  1  at least one un-allowlisted tracked file matched (each named on stderr).
+  0  no un-allowlisted tracked file matched a banned extension, and every
+     allowlist row still names a real, currently-tracked, banned-extension file.
+  1  at least one un-allowlisted tracked file matched, and/or at least one
+     allowlist row is stale (each named on stderr).
   2  the root is not a readable git repository (`git ls-files` failed) — the
      scan could not run at all, never a silent pass.
 
@@ -115,6 +127,7 @@ def run_gate(root: str, allowlist_path: str | None) -> tuple[int, list[str]]:
         resolved_allowlist = default_path if os.path.isfile(default_path) else None
     allow_paths = _load_allowlist(resolved_allowlist) if resolved_allowlist else set()
 
+    tracked_set = set(tracked)
     flagged: list[str] = []
     for f in tracked:
         if not _is_banned(f):
@@ -123,14 +136,25 @@ def run_gate(root: str, allowlist_path: str | None) -> tuple[int, list[str]]:
             continue
         flagged.append(f)
 
+    # A stale row: still listed, but the violation it named is gone (file
+    # deleted, renamed, or no longer at a banned extension). Fixing the
+    # violation without removing the row must not ship silently.
+    stale = sorted(p for p in allow_paths if not (p in tracked_set and _is_banned(p)))
+
     lines: list[str] = []
     for f in flagged:
         lines.append(
             f"BINARY TRACKED: {f} (extension-banned; route to an artifact store, do not commit)"
         )
-    if flagged:
+    for p in stale:
         lines.append(
-            f"binaries: {len(flagged)} git-tracked file(s) at a banned extension (see paths above)"
+            f"STALE ALLOWLIST ENTRY: {p} (no longer a tracked banned-extension file; "
+            "remove this row from binaries-allowlist.tsv in the same change)"
+        )
+    if flagged or stale:
+        lines.append(
+            f"binaries: {len(flagged)} git-tracked file(s) at a banned extension, "
+            f"{len(stale)} stale allowlist entr{'y' if len(stale) == 1 else 'ies'} (see paths above)"
         )
         return FAIL, lines
 
@@ -236,12 +260,32 @@ def _selftest() -> int:
         rc, lines = run_gate(nonascii, None)
         check("non-ascii-name-fires", rc, lines, FAIL, must_have=(f"BINARY TRACKED: {name}",))
 
+        # 7) an allowlist row for demo.png, but the fix deleted demo.png (or
+        #    renamed it away from a banned extension) without removing the
+        #    row -> FAIL, names it stale, points at the allowlist file. This
+        #    is the exact "fixed the violation, left the row" bug this gate
+        #    exists to catch (issue: allowlist rows must be removed in the
+        #    same change that fixes what they exempted).
+        stale = os.path.join(tmp, "stale")
+        _init_repo(stale)
+        os.makedirs(os.path.join(stale, "scripts"), exist_ok=True)
+        with open(os.path.join(stale, "notes.txt"), "w") as fh:
+            fh.write("hello world\n")
+        with open(os.path.join(stale, "scripts", "binaries-allowlist.tsv"), "w") as fh:
+            fh.write("# fixture allowlist\ndemo.png\n")
+        _sh(stale, "add", "notes.txt", "scripts/binaries-allowlist.tsv")
+        rc, lines = run_gate(stale, None)
+        check(
+            "stale-allowlist-entry-fires", rc, lines, FAIL,
+            must_have=("STALE ALLOWLIST ENTRY: demo.png", "remove this row"),
+        )
+
     if failures:
         print("SELFTEST FAILED:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("SELFTEST OK: 6/6 cases passed")
+    print("SELFTEST OK: 7/7 cases passed")
     return 0
 
 

@@ -492,6 +492,24 @@ makes the claim checkable, it does not replace the forge run.
   latest run, never a rollup (#1066). Its `--json` is the `Verify:` evidence, bounded by its `proves` field
   (never "the feature works").
 
+## "No defects found" names the exact surface reviewed and how that was confirmed to match the brief, or it is unverified
+
+A `Verify:` line (above) can name a real, specific surface and still be reviewing the **wrong** one: a similar-
+looking screen, a stale route, a different variant reachable from the same nav. The line looks compliant —
+command run, URL exercised, evidence attached — while the brief's actual target sat unreviewed the whole time.
+This is a sharper case than the generic surface-naming rule: naming *a* surface is not the same as naming *the
+brief's* surface, and a clean "no defects found" is the report most likely to hide the gap, because it produces
+no artifact (no diff, no finding) that a reader can cross-check against the wrong page. Observed: a lane reported
+a clean pass; a follow-up found it had audited a different page than the one named in its brief, and the actually-
+targeted page had unreviewed, pre-existing defects.
+
+**Rule: before reporting a result, a review lane confirms and states the exact route/URL/component reviewed and
+how it confirmed that matches the brief's target** — a visible marker unique to that surface (a heading, an id, a
+`data-testid`, a rendered value that could only appear there), never just "I navigated from the entry point and
+assumed I landed on it." **A "no defects found" report without that confirmation is treated as `unverified`, the
+same as a completion claim with no `Verify:` line** — not scored as a pass, and not distinguishable from "never
+looked."
+
 ## A fan-out review is not complete until every worker has joined — a partial aggregate can drop the tail's top-severity finding
 
 The relay section below governs the *provenance* of each number a lane reports; this governs whether the **set**

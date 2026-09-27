@@ -803,3 +803,30 @@ section adds only the **scope** dimension — which mechanism reaches subagents 
 all. **🚩 tell:** a fleet reporting a comms/review-method/cost default as universal
 on the strength of a session hook or a per-dispatch brief, with no check that a
 spawned subagent's own context actually carries it.
+
+## A secondary session under a conductor: unambiguous status, an isolated worktree for branch work, and confirmed silence before reclaiming
+
+A second agent session working the same repo **alongside** a conductor — not one of the conductor's own dispatched
+lanes, but a peer session someone else started — hits this file's full peer-coordination surface, plus two risks
+specific to sharing a single main checkout. One run hit all of: a shared file both sessions edited at once (the
+claim registry above exists for exactly this — claim before you write, above), an ambiguous status line misread as
+"done" when it meant "blocked," a pattern-matched process kill that took a sibling lane down with it (kill by
+owned pgid, never by name/pattern — `deep-code-review` `concurrency-shared-state.md`, above), and a branch checkout
+performed in the clone the other session was actively using.
+
+- **State unambiguously: "ready for review at `<PR>`" or "blocked on `<reason>`" — never a status word that could
+  read as either.** "Done," "finished," or "pushed" alone collapses two different states a reader must act on
+  differently (merge it vs. unblock it); name the PR URL for the first, the exact blocker for the second, every
+  time.
+- **Never `git checkout`/`switch` a different branch in a shared or main clone.** A checkout in the clone the
+  primary session is actively using leaves that session's working tree silently on the wrong branch the next time
+  it reads a file or runs a gate — a collision invisible until its output stops matching what it expects. Do every
+  branch's work in your own isolated worktree (`git worktree add`), never in a checkout another session might read
+  or write.
+- **Confirmed silence (above) governs reclaiming a peer's work, not only whether to keep posting to it.** The
+  confirmed-silence threshold above explicitly gates a *sender's* standing emit, not an *ownership* question — it
+  is not, by itself, license to treat a quiet peer's claimed item as abandoned. Apply the same bar before
+  reclaiming: a peer's silence is a **lead that its claim may be stale**, not proof the session terminated: check a
+  positive liveness signal (a new commit, a touched claim record, a live process) past the stated threshold before
+  reconciling the claim as dead (`dev-env-ownership.md`'s stale-claim reconcile — same bar, applied here to a peer
+  session rather than a dispatched lane).
