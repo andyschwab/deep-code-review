@@ -478,6 +478,12 @@ makes every peer claim at the same instant); this is the **preventive** fix both
   failed create **is** the collision signal, delivered at claim time to the loser — a real
   mutex, not an announcement. Starting a shared long-lived helper (watchdog, server) is the
   same claim: `scripts/serial_gate.py run --singleton` starts it once, adopting a live holder (#1078).
+  The same claim covers expensive shared work with **no file of its own** — a benchmark, a full
+  test-suite run, a data rebuild — where the temptation is to skip claiming because there's
+  nothing to lock: key the lock-dir by the measurement's own identity, not a path tied to any
+  file (`--lock-dir /tmp/bench-<target>.lock`), and pass `--build-id` to record who started it. A
+  second agent about to launch the same expensive measurement detects the live holder and
+  reuses/awaits its result instead of duplicating the run.
 - **A comment or a registry *row* is a fine place to record and read a claim, but not to
   *win* one.** Appending a row to a committed registry file has the same non-atomicity as a
   comment (two peers add a row, both push, the second merges — both rows land, neither create
@@ -861,3 +867,59 @@ performed in the clone the other session was actively using.
   positive liveness signal (a new commit, a touched claim record, a live process) past the stated threshold before
   reconciling the claim as dead (`dev-env-ownership.md`'s stale-claim reconcile — same bar, applied here to a peer
   session rather than a dispatched lane).
+
+## A forked/cloned agent inherits its parent's entire prior context — a narrower instruction given at fork time does not erase it
+
+Forking or cloning one agent's context to spawn a second — so the fork can work in parallel while
+sharing the first's accumulated understanding — carries every instruction the parent ever
+received, including earlier and broader ones the parent had already moved past. Handing the fork
+a new, narrower brief at fork time (do only X, explicitly not Y) does not overwrite that history's
+authority in the fork's own reasoning: a narrow instruction layered *on top of* a full inherited
+history does not erase what the history still says, so the fork can act on the older, broader
+brief and do Y anyway, with no error and no visible deviation in its own summary. Same shape as
+*a held or idle lane is resumed by any message* above (a stale plan resumes because nothing
+superseded it in what the agent re-reads), here at fork time instead of resume time.
+
+- **Write fork prompts as directives, not deltas.** State the fork's full current scope, and
+  explicitly name what from the inherited history no longer applies — an explicit
+  "ignore/supersede: `<X>`" line — rather than assuming a short new instruction outranks a long
+  history by default.
+- **Check the fork's actual tool/API calls, not its report.** A clean-looking summary is not proof
+  the old brief didn't leak through — the fork may simply not mention the extra thing it also did.
+  Spot-check its actual calls against the explicit prohibition afterward.
+
+**Test:** give a parent agent a broad instruction, then fork it with an explicit narrower
+instruction excluding part of that scope; confirm the fork's actual tool calls respect the
+exclusion, not just its final summary.
+
+## A shared-quota outage that stops the whole fleet needs a self-scheduled wake, worktree-based resume, and peer re-discovery — not just the live-lane backoff above
+
+`fanout-host-sizing.md`'s quota-recovery guidance (probe-based backoff, ramp not re-burst, brief a
+respawned lane from its worktree) assumes at least one process still has budget left to run the
+probe. A fleet sharing **one account** (or a shared quota/session pool) can hit a usage limit
+where **every** agent, including the orchestrator, is out of budget at once — nothing is left
+running to notice the limit lifted or to act on it.
+
+- **Self-scheduled wake, tied to the provider's stated reset time.** With no live process to
+  probe, recovery needs an external trigger — a scheduled job/agent that specifically fires itself
+  at or after the known reset time — rather than relying on a human noticing or a lane happening
+  to be reinvoked. This is a **floor**, not a replacement for the ground-truth probe check above:
+  once *something* wakes, it still runs one real, cheap check before declaring the fleet live
+  again, never blind resumption on the clock alone.
+- **Resume from the worktrees that were mid-flight, before dispatching anything new.**
+  In-progress work at the moment of the stoppage is not lost — it lives in per-lane worktrees with
+  commits already made locally. On wake, enumerate **every** known worktree/branch first
+  (uncommitted or unpushed committed work) and resume each, rather than starting fresh lanes that
+  duplicate it, or worse, abandoning committed-but-unpushed work as if it never happened. This
+  generalizes *brief a respawned lane from its worktree* above from a per-lane briefing step to a
+  **mandatory first sweep** across the whole fleet.
+- **Re-discover peers by asking, never by assuming a stable name survived the gap.** Peer agents
+  renamed, restarted, or re-instantiated during the outage are not necessarily reachable under
+  their old identifiers once work resumes. Actively re-establish who the current live peers are
+  (ask / list / re-announce) before addressing any message to a remembered identity — it may no
+  longer exist, or may now belong to someone else.
+
+**Test:** simulate an outage — stop a fleet mid-task with lane worktrees holding uncommitted work,
+advance the clock past the stated reset time, and confirm the recovery (a) triggers with no human
+action, (b) resumes the in-progress worktrees rather than starting duplicate lanes, and (c)
+re-discovers peer identities rather than sending to a stale, hardcoded name.

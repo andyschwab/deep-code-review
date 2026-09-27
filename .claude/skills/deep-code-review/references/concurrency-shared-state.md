@@ -58,6 +58,30 @@ special case.
   subscribes to, or a broker in front of the sockets — or pin each user's traffic to the one replica
   holding their socket with **sticky routing** (consistent-hash or session-affinity load balancing) so
   the single-process assumption becomes true by construction.
+- **A cross-request coordination primitive built from in-process state — a mutex, an
+  idempotency-key set, an event emitter — gives its guarantee on one replica only, and silently
+  gives none at all the instant a second instance joins.** Distinct from the connection-registry
+  bullet above (that primitive's *lifetime* is fine and only its *scope* is wrong): here the
+  primitive is a genuine single-process object — a language-level lock/mutex object, an in-memory
+  `Set`/`Map` of seen idempotency keys, an in-process `EventEmitter` — guarding something that
+  spans a network request. Two requests landing on two different replicas each acquire "the
+  lock" independently and race exactly as if there were no lock; the same idempotency key sent
+  twice to two replicas is treated as two first-time requests by each, so an "idempotent" claim
+  is false the instant traffic hits more than one instance; an in-process event bus never
+  delivers to a listener registered on another replica, with no error — that replica's consumers
+  silently receive a subset of events. None of this shows up in single-instance testing or in a
+  review that never asks "does this survive more than one process." **Detect:** any
+  lock/semaphore/mutex, in-memory dedup set/cache, or pub/sub built from a language-level
+  primitive guarding a critical section, request, or fan-out that can span instances — flag it as
+  a multi-replica hazard regardless of the current deployment's replica count, unless the
+  single-instance assumption is written down next to the primitive. **Fix:** move the
+  coordination to the shared store or a shared broker — a DB row/advisory lock or a lease record
+  with an expiry instead of an in-process mutex; an idempotency table keyed by the idempotency key
+  with a uniqueness constraint instead of an in-memory set; a real message queue or the store's own
+  change feed instead of an in-process emitter. **Test:** start two independent instances of the
+  same process against one shared store, drive the same idempotent request and the same
+  lock-guarded section from both at once, and assert exactly one side effect and correct
+  serialization across both — a single-process test cannot prove either property.
 - **Non-atomic read-modify-write** (`x = load(); x.f++; store(x)`) under
   concurrency needs a lock, atomic primitive, or single-writer queue.
 - **Memory visibility is a separate axis from atomicity — name the synchronization

@@ -1339,3 +1339,16 @@ fact).
 | Standard / source | URL | What was confirmed |
 |---|---|---|
 | W3C — WCAG 2.1, Success Criterion 2.1.2 No Keyboard Trap | https://www.w3.org/TR/WCAG21/#no-keyboard-trap | Verbatim, Level A: "If keyboard focus can be moved to a component of the page using a keyboard interface, then focus can be moved away from that component using only a keyboard interface, and, if it requires more than unmodified arrow or tab keys or other standard exit methods, the user is advised of the method for moving focus away." |
+
+## Verified by direct fetch (2026-09-28) — Next.js `instrumentation.ts` runtime-specific imports (`lang-js-ts.md`)
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| Next.js — Guides: How to set up instrumentation | https://nextjs.org/docs/app/guides/instrumentation | Verbatim, "Importing runtime-specific code": "Next.js calls `register` in all environments, so it's important to conditionally import any code that doesn't support specific runtimes (e.g. Edge or Node.js). You can use the `NEXT_RUNTIME` environment variable to get the current environment," with the exact example: `if (process.env.NEXT_RUNTIME === 'nodejs') { await import('./instrumentation-node') }` / `if (process.env.NEXT_RUNTIME === 'edge') { await import('./instrumentation-edge') }`. Confirms the positive-condition guard is the documented shape. |
+
+## Verified by direct fetch (2026-09-28) — hand-rolled `fetch` replacement footguns (`security-appsec.md`)
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| WHATWG Fetch Standard — null body status | https://fetch.spec.whatwg.org/#responses | Verbatim: "A null body status is a status that is 101, 103, 204, 205, or 304." Backs the check that a `Response` built for one of these statuses must be given a `null` body. |
+| Node.js API docs — `dns.lookup(hostname[, options], callback)` | https://nodejs.org/api/dns.html | Verbatim: the `all` option, "When `true`, the callback returns all resolved addresses in an array. Otherwise, returns a single address. Default: `false`." The callback's `address`/`family` params are "Not provided when `options.all` is `true`"; instead an `addresses` array of `{address, family}` objects is passed. Backs the check that a custom `lookup` callback must handle the `{ all: true }` array shape, not just a single address. |

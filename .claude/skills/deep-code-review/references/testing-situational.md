@@ -253,6 +253,30 @@ Read this when `testing-and-evals.md` routes here: a doc-comment promises a fall
   and delays visibility of real writes by a short window: it must report the dropped writes as failures
   for the right reason (auth, not "unknown"), must not misreport the delayed-visibility writes as lost,
   and must emit a non-zero dispatched count for every category driven.
+- **A single-process throughput ceiling measured on a shared, unrecorded host, with a client
+  timeout shorter than the server's real response time, produces a number nobody can trust.**
+  Three confounds hide inside a load-generator's own summary output: (1) a competing process on
+  the same host (a file/search indexer, a virus scanner, another test suite, a backup job)
+  consumes a large, variable share of CPU/disk during the run, so the measured number reflects
+  contention with that process rather than the service's real ceiling; (2) the run recorded no
+  system load average / CPU / IO alongside the throughput number, so nothing after the fact can
+  tell a low number caused by the service apart from one caused by a noisy neighbor; (3) the
+  load-generation client's **own** request timeout is shorter than the server's real (slower but
+  successful) response time for some requests, and those get counted as client-side timeouts
+  folded into the same failure bucket as genuine server-side 5xx errors — conflating "the client
+  gave up waiting" with "the server broke," opposite conclusions about where the bottleneck sits.
+  **Detect:** a throughput/benchmark result with no recorded load-average/CPU/IO for the run
+  window, no stated check that the host was otherwise idle, or a single "failure" count that
+  doesn't separate client-timeout from connection-error from server-error-code. **Fix:** confirm
+  the host is quiet (or explicitly report concurrent load as a caveat) before trusting a number;
+  set the client's timeout comfortably above the slowest acceptable successful response; break
+  failures down by cause. **Test:** run the identical, unchanged service twice — once with a
+  synthetic background CPU load competing, once without — and confirm the two runs report visibly
+  different load-average readings alongside their throughput, so a review rejects an unqualified
+  "before/after" throughput comparison whenever the load readings differ; separately, drive a
+  deliberately slow-but-successful server response through a client configured with a shorter
+  timeout and confirm it's reported under a distinct client-timeout category, never merged with
+  true server errors.
 
 ## A green run is a sample, not a proof, when the trigger is nondeterministic or the run is too costly to repeat
 
