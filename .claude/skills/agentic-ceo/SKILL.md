@@ -13,7 +13,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.1.1"
+  version: "1.1.2"
 ---
 
 # Agentic CEO — the suite's conductor
@@ -60,6 +60,9 @@ model: prototype / mvp / growth / mature), the **area** of the ask, and the
   (heavier at `prototype`/`mvp`).
 - "Build this change safely." → `agentic-delivery`, which loads
   `deep-code-review` at specification, review, and integrate.
+- "Set up a new machine / new fleet for delivery." → `agentic-delivery`'s
+  `operating-discipline.md` (the always-on layer's one entry point), read
+  before anything else.
 - "Is this code/PR sound?" → `deep-code-review` (add the infra/docs
   stage-evolution lenses when the ask is *how should this evolve for the
   stage*).
