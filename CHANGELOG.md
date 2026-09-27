@@ -3,7 +3,7 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
-## [1.465.0] — 2026-09-27
+## [1.466.0] — 2026-09-27
 
 ### Added
 - Client-gate-to-server-recheck authorization tracing (`appsec-design.md`): a client-side permission/state gate is UX, not a security boundary, until traced to the server endpoint(s) it calls and confirmed each independently re-derives the condition from server-trusted data, verified by calling the endpoint directly with the request the UI would never construct (#1202).
@@ -20,6 +20,24 @@ follows Keep a Changelog; versioning follows Semantic Versioning.
 - size-budget-raise: .claude/skills/deep-code-review/references/concurrency-shared-state.md 36269→37508 multi-backend TOCTOU re-check mirroring (#1204)
 - size-budget-raise: .claude/skills/deep-code-review/references/reliability-error-handling.md 41344→43449 multi-step move idempotency (#1205)
 - size-budget-raise: .claude/skills/deep-code-review/references/release-engineering.md 24755→26332 demo/sample-mode write isolation (#1208)
+
+## [1.465.0] — 2026-09-27
+
+### Added
+- `parity_differ.py` enforces the flag/option-set pin and the served-design-bundle checksum in the tool itself, not only in doctrine (`rendered-parity.md`, `migration-parity.md`): `--baseline`'s fingerprint now pins `style`/`min_pairs`/`style_min_pairs`, so a re-invocation under a different combination is `COULD_NOT_CHECK`, never silently scored or misread as a `REGRESSION`; new `--design-bundle-dir`/`--design-checksum` refuses to score against a served bundle whose files don't match a recorded `sha256sum`-format manifest (#1237).
+- `agentic-delivery`'s standing modes (terse reports, minimal-code bias) are enforced at the host's `SubagentStart` event: `scripts/subagent_start_inject.py` injects one project-owned house-defaults file into every newly-spawned subagent's context, dropping `MINIMAL-CODE:`-tagged lines for agent types in `HOUSE_MINIMAL_CODE_EXEMPT_TYPES` (design-port/design-alignment lanes) and stripping the tag for everyone else (`host-enforcement.md` "Standing modes at SubagentStart", `multi-session-coordination.md`) (#1218).
+- `scripts/host_probe.py` computes the fan-out spawn/hold predicate as one script: swap-trend and free-RAM-as-veto, the paired load+CPU-idle brake for `cpu`-lane types, free disk against a measured per-lane footprint, the live-lane cap, and a gate-latency canary (`--canary CMD --baseline-file F`, ~2x baseline holds) — prints `SPAWN`/`HOLD <reason>`/`COULD_NOT_CHECK <what>`, never a spawn on a could-not-check (`fanout-host-sizing.md` "Gate on free RAM and the swap trend") (#1220).
+- `model-tiering.md` "Route delivery lanes by work type and stage": routes a delivery lane's executor (not just review strictness) by work type — cheapest/low-effort for fully specified mechanical steps, mid for build/fix/audit, top/high-effort for security re-review and hard design decisions — with riders against tiering dedupe/classification work to the cheapest tier and against a per-lane stronger-model consult tool in a quota-bound fleet (spend multiplies by lane count) (#1221).
+- `agentic-delivery/references/operating-discipline.md`: the always-on operating layer's one entry point, one line per item pointing at the section that owns the depth (communication/minimal-code modes, hand-back caps, model/effort routing, fan-out probing, usage pacing, conductor rules, cross-session coordination, safety rules); `install.sh --with-operating-layer` writes a `settings.operating-layer.json.new` snippet (the `SubagentStart` injector, two-tier `SubagentStop` cap, subagent model pin) to merge by hand; `scripts/operating_selfcheck.py` reports each item `PRESENT`/`MISSING`/`COULD_NOT_CHECK` (#1222).
+- 4 new evals (deep-code-review, model-tiering work-type routing).
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/rendered-parity.md 13548→13604 flag-set pinning now enforced in the tool, not only doctrine (#1237)
+- size-budget-raise: .claude/skills/deep-code-review/references/migration-parity.md 30200→30426 bundle checksum now enforced in the tool, not only doctrine (#1237)
+- size-budget-raise: .claude/skills/agentic-delivery/references/host-enforcement.md 33086→35323 SubagentStart standing-modes section (#1218)
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 60687→61896 concrete SubagentStart mechanism + mechanical exemption carve-outs (#1218)
+- size-budget-raise: .claude/skills/agentic-delivery/references/fanout-host-sizing.md 45230→46155 host_probe.py mechanized-predicate paragraph (#1220)
+- size-budget-raise: .claude/skills/deep-code-review/references/model-tiering.md 13271→16070 route-by-work-type-and-stage section (#1221)
 
 ## [1.464.0] — 2026-09-27
 

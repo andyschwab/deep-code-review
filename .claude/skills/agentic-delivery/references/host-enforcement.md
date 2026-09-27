@@ -143,6 +143,47 @@ second, `matcher`-scoped `SubagentStop` entry with env overrides:
     "command": "HANDBACK_MAX_LINES=25 HANDBACK_MAX_CHARS=2000 python3 .claude/skills/agentic-delivery/scripts/handback_cap.py" }] }
 ```
 
+## Standing modes at SubagentStart, with per-type exemptions (a Host-enforced instance)
+
+A standing mode that must hold for the **whole fleet** — a terse reporting voice, a
+minimal-code bias, a cost rule — is enforced at `SubagentStart`, not only in agent
+definitions or per-dispatch briefs (`multi-session-coordination.md` **A standing
+house default must live where every subagent reads it**). `scripts/
+subagent_start_inject.py` reads one project-owned `HOUSE_DEFAULTS_FILE` and injects
+it via `hookSpecificOutput.additionalContext` into every newly-spawned subagent's
+context, before its first prompt — the same output field the profile switch below
+uses, for a different purpose (a fixed house-default file here vs. selecting between
+two named profile files there); install both if a project needs both.
+
+Exceptions are carved **mechanically, by agent type**, not left to each lane's memory:
+
+1. **Artifacts stay normal prose** — the injected file itself says so; this hook never
+   rewrites that line.
+2. **A design-port/design-alignment lane is exempt from the minimal-code bias
+   only, never the voice.** A line in `HOUSE_DEFAULTS_FILE` tagged `MINIMAL-CODE: `
+   is dropped for any `agent_type` listed in `HOUSE_MINIMAL_CODE_EXEMPT_TYPES`
+   (comma-separated; default empty) and injected with the tag stripped for every
+   other type.
+3. **A read-only research/review type gets a higher hand-back cap, not an
+   exemption** — already the two-tier `SubagentStop` rule above; this hook does not
+   touch the cap.
+
+```json
+"hooks": {
+  "SubagentStart": [
+    { "hooks": [{ "type": "command",
+        "command": "HOUSE_DEFAULTS_FILE=.claude/house-defaults.md python3 .claude/skills/agentic-delivery/scripts/subagent_start_inject.py" }] }
+  ]
+}
+```
+
+`scripts/subagent_start_inject.py` — **use this when** a house standard is drifting
+because a subagent spawned without it in its brief ran verbose or wrote more than
+requested. Stdlib-only; a missing `HOUSE_DEFAULTS_FILE`, an unreadable file, a
+non-`SubagentStart` event, or malformed stdin all print nothing and exit 0 —
+`SubagentStart` cannot block subagent creation at all, and this hook never tries to.
+`--selftest` proves the tag-strip/exempt/fail-open branches.
+
 ## Attended-to-unattended profile switch: one env var (a Host-enforced instance)
 
 Tightening every new spawn's profile for an unattended run — one-line

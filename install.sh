@@ -6,6 +6,7 @@
 #   ./install.sh --with-delivery [--with-critic] [TARGET_DIR]
 #   ./install.sh --full [TARGET_DIR]
 #   ./install.sh --with-gates [TARGET_DIR]
+#   ./install.sh --with-delivery --with-operating-layer [TARGET_DIR]
 #   ./install.sh --recommend [TARGET_DIR]
 #
 # Default (agent-agnostic): copies the REVIEW skill into every common skill
@@ -37,9 +38,10 @@
 #                         local hook that reruns the fast lint+unit tier
 #                         before every push (opt in yourself: git config
 #                         core.hooksPath .githooks -- never run by this
-#                         script). Prints (does not write) a SubagentStop
-#                         settings.json snippet for agentic-delivery's
-#                         handback_cap hook.
+#                         script). Prints (does not write) a settings.json
+#                         snippet for agentic-delivery's two-tier SubagentStop
+#                         handback_cap hook and its SubagentStart
+#                         subagent_start_inject hook.
 # Narrow:
 #   --minimal            only .claude/skills/ + AGENTS.md
 #   --claude-only        only .claude/skills/ ; skip AGENTS.md
@@ -92,8 +94,15 @@ on re-install). Overlay skills are opt-in.
                        push -- opt in yourself with `git config core.hooksPath
                        .githooks`, never run by this script); never overwrites an
                        existing file at any of these paths (writes .new instead).
-                       Prints (does not write) a SubagentStop settings.json snippet for
-                       agentic-delivery's handback_cap hook. Mechanism, not a skill.
+                       See --with-operating-layer for the SubagentStart/SubagentStop
+                       settings snippet. Mechanism, not a skill.
+  --with-operating-layer
+                       Write .claude/settings.operating-layer.json.new: the
+                       SubagentStart house-default injector, the two-tier
+                       SubagentStop handback_cap, and the subagent model pin
+                       (agentic-delivery/references/operating-discipline.md).
+                       Never overwrites an existing file at that path (writes
+                       .new-1, .new-2, ... instead). Requires --with-delivery.
   --recommend          Inspect TARGET and print a recommended pack; no writes
   -h, --help           Show this help
 
@@ -123,6 +132,7 @@ WITH_POSITIONING=0
 WITH_BUSINESS=0
 WITH_OUTPUT_SAFETY=0
 WITH_GATES=0
+WITH_OPERATING_LAYER=0
 RECOMMEND_ONLY=0
 POSITIONAL=()
 for arg in "$@"; do
@@ -142,6 +152,7 @@ for arg in "$@"; do
     --with-business) WITH_BUSINESS=1 ;;
     --with-output-safety) WITH_OUTPUT_SAFETY=1 ;;
     --with-gates) WITH_GATES=1 ;;
+    --with-operating-layer) WITH_OPERATING_LAYER=1 ;;
     --full) WITH_DELIVERY=1; WITH_CRITIC=1; WITH_COMMS=1 ;;
     --recommend) RECOMMEND_ONLY=1 ;;
     --with-cursor) echo "note: --with-cursor is default now; ignoring." >&2 ;;
@@ -151,6 +162,11 @@ for arg in "$@"; do
     *) POSITIONAL+=("${arg}") ;;
   esac
 done
+
+if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
+  echo "error: --with-operating-layer requires --with-delivery (writes an agentic-delivery snippet)" >&2
+  exit 1
+fi
 
 TARGET_DIR="${POSITIONAL[0]:-$(pwd)}"
 
@@ -372,16 +388,32 @@ automates them (they need forge/org privileges this script does not have):
   [ ] Run `python3 .claude/skills/deep-code-review/scripts/ci_cost_lint.py --gate .`
       before merging any new/changed workflow file.
 
-Optional (not written -- add yourself if wanted, and only useful alongside
---with-delivery): cap a subagent's chat handback via the SubagentStop hook in
-.claude/settings.json:
-  "hooks": {
-    "SubagentStop": [
-      { "hooks": [{ "type": "command",
-          "command": "python3 .claude/skills/agentic-delivery/scripts/handback_cap.py" }] }
-    ]
-  }
+Optional, only useful alongside --with-delivery: --with-operating-layer WRITES the
+two-tier SubagentStop hand-back cap, the SubagentStart house-default injector, and
+the subagent model pin as a settings.operating-layer.json.new snippet to merge by
+hand -- see agentic-delivery/references/operating-discipline.md (the always-on
+operating layer's one entry point) and its "Install and self-check" section.
 EOF
+fi
+
+if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
+  OPLAYER_SRC="${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"
+  if [[ ! -f "${OPLAYER_SRC}" ]]; then
+    echo "error: cannot find ${OPLAYER_SRC}" >&2
+    exit 1
+  fi
+  OPLAYER_DEST="${TARGET_DIR}/.claude/settings.operating-layer.json.new"
+  mkdir -p "$(dirname "${OPLAYER_DEST}")"
+  if [[ -e "${OPLAYER_DEST}" ]]; then
+    OPLAYER_N=1
+    while [[ -e "${OPLAYER_DEST}-${OPLAYER_N}" ]]; do
+      OPLAYER_N=$((OPLAYER_N + 1))
+    done
+    OPLAYER_DEST="${OPLAYER_DEST}-${OPLAYER_N}"
+  fi
+  cp "${OPLAYER_SRC}" "${OPLAYER_DEST}"
+  echo "wrote ${OPLAYER_DEST} -- merge its \"hooks\"/\"env\" keys into ${TARGET_DIR}/.claude/settings.json by hand, then verify with:"
+  echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py"
 fi
 
 upsert_agents_block() {
@@ -563,4 +595,7 @@ if [[ "${WITH_COMMS}" -eq 1 ]]; then
 fi
 if [[ "${WITH_GATES}" -eq 1 ]]; then
   echo "  gates:    dcr-gates.yml + scripts/dcr-gates.sh wired -- push/open a PR to run them"
+fi
+if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
+  echo "  operating-layer: settings.operating-layer.json.new written -- merge it, then run operating_selfcheck.py"
 fi

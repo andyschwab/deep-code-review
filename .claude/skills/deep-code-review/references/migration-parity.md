@@ -144,10 +144,12 @@ conflict to the owner; never settle it by re-aligning.
 comparison harness that fetches the pinned export from a shared dev server can be handed a stale
 or partially-copied bundle — an interrupted sync, an old cached build — silently skewing every
 score run against it: some sections compare against pages no longer in the current design, or
-against an incomplete asset set. Before trusting a run, checksum (e.g. md5) the served bundle's
-files against the source export and confirm the file count and hashes match. A mismatch is
-`COULD_NOT_CHECK` — the same discipline as a missing or unreadable side, above — never a scored
-comparison off an unverified bundle.
+against an incomplete asset set. Before trusting a run, checksum the served bundle's files against
+the source export and confirm the file set and hashes match. `parity_differ.py --design-bundle-dir
+<served dir> --design-checksum <sha256sum-format manifest>` enforces this in the tool itself: any
+file missing, extra, or hash-mismatched refuses the whole run before `--design`/`--app` are even
+read. A mismatch is `COULD_NOT_CHECK` — the same discipline as a missing or unreadable side,
+above — never a scored comparison off an unverified bundle.
 
 **Check order: foundation first, one gate — `parity_differ.py --workflow`.** Token **values**
 (`token_differ.py`), then primitives (open FOUNDATION/PRIMITIVE style rows block every section:

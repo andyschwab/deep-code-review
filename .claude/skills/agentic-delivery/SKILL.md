@@ -10,7 +10,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.465.0"
+  version: "1.466.0"
 ---
 
 # Agentic delivery
@@ -28,7 +28,13 @@ Persisted artifacts (code, PR bodies, ADRs, commits) are **normal English**;
 chat may be terse.
 
 **Read `INDEX.md` first** — every reference/script's trigger; open one only
-when its row matches, never blindly.
+when its row matches, never blindly. **On a new machine or a new fleet, read
+`references/operating-discipline.md` first of all** — the always-on layer's
+one entry point (communication/minimal-code modes, hand-back caps, model/
+effort routing, fan-out probing, usage pacing, conductor rules, cross-session
+coordination, safety rules), each a one-line pointer to the section that owns
+it, plus the `install.sh --with-operating-layer` settings snippet and
+`scripts/operating_selfcheck.py` self-check.
 
 ---
 
@@ -170,7 +176,12 @@ tier, lane cap, must-load section moved behind a trigger, fewer review hats),
 and whenever choosing a lane's model or reviewer by the paths it touches:
 `references/cost-quality-guardrails.md` — **read it when** a change cuts cost,
 a lane needs a cap or a `VERIFIED`/`UNVERIFIED` handback, or an escaped defect
-may trace to a cut. The one path-to-tier list is `templates/review-tiers.tsv`.
+may trace to a cut. The one path-to-tier list is `templates/review-tiers.tsv`
+(decides review strictness by path); which model tier and reasoning effort a
+lane's own *executor* runs at, by work type and stage, is
+`deep-code-review`'s `model-tiering.md` **Route delivery lanes by work
+type and stage** — the two lists are complementary, read both before
+dispatching a lane.
 
 **Operational readiness — incidents and continuity (bus factor = 1).** The
 binder that must exist *before* the system is on fire or the solo operator is
@@ -262,7 +273,7 @@ decide-from-probe rules: `references/fanout-host-sizing.md` **Environment probe
 procedure** (read it before sizing any fan-out); CI-offload:
 `references/merge-queue-worktrees.md`.
 
-- **Act-on predicate:** spawn another heavy lane only while free RAM >15% AND swap is not climbing (read it twice); CPU idle is secondary, `load1` never decides — commands and why: `references/fanout-host-sizing.md` **Gate on free RAM and the swap trend**.
+- **Act-on predicate:** spawn another heavy lane only while free RAM >15% AND swap is not climbing (read it twice); CPU idle is secondary, `load1` never decides — commands and why: `references/fanout-host-sizing.md` **Gate on free RAM and the swap trend**. Mechanized: `scripts/host_probe.py --lane-type {cpu,io,light} [--canary CMD --baseline-file F]` prints `SPAWN`/`HOLD <reason>`/`COULD_NOT_CHECK <what>`.
 
 ## Local environment (own it)
 
