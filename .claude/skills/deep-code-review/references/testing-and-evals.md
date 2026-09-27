@@ -40,6 +40,20 @@ explicit third choice), not which one this review prefers.
 - **End-to-end** — the actual pipeline/user flow, start to finish.
 - **Regression** — a failing test written **first** for every bug fixed (fails
   on the old code, passes after). No bug is "done" without one.
+- **A regression test's red-then-green transition must be run, never reasoned
+  about from the diff.** "This test would have failed on the old code" is a
+  claim about the pre-fix binary's behavior; reading the diff and picturing
+  the old path is not evidence of it — a different code path than the one
+  imagined, a mock/stub that absorbs the bug, a looser-than-intended
+  assertion, or a bug already fixed by an unrelated recent change can all make
+  a test that *looks* like it exercises the defect pass on the old code too,
+  silently. Before accepting a fix + regression test, require one of: the test
+  actually run against the pre-fix commit/branch, showing red-then-green; or,
+  when checking out the old code is impractical, a **temporary revert of only
+  the fix's logic** (never the test) with the test re-run to confirm red, then
+  the revert undone. A report or PR body that only asserts the test "would
+  have caught it," with neither run executed, is `unverified` — treat it the
+  same as an untested fix.
 - **Security** — injection (SQL/XSS/command), authz/IDOR, SSRF, and — for LLM
   code — prompt-injection/jailbreak, output-handling, and unbounded-consumption
   cases (see `security-ai-agents.md`).
@@ -166,7 +180,9 @@ against **both** a ground-truth **recall** bench and a **noise/precision** bench
 
 ---
 
-**🚩 red flags**: no test for the reported bug; tests that never fail; mocks
+**🚩 red flags**: no test for the reported bug; a regression test's
+red-then-green claimed from reading the diff, with no pre-fix run or
+fix-only-revert executed; tests that never fail; mocks
 that make the assertion trivial; a checker with no test of its own; `skip`/
 `xfail` hiding a broken case; hard-coded expected values with a comment like
 "update if it changes"; tests that hit the real network or real services; **tests

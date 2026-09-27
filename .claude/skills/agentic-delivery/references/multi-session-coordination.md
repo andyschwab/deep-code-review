@@ -787,6 +787,20 @@ Two operational riders:
   typically takes effect only on a **new** session, so already-running agents still
   need the explicit per-brief instruction as a bridge until they cycle. Keep both:
   the durable mechanism for reach, the brief for the transition.
+- **A held or idle lane is resumed by any message, not only an explicit
+  resume.** A lane on hold (a memory hold, a quota hold, a merge freeze) has
+  handed back and is idle; any message to it — including a broadcast meant for
+  running lanes — starts a new turn with its full context and last plan, so it
+  resumes work mid-hold. One run's conductor broadcast a new rule to every
+  lane, including two deliberately paused for memory recovery; both resumed
+  from their transcripts and started heavy work during the hold, costing two
+  more turns per lane to re-pause and briefly worsening the pressure the hold
+  existed to relieve. Route a new standing rule to held lanes through the
+  **shared rules file every lane re-reads when it starts or resumes**
+  (`project-state.md` **Resume protocol** step 1 — the durable record, not
+  scrollback), and message a held lane only when the intent is for it to act.
+  This rider governs *running* lanes only; a held lane's rule delivery is the
+  shared file above.
 - **Verify enforcement; a confidential fleet default stays local.** Confirm the
   injected ruleset actually appears in a spawned subagent's context before claiming
   the default is universal (a green gate is a floor). And a fleet default that ships

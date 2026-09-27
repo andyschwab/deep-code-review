@@ -3,6 +3,26 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.464.0] — 2026-09-27
+
+### Added
+- Regression-test proof discipline (`testing-and-evals.md`): a fix's regression test must show an executed red-then-green transition (a pre-fix run, or a fix-logic-only revert-and-rerun) — reading the diff and reasoning "this would have failed" is never sufficient (#1201).
+- Orchestration-layer verify-don't-trust (`parallel-audit.md` section 4): a lane's causal claim about a failure or a fix needs the same independent re-verification against actual evidence as a review finding before a conductor acts on it; a gate passed via an override/escape-hatch is a distinct, lower-trust status that must be disclosed, never folded into an undifferentiated "passed" (#1213).
+- Confirmed-merge gate on issue closing (`merge-operations.md` §6 continued): merge automation closes the linked issue only once the target branch's head commit is confirmed to contain the merged change (commit ancestry), never on "the merge command returned success" alone (#1214).
+- Held-lane message discipline (`multi-session-coordination.md` "Bridge in-flight agents"; `unattended-operating-mode.md` run-start checklist; `templates/lane-preamble.md`): any message resumes a held/idle lane with its full context, so a new standing rule reaches held lanes through the shared record they re-read on resume, never a broadcast; a run-start checklist item lists held lanes before any broadcast (#1219).
+- Attended-to-unattended profile switch (`host-enforcement.md`, a Host-enforced instance): one environment variable read by a `SubagentStart` hook selects the house-default profile file injected into every new spawn (#1219).
+- Default autonomous-run profile (`unattended-operating-mode.md` "What it composes"): an unattended grant carries terse chat/minimal-code/critical-work-only defaults without the owner restating them, propagated the same way as any other standing default and verified in a spawned subagent's own context; a decision that would otherwise wait on the owner is attacked by `idea-critic` before the reversible-choice default is taken, with only irreversible/shared-state/Human-gate items still parked (#1230).
+- 7 new evals (3 deep-code-review, 4 agentic-delivery, including the multi-lane held/running eval `1219` asks for).
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-and-evals.md 13412→14553 regression red-then-green discipline (#1201)
+- size-budget-raise: .claude/skills/deep-code-review/references/parallel-audit.md 37142→38548 causal-claim verification and override disclosure (#1213)
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 63549→64809 confirmed-merge close gate (#1214)
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 59672→60687 held-lane resume rider (#1219)
+- size-budget-raise: .claude/skills/agentic-delivery/references/unattended-operating-mode.md 20389→22306 default autonomous-run profile, held-lane roster (#1219, #1230)
+- size-budget-raise: .claude/skills/agentic-delivery/references/host-enforcement.md 31961→33086 attended/unattended profile switch (#1219)
+- Must-load ceilings re-pinned (`scripts/mustload-budgets.tsv`): `testing-and-evals.md`'s growth moved the Phase 0-2 mandatory floor `phase-floor-light` 28168→28453, `phase-floor-full` 36239→36524 (#1201)
+
 ## [1.463.0] — 2026-09-27
 
 ### Added

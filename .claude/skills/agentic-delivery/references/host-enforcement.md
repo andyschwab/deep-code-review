@@ -143,6 +143,23 @@ second, `matcher`-scoped `SubagentStop` entry with env overrides:
     "command": "HANDBACK_MAX_LINES=25 HANDBACK_MAX_CHARS=2000 python3 .claude/skills/agentic-delivery/scripts/handback_cap.py" }] }
 ```
 
+## Attended-to-unattended profile switch: one env var (a Host-enforced instance)
+
+Tightening every new spawn's profile for an unattended run — one-line
+handbacks, milestones-only chat, a tighter handback cap
+(`cost-quality-guardrails.md` §6, `unattended-operating-mode.md` **The default
+autonomous-run profile**) — should not mean hand-editing every lane's brief.
+Keep the profile itself as its own house-default file (for example
+`.claude/agentic-delivery-profile-unattended.md` next to an
+`…-attended.md`), and select between them with **one environment variable a
+`SubagentStart` hook reads** (for example `AGENTIC_DELIVERY_PROFILE=unattended`
+in `settings.json`'s `env` block, or exported before the run starts) — the hook
+injects the named file's contents into every newly-spawned subagent's context.
+Flipping the var reaches every **new** spawn immediately; it does not retune
+an already-running lane (the bridge-in-flight rider above still applies), and
+it never overrides the held-lane roster / no-broadcast-to-held-lanes rule —
+tightening the default profile is not authorization to message a held lane.
+
 ## Subagent model + cache-TTL pin (a Host-enforced instance, Claude Code)
 
 A CLAUDE.md line telling every subagent "default to the cheapest tier" is

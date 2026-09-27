@@ -5,6 +5,7 @@ default for this lane, not a suggestion.
 
 ## Identity & isolation
 - First command: `python3 .claude/skills/agentic-delivery/scripts/lane_guard.py --expect-branch <branch>`. Refusal → stop; hand back the `LANE_GUARD REFUSE:` line plus changed files.
+- Resuming after a hold or a pause: re-read the shared record/backlog file for any new standing rule before continuing prior work — a rule posted mid-hold lives there, not in chat.
 - One writer per worktree. Never bare `git stash` (stack is shared — use a WIP commit instead). Never `--no-verify`. Never force-push without an owner-authored grant on file.
 - Stacked on a parent lane not yet pushed: branch off its LOCAL ref (`git rev-parse <parent-branch>`), never poll the remote — the shared `.git` already sees it (#1152).
 

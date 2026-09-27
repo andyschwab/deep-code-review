@@ -61,6 +61,29 @@ The mode is not new machinery — it is the suite's existing gates run continuou
 - **`deep-code-review` = the review gate.** Independent of the builder at G6
   (`SKILL.md` Gates; `roles.md`).
 - **`agentic-delivery` = the gated delivery.** G2–G8 with the Human gates intact.
+- **The default autonomous-run profile — one grant, not a per-brief
+  restatement.** An unattended grant carries a standing profile so the owner
+  never restates it: terse chat/reasoning with persisted artifacts (code,
+  commits, PR/issue bodies, docs) always in normal prose — add
+  [caveman](https://github.com/JuliusBrussee/caveman) for the former — plus a
+  minimal-code bias for plumbing/fix/tooling lanes via
+  [ponytail](https://github.com/DietrichGebert/ponytail), **design-port lanes
+  exempt** (`README.md`); absolute-minimum chat output — no narration, state
+  changes/blockers/the result only, nobody is reading live
+  (`cost-quality-guardrails.md` §6 **Critical work only**). Propagated the
+  same way as any other standing default — baked into the agent definition or
+  a host/user-scope mechanism reaching every spawned subagent, never a
+  per-brief instruction alone — and verified the same way too: confirm a
+  spawned subagent's own context actually carries it before claiming the
+  profile is universal (`multi-session-coordination.md` **Enforce the
+  default**, whose "bridge in-flight agents" rider and reach test apply
+  unchanged here).
+- **A decision that would otherwise wait on the owner is attacked by
+  `idea-critic` before the reversible-choice default above is taken, not
+  defaulted blind.** Record the hat's verdict as the reason the default was
+  safe to take. Only a genuinely irreversible/shared-state action, or one a
+  Human gate blocks, still `--park`s for the owner — every other deferred
+  question gets the attack first, then the default.
 
 The **bounded-and-reversible spine** holds throughout: every gate **fails closed**
 (a gate that cannot run is `UNVERIFIED` / could-not-check, never a pass — `SKILL.md`
@@ -187,6 +210,10 @@ closed):
   ledger bullet).
 - **Concurrency cap** — sized from a live environment probe, not habit (`SKILL.md`
   **Environment probe**).
+- **Held-lane roster** — before broadcasting any new rule or status update, list
+  which lanes are currently held (a memory hold, a quota hold, a merge freeze);
+  do not message them — any message resumes a held lane with its full context
+  and last plan (`multi-session-coordination.md` **Bridge in-flight agents**).
 - **Wake model** — event-driven (task-notifications + a heartbeat), **no idle
   polling**; a monitor emits on transition only (`SKILL.md` **Conductor operating
   rhythm**; `unattended-trackers.md` **A monitor emits on state-transition or
