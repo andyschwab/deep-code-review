@@ -157,6 +157,46 @@ Which *changes* need the frontier tier plus an independent reviewer is decided
 by path, not by the dispatcher: `agentic-delivery`'s one tiers file
 (`templates/review-tiers.tsv`, gated by `tier_gate.py`) — doctrine in its
 `cost-quality-guardrails.md`. Review reads that file; never keep a second list.
+The two are complementary, not overlapping: **path decides review strictness**
+(the table above); **work type and stage decide the executor** — next section.
+
+## Route delivery lanes by work type and stage
+
+The mapping above routes *review* strictness by path (`agentic-delivery`'s
+`templates/review-tiers.tsv`, `cost-quality-guardrails.md`). It does not route the
+*executor* of a delivery lane, or say when reasoning effort should rise apart from the
+model tier. Route each lane by **work type and stage**, not by habit:
+
+| Work | Model tier | Effort |
+|---|---|---|
+| Fully specified mechanical steps: cleanup, applying a known patch, listings, done-sweeps, changelog fragments, a conflict-free rebase | Cheapest | Low |
+| Build, fix, and audit lanes (the default) | Mid | Medium |
+| Security reviews and security re-reviews of a fix; P0 concurrency or data-integrity fixes; classifying a failing gate as a real defect versus a harness artifact (`gate-epistemology.md`); hard design or architecture decisions | Top | High |
+| The most expensive or experimental tier | Never for routine lanes | n/a |
+
+Effort follows the **stage**, not the lane as a whole: low for a mechanical stage, high
+only for the verify/judge stage that decides pass or fail — the same effort-by-stage
+shape as the Independence step's "decide once, at high stakes" rather than every turn.
+
+Two riders:
+
+- **The cheapest tier is for fully specified steps only.** Anything needing matching or
+  judgment — deduplicating findings against an issue tracker, classifying a defect —
+  goes to the mid tier; any count a cheapest-tier lane reports ("posted N comments") is
+  checked against the system of record before it is used (a cheapest-tier dedupe lane
+  measured matching 13 of 23 findings to unrelated issues by keyword, and reporting
+  comments as posted that did not exist; a mid-tier lane found zero such comments).
+- **No per-lane consults to a stronger model in a quota-bound fleet.** Lever 6 above
+  (escalate to a stronger model for one hard decision) recommends a bounded consult —
+  but across N parallel lanes each consulting independently, that multiplies top-tier
+  spend by N, inverting the lever: one run measured parallel lanes' own consult calls
+  as the dominant top-tier spend, at roughly the cost of 3-4 mid-tier lanes per
+  consult. In a quota-bound fleet, omit the consult tool from each lane's own toolset
+  (host-enforced, `agentic-delivery`'s `host-enforcement.md` — a per-lane prompt
+  prohibition is a soft control); the conductor consults rarely, for a genuinely
+  high-stakes decision, never every lane for itself. Each subagent start also pays the
+  project's own instruction files, favoring fewer, longer-lived lanes and resuming an
+  existing worktree over spawning many short ones.
 
 ## Did the tiering work? — cost accounting
 

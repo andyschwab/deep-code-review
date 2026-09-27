@@ -390,7 +390,10 @@ Over an existing F its deltas vs this run are printed first; any delta (or an
 unreadable / other-`--style` F) leaves F as is and exits REGRESSION unless
 `--accept-regression` is given. F may not be the design, app, accept, or
 report path (usage error). Without `--write-baseline`, F is read: unreadable, malformed, or recorded with a different
-`--style` is COULD_NOT_CHECK; a section or item REMOVED, an item ADDED inside a
+`--style`/`--min-pairs`/`--style-min-pairs` is COULD_NOT_CHECK — the fingerprint pins the flag/option
+set that produced it (`rendered-parity.md`, "Pin the comparison harness's flag/option set"), so a
+re-invocation with a different combination is refused, not silently scored or misread as a
+REGRESSION; a section or item REMOVED, an item ADDED inside a
 baseline section, or a STYLE_CHANGED value is REGRESSION (8), listing only
 those deltas plus the design comparison's one-line verdict. A section new
 since the baseline is info. A control keyed by a stable identity
@@ -403,19 +406,30 @@ own exit (a design change the app never had stays MISMATCH) and prints
 `baseline: 0 new delta(s)`; under COULD_NOT_CHECK_CROP the deltas are
 appended and exit 9 stands.
 
+BUNDLE CHECKSUM (`--design-bundle-dir D --design-checksum F`)
+---------------------------------------------------------------
+Before any score, verify a served design bundle directory D against a `sha256sum`-format
+manifest F (`<hex>  <relpath>` per line, e.g. `sha256sum -C` output for the trusted source
+export — `migration-parity.md`, "Verify a served bundle is complete and current"). Any file
+missing, extra, or hash-mismatched refuses the whole run — COULD_NOT_CHECK, printed before
+`--design`/`--app` are even read; never a score off an unverified bundle. Both flags are
+required together.
+
 USAGE
 -----
   parity_differ.py --design <file> --app <file> [--accept <tsv> [--accept-rev REV]]
                    [--min-pairs N] [--style [--style-min-pairs N]] [--json]
                    [--baseline F [--write-baseline [--accept-regression]]] [--bands headings]
+                   [--design-bundle-dir D --design-checksum F]
                    [--workflow --design-tokens F --app-tokens F [--token-map F]
                     [--token-min-pairs N]] [--report F [--design-shots D] [--app-shots D]]
   parity_differ.py --selftest
 Public API for sibling scripts: `compare()` (the dict `--json` prints),
 `run_workflow()` (the same dict plus `workflow`), `write_report()`,
 `inventory_keys()` and `read_side()` (one side, never a verdict),
-`crop_problems()`, `band_starts()` (SECTION BANDS), and `fingerprint()` /
-`diff_baseline()` / `apply_baseline()` (BASELINE).
+`crop_problems()`, `band_starts()` (SECTION BANDS), `fingerprint()` /
+`diff_baseline()` / `apply_baseline()` (BASELINE), and
+`verify_bundle_checksum()` (BUNDLE CHECKSUM).
 """
 from __future__ import annotations
 
@@ -424,6 +438,7 @@ import base64
 import bisect
 import contextlib
 import functools
+import hashlib
 import html
 import importlib.util
 import io
@@ -2340,10 +2355,11 @@ def compare(design_path: str | None, app_path: str | None, accept_path: str | No
             "extra_sections": extra, "report": "\n".join(report)}
 
 
-_BASELINE_FORMAT = "parity_differ-baseline/1"
+_BASELINE_FORMAT = "parity_differ-baseline/2"
 
 
-def fingerprint(app_path: str | None, style: bool) -> dict | None:
+def fingerprint(app_path: str | None, style: bool, min_pairs: int | None = None,
+                style_min_pairs: int | None = None) -> dict | None:
     """The app side's inventory (+ style) fingerprint for `--baseline`; None without inventory.
 
     Per section, in order: `items` = every inventory key as a diff row prints
@@ -2360,6 +2376,10 @@ def fingerprint(app_path: str | None, style: bool) -> dict | None:
     design-system nav links sharing one placeholder-free `href` would
     otherwise let an unrelated pair of controls read as a "relabel" of each
     other. `data-parity-ignore` subtrees are already excluded by the parser.
+    `style`/`min_pairs`/`style_min_pairs` are recorded alongside the inventory —
+    the pinned flag/option set (`rendered-parity.md`, "Pin the comparison
+    harness's flag/option set") — so a later run under a different combination
+    is refused (`_flag_mismatch`), never scored or misread as a REGRESSION.
     """
     side = extract_side(app_path)
     if side is None or any(s["inventory"] is None for s in side):
@@ -2375,7 +2395,18 @@ def fingerprint(app_path: str | None, style: bool) -> dict | None:
                      "idents": {_show(i): i["ident"] for i in prepared
                                 if i.get("ident") and ident_counts[i["ident"]] == 1},
                      "styles": styles})
-    return {"format": _BASELINE_FORMAT, "style": style, "sections": secs}
+    return {"format": _BASELINE_FORMAT, "style": style, "min_pairs": min_pairs,
+            "style_min_pairs": style_min_pairs, "sections": secs}
+
+
+def _flag_mismatch(old: dict, style: bool, min_pairs: int | None, style_min_pairs: int | None) -> str | None:
+    """Describe drift between a `--baseline` file's pinned flags and this run's; None if none."""
+    diffs = [f"{name}={want!r}, this run {name}={have!r}"
+             for name, want, have in (("style", old["style"], style),
+                                      ("min_pairs", old.get("min_pairs"), min_pairs),
+                                      ("style_min_pairs", old.get("style_min_pairs"), style_min_pairs))
+             if want != have]
+    return "recorded with " + "; ".join(diffs) if diffs else None
 
 
 def _load_baseline(path: str) -> tuple[dict | None, str | None]:
@@ -2384,6 +2415,8 @@ def _load_baseline(path: str) -> tuple[dict | None, str | None]:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         ok = (data["format"] == _BASELINE_FORMAT and isinstance(data["style"], bool)
+              and (data["min_pairs"] is None or isinstance(data["min_pairs"], int))
+              and (data["style_min_pairs"] is None or isinstance(data["style_min_pairs"], int))
               and all(isinstance(s["id"], str) and all(isinstance(i, str) for i in s["items"])
                       and all(isinstance(k, str) and isinstance(v, str) for k, v in s.get("idents", {}).items())
                       and all(isinstance(el, str) and isinstance(props, dict) for el, props in s["styles"])
@@ -2481,19 +2514,90 @@ def _mark_relabel_accepted(rows: list[dict], accept_path: str | None, accept_rev
     return rows
 
 
+def _sha256_file(path: str) -> str:
+    """Hex sha256 of one file's bytes, read in chunks (never loads the whole file at once)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _bundle_manifest(root: str) -> dict[str, str]:
+    """`{relpath: sha256hex}` for every file under `root`, POSIX-separated relpaths."""
+    out = {}
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            out[rel] = _sha256_file(full)
+    return out
+
+
+def _load_checksum_manifest(path: str) -> tuple[dict[str, str] | None, str | None]:
+    """Parse a `sha256sum`-format manifest (`<hex>  <relpath>` per line); `(manifest, None)` or `(None, reason)`."""
+    manifest: dict[str, str] = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for lineno, line in enumerate(fh, 1):
+                line = line.rstrip("\n")
+                if not line.strip():
+                    continue
+                hexdigest, sep, relpath = line.partition("  ")
+                if not sep or len(hexdigest) != 64 or any(c not in "0123456789abcdef" for c in hexdigest.lower()):
+                    return None, f"malformed line {lineno} (want `<64-hex-char sha256>  <relpath>`)"
+                manifest[relpath] = hexdigest.lower()
+    except OSError as exc:
+        return None, f"unreadable ({type(exc).__name__})"
+    if not manifest:
+        return None, "empty"
+    return manifest, None
+
+
+def verify_bundle_checksum(bundle_dir: str, manifest_path: str) -> str | None:
+    """None if `bundle_dir`'s files match the recorded `sha256sum`-format manifest; else the refusal reason.
+
+    Checks the full file set and every hash — any file missing, extra, or
+    hash-mismatched refuses (`migration-parity.md`, "Verify a served bundle is
+    complete and current"): a served bundle that is stale or partially synced
+    is never trusted for a score, listed rather than guessed at.
+    """
+    if not os.path.isdir(bundle_dir):
+        return f"--design-bundle-dir {bundle_dir!r} is not a directory"
+    recorded, err = _load_checksum_manifest(manifest_path)
+    if err is not None:
+        return f"--design-checksum {manifest_path!r}: {err}"
+    try:
+        actual = _bundle_manifest(bundle_dir)
+    except OSError as exc:
+        return f"cannot read --design-bundle-dir {bundle_dir!r}: {type(exc).__name__}: {exc}"
+    missing = sorted(set(recorded) - set(actual))
+    extra = sorted(set(actual) - set(recorded))
+    changed = sorted(p for p in recorded.keys() & actual.keys() if recorded[p] != actual[p])
+    if not (missing or extra or changed):
+        return None
+    parts = [f"{len(v)} {label}: {', '.join(v[:5])}{', ...' if len(v) > 5 else ''}"
+             for label, v in (("missing", missing), ("extra", extra), ("changed", changed)) if v]
+    return "served bundle does not match the recorded checksum (" + "; ".join(parts) + ")"
+
+
 def apply_baseline(result: dict, app_path: str, path: str, style: bool, write: bool,
                    accept_regression: bool = False, accept_path: str | None = None,
-                   accept_rev: str | None = None, use_focus_gate: bool | None = None) -> dict:
+                   accept_rev: str | None = None, use_focus_gate: bool | None = None,
+                   min_pairs: int | None = None, style_min_pairs: int | None = None) -> dict:
     """Write or check a `--baseline` regression net on `compare`'s result; return it.
 
     Write (`write`): only a passing run (exit 0) is recorded — a failing run
     leaves the file untouched with a `baseline not written` line. Over an
     existing file its deltas vs this run are printed first; when there are
-    any (or the old file is unreadable or has another `--style`) the file is
+    any (or the old file is unreadable or pinned to a different
+    `style`/`min_pairs`/`style_min_pairs`, `_flag_mismatch`) the file is
     overwritten only with `accept_regression`, else it stays as is and the
     exit is REGRESSION (8). The write is a side effect; OSError propagates.
     Check: COULD_NOT_CHECK / CANNOT_COMPARE stand unchecked; an unreadable,
-    malformed, or other-`--style` baseline is COULD_NOT_CHECK; any new
+    malformed, or pinned-to-different-flags baseline is COULD_NOT_CHECK (never
+    scored, and never misread as a REGRESSION — a flag/option re-invocation is
+    not a regression, `rendered-parity.md`); any new
     REMOVED/ADDED/STYLE_CHANGED delta (`diff_baseline`) is REGRESSION (8) and
     the report lists ONLY those deltas plus a one-line design-comparison
     verdict — except under COULD_NOT_CHECK_CROP, which keeps its exit and
@@ -2510,12 +2614,12 @@ def apply_baseline(result: dict, app_path: str, path: str, style: bool, write: b
             result["report"] += (f"\nbaseline not written: the run did not pass (exit {code}); a baseline "
                                  "records a passing run only.")
             return result
-        fp = fingerprint(app_path, style)
+        fp = fingerprint(app_path, style, min_pairs, style_min_pairs)
         lines, gate = [], None
         if os.path.exists(path):
             old, err = _load_baseline(path)
-            if old is not None and old["style"] != style:
-                err = f"recorded with style={old['style']}, this run style={style}"
+            if old is not None:
+                err = _flag_mismatch(old, style, min_pairs, style_min_pairs)
             if err is not None:
                 gate = f"the existing file is {err}"
             else:
@@ -2543,10 +2647,11 @@ def apply_baseline(result: dict, app_path: str, path: str, style: bool, write: b
         result["report"] += "\nbaseline: not checked (the comparison itself could not run)."
         return result
     base, err = _load_baseline(path)
-    cur = fingerprint(app_path, style)
-    if base is not None and base["style"] != style:
-        err = f"recorded with style={base['style']}, this run style={style}; re-run alike or re-record it"
-    elif base is not None and cur is None:
+    cur = fingerprint(app_path, style, min_pairs, style_min_pairs)
+    if base is not None:
+        mismatch = _flag_mismatch(base, style, min_pairs, style_min_pairs)
+        err = f"{mismatch}; re-run alike or re-record it" if mismatch else None
+    if err is None and base is not None and cur is None:
         err = "the app side carries no inventory"
     if err is not None:
         result.update(exit_code=COULD_NOT_CHECK, verdict="COULD_NOT_CHECK")
@@ -3144,11 +3249,12 @@ def _selftest() -> int:
         "style-identity(counts,top,accepted-ignored,own-text)=ok lines(rows,heading,size-free,one-sided,invalid)=ok "
         "crop(app-leak-scoped,design-reference,plain-heading,moved-heading,no-anchor,shared-heading,workflow)=ok "
         "baseline(write,refuse,clean,removed,style,superset,design-change,masked,malformed,overwrite,path-guard,cli,"
-        "relabel-vs-removal,relabel-accepted)=ok"
+        "relabel-vs-removal,relabel-accepted,flag-set-min-pairs,flag-set-style-min-pairs,flag-set-write-refused)=ok"
         " bands(nested-vs-flat,starts,anchor-wins,moved,missing-start,renamed,bad-y,basis,no-y,json,cli)=ok"
         " protected(match,order-broken,overlap,missing-node,component-missing,bad-rect,dup-node,"
         "app-zero-area,design-zero-area,under-bands)=ok"
         " settled(unready-design,unready-app,ready-scored,marker-free-permitted,marker-free-required)=ok"
+        " bundle-checksum(match,changed,missing,extra,no-dir,needs-dir)=ok"
     )
     return 0
 
@@ -3948,6 +4054,24 @@ def _selftest_extras(tmp: str, write, check, failures: list, commit) -> None:
                         ("baseline-style-flag-differs", ["--baseline", vbase])):
         rc, out = cli(["--design", sd, "--app", twin_x, "--style", *argv])
         check(label, rc, out, COULD_NOT_CHECK, must_have=("baseline",))
+    # Pinned flag/option set (rendered-parity.md, "Pin the comparison harness's
+    # flag/option set"): --min-pairs/--style-min-pairs drift is refused the
+    # same way --style drift already was, never scored or misread as REGRESSION.
+    mpbase = os.path.join(tmp, "mpbase.json")
+    cli(["--design", sd, "--app", twin_x, "--style", "--min-pairs", "1", "--baseline", mpbase, "--write-baseline"])
+    rc, out = cli(["--design", sd, "--app", twin_x, "--style", "--baseline", mpbase])
+    check("baseline-min-pairs-differs", rc, out, COULD_NOT_CHECK, must_have=("min_pairs=1", "min_pairs=none"))
+    smpbase = os.path.join(tmp, "smpbase.json")
+    cli(["--design", sd, "--app", twin_x, "--style", "--style-min-pairs", "1",
+         "--baseline", smpbase, "--write-baseline"])
+    rc, out = cli(["--design", sd, "--app", twin_x, "--style", "--baseline", smpbase])
+    check("baseline-style-min-pairs-differs", rc, out, COULD_NOT_CHECK,
+          must_have=("style_min_pairs=1", "style_min_pairs=none"))
+    # A flag-set mismatch also gates the WRITE path (never silently re-pinned
+    # to a new flag combination without --accept-regression).
+    rc, out = cli(["--design", sd, "--app", twin_x, "--style", "--baseline", mpbase, "--write-baseline"])
+    check("baseline-write-min-pairs-differs-refused", rc, out, REGRESSION,
+          must_have=("min_pairs=1", "min_pairs=none", "--accept-regression"))
     # Re-recording over an existing baseline shows its deltas and needs
     # --accept-regression before it overwrites a regression.
     base2 = os.path.join(tmp, "base2.json")
@@ -3982,6 +4106,40 @@ def _selftest_extras(tmp: str, write, check, failures: list, commit) -> None:
         rc, _ = cli(["--design", sd, "--app", twin_x, *argv])
         if rc != USAGE_ERROR:
             failures.append(f"{label}: exit {rc}, want {USAGE_ERROR}")
+
+    # 4b. BUNDLE CHECKSUM (`--design-bundle-dir`/`--design-checksum`): a served
+    # design bundle that drifts from its recorded sha256sum-format manifest
+    # refuses before any score, never a comparison off an unverified bundle.
+    bundle = os.path.join(tmp, "bundle")
+    os.makedirs(bundle)
+    with open(os.path.join(bundle, "a.html"), "w", encoding="utf-8") as fh:
+        fh.write("<p>a</p>")
+    with open(os.path.join(bundle, "b.html"), "w", encoding="utf-8") as fh:
+        fh.write("<p>b</p>")
+    good_manifest = "\n".join(f"{h}  {p}" for p, h in sorted(_bundle_manifest(bundle).items())) + "\n"
+    manifest = write("bundle.sha256", good_manifest)
+    rc, out = cli(["--design", sd, "--app", twin_x, "--design-bundle-dir", bundle, "--design-checksum", manifest])
+    check("bundle-checksum-match", rc, out, MATCH)
+    changed_manifest = write("bundle-changed.sha256", re.sub(r"^[0-9a-f]{64}(?=  a\.html$)",
+                             "0" * 64, good_manifest, flags=re.MULTILINE))
+    rc, out = cli(["--design", sd, "--app", twin_x, "--design-bundle-dir", bundle,
+                   "--design-checksum", changed_manifest])
+    check("bundle-checksum-changed", rc, out, COULD_NOT_CHECK, must_have=("changed: a.html",))
+    missing_manifest = write("bundle-missing.sha256", good_manifest + "0" * 64 + "  c.html\n")
+    rc, out = cli(["--design", sd, "--app", twin_x, "--design-bundle-dir", bundle,
+                   "--design-checksum", missing_manifest])
+    check("bundle-checksum-missing", rc, out, COULD_NOT_CHECK, must_have=("missing: c.html",))
+    extra_manifest = write("bundle-extra.sha256",
+                          "\n".join(line for line in good_manifest.splitlines() if "b.html" not in line) + "\n")
+    rc, out = cli(["--design", sd, "--app", twin_x, "--design-bundle-dir", bundle,
+                   "--design-checksum", extra_manifest])
+    check("bundle-checksum-extra", rc, out, COULD_NOT_CHECK, must_have=("extra: b.html",))
+    rc, out = cli(["--design", sd, "--app", twin_x, "--design-bundle-dir",
+                   os.path.join(tmp, "no-such-bundle-dir"), "--design-checksum", manifest])
+    check("bundle-checksum-no-dir", rc, out, COULD_NOT_CHECK, must_have=("is not a directory",))
+    rc, out = cli(["--design", sd, "--app", twin_x, "--design-checksum", manifest])
+    if rc != USAGE_ERROR:
+        failures.append(f"bundle-checksum-needs-dir: exit {rc}, want {USAGE_ERROR}")
 
     # 5. #1168: a control's stable identity (href) tells a relabel from a
     # removal — CHANGED_LABEL is informational (never REGRESSION by itself),
@@ -4195,6 +4353,10 @@ def main(argv: list[str] | None = None) -> int:
                             "not only one that declares =\"0\" (#1165, capture-must-wait-for-data-settle)")
     parser.add_argument("--bands", choices=("headings",), help="crop sections by heading y-bands "
                         "(data-y; data-anchor wins) instead of data-section ancestors; see SECTION BANDS")
+    parser.add_argument("--design-bundle-dir", help="served design bundle root to verify against "
+                        "--design-checksum before any score (BUNDLE CHECKSUM)")
+    parser.add_argument("--design-checksum", help="recorded sha256sum-format manifest (`<hex>  <relpath>` "
+                        "per line) of the trusted source export; a served-bundle mismatch refuses to score")
     parser.add_argument("--json", action="store_true", help="print the full result as JSON (board posts)")
     parser.add_argument("--selftest", action="store_true", help="run the committed-fixture self-test")
     args = parser.parse_args(argv)
@@ -4226,6 +4388,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.baseline and os.path.realpath(args.baseline) in {
             os.path.realpath(p) for p in (args.design, args.app, args.accept, args.report) if p}:
         parser.error("--baseline must not be the --design, --app, --accept, or --report path")
+    if bool(args.design_bundle_dir) != bool(args.design_checksum):
+        parser.error("--design-bundle-dir needs --design-checksum (and vice versa)")
+
+    if args.design_bundle_dir:
+        reason = verify_bundle_checksum(args.design_bundle_dir, args.design_checksum)
+        if reason is not None:
+            result = {"exit_code": COULD_NOT_CHECK, "verdict": _VERDICT_NAMES[COULD_NOT_CHECK],
+                      "report": f"COULD_NOT_CHECK: {reason} — refusing to score against an unverified "
+                                "served design bundle (migration-parity.md, \"Verify a served bundle is "
+                                "complete and current\")."}
+            print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else result["report"])
+            return result["exit_code"]
 
     if args.workflow:
         result = run_workflow(args.design, args.app, args.design_tokens, args.app_tokens, args.token_map,
@@ -4239,7 +4413,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.baseline:
             try:
                 apply_baseline(result, args.app, args.baseline, args.style, args.write_baseline,
-                               args.accept_regression, args.accept, args.accept_rev)
+                               args.accept_regression, args.accept, args.accept_rev,
+                               min_pairs=args.min_pairs, style_min_pairs=args.style_min_pairs)
             except OSError as exc:
                 print(f"parity_differ: cannot write --baseline {args.baseline}: {exc}", file=sys.stderr)
                 return USAGE_ERROR

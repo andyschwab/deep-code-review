@@ -776,10 +776,27 @@ instructions**:
 - **Or a host/user-scope mechanism** that applies to the main loop **and** every
   subagent it spawns transparently (a user-scope config the host reads for every
   agent process), so the default is a property of the **environment**, not of each
-  prompt.
-- **Carve the exceptions into the definition** so the default never corrupts
-  deliverables — e.g. terse for reports/reasoning, but code, commits, PR/issue
-  bodies, docs, and human-facing data always in normal prose.
+  prompt. The concrete instance: a **`SubagentStart` hook**, which the host fires
+  for every spawned subagent (built-in types and custom agent names alike) and
+  which can inject `hookSpecificOutput.additionalContext` before that subagent's
+  first prompt (`host-enforcement.md` **Standing modes at SubagentStart**,
+  `scripts/subagent_start_inject.py`) — reach no per-dispatch brief can match,
+  since it fires regardless of which prompt spawned the subagent.
+- **Carve the exceptions into the definition, mechanically, not per-lane
+  memory:**
+  - **Artifacts stay normal prose** — terse for reports/reasoning, but code,
+    commits, PR/issue bodies, docs, security warnings, and human-facing data
+    always in normal prose.
+  - **A design-port/design-alignment lane is exempt from a minimal-code
+    bias**, never from the voice. Its job is to reproduce a reference
+    exactly; "simplest change that works" makes it approximate the design
+    with a generic component or drop states (`rendered-parity.md`'s goalpost
+    rule). Carve this out by **agent type**, in the mechanism (an
+    exempt-types list the hook reads), not by asking each lane to remember it.
+  - **A read-only research/review type gets a higher hand-back cap, not an
+    exemption** — exempt means uncapped, which reopens the cost problem on a
+    harness with no report file (`host-enforcement.md`'s `SubagentStop`
+    two-tier install, not restated here).
 
 Two operational riders:
 

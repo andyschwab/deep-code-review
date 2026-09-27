@@ -1327,3 +1327,9 @@ claimed GitHub platform default (the platform's own default percentages were
 only confirmed via a search-engine snippet in the prior research session, not
 a direct fetch — reconfirm before citing a specific default number as fetched
 fact).
+
+## Verified by direct fetch (2026-09-27) — `SubagentStart` hook input/output fields (`subagent_start_inject.py`)
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| Claude Code — Hooks reference | https://code.claude.com/docs/en/hooks | Verbatim, "SubagentStart input": "In addition to the common input fields, SubagentStart hooks receive `agent_id` with the unique identifier for the subagent and `agent_type` with the agent name that the matcher filters on." Verbatim, the JSON-output table for `SubagentStart`: "SubagentStart hooks can't block subagent creation, but they can inject context into the subagent... you can return:" a table with field `additionalContext`, description "String added to the subagent's context at the start of its conversation, before its first prompt." Common input fields table confirms `session_id`, `prompt_id`, `transcript_path`, `cwd`, `scratchpad_dir`, `permission_mode`; `hook_event_name` appears 38 times across the page's JSON examples (each hook event's own example payload), consistent with this repo's existing `stop_reminder.py` reading `data.get("hook_event_name")`. |

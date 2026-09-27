@@ -163,6 +163,17 @@ lanes doing the identical task costing differently for no difference in delivere
 
 ## Gate on free RAM and the swap trend — `load1` is not a reliable signal alone
 
+`scripts/host_probe.py` is this section's own mechanized form, computed by one script instead of
+re-derived from prose each session — swap-trend and free-RAM-as-veto below, the paired
+load+CPU-idle brake, free disk against a measured per-lane footprint, the live-lane cap, and a
+**gate-latency canary**: time a fixed cheap gate (e.g. the lint-only pre-commit tier on a clean
+tree) and compare it with its recorded idle baseline (`--canary CMD --baseline-file F`); above
+roughly 2x baseline, hold new heavy lanes regardless of what memory says — a machine can thrash on
+contention the memory counters read straight through (the sharpening below, 84% free RAM while
+nothing landed for hours). It prints one line, `SPAWN`, `HOLD <reason,...>`, or
+`COULD_NOT_CHECK <what>`; a could-not-check never authorizes a spawn, same as a hold. `--selftest`
+exercises every branch with injected readings, no real sleeping or OS calls.
+
 The predicate with its probe commands, as `SKILL.md` **Environment probe** routes it here:
 
 - **Free RAM and the swap *trend* are the primary gate — `load1` is not a

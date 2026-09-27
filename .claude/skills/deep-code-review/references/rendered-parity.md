@@ -143,13 +143,13 @@ report or a checked-in config), and treat a flag-set change as its own reviewabl
 silent side effect of re-invoking the harness with a different combination. Any before/after
 comparison must run the **identical** pinned set on both sides.
 
-This is a blind spot of `parity_differ.py`'s own `--baseline` regression net
-(`migration-parity.md`, BASELINE): the net fingerprints the **sections and style** a passing run
-produced, never the **flag/option set** that produced them — a REGRESSION (exit 8) reported
-against a re-run invoked with a different `--bands`/`--min-pairs`/`--style-min-pairs`/
-correspondence-table scope is a flag-set change wearing a regression's clothes, and the net alone
-cannot tell the two apart. Before trusting a REGRESSION or a score drop, confirm the two runs
-share one invocation, not just one baseline file.
+`parity_differ.py`'s own `--baseline` regression net (`migration-parity.md`, BASELINE) enforces
+this in the tool, not only in doctrine: the fingerprint pins `--style`/`--min-pairs`/
+`--style-min-pairs` beside the sections a passing run produced (`--bands` cannot combine with
+`--baseline` at all — a usage error), and a later invocation under a different combination is
+COULD_NOT_CHECK, never scored and never misread as REGRESSION. A correspondence-table scope
+change is outside the fingerprint's reach (no CLI flag governs it) — before trusting a REGRESSION
+or a score drop from any other harness, still confirm the two runs share one invocation.
 
 ## Classify every failing check REAL vs HARNESS-ARTIFACT — report a visible-parity score beside the raw score
 
