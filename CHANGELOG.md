@@ -3,6 +3,24 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.466.0] — 2026-09-27
+
+### Added
+- Client-gate-to-server-recheck authorization tracing (`appsec-design.md`): a client-side permission/state gate is UX, not a security boundary, until traced to the server endpoint(s) it calls and confirmed each independently re-derives the condition from server-trusted data, verified by calling the endpoint directly with the request the UI would never construct (#1202).
+- Shared-endpoint hardening scoping (`appsec-design.md`): moving a client-only check onto a shared server endpoint must be scoped to the caller/flow that needed it (enumerate every caller first) rather than blanket-applied, since the strictest caller's rule can break other legitimate callers' looser cases (#1203).
+- Client-vs-server-truth cross-reference (`frontend-security.md`): one bullet pointing to `appsec-design.md`'s new authorization-tracing procedure from the frontend/UX review angle (#1202).
+- Multi-backend TOCTOU re-check mirroring (`concurrency-shared-state.md`, DB / store TOCTOU): an ownership/permission re-check landed inside a locked write on one storage backend is unproven until confirmed on every backend implementing the same write path, verified by a concurrent-request test run against each backend the codebase ships (#1204).
+- Multi-step move (create-then-delete) idempotency (`reliability-error-handling.md`): a move/promote/publish operation built from create-then-delete needs an idempotency key or equivalent marker, a delete gated on confirmed create commit, and an idempotent create, verified by fault-injecting the response after create and confirming a retry lands exactly one copy (#1205).
+- Demo/sample-mode write isolation (`release-engineering.md`): every write must route through one shared guard that checks demo/sandbox mode, rather than trusting each call site to remember the check, verified by an instrumentation test asserting zero real-store writes across every write path with the mode active (#1208).
+- 5 new evals (deep-code-review), one per lesson above.
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/appsec-design.md 4000→6796 client-gate-to-server-recheck tracing + shared-endpoint scoping (#1202, #1203)
+- size-budget-raise: .claude/skills/deep-code-review/references/frontend-security.md 5656→6256 client-vs-server-truth cross-reference (#1202)
+- size-budget-raise: .claude/skills/deep-code-review/references/concurrency-shared-state.md 36269→37508 multi-backend TOCTOU re-check mirroring (#1204)
+- size-budget-raise: .claude/skills/deep-code-review/references/reliability-error-handling.md 41344→43449 multi-step move idempotency (#1205)
+- size-budget-raise: .claude/skills/deep-code-review/references/release-engineering.md 24755→26332 demo/sample-mode write isolation (#1208)
+
 ## [1.465.0] — 2026-09-27
 
 ### Added

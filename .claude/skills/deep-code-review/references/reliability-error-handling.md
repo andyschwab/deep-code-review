@@ -330,6 +330,32 @@ when the PR carries no query-performance change.
   compensation (`domain-w.md`), which sequences several operations — this is
   the atomicity of **one** write plus **one** publish.
 
+## Multi-step move (create-then-delete) — idempotent and retry-safe across an ambiguous failure
+
+A "move/promote/publish" operation built from two independent single-item calls — create at the
+new location/representation, then delete the original — shares the dual-write problem's
+non-atomicity above, but both steps are local writes (no cross-system publish), and the danger is
+specifically an **ambiguous** failure: the network or process dies after the create succeeds but
+before the caller learns the result. A naive retry then either re-creates a duplicate (two copies)
+or, assuming failure and re-attempting in the wrong order, deletes the original before confirming
+the copy exists (zero copies) — both are silent data loss/duplication the caller cannot detect
+from the retry alone, and both only surface under a slow network, timeout, or retry — exactly the
+production conditions hardest to reproduce in a quick manual test.
+
+- **Carry an idempotency key (or an equivalent "already moved" marker/deterministic target
+  identity)** so a retry after an ambiguous failure can detect prior partial completion instead of
+  blindly repeating the whole sequence — the idempotency-key convention above
+  (`concurrency-shared-state.md`), applied to a two-step sequence instead of one write.
+- **The delete step fires only once the create step is confirmed *committed*** (a successful
+  response or read-back, not just "request sent") — an unconfirmed create followed by an
+  unconditional delete is the zero-copies failure mode.
+- **The create step is itself idempotent** — the same key/target twice never produces two targets
+  (a conditional/uniqueness-guarded create, or a deterministic target identity a repeat attempt
+  overwrites harmlessly) — otherwise the retry itself becomes the duplicate-copy failure mode.
+- **Verify:** inject a fault that drops the response after the create succeeds but before the
+  delete runs, then trigger the client's normal retry; confirm exactly one copy exists afterward —
+  not zero, not two — repeated at every step boundary the sequence has.
+
 ## State-machine / lifecycle correctness — model transitions, guard them, leave no impossible or stuck state
 
 Any entity with a **status / lifecycle** (`order: pending→paid→shipped→refunded`, a

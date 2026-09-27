@@ -307,6 +307,26 @@ changes rendered UI; a "visual parity: passing" claim with no confirmation the j
 only that it exists somewhere in CI; two same-code runs of the suite producing a nonzero,
 undocumented diff (unpinned capture settings, not a real change).
 
+## Demo/sample-mode write isolation — one shared guard, not a per-call-site convention
+
+A "sample data"/demo-mode/sandbox toggle meant to be read-only or write-isolated from the real
+backing store is only as safe as its **weakest** write call site. Trusting each write path to
+remember "check the mode flag, redirect to scratch" is a convention, not a guarantee — one write
+path added later, or refactored, forgets the check and writes straight to the real store while
+still labeled "just a demo." Because the failure only surfaces when someone actually uses demo
+mode *and* later inspects the real store, it can go unnoticed for a long time, by which point real
+data may already be polluted with demo content (or demo actions may have mutated real records).
+
+- **Route every write through one shared write layer that itself checks the mode and
+  redirects/blocks** — never trust each call site to remember the check. A direct
+  client/ORM/API call made in a component or handler, bypassing the shared layer, is the finding
+  regardless of how correct that one call site looks in isolation.
+- **Verify:** a spy/instrumentation test asserts that, with demo mode active, zero write calls
+  reach the real store's client across **every** write path in the app — not just the ones the
+  author remembered to test. Enumerating write call sites and confirming each routes through the
+  shared layer is the same caller-census discipline `appsec-design.md`'s shared-endpoint scoping
+  check uses for authorization — applied here to a mode gate instead of a permission rule.
+
 ## Cross-references
 
 - `dependency-currency-and-upgrades.md` — the other half of domain K (build,

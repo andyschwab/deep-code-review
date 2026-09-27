@@ -229,6 +229,19 @@ Common in agent/tooling repos: JSON/YAML "DB" files, append logs, lockfiles.
   prepared to retry"; a MySQL/InnoDB deadlock-victim rollback) is an **expected, retryable** outcome
   whose retry unit is the **whole transaction** (re-run from `BEGIN` with fresh reads), not the one
   failed statement — retrying just the statement silently reintroduces the lost update.
+- **An ownership/permission re-check landed inside the locked write on one storage backend is not
+  proven fixed until it's confirmed on every backend that implements the same write path.** A
+  check-then-act ownership gate ("does this actor own/may this actor modify this record") moved
+  *inside* the same locked/transactional section that performs the write (the CAS/version-guard fix
+  above) closes the TOCTOU window — but only on the backend the fix actually touched. When a
+  codebase ships more than one storage adapter for the same operation (a primary datastore plus an
+  alternate one used in another environment or migration path — the same interchangeable-backend
+  shape as the perf/heap-leak blind spot below, here on a **security** guard instead of memory), a
+  re-check landed on the default/tested backend is easy to leave un-mirrored on the others, because
+  review and the test suite both exercise only the default path. **Verify:** fire two concurrent
+  requests that both pass the initial ownership check but where the first request's effect should
+  invalidate the second's authorization, and confirm the second is rejected — on **every** backend
+  implementation the codebase ships, not only the default one.
 
 ---
 
