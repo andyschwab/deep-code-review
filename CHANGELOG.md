@@ -3,6 +3,26 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.468.0] — 2026-09-28
+
+### Added
+- Change-history table with no reachable UI view (`ux-interaction.md`): recording who/what/when history to a table or append-only log does not satisfy an audit-trail requirement without a reachable control (a panel, tab, or expandable section) rendering it on the record's own surface, verified as a regular user of the running product, not by a database query or export (#1212).
+- Load/swarm harness failure classification (`testing-situational.md`): a load-generating harness's own failure modes (client-pool exhaustion, a harness-side concurrency bug, contended resources) can produce a signal indistinguishable from a real bug, requiring a direct store/API state check plus a decorrelated second pass, and a four-way classification (acked-but-missing / stored-but-not-shown / harness-misread / never-acked) before scoping any fix (#1215).
+- Load/soak/swarm harness authentication and read-back trust (`testing-situational.md`): a harness whose simulated writes aren't authenticated like a real client, or whose end-of-run existence check reads the store once with no retry, reports numbers that aren't real in both directions (false success on a silently-dropped write, false failure on a not-yet-visible one); requires real auth, a per-write store-level ack check, retry-with-backoff on the recheck, and a per-category dispatched-action count (#1224).
+- Fan-out cost calibration and lane-weighting (`model-tiering.md`): pacing a multi-agent run against a shared quota needs the estimate calibrated against at least one real quota-remaining reading per session, and a fan-out plan sized by summed tier-weighted lane cost, not lane headcount (#1217).
+- Shared-branch rebase/force-push detection (`branch-and-merge-hygiene.md`): validated commands to detect a branch is shared (more than one contributor's commits ahead of the target, or checked out in another worktree) before treating a rebase-then-force-push as safe; merge the base in instead (#1223).
+- Cosmetic ratchet-gaming split (`method-situational.md`): a size/line-count/complexity ratchet gate made to pass by mechanically splitting a file with no coherent internal boundary is a gamed proxy, not a fix; a genuine split follows a nameable seam and doesn't leave the two files tightly mutually coupled (#1223).
+- 7 new evals (deep-code-review), one per lesson above (two for the load/swarm harness lessons).
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-interaction.md 16270→16859 change-history-no-view bullet (#1212)
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 28808→32732 load/swarm harness classification + auth/read-back bullets (#1215, #1224)
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-and-evals.md 14553→14619 load/swarm harness routing line (#1215, #1224)
+- size-budget-raise: .claude/skills/deep-code-review/references/model-tiering.md 16070→16840 quota-calibration + lane-weighting bullets (#1217)
+- size-budget-raise: .claude/skills/deep-code-review/references/branch-and-merge-hygiene.md 32287→32879 shared-branch detection commands (#1223)
+- size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 22082→23334 ratchet-gaming-split bullet + routing line (#1223)
+- Must-load floor re-pinned (`scripts/mustload-budgets.tsv`): testing-and-evals.md's and branch-and-merge-hygiene.md's growth moved phase-floor-light 28453→28469 and phase-floor-full 36524→36688; no archetype row moved.
+
 ## [1.467.0] — 2026-09-27
 
 ### Added

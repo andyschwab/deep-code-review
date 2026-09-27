@@ -208,7 +208,18 @@ real, so a tiering choice is judged on evidence, not vibes. Track, per run:
   such (never claim a configuration you could not confirm).
 - **Usage & price** — input/output/cache/reasoning units *as reported*, plus tool
   charges; currency, unit, and the rate's source + date. Missing price is
-  `UNPRICED`, never zero; an estimate is not a billed total.
+  `UNPRICED`, never zero; an estimate is not a billed total. **Calibrate the
+  running estimate against one real quota-remaining reading at least once per
+  session** — a rough per-token guess drifts from actual burn fast once
+  retries, verbose subagent narration, or mixed model tiers enter the picture,
+  and the platform's own usage record is the only way to know actual burn; a
+  hit limit is a free calibration point (units at that moment = 100% of the
+  window).
+- **Weight a fan-out plan by lane tier cost, not lane count.** Sizing a fleet
+  "by headcount" undercounts whenever any lane runs a stronger/pricier model
+  tier — one top-tier consult can cost as much as several mid-tier lanes
+  combined (lever 6 above). Size the fleet by summed tier-weighted cost against
+  the budget, not by how many lanes are running.
 - **Budget** — aggregate and per-lane spent / reserved / unknown / remaining, and
   whether the bound is protocol-only or host-enforced (when the `agentic-delivery`
   overlay is installed, `host-enforcement.md` grades that).
