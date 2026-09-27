@@ -147,7 +147,13 @@ A control is a defect until its whole loop works in the running product, not jus
   the current value, not a silent overwrite — the same defect class as a write-only input, one level up.
   A value an agent or model proposed or wrote on a person's behalf is stamped in that history as
   AI-recommended, with its source, **at write time** — never merged in indistinguishably from a human
-  edit. An unstamped AI edit is a defect a reviewer can't see, not a shortcut.
+  edit. An unstamped AI edit is a defect a reviewer can't see, not a shortcut. A history table with no
+  reachable view does not satisfy this: rows an append-only log or audit table records but no surface
+  renders are invisible to the owners/reviewers/support staff the requirement exists for, even though a
+  developer could query them directly — "we write it to a table" is incomplete without "and it's
+  visible in the app." Verify as a regular user of the running product, not a query: open the affected
+  record and confirm a reachable control (a panel, tab, or expandable section) renders its history — a
+  raw export or an admin-only query does not count.
 - **Interaction *consistency*, not just completeness — the same class reacts the same everywhere.**
   Completeness (above) asks "does this control work?"; consistency asks "do all instances of this class
   react the same, and is every affordance reachable?" For each interactive class (button, row, card,

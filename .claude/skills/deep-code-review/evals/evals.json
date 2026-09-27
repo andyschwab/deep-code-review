@@ -6934,6 +6934,66 @@
         "States the fix requires awaiting the write before clearing, not clearing at submit time",
         "States failure must surface a visible error and preserve the input for retry"
       ]
+    },
+    {
+      "id": "ux-interaction-change-history-no-view",
+      "prompt": "A feature records field-level change history (who changed what, when, from what to what) into an append-only audit table on every edit. No page, panel, or tab in the product renders that history -- only a developer querying the table directly can see it. Does this satisfy an 'audit trail' requirement?",
+      "expected_output": "No -- an audit/history requirement exists so a human (an owner, reviewer, or support staff) can answer 'who changed this and why' without reading raw data (ux-interaction.md). Writing rows to a table satisfies the letter but not the bar: without a reachable control (a panel, tab, or expandable section on the record) that renders the history, it is invisible to the people it was built for. Verify as a regular user of the running product -- open the affected record and confirm a control shows its history -- not a database query or a raw export.",
+      "expectations": [
+        "States that recording history to a table/log alone does not satisfy an audit-trail requirement",
+        "Requires a reachable UI control (not a query, not an export) as the actual bar",
+        "States the verification method: open the record as a regular user and confirm a control renders the history"
+      ]
+    },
+    {
+      "id": "testing-situational-load-harness-failure-classification",
+      "prompt": "A load test simulating 200 concurrent users against an order-submission endpoint reports 12 failed writes. Before filing these as product bugs, what should be checked, and how many distinct outcomes should the investigation distinguish?",
+      "expected_output": "A load-generating harness has its own failure modes (client-pool exhaustion, a concurrency bug in the harness, a resource the harness contends on) that can look identical to a real bug (testing-situational.md). Before filing: check the actual backing store/API directly for the state the failure implies, and run a second decorrelated pass (different process, different timing) to see if it reproduces independently. The investigation should distinguish four buckets, not a binary real/harness verdict: acked-but-missing (the one real bug), stored-but-not-shown (a read-side bug), harness-misread (a test bug), and never-acked (an environment/harness issue) -- collapsing these into one 'harness-artifact' bucket risks fixing the wrong layer.",
+      "expectations": [
+        "States a load harness can produce false failure signals from its own concurrency/resource issues, not just the system under test",
+        "Requires checking the actual store/API state directly plus a second decorrelated pass before filing a bug",
+        "Distinguishes at least the acked-but-missing / stored-but-not-shown / harness-misread / never-acked buckets rather than a binary verdict"
+      ]
+    },
+    {
+      "id": "testing-situational-load-harness-auth-and-readback",
+      "prompt": "A load-test harness fires simulated votes at an API and counts a vote as successful whenever the HTTP response is 2xx. Its end-of-run check reads the vote count once, immediately after the run ends, to confirm the total. What's wrong with this harness, and how should it be fixed?",
+      "expected_output": "Two independent failure modes are invisible from the harness's own summary (testing-situational.md): (1) if the simulated clients don't authenticate like a real user, the backend may accept and silently drop the request before storage -- a false success counted as throughput; (2) a single immediate read at the end of the run can't distinguish a real write from one that just hasn't become visible yet (replication lag, async fan-out) -- a false failure. Fix: route every simulated write through the same auth path a real client uses; add a per-write (or batched) acknowledgment check against the actual store, not just 'the call didn't error'; retry-with-backoff before declaring a discrepancy; and emit a dispatched-action count per category so a silently-broken generator (zero dispatched) isn't mistaken for a true zero in the system under test.",
+      "expectations": [
+        "Flags unauthenticated simulated writes as a false-success risk (accepted/dropped without reaching storage)",
+        "Flags the single immediate read-back as a false-failure risk on any store with replication lag or async visibility",
+        "States the fix: real auth path, per-write store-level ack check, retry-with-backoff on the recheck, and a per-category dispatched-count"
+      ]
+    },
+    {
+      "id": "model-tiering-fanout-lane-weight-and-calibration",
+      "prompt": "A multi-agent delivery loop paces itself against a shared model quota by estimating cost per lane from a rough per-token guess, and plans its fan-out by counting how many lanes are running. Two lanes run on a top-tier model; the rest run mid-tier. What's wrong with this pacing approach?",
+      "expected_output": "Two separate gaps (model-tiering.md). First, an estimate drifts from actual burn once retries, verbose narration, or mixed model tiers enter the picture -- the only way to know real burn is to read the platform's actual usage records, calibrated against at least one real quota-remaining reading per session (a quota hit is a free calibration point). Second, sizing a fan-out 'by lane count' undercounts whenever any lane runs a stronger/pricier tier -- a top-tier lane can cost as much as several mid-tier lanes combined, so the fleet should be sized by summed tier-weighted cost against the budget, not by headcount.",
+      "expectations": [
+        "States that a per-token estimate must be calibrated against actual usage records, not trusted on its own",
+        "States that at least one real quota-remaining reading should validate the estimate per session",
+        "States that fan-out sizing must weight lanes by model-tier cost, not just count lanes"
+      ]
+    },
+    {
+      "id": "branch-hygiene-shared-branch-rebase-force-push",
+      "prompt": "A branch needs updating to bring it up to date with main. `git log` shows commits from two different author emails on the branch, and `git worktree list` shows it checked out in another directory. An agent proposes rebasing the branch onto main and force-pushing. Is this safe?",
+      "expected_output": "No (branch-and-merge-hygiene.md). Both signals mark the branch as shared: more than one author's commits on it, and another active worktree tracking it. Rebasing and force-pushing rewrites history another contributor's or worktree's checkout still depends on, breaking their next pull/push. The safe operation on a shared branch is merging the base into it (an ordinary merge commit), which stays append-only. Reserve rebase-then-force-push for a branch confirmed to be exclusively one's own and not checked out elsewhere; if a force is genuinely needed even there, use --force-with-lease, never --force.",
+      "expectations": [
+        "Flags the rebase+force-push as unsafe given the multi-author and multi-worktree signals",
+        "States the fix is merging the base into the branch (a merge commit), not rebase-then-force-push",
+        "Names --force-with-lease over --force for the case a force is genuinely needed on a confirmed-personal branch"
+      ]
+    },
+    {
+      "id": "method-situational-ratchet-gamed-by-cosmetic-split",
+      "prompt": "A module fails a CI line-count ratchet gate. The change splits the file into two roughly-equal-sized files with no clear naming or responsibility difference between them, and the gate now passes. Does this close the finding?",
+      "expected_output": "No (method-situational.md). The gate is a proxy for 'this module is too complex to safely maintain'; a mechanical split that only reduces the number the gate reads, with no coherent internal boundary and no naming/API rationale, satisfies the proxy without touching the substance -- a cosmetic bypass, not a fix. Check whether the split follows a real seam (a distinct responsibility the reviewer can name in one sentence) and whether the two resulting files still reference each other so tightly they must always change together (evidence there was no real boundary). A genuine split extracts a responsibility along a real interface.",
+      "expectations": [
+        "States that passing the ratchet via a mechanical split does not close the underlying complexity finding",
+        "Requires the split to follow a real, nameable seam/responsibility, not just hit the byte/line threshold",
+        "Flags tight mutual coupling between the two resulting files as evidence the split was cosmetic"
+      ]
     }
   ]
 }

@@ -1,6 +1,6 @@
 # Testing — situational checks
 
-Read this when `testing-and-evals.md` routes here: a doc-comment promises a fallback or several behaviors, a conflict resolution landed, property tests, fuzz targets, or a coverage figure carry the assurance, an equality assert hangs or times out, a test shells a real binary, the suite has flaky tests, retries, or fixed sleeps, a spawned job sends an alert, N sibling checks are copy-pasted, a store has interchangeable backends, a fix rests on one green run, a gate needs gitignored data, a diff loosens an assert-absent test, a lint gate is scoped to changed files or compares a warning count/cap, or a test reads a live system probe (memory, load average, clock, git log). Split from `testing-and-evals.md`; its taxonomy and core smells apply first, and bare "above" / "below" point within this file.
+Read this when `testing-and-evals.md` routes here: a doc-comment promises a fallback or several behaviors, a conflict resolution landed, property tests, fuzz targets, or a coverage figure carry the assurance, an equality assert hangs or times out, a test shells a real binary, the suite has flaky tests, retries, or fixed sleeps, a spawned job sends an alert, N sibling checks are copy-pasted, a store has interchangeable backends, a fix rests on one green run, a gate needs gitignored data, a diff loosens an assert-absent test, a lint gate is scoped to changed files or compares a warning count/cap, a test reads a live system probe (memory, load average, clock, git log), or a load/swarm/soak test harness reports a failure or a throughput/success count. Split from `testing-and-evals.md`; its taxonomy and core smells apply first, and bare "above" / "below" point within this file.
 
 ## Test smells that fire only on a matching target
 
@@ -215,6 +215,44 @@ Read this when `testing-and-evals.md` routes here: a doc-comment promises a fall
   wrong; here the fake is behaviorally correct, just more permissive than the real store) and from
   `data-quality.md` §6's dual-registered-entity rule (which store *owns* a field across two co-existing
   stores; this is one write through one of two implementations of the same store).
+- **A load/swarm test harness's own failure needs classifying before it's filed as a product bug.** A
+  harness simulating many concurrent users/agents has its own failure modes (client-pool exhaustion, a
+  concurrency bug in the harness, a resource the harness itself contends on) that produce a signal
+  indistinguishable from a real one without digging — treating every hiccup as a product bug wastes
+  investigation time, but assuming every load-test failure is "just the harness" can bury a real
+  concurrency bug that only shows up under load. Before filing: (a) check the actual backing store/API
+  directly for the state the failure implies — was data really corrupted/lost, or did the harness only
+  report a timeout on its own client — and (b) run a second, decorrelated pass (different harness
+  process, different timing) to see if it reproduces independently of the first run's conditions. Split
+  "not a real bug" further, since each bucket needs a different fix: **acked but missing** (app returned
+  success, record genuinely absent from the store — the one real bug class); **stored but not shown**
+  (the record IS in the store; a read path — cache, denormalized view, UI query — isn't surfacing it, a
+  read-side bug); **harness misread** (record correctly stored and readable; the harness's own check
+  looked at the wrong key/shard or read before an intended delay, a test bug); **never acked** (the write
+  never reached the app successfully — rejected, timed out, dropped in transit — an environment/harness
+  issue). Record which bucket applies, and re-run the decorrelated pass with that classification, before
+  scoping any fix — collapsing 2-4 into one "harness-artifact" verdict risks sending the fix to the wrong
+  layer (e.g. patching the write path for what's actually a stale-cache read bug).
+- **A load/soak/swarm harness that doesn't authenticate its writes, or checks the store only once,
+  reports numbers that aren't real — in both directions.** A harness hammering an app with simulated
+  writes (votes, submissions, orders) and counting "succeeded" by HTTP response alone hides two failure
+  modes invisible from its own summary: simulated clients hitting an endpoint **unauthenticated** (no
+  session/token) that the backend accepts or silently no-ops before storage — a false success reported as
+  throughput; and an end-of-run existence recheck that reads the store **once, immediately, with no
+  retry** — so a real write with any replication lag or async fan-out reads as "missing" and is
+  miscounted as a failure, a false failure. Both trace to the same root: the harness trusted a
+  transport-level signal (a response code, one immediate read) as a proxy for the durable, queryable
+  outcome that actually matters. Fix: route every simulated write through the same auth path a real
+  client uses; add a per-write (or batched) acknowledgment check against the actual store, not just "the
+  call didn't error"; make the end-of-run reconciliation retry-with-backoff before declaring a
+  discrepancy; and emit a **dispatched-action count broken out by kind** as a first-class harness output
+  — a category showing zero dispatched actions is almost always a harness bug (a filter, a wrong
+  fixture, a broken generator), not a true zero in the system under test, and a harness that doesn't
+  report per-kind dispatched counts can't be told apart from one that silently generated none of that
+  kind at all. Test the harness itself against a fake backend that silently drops unauthenticated writes
+  and delays visibility of real writes by a short window: it must report the dropped writes as failures
+  for the right reason (auth, not "unknown"), must not misreport the delayed-visibility writes as lost,
+  and must emit a non-zero dispatched count for every category driven.
 
 ## A green run is a sample, not a proof, when the trigger is nondeterministic or the run is too costly to repeat
 

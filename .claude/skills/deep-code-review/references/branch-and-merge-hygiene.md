@@ -233,7 +233,12 @@ continue in `merge-operations.md` (§6 continued); load it before recommending o
   integration-only work that widens the gap.
 - **Never rewrite shared history.** Rebase/force-push only branches that are personal and undepended-on. When
   a force is genuinely needed, it's **`git push --force-with-lease`** (refuses if the remote moved under you),
-  never `--force`. A rebase of a shared branch is a merge instead.
+  never `--force`. A rebase of a shared branch is a merge instead: **merge the base into the branch** (an
+  ordinary merge commit), which stays append-only and safe for anyone else's checkout — never rebase-then-force
+  a branch you don't know is exclusively yours. Detect "shared" before either operation: `git log --format='%ae'
+  <branch> ^<target> | sort -u | wc -l` > 1 means more than one contributor's commits are on it; `git worktree
+  list` shows every other checkout on this machine, and a forge's compare/PR view shows commits pushed from
+  elsewhere. Either signal means treat the branch as shared — merge the base in, don't rebase and force.
 - **Deleting a branch does not scrub its objects.** A branch that ever carried a **secret or PII** isn't
   remediated by deleting it — the objects remain reachable on the remote until GC/forge cleanup, and clones
   already have them. The remediation is **credential rotation** (and history purge / forge support), not

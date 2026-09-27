@@ -1,6 +1,6 @@
 # Review method — situational checks
 
-Read this when `method.md` routes here: a gate verdict is disputed, a green, CI status, re-run, or coverage figure is cited as evidence, a gate changed in the diff, a finding is carried forward, the target has a suppression ratchet, gates run per lane, a finding must be reproduced, local and CI disagree, the target is containerized, native, or built against an exported reference, or a premise claims something is missing or broken. Split from `method.md`; bare "above" / "below" cross-references point within this file, and every other method rule stays in `method.md`.
+Read this when `method.md` routes here: a gate verdict is disputed, a green, CI status, re-run, or coverage figure is cited as evidence, a gate changed in the diff, a finding is carried forward, the target has a suppression ratchet or a size/line-count/complexity ratchet a change passes via a file split, gates run per lane, a finding must be reproduced, local and CI disagree, the target is containerized, native, or built against an exported reference, or a premise claims something is missing or broken. Split from `method.md`; bare "above" / "below" cross-references point within this file, and every other method rule stays in `method.md`.
 
 **Phase 1 — gate disputes and target-shape preflights.**
 
@@ -214,6 +214,19 @@ Read this when `method.md` routes here: a gate verdict is disputed, a green, CI 
   (`skill-authoring-and-size.md`). **Not** the phantom-contract case
   (`testing-situational.md`: a doc-comment naming a branch the code **never**
   implemented — never true); here the comment **was** true and drifted.
+- **A size/line-count/complexity ratchet made to pass by a cosmetic split is not a fix — it's the
+  proxy gamed.** The gate is a stand-in for "this module is getting too complex to safely maintain";
+  answering it by moving text around the threshold (one file mechanically split into two
+  roughly-equal halves with no coherent internal boundary, or a threshold-tripping block extracted
+  verbatim into a new file with no naming/API rationale) satisfies the number while leaving the real
+  problem, and the real problem, in place. Detect it by reading the split for a **real seam** — a
+  distinct responsibility or sub-component the reviewer can name in one sentence — and by checking
+  whether the two resulting files still reference each other so tightly they must always change
+  together (evidence the split followed no boundary at all). A genuine split extracts a responsibility
+  along a real interface; a cosmetic one only ever shrinks the number the gate reads. Same family as
+  the suppression-ratchet rule above (a gate proving only "the enumerated check passed," never that
+  its underlying condition improved) — distinct axis: there the proxy is a stale-but-repeated reason,
+  here it's a number satisfied without the substance it stands for.
 - **Lanes that pass in isolation do not clear their union.** Per-module,
   per-lane, or per-flag gates each green on their own say nothing about the
   integrated path they compose: a regression can live only in the combination —
