@@ -63,6 +63,21 @@ that was populated and has since been **drained to zero** is different — that 
 that reached zero over time rather than a baseline that was always empty. Distinguish the two before scoring a
 zero count: `UNVERIFIED` for never-populated, pass for drained-with-history.
 
+## Principle 3, a stale-allowlist-entry case — the PR that fixes an allowlisted violation removes its own row
+
+A ratchet or allowlist file records a **currently-known** violation so a gate can go green while a backlog is
+worked down over time. Fixing the violation (deleting the offending file, renaming it, patching the code) without
+removing its row leaves the gate expecting a violation that no longer exists. That row is now `UNVERIFIED` wearing
+an exemption's clothes — principle 3's *check could not run* case, except here the row itself is the thing that
+can no longer be confirmed. Nothing breaks **today**: the un-exempted check still passes. It breaks the moment
+anything re-triggers strict counting on the same gate (a stricter mode, an unrelated later cleanup) — the count
+now mismatches reality, and the PR that gets blamed is whichever one tripped the recount, not the one that left
+the stale row. **Rule: a PR that fixes an allowlisted item removes that item's row in the same change; a gate
+that supports it also fails (or warns) when a row names a violation that can no longer be found**, so a missed
+removal is caught at the fixing PR, not at some unrelated later one. Shipped instance:
+`deep-code-review`'s `scripts/binaries_gate.py` treats a `binaries-allowlist.tsv` row for a file that is no
+longer tracked, or no longer at a banned extension, as a `STALE ALLOWLIST ENTRY` failure, not a silent exemption.
+
 ## Principle 3, an unmeetable-locally case — a check no local environment can run is an explicit logged skip, not a silent pass or an infinite block
 
 Some checks a gate would like to run are genuinely **not runnable in the environment doing the verifying** — "a

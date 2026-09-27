@@ -593,6 +593,25 @@ else
   record 1 "binaries: the real repo has no un-allowlisted git-tracked banned-extension file"
 fi
 
+# Stale allowlist row: demo.png is named in scripts/binaries-allowlist.tsv but
+# was never committed (the fix that removed it forgot to remove its row).
+# FIRES, names the row, points at the allowlist file -- the same PR that
+# fixes an allowlisted violation must drop that violation's row (#1198).
+binstale="$WORK/binaries-stale"
+mkdir -p "$binstale/scripts"
+git -C "$binstale" init -q
+printf 'hello world\n' >"$binstale/notes.txt"
+printf '# fixture allowlist\ndemo.png\n' >"$binstale/scripts/binaries-allowlist.tsv"
+git -C "$binstale" add notes.txt scripts/binaries-allowlist.tsv >/dev/null 2>&1
+
+gate "$GATES" binaries "$binstale"
+if [ "$GATE_RC" -ne 0 ] \
+  && grep -q 'STALE ALLOWLIST ENTRY: demo.png' "$WORK/last.log"; then
+  record 0 "binaries: FIRES on a stale allowlist row for a fixed violation (planted RED)"
+else
+  record 1 "binaries: FIRES on a stale allowlist row for a fixed violation (planted RED)"
+fi
+
 # ---------------------------------------------------------------------------
 # mustload — frozen per-archetype MUST-LOAD token-est ceilings, parsed live
 # from a fixture SKILL.md's own "Archetype -> load map" table (never the real

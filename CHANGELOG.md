@@ -3,6 +3,19 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.462.0] — 2026-09-27
+
+### Added
+- Review lane target confirmation (`verification-handback.md`): a "no defects found" report is unverified unless the lane states the exact route/URL/component reviewed and a visible marker confirming it matches the brief's target, not a navigation assumption (#1200).
+- Stale-allowlist-entry doctrine and gate (`gate-epistemology.md`; `deep-code-review`'s `binaries_gate.py`): a PR that fixes an allowlisted violation must remove its own row in the same change; `binaries_gate.py` now fails on a `binaries-allowlist.tsv` row naming a file that is no longer tracked or no longer banned (#1198).
+- Secondary-session-under-a-conductor doctrine (`multi-session-coordination.md`): an unambiguous "ready for review at `<PR>`" vs "blocked on `<reason>`" status grammar, never a checkout of another branch in a shared/main clone, and confirmed silence (not elapsed time) before reclaiming a peer's claimed work (#1199).
+- 3 new evals (agentic-delivery); one `test-ci-gates.sh` case and one `binaries_gate.py` selftest case (7/7).
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/agentic-delivery/references/gate-epistemology.md 9016→10450 stale-allowlist-entry case (#1198)
+- size-budget-raise: .claude/skills/agentic-delivery/references/verification-handback.md 53801→55340 review lane confirms target surface (#1200)
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 57243→59672 secondary session under a conductor (#1199)
+
 ## [1.461.0] — 2026-09-25
 
 ### Added
