@@ -114,3 +114,17 @@ measurable"** (an honest empty state, per *Every data state* in `product-ux-qual
 - **🚩** a `%-complete` / grade / progress bar with no measured current value (a fabricated "done"); an
   attainment number the pipeline can't substantiate rendered instead of an "awaiting reading" state or a
   coverage ("N of M measurable") metric.
+
+## A hardcoded count badge that reads as live data is a release blocker, not a nit
+
+A count badge intended to show a **live, computed** number — how many people are viewing something, how many
+are online, a rolling activity count, an "as of"/"last updated" timestamp — sometimes ships with the literal
+placeholder value used during design/prototyping, because nobody wired it to a real data source and nobody
+flagged it before release. It never crashes and never looks obviously wrong (a static "3 people editing" is
+plausible on any given day), so it can persist a long time; the defect is not cosmetic, it is a **factual
+misrepresentation** shown to real users as measured, current data — the presence/social-proof sibling of the
+no-honest-reading rule above, same family, different surface (a badge, not a bar/grade). **🚩**: grep the
+render path for a numeric or count-shaped literal near words like "now"/"online"/"active"/"editing"/"viewing",
+or a static "as of"/"last updated" string; for each hit, trace whether it originates from a data
+fetch/computation or is a literal in the component/template — a literal with no upstream data source is the
+finding, and blocks release like any other data-honesty defect, not a style pass.

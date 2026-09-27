@@ -259,6 +259,18 @@ consequence, so it is ruled on here too.
   the section open or show a "N matches inside" count on the collapsed ancestor. Test the combined
   state: a match nested inside a manually-collapsed ancestor must be visible or explicitly signposted,
   not merely present in the DOM with an invisible class.
+- **A theme/dark-mode stylesheet scoped to a data attribute or class is only conformant once checked against
+  where the toggle actually writes it, not merely that the CSS rule and the toggle both exist.** A theme is
+  commonly implemented by setting `[data-theme="dark"]` (or a class) on some DOM ancestor and scoping CSS to
+  that selector; the toggle, its stored state, and the CSS rules can each be individually correct while the
+  attribute lands on an ancestor the CSS never matches — a wrapper introduced later, a portal rendering
+  outside the themed subtree, a component moved during a refactor. The feature reads as implemented (the CSS
+  exists, the toggle exists, the state flips), and the rendered page never changes appearance. Unit-logic
+  tests passing is not this working — **exercise the real control, not the logic** (the dead-controls rule,
+  `ux-interaction.md`): drive the toggle in a running instance and inspect **computed styles** on a themed
+  element, not just presence of the attribute. Detect: trace where the toggle writes its attribute/class in
+  the live DOM and confirm that node is an ancestor of every element the theme's CSS targets, portals
+  included.
 
 ## One component at two scopes — single-entity vs aggregate needs scope-aware copy
 

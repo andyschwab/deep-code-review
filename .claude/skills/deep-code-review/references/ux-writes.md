@@ -88,6 +88,27 @@ bullets this is distinct from.)
 collapses to the same empty/nullable as confirmed-absent, combined with a full-object replace/upsert on
 save and no disabled/gated Save while the read is unresolved.
 
+## A write cleared from the input before it resolves loses the draft on failure
+
+A form/editor sometimes fires its write as fire-and-forget — the promise isn't awaited, or its rejection
+isn't handled — and clears the input immediately, assuming the write will succeed. When the write actually
+fails (network error, validation rejection, timeout), the UI has already discarded what the user typed, with
+no surfaced error and no way to recover it: the field looks like it was accepted and cleared normally, so the
+data loss is silent and, depending on how the input was captured, unrecoverable. This is the write-side twin
+of the five-states *error* rule (`product-ux-quality.md`) and of the reverted-optimistic-write mapper above —
+not a rollback after a local apply, but a client field cleared **before** the write's outcome is known at
+all.
+
+**Fix.** Every write triggered from a user-facing input must (a) await the write and branch on
+success/failure, (b) keep the typed value in the field until success is confirmed — never clear on submit
+alone, and (c) on failure, surface a visible error and leave the input in place, editable, for retry.
+
+**🚩**: an input's submit/save handler that calls `setValue('')`/`reset()`/clears its bound state
+synchronously in the same statement that fires the write, with no `await`/`.then`/`.catch` gating the clear
+on the write's resolution. Verify: mock the write to reject (or force a 5xx/timeout) from the real input
+control and confirm the typed content is still present and editable, with a visible error — not silently
+gone.
+
 ## A reversible action reads as a delete when nothing shows the record persists
 
 When an action **presented as non-destructive** — resolve / archive / dismiss, backed by a

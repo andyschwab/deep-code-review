@@ -182,6 +182,22 @@ Read this when the target or diff builds a custom interactive widget (dialog, ta
   Distinct from two neighbours: the phantom-focus bullet above removes focus from *hidden* content (here the
   region is visible, just not overflowing), and the roving-tabindex bullet's (`a11y-aria.md`) wrapper is *operable* but
   roleless/nameless (here the wrapper is not operable at all — nothing to operate).
+- **A Tab handler ported from a reference implementation that unconditionally captures the key is a WCAG
+  2.1.2 No Keyboard Trap violation the moment the widget has nothing left to cycle to.** A custom widget
+  managing its own internal focus cycle (a date-grid, a segmented control, a step wizard) is commonly ported
+  from an existing design/reference build whose `keydown` handler always calls `preventDefault()`/stops
+  propagation on `Tab` to keep focus cycling inside the widget — correct while an internal stop remains to
+  move to, wrong once the cycle is at its edge or the widget isn't the meaningfully active element, since the
+  handler still fires and nothing moves. WCAG 2.1.2 requires that focus moved into a component with the
+  keyboard can be moved away using only the keyboard; capturing every `Tab` unconditionally breaks that the
+  instant the widget's internal targets run out. It's invisible to mouse-based QA (no `Tab` involved) and to
+  most automated tests, which rarely drive a full keyboard-only `Tab` sequence through the widget's edge
+  states. Fix: add the explicit condition the reference implementation never needed — don't intercept `Tab`
+  at the edge of the internal cycle, or when capturing it would change nothing in the widget's state — and
+  let default focus movement proceed. Detect: an unconditional `preventDefault()`/`stopPropagation()` on
+  `Tab` in a `keydown` handler with no branch on cycle position. Regression test: `Tab`/`Shift+Tab` through
+  the widget from before it, through every internal stop, and confirm focus leaves in both directions with no
+  mouse click or other key required.
 - A **global focus/scroll-into-view correction** handler (the *Focus Not Obscured* remedy) must yield to an
   open overlay and scope to the focused element's own scroll container — detector below.
 
