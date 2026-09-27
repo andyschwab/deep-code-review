@@ -116,3 +116,16 @@ Read this when the target contains JavaScript or TypeScript. Split from `languag
   the fix is to **defer execution** so an inactive tab's reads never fire. Passing an
   already-executed server node to a client switcher is exactly what makes "which tab is active"
   unable to prevent the other tabs' work.
+- **Next.js `instrumentation.ts`: a negative early-`return` guard does not stop the dev Edge
+  compile from pulling in a server-only module.** `if (process.env.NEXT_RUNTIME !== "nodejs")
+  return;` followed by `await import("./lib/db")` still bundles that import — and the Node
+  builtins/DB driver behind it — into the dev **Edge** compile, because the bundler resolves the
+  `import` statically regardless of a runtime `return` guarding it, so every route 500s in `next
+  dev` while `next build`/prod passes (prod doesn't exercise the same Edge preview compile). Only
+  a **positive, constant-condition** guard works: `if (process.env.NEXT_RUNTIME === "nodejs") {
+  await import("./instrumentation-node") }`, isolating the server-only import inside its own
+  module so the bundler can exclude the whole branch. **Detect:** `instrumentation.ts`/`.js`
+  importing a server-only module (a DB driver, a `node:`-prefixed builtin) from inside a
+  negative-condition (`!==`) early return rather than a positive (`===`) block. **Verify with a
+  real `next dev` run** — a production build alone cannot catch this, since only the dev Edge
+  compile exercises the broken path.

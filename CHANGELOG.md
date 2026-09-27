@@ -3,6 +3,24 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.469.0] — 2026-09-28
+
+### Added
+- Multi-replica hazard for in-process coordination (`concurrency-shared-state.md`): a mutex, an idempotency-key set, or an event emitter built from in-process state gives its guarantee on one replica only and silently gives none once a second instance joins, verified by driving the same idempotent request and lock-guarded section from two independent instances at once (#1225).
+- Throughput-benchmark methodology (`testing-situational.md`): a single-process throughput ceiling measured on a shared, unrecorded host with a client timeout shorter than the server's real response time is untrustworthy — requires a recorded/confirmed-quiet host and failures broken out by client-timeout vs. server-error, verified by comparing a benchmark run with and without competing background load (#1226).
+- Fork/clone stale-brief and fileless single-flight lock (`multi-session-coordination.md`): a forked agent inherits its parent's entire prior context, so a narrower fork-time instruction doesn't erase an earlier broader one — verified by checking the fork's actual tool calls, not its summary; and the same atomic-claim-token mechanism extends to expensive shared measurement work with no file of its own, keyed by the measurement's identity rather than a path (#1227).
+- Shared-quota outage recovery (`multi-session-coordination.md`): recovering a fleet that shares one account's usage limit needs a self-scheduled wake tied to the stated reset time, resuming from every known worktree before dispatching new lanes, and re-discovering peer identity rather than assuming a stable name survived the gap (#1228).
+- Parallel-lane SSRF guard version drift, hand-rolled fetch-replacement footguns, and a Next.js instrumentation Edge-compile trap (`security-appsec.md`, `lang-js-ts.md`): a diff reusing an "existing" guard can be routing through a stale pre-hardening copy a concurrent lane extracted; a hand-rolled `fetch` replacement re-introduces classic 204/205/304, streaming, abort, content-encoding, and Happy Eyeballs bugs plus an identity-based opt-out footgun; and a negative early-return guard in `instrumentation.ts` still pulls a server-only module into the dev Edge compile (#1231; the stacked-PR base-branch-deletion lesson in the same issue was already covered in `merge-operations.md`).
+- 7 new evals (deep-code-review), one per lesson above; 3 new evals (agentic-delivery) for the fork/single-flight and outage-recovery lessons.
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/concurrency-shared-state.md 37508→39754 multi-replica coordination-primitive bullet (#1225)
+- size-budget-raise: .claude/skills/deep-code-review/references/security-appsec.md 30268→32790 hand-rolled-fetch-footgun and parallel-lane guard-drift bullets (#1231)
+- size-budget-raise: .claude/skills/deep-code-review/references/lang-js-ts.md 9979→11153 Next.js instrumentation Edge-compile bullet (#1231)
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 32732→34945 throughput-benchmark methodology bullet (#1226)
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 61896→66778 fork-stale-brief section, fileless single-flight extension, and outage-recovery section (#1227, #1228)
+- Must-load ceiling re-pinned (`scripts/mustload-budgets.tsv`): security-appsec.md's growth moved four archetype totals — web 19419→20049, mobile 14046→14675, api / service 18829→19458, agent / LLM / MCP 18981→19610; no archetype's must-load ref set changed, only the one file's size.
+
 ## [1.468.0] — 2026-09-28
 
 ### Added

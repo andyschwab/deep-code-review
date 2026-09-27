@@ -2291,6 +2291,42 @@
         "Requires the profile reach every subagent via the agent definition or a host mechanism, verified rather than assumed",
         "States a decision that would wait on the owner goes to idea-critic before the default is taken, with irreversible/shared-state/Human-gate items still parked"
       ]
+    },
+    {
+      "id": "forked-agent-acts-on-parents-stale-broad-brief",
+      "prompt": "An operator gives an agent a broad instruction to review and fix everything in a module. Partway through, the operator forks that agent's context to spawn a second agent, with a new instruction: 'only fix the null-check bug, do not touch the logging code.' The fork's final summary reports only the null-check fix. Is that summary sufficient evidence the fork honored the narrower scope? What should have been done differently, at fork time and afterward?",
+      "expected_output": "No, the summary is not sufficient evidence. The fork inherited the parent's entire prior context, including the earlier, broader 'fix everything' instruction. A narrow instruction given on top of that full history does not erase the history's authority in the fork's own reasoning -- the fork can still act on the older, broader brief (e.g. also touch the logging code) and simply not mention it in its summary, since a clean-looking report is not proof the old brief didn't leak through. Two things should have been done differently: (1) the fork prompt should have been written as a full directive restating the complete current scope and explicitly naming what from the inherited history no longer applies (an explicit 'ignore/supersede: fix broadly' statement), not just a short new instruction layered on the old one; (2) after the fork finishes, its actual tool/file-edit calls should be checked against the exclusion (did it touch the logging code at all), not just its final summary.",
+      "expectations": [
+        "States that the fork inherits the parent's entire prior context, including the earlier broader instruction",
+        "States that a narrow instruction on top of a full inherited history does not erase that history's authority in the fork's reasoning",
+        "Concludes the clean summary is not proof compliance -- the fork could have touched the logging code without reporting it",
+        "Prescribes writing the fork prompt as a full directive with an explicit supersede/ignore statement for the inherited scope",
+        "Prescribes checking the fork's actual tool calls against the exclusion, not only its summary"
+      ]
+    },
+    {
+      "id": "single-flight-lock-for-shared-expensive-measurement-not-a-file-claim",
+      "prompt": "Two agent sessions share a coordination channel that lets an agent claim a file before editing it. Both sessions independently decide the shared full benchmark suite needs to be re-run, and each starts it at nearly the same time, wasting the machine twice and risking two different answers to the same question. Why didn't the existing file-claim mechanism prevent this, and what's the fix?",
+      "expected_output": "The coordination channel only has a way to claim a *file* -- a per-resource lock keyed by a file path -- but an expensive shared measurement like a full benchmark run has no natural file of its own to lock, so nothing stopped a second agent from starting an identical, redundant run seconds after the first. The fix is a single-flight lock keyed by the *target being measured*, not by any file path: a lock-dir named after the measurement's own identity (e.g. `bench-<target>.lock`), recording who started it (a build-id/owner tag) and adopting a live holder rather than starting a duplicate -- so a second agent about to launch the same measurement detects the in-flight (or just-completed) run and reuses/awaits its result instead of duplicating the work. A kernel-backed lock (flock) that releases automatically when the holding process ends removes the need for a manual stale-lock timeout/takeover scheme.",
+      "expectations": [
+        "States the file-claim mechanism only covers per-file resources and has no equivalent for claiming work with no associated file",
+        "Identifies the benchmark/full-suite run as exactly this kind of fileless expensive shared work",
+        "Prescribes a lock keyed by the measurement's own identity/target, not a file path",
+        "States the lock should record an owner/build-id and let a second agent detect and reuse an in-flight or just-finished run instead of duplicating it",
+        "Notes a kernel-backed lock (e.g. flock) removes the need for a manual stale-lock timeout/takeover scheme"
+      ]
+    },
+    {
+      "id": "shared-quota-outage-self-scheduled-wake-worktree-resume-peer-rediscovery",
+      "prompt": "A fleet of coding agents sharing one account hits a provider-side usage limit; every agent, including the orchestrator, stops. The limit is known to reset at a stated time several hours later. Design the recovery: what needs to happen automatically at reset time, what happens to the work that was mid-flight when the stoppage hit, and how should agents that were coordinating with each other before the outage re-establish who's still around?",
+      "expected_output": "Three things are needed, none automatic on their own. First, since no agent has budget left to notice the limit lifted, recovery needs a self-scheduled wake -- an external trigger (a scheduled job/agent) that fires itself at or after the known reset time, rather than relying on a human noticing or a lane happening to be reinvoked; that wake is a floor, not a blind resumption -- it still runs one real, cheap check before declaring the fleet live again. Second, in-progress work at the moment of the stoppage is not lost -- it lives in per-lane worktrees with commits already made locally -- so on wake, every known worktree/branch must be enumerated first for uncommitted or unpushed work and resumed, before dispatching any new lane; starting fresh lanes that duplicate that work, or treating unpushed commits as abandoned, is the failure to avoid. Third, peer agents that were renamed, restarted, or re-instantiated during the outage are not necessarily reachable under their old identifiers -- the recovery must actively re-discover who the current live peers are (ask/list/re-announce) rather than assume a remembered name or session identity survived the gap.",
+      "expectations": [
+        "Prescribes a self-scheduled wake tied to the provider's stated reset time, since no agent retains budget to probe on its own",
+        "States the wake is a floor that still performs a real liveness check, not a blind resume purely on the clock",
+        "Prescribes enumerating all known worktrees/branches for uncommitted or unpushed work before dispatching any new lane",
+        "States that starting fresh lanes or treating unpushed work as abandoned would duplicate or lose work",
+        "Prescribes actively re-discovering peer identities (ask/list/re-announce) rather than assuming a remembered name/session survived the outage"
+      ]
     }
   ]
 }
