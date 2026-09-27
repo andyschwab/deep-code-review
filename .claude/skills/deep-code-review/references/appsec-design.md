@@ -37,3 +37,35 @@ LINDDUN, mapping to existing checks, residual risk and owner decision), follow `
   the bidi / Trojan-Source class (`i18n-l10n.md`).
 - **🚩** a domain / sender-name / package-name / username rendered from user-controlled text as a trust cue with only
   HTML-escaping — no confusable or mixed-script check.
+
+## Authorization: a client-side gate is not a server-side check — verify the trace, then verify the scope
+
+- **A client-side permission/state gate (a hidden button, a disabled control, a client-side
+  redirect on unauthorized state) is a UX nicety, not a security boundary, until traced to its
+  server handler.** Reviewing only the UI where the rule was introduced and assuming "the server
+  must check this too" is not a check — it's a guess. For any new or changed client-side gate:
+  identify the server endpoint(s) the gated action calls, and confirm each independently
+  re-derives the same condition from **server-trusted data** (the authenticated principal, a
+  stored record field) — never a client-supplied flag/field the request happens to carry.
+  **Verify:** call the endpoint directly (curl/API client) with the exact request the UI would
+  never construct — the state the client-side rule was meant to block — and confirm the server
+  rejects it on its own, independent of the UI. Flag any endpoint that doesn't check the
+  condition, or checks a client-supplied field instead of deriving it server-side, regardless of
+  how correct the UI looks. Companion to `frontend-security.md`'s client-vs-server-truth check and
+  `security-appsec.md` A01's "Authorization decided only in the client = no authorization" — this
+  is the tracing **procedure**, not a new rule.
+- **Moving a client-only check onto a *shared* server endpoint can break every other legitimate
+  caller of that endpoint — scope it, don't just relocate it.** "Move the client check to the
+  server" is correct in isolation but treats the endpoint as owned by the one flow that motivated
+  the fix. A shared endpoint often serves several call sites with different legitimate
+  authorization shapes (an admin tool, an import job, another surface acting on someone else's
+  behalf) — applying the strictest caller's rule to all of them is a regression, not a fix, for the
+  callers that legitimately needed the looser behavior. Before hardening a shared endpoint:
+  enumerate every caller/flow that hits it (grep call sites; check other UI surfaces, background
+  jobs, admin paths — the DIFF blast-radius rule above applies to the endpoint's callers, not only
+  its own diff). Scope the new rule by something the server can independently establish about the
+  request's origin or flow (a distinct route, a server-known actor role, a stored record
+  attribute) — never by a client-supplied field, and never applied blindly to every caller just
+  because one caller needed it. **Verify:** after the fix, exercise every previously-working
+  caller (not only the one that motivated the fix) and confirm each still succeeds for its
+  legitimate case while the originally-vulnerable case is now blocked.

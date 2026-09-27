@@ -59,3 +59,9 @@ with the CWE/OWASP-cited depth a typical review doesn't need. Overlaps `security
   state-changing action confirms `frame-ancestors` (CSP) — or legacy `X-Frame-Options` — restricts who may
   frame it; an unset framing policy lets an attacker overlay it in a transparent iframe (`security-appsec.md`
   A02 lists the header among misconfig; this is the threat and the per-page verification).
+- **Client vs server truth: a hidden button or disabled control is UX, not a security boundary.**
+  A client-side permission/state gate is only as good as the server endpoint(s) it calls — confirm each
+  independently re-checks the same condition on server-trusted data, never a client-supplied field, and
+  verify by calling the endpoint directly with the request the UI would never construct. Full tracing
+  procedure, plus the shared-endpoint scoping follow-on (a hardened rule must not break other legitimate
+  callers of the same endpoint), live in `appsec-design.md`'s authorization section.
