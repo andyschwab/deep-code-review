@@ -6220,7 +6220,7 @@
     {
       "id": "parity-baseline-relabel-vs-removal",
       "prompt": "A recorded parity baseline had a link with href /help labelled 'Help Center'. The next run's app render still carries that same href, but the link now reads 'Support'. The gate reports a REMOVED row for 'Help Center' and fails the build, and the team is annoyed because nothing was actually removed -- copy was just updated twice in a row, and both times the gate treated it as a regression. What's the actual bug, and what's the fix?",
-      "expected_output": "The baseline diff was keying controls purely by their printed accessible-name/label string, so any relabel looks identical to a removal: the old label vanishes from the fingerprint and a new one appears, and nothing ties them together as the same control. The fix is to key a control by a stable identity first -- href for a link, data-testid otherwise -- and only fall back to the label for controls that carry neither. When the same identity is present on both sides under a different label, that is CHANGED_LABEL, not REMOVED: it prints as an informational rename and never blocks the build by itself, while a control whose identity is genuinely gone from the current fingerprint still reports REMOVED and still fails REGRESSION. An owner-authored `relabel\told-item→new-item\treason\towner` accept row (same owner-commit gate as every other accepted deviation) tags a known intentional relabel (ACCEPTED) instead of leaving it as noise on every run.",
+      "expected_output": "The baseline diff was keying controls purely by their printed accessible-name/label string, so any relabel looks identical to a removal: the old label vanishes from the fingerprint and a new one appears, and nothing ties them together as the same control. The fix is to key a control by a stable identity first -- href for a link, data-testid otherwise -- and only fall back to the label for controls that carry neither. When the same identity is present on both sides under a different label, that is CHANGED_LABEL, not REMOVED: it prints as an informational rename and never blocks the build by itself, while a control whose identity is genuinely gone from the current fingerprint still reports REMOVED and still fails REGRESSION. An owner-authored `relabel\told-item\u2192new-item\treason\towner` accept row (same owner-commit gate as every other accepted deviation) tags a known intentional relabel (ACCEPTED) instead of leaving it as noise on every run.",
       "expectations": [
         "Diagnoses the root cause as keying purely by label/accessible-name, with no stable identity to tell a relabel from a removal",
         "Names href (links) and data-testid (other controls) as the stable identity, label as the fallback only",
@@ -6558,117 +6558,205 @@
         "Names a target ceiling (<=10%) for that rate"
       ]
     },
-  {
-    "id": "load-test-never-confirmed-real-identity",
-    "prompt": "A load-test report claims '60 concurrent users, 0% errors' against an authenticated endpoint. The response bodies recorded for the run are byte-identical to what an anonymous, unauthenticated request to the same URL returns. Is this run trustworthy evidence the authenticated path performs well?",
-    "expected_output": "No -- the harness never actually authenticated; it exercised the anonymous/cached fallback path, not the real per-user code path, so the clean error rate and throughput describe the wrong system. Before trusting any perf number from an authenticated load test, assert that the response differs from the same URL's anonymous response (bytes(authed) != bytes(anonymous)); a match means the run measured nothing about the authenticated path and must fail before any latency/error number is reported. (appsec-edge.md.)",
-    "expectations": [
-      "States the harness ran against the anonymous/fallback path, not the authenticated one",
-      "Requires asserting authed response bytes differ from anonymous response bytes before trusting the run",
-      "Concludes the 0%-errors/60-user result is not evidence about the real authenticated path"
-    ]
-  },
-  {
-    "id": "perf-gate-covers-only-one-storage-adapter",
-    "prompt": "A target ships two interchangeable storage adapters (a file-based one for dev/CI, a database one in prod) behind the same interface. Its load-test/leak gate only ever instantiates the file adapter, and judges pass/fail on p95 latency and error rate. Is this gate sufficient to catch a memory leak in the database adapter?",
-    "expected_output": "No -- an interchangeable-backend gate that only boots one adapter says nothing about the others, and p95/error-rate can both stay green while heap grows unbounded underneath. Run the gate against every production adapter the target ships, and judge on heap slope (post-GC heap at ~2s vs ~60s under sustained concurrency) rather than only latency/error metrics, since a leaking adapter can look perfectly healthy on both. (concurrency-shared-state.md.)",
-    "expectations": [
-      "States that clearing the gate on one adapter says nothing about a sibling adapter",
-      "Requires running the perf/leak gate against every production adapter, not just the default one",
-      "Requires a heap-slope metric (short-mark vs later-mark heap size) in addition to p95/error rate"
-    ]
-  },
-  {
-    "id": "perf-gate-boots-wrong-runtime-major",
-    "prompt": "A team diagnoses a suspected memory leak by running the perf gate locally, where the dev machine has Node 18 installed. The deploy image's declared engines field pins Node 20. The local run shows no leak. What's the finding?",
-    "expected_output": "The gate booted the wrong runtime major -- GC behavior and allocator defaults can differ enough between majors that a clean local run says nothing about what ships. Read the runtime major from the deploy artifact (container image base tag or the engines/runtime declaration) and boot the gate on that major; print the booted version in the gate's log so a mismatch is visible before any perf/leak verdict is trusted. (release-engineering.md.)",
-    "expectations": [
-      "Identifies the local-vs-deploy-image runtime major mismatch as the root cause of an untrustworthy result",
-      "Requires reading the runtime major from the deploy artifact/engines declaration, not the local machine",
-      "Requires the gate's log to print the booted runtime version for verification"
-    ]
-  },
-  {
-    "id": "streaming-heap-analysis-needed-over-1gb-snapshot",
-    "prompt": "A heap-leak investigation takes a full heap snapshot at 1.8 GB, and the JSON.parse-based analyzer throws a string-length error before it can name the retaining class. How should the gate get an answer?",
-    "expected_output": "A JSON.parse-based analyzer breaks exactly where a leak gate needs it: at multi-GB scale, past the parser's string-length limit. Build a streaming snapshot parser that reads the heap-snapshot format incrementally and emits a retainer-owner histogram (which class/constructor holds the growing objects, not just that heap grew), and take the snapshot at a small heap-size limit as a fallback so it stays parseable by ordinary means when the streaming tool isn't available. No such analyzer ships with this skill yet. (concurrency-shared-state.md.)",
-    "expectations": [
-      "Identifies JSON.parse's string-length limit as why the default analyzer fails on a >1 GB snapshot",
-      "Requires a streaming parser emitting a retainer-owner histogram, not just heap-size growth",
-      "States no shipped analyzer exists yet, so this is a doctrine, not a tool to run"
-    ]
-  },
-  {
-    "id": "fire-and-forget-adopts-module-level-in-flight-promise",
-    "prompt": "A request handler does `void processInBackground()`, where `processInBackground` checks a module-level cache for an in-flight promise for the same work and returns it if present, otherwise starts and caches a new one. Under load, heap grows steadily with concurrent users. What's the defect?",
-    "expected_output": "The fire-and-forget call adopts a module-level in-flight promise meant to coalesce concurrent callers, so every request racing that promise pins its context to it and the retained object graph stays reachable for as long as the slowest rider, growing with concurrency instead of staying flat. Require a detached execution context for fire-and-forget work, an explicit timeout, and a single-flight guard implemented outside request scope; corroborate with a heap-slope measurement at sustained concurrency, which will show the same rising-heap signature as an adapter leak. (concurrency-shared-state.md.)",
-    "expectations": [
-      "Identifies the module-level in-flight-promise coalescing as pinning every request's context together",
-      "Requires a detached context, explicit timeout, and single-flight guard outside request scope",
-      "Ties the diagnosis to a heap-slope measurement under sustained concurrency"
-    ]
-  },
-  {
-    "id": "denylist-of-excluded-types-permissive-by-default-on-new-type",
-    "prompt": "An unauthenticated API endpoint filters which resource types are visible to anonymous callers using a list of type names to exclude. A new resource type is added to the system six months later. Is it visible to an anonymous caller by default?",
-    "expected_output": "Yes, and that is the defect -- a denylist on an unauthenticated surface is permissive by default for anything not yet named, so the new type ships visible to every anonymous caller until someone remembers to add it to the exclusion list. This is not a fail-open bug -- the filter runs fine and still ships every unnamed type, because excluding by name means anything unnamed passes; the list is working exactly as written. Invert it to an allowlist naming the types an anonymous caller may see, excluding everything else by default; assert the returned type set equals the allowlist exactly, not merely 'contains no denylisted type'.",
-    "expectations": [
-      "States the new type is visible by default because a denylist is permissive by default for anything unnamed",
-      "States this is not a fail-open bug -- the check runs fine, the list just admits any unnamed type by design",
-      "Requires inverting to an allowlist of permitted types on the unauthenticated surface",
-      "Requires a test asserting the returned type set equals the allowlist exactly"
-    ]
-  },
-  {
-    "id": "suggested-keygen-command-prints-secret-to-transcript",
-    "prompt": "To help a user set up a new API credential, an assistant suggests running a keygen command directly in the current chat session and pasting the printed key back in. The session is logged. Is this a safe way to generate the credential?",
-    "expected_output": "No -- the command's normal output is the plaintext secret, and running it in the same logged/transcribed session writes that secret straight into the transcript, even though it's never committed to a file. Generate the credential in a separate, untranscribed terminal, or redirect the command's output directly to a gitignored file instead of letting it print to stdout, so the secret never appears as visible command output. (appsec-crypto.md.)",
-    "expectations": [
-      "States that the keygen command's stdout landing in a logged session leaks the secret into the transcript",
-      "Requires generating the secret in a separate, untranscribed terminal, or writing directly to a gitignored file",
-      "Rejects suggesting an in-session command whose output is the secret itself"
-    ]
-  },
-  {
-    "id": "changed-files-lint-zero-output-misread-as-clean",
-    "prompt": "A lint tool scoped to only the files a PR touches reports zero warnings. The PR's author cites the repo's warning-cap file, which is already near its ceiling, and raises the cap by one to land the change. Is this justified?",
-    "expected_output": "No -- a changed-files-scoped lint's zero output can mean the type-aware rule never ran on the unchanged caller where it actually fires, not that the codebase is clean; raising the cap on that basis is unjustified. Compare a full-scope lint run on the branch against a full-scope run on the base instead of trusting the diff-scoped number, and never raise a warning/lint cap in a feature change -- the cap file should stay unchanged and full-lint(branch) must be <= full-lint(base).",
-    "expectations": [
-      "States that zero output from a changed-files-scoped lint doesn't mean the codebase is clean",
-      "Requires comparing full-scope lint totals on branch vs base rather than trusting the diff-scoped count",
-      "Rejects raising the warning/lint cap to make the change land"
-    ]
-  },
-  {
-    "id": "programmatic-click-bypasses-overlay-scrim",
-    "prompt": "An e2e spec calls `element.click()` directly on a button to test its handler. In production, a semi-transparent overlay sits on top of that button so a real user's pointer click never reaches it. Does the passing spec prove the button is usable?",
-    "expected_output": "No -- a programmatic click invokes the handler directly, bypassing the hit-testing a real pointer click would do, so the spec passes on a control a real click can never reach. jsdom has no layout engine, so even Testing Library's userEvent.click cannot see an overlay scrim there; use a real-browser pointer test (Playwright/Cypress `.click()`, which does actual hit-testing against the rendered page) so the spec fails the way a real user's click would. Scoped to e2e/UI spec dirs: `grep -rnE '\\bel(ement)?\\.click\\(\\)|dispatchEvent\\(|fireEvent\\.'` and expect zero hits outside a documented, hit-tested exception. (testing-ui.md.)",
-    "expectations": [
-      "States that a programmatic click bypasses real pointer hit-testing and can hit a dead control",
-      "States jsdom/userEvent cannot see an overlay scrim, so the fix is a real-browser pointer test, not userEvent",
-      "Names the grep check scoped to e2e/UI spec dirs for element.click()/dispatchEvent(/fireEvent. in e2e test files"
-    ]
-  },
-  {
-    "id": "test-reads-real-machine-memory-and-unpinned-git-log",
-    "prompt": "Two unrelated test suites fail intermittently in CI: one asserts a threshold against the runner's live free-memory reading, the other replays 'the last 5 commits' from the real git log each run. What's the shared root cause and the fix for each?",
-    "expected_output": "Both are unpinned, machine/moment-dependent inputs: the live memory/load reading differs by runner and moment, and 'the last N commits' silently changes as the branch moves, so the same test name exercises a different input every run. Mock the system probe (inject a fake memory/load reader) instead of reading the real machine, and pin the commit sample to an explicit list of commit ids instead of 'the latest N'.",
-    "expectations": [
-      "Identifies both failures as unpinned, machine- or moment-dependent test inputs",
-      "Requires mocking the memory/load-average probe instead of reading the real machine",
-      "Requires pinning the commit sample to explicit commit ids instead of 'the latest N'"
-    ]
-  },
-  {
-    "id": "bsd-env-option-after-assignment-breaks-on-bsd",
-    "prompt": "A shell script runs `env A=1 -u B cmd` to set A and unset B before invoking cmd. The script boots cmd as a background server and waits for a health check. It works in CI (Linux), but on macOS the harness only reports 'no health answer within 60s'. Why, and what should change in the script and the harness?",
-    "expected_output": "Some implementations (e.g. GNU env) tolerate an option after a NAME=value assignment, but BSD/macOS env stops parsing its own options at the first assignment and reads the next token, `-u`, as the utility it's supposed to run -- e.g. `env A=1 -u B true` prints `env: -u: No such file or directory` and exits 127. Put every option before the first assignment: `env -u B A=1 cmd`. Mechanized by scripts/reaper_lint.py's ENV_OPTION_AFTER_ASSIGNMENT rule. The harness must not mask this as a slow-boot readiness failure: when the background child exits early, fail fast instead of waiting out the health-check timeout, and print the child's log tail so the exit-127 error is visible, not just 'no health answer within 60s'. (lang-shell.md.)",
-    "expectations": [
-      "Explains that BSD/macOS env stops parsing options at the first NAME=value assignment",
-      "States the failure is loud: exit 127 with a \"No such file or directory\" error, not a silent pass-through",
-      "Gives the fix: put every option before the first assignment",
-      "Says a harness that boots the command as a background child must fail fast on the child's early exit and print its log tail, not wait out a readiness timeout"
-    ]
-  }
-]
+    {
+      "id": "load-test-never-confirmed-real-identity",
+      "prompt": "A load-test report claims '60 concurrent users, 0% errors' against an authenticated endpoint. The response bodies recorded for the run are byte-identical to what an anonymous, unauthenticated request to the same URL returns. Is this run trustworthy evidence the authenticated path performs well?",
+      "expected_output": "No -- the harness never actually authenticated; it exercised the anonymous/cached fallback path, not the real per-user code path, so the clean error rate and throughput describe the wrong system. Before trusting any perf number from an authenticated load test, assert that the response differs from the same URL's anonymous response (bytes(authed) != bytes(anonymous)); a match means the run measured nothing about the authenticated path and must fail before any latency/error number is reported. (appsec-edge.md.)",
+      "expectations": [
+        "States the harness ran against the anonymous/fallback path, not the authenticated one",
+        "Requires asserting authed response bytes differ from anonymous response bytes before trusting the run",
+        "Concludes the 0%-errors/60-user result is not evidence about the real authenticated path"
+      ]
+    },
+    {
+      "id": "perf-gate-covers-only-one-storage-adapter",
+      "prompt": "A target ships two interchangeable storage adapters (a file-based one for dev/CI, a database one in prod) behind the same interface. Its load-test/leak gate only ever instantiates the file adapter, and judges pass/fail on p95 latency and error rate. Is this gate sufficient to catch a memory leak in the database adapter?",
+      "expected_output": "No -- an interchangeable-backend gate that only boots one adapter says nothing about the others, and p95/error-rate can both stay green while heap grows unbounded underneath. Run the gate against every production adapter the target ships, and judge on heap slope (post-GC heap at ~2s vs ~60s under sustained concurrency) rather than only latency/error metrics, since a leaking adapter can look perfectly healthy on both. (concurrency-shared-state.md.)",
+      "expectations": [
+        "States that clearing the gate on one adapter says nothing about a sibling adapter",
+        "Requires running the perf/leak gate against every production adapter, not just the default one",
+        "Requires a heap-slope metric (short-mark vs later-mark heap size) in addition to p95/error rate"
+      ]
+    },
+    {
+      "id": "perf-gate-boots-wrong-runtime-major",
+      "prompt": "A team diagnoses a suspected memory leak by running the perf gate locally, where the dev machine has Node 18 installed. The deploy image's declared engines field pins Node 20. The local run shows no leak. What's the finding?",
+      "expected_output": "The gate booted the wrong runtime major -- GC behavior and allocator defaults can differ enough between majors that a clean local run says nothing about what ships. Read the runtime major from the deploy artifact (container image base tag or the engines/runtime declaration) and boot the gate on that major; print the booted version in the gate's log so a mismatch is visible before any perf/leak verdict is trusted. (release-engineering.md.)",
+      "expectations": [
+        "Identifies the local-vs-deploy-image runtime major mismatch as the root cause of an untrustworthy result",
+        "Requires reading the runtime major from the deploy artifact/engines declaration, not the local machine",
+        "Requires the gate's log to print the booted runtime version for verification"
+      ]
+    },
+    {
+      "id": "streaming-heap-analysis-needed-over-1gb-snapshot",
+      "prompt": "A heap-leak investigation takes a full heap snapshot at 1.8 GB, and the JSON.parse-based analyzer throws a string-length error before it can name the retaining class. How should the gate get an answer?",
+      "expected_output": "A JSON.parse-based analyzer breaks exactly where a leak gate needs it: at multi-GB scale, past the parser's string-length limit. Build a streaming snapshot parser that reads the heap-snapshot format incrementally and emits a retainer-owner histogram (which class/constructor holds the growing objects, not just that heap grew), and take the snapshot at a small heap-size limit as a fallback so it stays parseable by ordinary means when the streaming tool isn't available. No such analyzer ships with this skill yet. (concurrency-shared-state.md.)",
+      "expectations": [
+        "Identifies JSON.parse's string-length limit as why the default analyzer fails on a >1 GB snapshot",
+        "Requires a streaming parser emitting a retainer-owner histogram, not just heap-size growth",
+        "States no shipped analyzer exists yet, so this is a doctrine, not a tool to run"
+      ]
+    },
+    {
+      "id": "fire-and-forget-adopts-module-level-in-flight-promise",
+      "prompt": "A request handler does `void processInBackground()`, where `processInBackground` checks a module-level cache for an in-flight promise for the same work and returns it if present, otherwise starts and caches a new one. Under load, heap grows steadily with concurrent users. What's the defect?",
+      "expected_output": "The fire-and-forget call adopts a module-level in-flight promise meant to coalesce concurrent callers, so every request racing that promise pins its context to it and the retained object graph stays reachable for as long as the slowest rider, growing with concurrency instead of staying flat. Require a detached execution context for fire-and-forget work, an explicit timeout, and a single-flight guard implemented outside request scope; corroborate with a heap-slope measurement at sustained concurrency, which will show the same rising-heap signature as an adapter leak. (concurrency-shared-state.md.)",
+      "expectations": [
+        "Identifies the module-level in-flight-promise coalescing as pinning every request's context together",
+        "Requires a detached context, explicit timeout, and single-flight guard outside request scope",
+        "Ties the diagnosis to a heap-slope measurement under sustained concurrency"
+      ]
+    },
+    {
+      "id": "denylist-of-excluded-types-permissive-by-default-on-new-type",
+      "prompt": "An unauthenticated API endpoint filters which resource types are visible to anonymous callers using a list of type names to exclude. A new resource type is added to the system six months later. Is it visible to an anonymous caller by default?",
+      "expected_output": "Yes, and that is the defect -- a denylist on an unauthenticated surface is permissive by default for anything not yet named, so the new type ships visible to every anonymous caller until someone remembers to add it to the exclusion list. This is not a fail-open bug -- the filter runs fine and still ships every unnamed type, because excluding by name means anything unnamed passes; the list is working exactly as written. Invert it to an allowlist naming the types an anonymous caller may see, excluding everything else by default; assert the returned type set equals the allowlist exactly, not merely 'contains no denylisted type'.",
+      "expectations": [
+        "States the new type is visible by default because a denylist is permissive by default for anything unnamed",
+        "States this is not a fail-open bug -- the check runs fine, the list just admits any unnamed type by design",
+        "Requires inverting to an allowlist of permitted types on the unauthenticated surface",
+        "Requires a test asserting the returned type set equals the allowlist exactly"
+      ]
+    },
+    {
+      "id": "suggested-keygen-command-prints-secret-to-transcript",
+      "prompt": "To help a user set up a new API credential, an assistant suggests running a keygen command directly in the current chat session and pasting the printed key back in. The session is logged. Is this a safe way to generate the credential?",
+      "expected_output": "No -- the command's normal output is the plaintext secret, and running it in the same logged/transcribed session writes that secret straight into the transcript, even though it's never committed to a file. Generate the credential in a separate, untranscribed terminal, or redirect the command's output directly to a gitignored file instead of letting it print to stdout, so the secret never appears as visible command output. (appsec-crypto.md.)",
+      "expectations": [
+        "States that the keygen command's stdout landing in a logged session leaks the secret into the transcript",
+        "Requires generating the secret in a separate, untranscribed terminal, or writing directly to a gitignored file",
+        "Rejects suggesting an in-session command whose output is the secret itself"
+      ]
+    },
+    {
+      "id": "changed-files-lint-zero-output-misread-as-clean",
+      "prompt": "A lint tool scoped to only the files a PR touches reports zero warnings. The PR's author cites the repo's warning-cap file, which is already near its ceiling, and raises the cap by one to land the change. Is this justified?",
+      "expected_output": "No -- a changed-files-scoped lint's zero output can mean the type-aware rule never ran on the unchanged caller where it actually fires, not that the codebase is clean; raising the cap on that basis is unjustified. Compare a full-scope lint run on the branch against a full-scope run on the base instead of trusting the diff-scoped number, and never raise a warning/lint cap in a feature change -- the cap file should stay unchanged and full-lint(branch) must be <= full-lint(base).",
+      "expectations": [
+        "States that zero output from a changed-files-scoped lint doesn't mean the codebase is clean",
+        "Requires comparing full-scope lint totals on branch vs base rather than trusting the diff-scoped count",
+        "Rejects raising the warning/lint cap to make the change land"
+      ]
+    },
+    {
+      "id": "programmatic-click-bypasses-overlay-scrim",
+      "prompt": "An e2e spec calls `element.click()` directly on a button to test its handler. In production, a semi-transparent overlay sits on top of that button so a real user's pointer click never reaches it. Does the passing spec prove the button is usable?",
+      "expected_output": "No -- a programmatic click invokes the handler directly, bypassing the hit-testing a real pointer click would do, so the spec passes on a control a real click can never reach. jsdom has no layout engine, so even Testing Library's userEvent.click cannot see an overlay scrim there; use a real-browser pointer test (Playwright/Cypress `.click()`, which does actual hit-testing against the rendered page) so the spec fails the way a real user's click would. Scoped to e2e/UI spec dirs: `grep -rnE '\\bel(ement)?\\.click\\(\\)|dispatchEvent\\(|fireEvent\\.'` and expect zero hits outside a documented, hit-tested exception. (testing-ui.md.)",
+      "expectations": [
+        "States that a programmatic click bypasses real pointer hit-testing and can hit a dead control",
+        "States jsdom/userEvent cannot see an overlay scrim, so the fix is a real-browser pointer test, not userEvent",
+        "Names the grep check scoped to e2e/UI spec dirs for element.click()/dispatchEvent(/fireEvent. in e2e test files"
+      ]
+    },
+    {
+      "id": "test-reads-real-machine-memory-and-unpinned-git-log",
+      "prompt": "Two unrelated test suites fail intermittently in CI: one asserts a threshold against the runner's live free-memory reading, the other replays 'the last 5 commits' from the real git log each run. What's the shared root cause and the fix for each?",
+      "expected_output": "Both are unpinned, machine/moment-dependent inputs: the live memory/load reading differs by runner and moment, and 'the last N commits' silently changes as the branch moves, so the same test name exercises a different input every run. Mock the system probe (inject a fake memory/load reader) instead of reading the real machine, and pin the commit sample to an explicit list of commit ids instead of 'the latest N'.",
+      "expectations": [
+        "Identifies both failures as unpinned, machine- or moment-dependent test inputs",
+        "Requires mocking the memory/load-average probe instead of reading the real machine",
+        "Requires pinning the commit sample to explicit commit ids instead of 'the latest N'"
+      ]
+    },
+    {
+      "id": "bsd-env-option-after-assignment-breaks-on-bsd",
+      "prompt": "A shell script runs `env A=1 -u B cmd` to set A and unset B before invoking cmd. The script boots cmd as a background server and waits for a health check. It works in CI (Linux), but on macOS the harness only reports 'no health answer within 60s'. Why, and what should change in the script and the harness?",
+      "expected_output": "Some implementations (e.g. GNU env) tolerate an option after a NAME=value assignment, but BSD/macOS env stops parsing its own options at the first assignment and reads the next token, `-u`, as the utility it's supposed to run -- e.g. `env A=1 -u B true` prints `env: -u: No such file or directory` and exits 127. Put every option before the first assignment: `env -u B A=1 cmd`. Mechanized by scripts/reaper_lint.py's ENV_OPTION_AFTER_ASSIGNMENT rule. The harness must not mask this as a slow-boot readiness failure: when the background child exits early, fail fast instead of waiting out the health-check timeout, and print the child's log tail so the exit-127 error is visible, not just 'no health answer within 60s'. (lang-shell.md.)",
+      "expectations": [
+        "Explains that BSD/macOS env stops parsing options at the first NAME=value assignment",
+        "States the failure is loud: exit 127 with a \"No such file or directory\" error, not a silent pass-through",
+        "Gives the fix: put every option before the first assignment",
+        "Says a harness that boots the command as a background child must fail fast on the child's early exit and print its log tail, not wait out a readiness timeout"
+      ]
+    },
+    {
+      "id": "parity-flag-set-pinned-per-scorecard",
+      "prompt": "A team's design-parity scorecard scored a surface at 84/100 last week. Today's run of the 'same' harness scores it 71/100 with no product commits in between. Someone opens an incident to chase a phantom regression. What actually happened, and what should the team have pinned to prevent this?",
+      "expected_output": "The harness exposes run-time flags -- which sections are included, which states are rendered, the viewport set -- and the two runs were invoked with a different flag/option combination, changing the denominator the score is computed against. The drop is measurement noise, not a regression: nothing in the product changed. The team should pin and version the exact flag/option set used for a scorecard, commit it beside the score (in the report or a checked-in config), and treat any flag-set change as its own reviewable diff, never a silent side effect of re-invoking the harness differently. A before/after comparison must use the identical pinned flag set on both runs. This is also a blind spot of a `--baseline`-style regression net: it fingerprints sections/style, not the flag set that produced them, so a REGRESSION exit can itself be a flag-set change in disguise -- confirm the two runs share one invocation before trusting it. (rendered-parity.md.)",
+      "expectations": [
+        "Identifies the root cause as a changed flag/option set between runs, not a real product regression",
+        "States the rule: pin and version the exact flag/option set, commit it beside the score",
+        "Says a before/after comparison must use the identical pinned flag set on both sides",
+        "Notes a baseline/regression-net mechanism can't itself distinguish a flag-set change from a real regression"
+      ]
+    },
+    {
+      "id": "parity-visible-score-vs-raw-score",
+      "prompt": "A design-parity gate reports a raw pass rate of 56% for a surface. A teammate says 'that means the product looks 56% aligned with the design.' Is that a fair reading, and what should the report show instead?",
+      "expected_output": "No -- the raw score conflates real, user-visible differences with harness artifacts (timing, font substitution, headless-renderer quirks) that have no visible effect, so 56% either overstates how broken the product looks or invites the whole gate being dismissed once a few artifacts turn up. For every failing check, attach evidence (a cropped screenshot region plus the relevant computed styles) and classify it REAL (a user would see this) or HARNESS-ARTIFACT (measurement-only). Report both numbers side by side: the raw pass rate and the visible-parity score = pass / (pass + REAL) -- and never present the raw number alone as 'how aligned' the product is. A known harness-artifact (e.g. a font-substitution difference in headless rendering) is labeled as such with its evidence, not folded into the same bucket as a genuine layout defect. (rendered-parity.md.)",
+      "expectations": [
+        "Says the raw score conflates real-visible failures with harness-artifact failures",
+        "Requires evidence (crop + computed styles) and a REAL vs HARNESS-ARTIFACT classification per failing check",
+        "Gives the visible-parity formula: pass / (pass + REAL)",
+        "States both the raw and visible-parity numbers must be reported side by side, never the raw one alone as the alignment claim"
+      ]
+    },
+    {
+      "id": "parity-fixture-shape-matches-design-sample",
+      "prompt": "A parity comparison run flags wrapping/overflow differences across many rows of a table. On inspection, the app's seeded sample text is much longer than the design's own sample text, but the styling (font, padding, colors) is otherwise identical. What's the right fix, and what's explicitly off-limits?",
+      "expected_output": "This is a fixture mismatch, not a styling defect: the app's seeded sample data doesn't match the design's own sample data shape (text length, item counts, states). Re-seed the app's fixture to match the design's sample data shape -- same string lengths, same row/item counts, same set of empty/loading/error/populated states -- taken from the design's own sample, never invented independently. This is fixture work only: it must never extend to changing the product's actual rendering logic, hiding a state, or otherwise altering real behaviour just to raise the comparison score. Any deviation from a straight fixture match is disclosed in the finding, not concealed. After re-seeding, confirm the wrapping/overflow differences disappear while any genuinely independent styling defect still fails. (migration-parity.md.)",
+      "expectations": [
+        "Diagnoses the flagged differences as a fixture/sample-data-shape mismatch, not a styling defect",
+        "Says to match the design's own sample data shape: text length, item/row counts, and the same states",
+        "States this is fixture-only work -- never changing product rendering logic or hiding a state to raise the score",
+        "Requires disclosing any deviation from a straight fixture match, not concealing it"
+      ]
+    },
+    {
+      "id": "parity-checksum-served-design-bundle",
+      "prompt": "A parity comparison harness fetches the design export bundle from a shared dev server before every run. A run reports several sections as mismatched. Before treating those as real defects, what should be checked first, and what does the tool do if that check fails?",
+      "expected_output": "Verify the served bundle is the full, current export before trusting any score off it -- a shared dev server can serve a stale or partially-copied bundle (an interrupted sync, an old cached build), silently skewing scores: some sections compare against pages no longer in the current design, or against an incomplete asset set. Checksum (e.g. md5) the served bundle's files against the source export and confirm the file count and hashes match. A checksum mismatch is treated as COULD_NOT_CHECK -- the same discipline as a missing or unreadable side -- never a scored comparison off an unverified bundle. Only after the bundle is confirmed complete and current should the reported mismatches be investigated as real defects. (migration-parity.md.)",
+      "expectations": [
+        "Says to checksum the served bundle against the source export (file count + hashes) before trusting the score",
+        "Names the failure mode: a stale or partially-copied bundle from an interrupted sync or old cached build",
+        "States a checksum mismatch is treated as COULD_NOT_CHECK, never as a scored/passing comparison",
+        "Only recommends investigating the flagged sections as real defects after the bundle is confirmed complete"
+      ]
+    },
+    {
+      "id": "parity-reference-defect-named-tolerance",
+      "prompt": "A parity check at a narrow viewport flags the app for not clipping some content the same way the design prototype does. On inspection, the prototype's own clipping turns out to be an unintended rendering bug in the design tool, not a deliberate choice. What should happen next, and what must never happen?",
+      "expected_output": "Never copy the reference's defect into the product just to raise the score -- a design prototype can itself be wrong at some viewport or state, and blindly matching the app to it ships the defect. Escalate the mismatch for an owner decision. Once decided, record the outcome as a named, versioned accept-file tolerance entry (e.g. a `style` or `visual-reviewed` accept row) whose reason field names the reference defect and the decision -- never as a silent exception baked into the comparison code with no record of why. A mismatch traced to a reference-design defect must end in either an escalated, recorded owner decision or an already-covered named tolerance row -- never silently ignored and never silently copied. (migration-parity.md.)",
+      "expectations": [
+        "States the app must never copy the reference's own rendering defect to raise the score",
+        "Requires escalating the mismatch for an owner decision when it traces to a defect in the reference itself",
+        "Requires recording the decided outcome as a named, versioned tolerance/accept-file row with a reason, not a silent code exception",
+        "Rejects both silently ignoring and silently copying the defect as outcomes"
+      ]
+    },
+    {
+      "id": "parity-capture-fonts-ready-before-screenshot",
+      "prompt": "A parity capture pipeline waits for DOM hydration before taking its screenshot, and two runs of the same page show about 4px of unexplained metric drift on a text-heavy section even though nothing changed. What's the likely cause, and what should the capture pipeline wait for instead?",
+      "expected_output": "The capture is likely showing a fallback font: hydration completing doesn't mean web fonts have finished loading, and a screenshot taken in that gap reflects the fallback font's metrics (element widths, line heights, positions), not the intended font's -- showing up as spurious drift rather than a real layout issue. The fix is to wait for the browser's fonts-ready signal (e.g. `document.fonts.ready`) and then one additional animation frame before capturing, not just DOM/hydration readiness. A capture pipeline that only waits on hydration is incomplete. Comparing a hydration-only capture against a fonts-ready+frame capture of the same text-heavy section should show the metric drift between 'identical' runs drop to near zero once the fix is applied. (templates/parity-capture.md.)",
+      "expectations": [
+        "Diagnoses the drift as fallback-font metrics from capturing before web fonts finish loading",
+        "States the fix: wait for fonts-ready (document.fonts.ready) plus one additional animation frame",
+        "Says waiting only on hydration/DOM readiness is an incomplete capture pipeline",
+        "Notes the fix should make repeat-run drift on identical content drop to near zero"
+      ]
+    },
+    {
+      "id": "parity-baseline-refresh-same-pr-only",
+      "prompt": "During an unrelated cleanup PR, a contributor notices the visual snapshot baseline is out of date and refreshes it so the suite stops complaining. Two weeks later, someone discovers the section actually regressed visually right before that refresh. What went wrong, and what's the rule for refreshing a baseline going forward?",
+      "expected_output": "The drive-by baseline refresh absorbed a real visual regression into the new 'expected' baseline, so it went undetected on every run after -- a baseline refresh is not a neutral housekeeping act. The rule: only refresh a visual snapshot baseline when the visual change is the intended outcome of the current change, and do it in the same PR that causes the visual change -- never as a drive-by refresh in an unrelated PR, and never as a blanket 'refresh everything' pass. A passing run is not the same as an intended one; refreshing should be tied to the PR whose change caused the diff, not to whichever PR happened to notice the baseline was stale. (migration-parity.md.)",
+      "expectations": [
+        "Identifies that the unrelated-PR refresh silently absorbed a real regression into the baseline",
+        "States the rule: refresh only in the same PR that causes the intended visual change",
+        "Rejects a drive-by refresh in an unrelated PR and a blanket 'refresh everything' pass",
+        "Distinguishes a passing run from an intended change as the basis for refreshing"
+      ]
+    },
+    {
+      "id": "parity-suite-pinned-settings-and-merge-gate-wired",
+      "prompt": "A repo has a visual-parity/screenshot-diff suite in `.github/workflows/`. A PR that visibly changes a page's layout shows a green check overall. What two things need to be confirmed before trusting that green as proof the visual suite passed, and why can't presence in the workflow file alone be trusted?",
+      "expected_output": "First, confirm the settings that produce a screenshot -- viewport, device-pixel ratio, wait/settle timing, any relevant feature flags -- are pinned into one committed configuration used identically by every run, and verify empirically by running the suite twice with no code change and confirming a zero (or documented-tolerance) diff; otherwise score drift between runs is measurement noise misread as a false regression or false stability. Second, read the actual merge-gate configuration directly -- the workflow file's changed-path triggers and the branch-protection required-checks list -- rather than assuming; a suite that exists in `.github/workflows/` but is opt-in, path-filtered out of the diff that touched visual code, or not in the required-checks list provides no protection at merge time no matter how good its detectors are, and a 'passing' status on a visually-changing PR is unverified for visual parity until both checks are confirmed. (release-engineering.md.)",
+      "expectations": [
+        "Requires pinning capture settings (viewport, DPR, wait timing, flags) into one committed config used identically across runs",
+        "Requires an empirical check: run the suite twice with no code change and confirm near-zero diff",
+        "Requires confirming the suite's job is both present in the triggered workflow and named in the branch-protection required-checks list, not just present in the repo",
+        "States a green/passing status is unverified for visual parity until both the pinned-settings and merge-gate-wiring checks are confirmed"
+      ]
+    }
+  ]
 }
