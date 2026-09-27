@@ -276,6 +276,37 @@ finding under the real deploy contract" rule this is one instance of) and
 `concurrency-shared-state.md`'s "Load-test coverage and heap-leak gates" (the heap-slope
 metric this runtime check must precede).
 
+## Visual-parity suite: pinned capture settings, and confirm it actually runs at the merge gate
+
+A visual-parity / screenshot-diff suite protects nothing when either of two gaps is open. First,
+if the settings that produce a screenshot — viewport, device-pixel ratio, wait/settle timing, any
+relevant feature flag (`templates/parity-capture.md`'s "Same state on both sides" table) — aren't
+pinned identically across runs, score/diff drift between two runs is measurement noise, not a
+real visual change, and gets misread as a false regression or false stability
+(`rendered-parity.md`'s flag/option-set pinning rule covers the comparison-scope half of this;
+this is the capture-mechanics half). Second — read the actual merge-gate configuration, never
+assume — confirm the suite is wired into the check that blocks a merge, not merely available to
+run by hand: opt-in, path-filtered out of the diff that touches visual code, or skipped for cost
+is the same as absent at merge time, no matter how good its detectors are once invoked.
+
+- **Find the workflow file and the branch-protection required-checks list**, and confirm the
+  visual suite's job is both **present** in the workflow that runs on the PR's changed paths and
+  **named** in the required-checks list — a suite that exists in `.github/workflows/` but isn't a
+  required check merges around every time, same as one that never ran.
+- **Run the suite twice with no code change and confirm a zero (or documented-tolerance) diff**
+  before trusting it on a real PR — the pinned-settings half above, verified empirically.
+- **A "passing" status on a visually-changing PR is unverified for visual parity** until both
+  checks above are confirmed — say so explicitly rather than reporting a general green (this
+  file's Signed-releases section poses the identical producer-side question — does the workflow
+  that claims a property actually run it — for a different property; the check here is the same
+  pattern, applied to visual parity).
+
+**🚩**: a visual-parity/screenshot-diff job present in `.github/workflows/` but absent from
+branch-protection's required-checks list; a visual suite path-filtered out of the very diff that
+changes rendered UI; a "visual parity: passing" claim with no confirmation the job ran on this PR,
+only that it exists somewhere in CI; two same-code runs of the suite producing a nonzero,
+undocumented diff (unpinned capture settings, not a real change).
+
 ## Cross-references
 
 - `dependency-currency-and-upgrades.md` — the other half of domain K (build,

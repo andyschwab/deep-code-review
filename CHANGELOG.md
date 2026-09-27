@@ -3,6 +3,17 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.463.0] — 2026-09-27
+
+### Added
+- Design/visual-parity cluster (`rendered-parity.md`, `migration-parity.md`, `templates/parity-capture.md`, `release-engineering.md`): pin and version a comparison harness's flag/option set per scorecard run, since a re-invocation with a different set is measurement noise wearing a regression's clothes (#1191); classify every failing check REAL vs HARNESS-ARTIFACT and report a visible-parity score (pass / (pass + REAL)) beside the raw score (#1192); match fixture/sample data to the design's own sample shape (text length, item counts, states) as fixture work only, never changing product behaviour to raise the score (#1193); checksum a served design bundle against its source export before trusting any score off it — a mismatch is COULD_NOT_CHECK (#1194); when the reference design itself has a rendering defect, escalate for an owner decision and record it as a named, versioned accept-file tolerance row, never copy it into the product (#1195); wait for fonts-ready (`document.fonts.ready`) plus one animation frame before a parity capture, not just hydration, and pin DPR alongside viewport (#1196); refresh a visual snapshot `--baseline` only in the PR whose intended change causes the visual difference, never a drive-by or blanket refresh (#1197); a visual-parity suite needs its capture settings pinned into one committed config and must be read directly off the merge-gate config (triggered workflow + branch-protection required-checks) before a green status counts as verified (#1216).
+- 8 new evals (deep-code-review).
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/rendered-parity.md 10864→13548 flag-set pinning + visible-parity score sections (#1191, #1192)
+- size-budget-raise: .claude/skills/deep-code-review/references/migration-parity.md 27410→30200 fixture shape, bundle checksum, reference-defect tolerance, baseline-refresh discipline (#1193, #1194, #1195, #1197)
+- size-budget-raise: .claude/skills/deep-code-review/references/release-engineering.md 22294→24755 visual-parity suite pinned settings and merge-gate wiring (#1216)
+
 ## [1.462.0] — 2026-09-27
 
 ### Added

@@ -120,6 +120,16 @@ dev identity), or its `missing` list is an auth gap, not a build order (the MISM
 precondition line); the signed-out default surface stays its own required check
 (`rendered-parity.md`). Disclose the comparison state beside the verdict (goalpost rule, `rendered-parity.md`).
 
+**Match the design's sample-data shape, not just its data state.** Seeding the app to the
+design's populated/empty/loading/error state (above) is necessary but not sufficient — an app
+seeded with a different **text length** or **item count** than the design's own sample data
+reproduces wrapping/overflow that looks like a styling defect but is really "different input."
+Match the design's sample-data **shape** — string lengths, row/item counts, and the same set of
+states — from the design's own sample, never invented independently. This is fixture work only:
+never extend it into changing the product's actual rendering logic, hiding a state, or otherwise
+altering real behaviour to raise the score; any deviation from a straight fixture match is
+disclosed in the finding, not concealed.
+
 **Pin the target export first.** When a design package holds several exports of one prototype,
 grep each for distinctive UI strings from the newest change-log entries; the one holding all is
 the target (record it where every lane reads it), never the largest or best-named. None matches →
@@ -129,6 +139,15 @@ other sources that it never captured is kept in the delivery ledger
 (`agentic-delivery/scripts/feedback_ledger.py`). Before re-aligning to the design, run its
 `accept-file`; the owner commits it as the differ's `--accept`. Send a design-vs-feedback
 conflict to the owner; never settle it by re-aligning.
+
+**Verify a served bundle is complete and current before trusting any score off it.** A
+comparison harness that fetches the pinned export from a shared dev server can be handed a stale
+or partially-copied bundle — an interrupted sync, an old cached build — silently skewing every
+score run against it: some sections compare against pages no longer in the current design, or
+against an incomplete asset set. Before trusting a run, checksum (e.g. md5) the served bundle's
+files against the source export and confirm the file count and hashes match. A mismatch is
+`COULD_NOT_CHECK` — the same discipline as a missing or unreadable side, above — never a scored
+comparison off an unverified bundle.
 
 **Check order: foundation first, one gate — `parity_differ.py --workflow`.** Token **values**
 (`token_differ.py`), then primitives (open FOUNDATION/PRIMITIVE style rows block every section:
@@ -142,6 +161,21 @@ Style output gives identity %, mismatch count per property, and top diffs `text 
 Rows wrapping differently fail: capture `data-lines` (a line-box count, never a height) on both sides (LINE COUNTS).
 Mark each section's anchor `data-anchor`; an app crop missing it or holding a neighbour's is UNVERIFIED, exit COULD_NOT_CHECK_CROP (9) (SAME-CROP GUARD).
 Once a page passes, `--baseline F --write-baseline`; later runs exit REGRESSION (8) listing only new deltas (BASELINE). A relabeled control (same `href`/`data-testid`, new text) reports CHANGED_LABEL, not a removal — an owner `relabel<TAB><old>→<new>` row tags it (ACCEPTED) (#1168, BASELINE).
+Refresh a `--baseline` only inside the PR whose intended change causes the visual difference,
+never as a drive-by pass: a baseline refreshed by an unrelated cleanup, or by a PR other than the
+one that changed a section's rendering, absorbs whatever regression that section carries into the
+new "expected" fingerprint, and every future run then reads it as clean. `--write-baseline`
+records the app side's fingerprint from a **passing** run (BASELINE) — passing is not the same as
+**intended**; re-run `--write-baseline` only when the visual change that just landed is the one
+you meant to make, in the same PR, never a blanket re-baseline of every section.
+
+**A defect in the reference design itself is never copied into the product to raise the score.**
+A prototype can be wrong at some viewport or state — content clipping that is an unintended
+rendering bug in the design tool, not a deliberate choice — and blindly matching the app to it
+ships the defect. When a mismatch traces to the reference, not the app, escalate for an owner
+decision; once decided, record the outcome as a named, versioned accept-file row (the `style` or
+`visual-reviewed` kind above, its `reason` field naming the reference defect and the decision) —
+never as a silent exception with no record of why.
 
 ## Scope a parity claim to the correspondence table — one screen verified is not the product
 

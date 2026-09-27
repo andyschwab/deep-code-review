@@ -130,3 +130,39 @@ tell that the same visual concept is implemented **twice at different scales**, 
 is wrong: stop tuning and measure (the stop-tuning discipline is *Repeated owner rejection* above).
 Validate the **measurement target itself** — measure the visible ink, not a transparent overlay or
 focus-indicator path a DOM query happens to return first.
+
+## Pin the comparison harness's flag/option set — a re-invocation is not a regression
+
+A design-parity scorecard's score is computed against a **denominator** the harness's own
+run-time flags define — which sections are included, which states are rendered, the viewport
+set, any other run-time option. Change that flag set between two runs and the denominator moves
+with it: the score drops with **zero product change**, and the drop reads as a regression that
+costs real investigation time before anyone notices the flags, not the product, moved. Pin and
+**version** the exact flag/option set used for a scorecard, commit it beside the score (in the
+report or a checked-in config), and treat a flag-set change as its own reviewable diff — never a
+silent side effect of re-invoking the harness with a different combination. Any before/after
+comparison must run the **identical** pinned set on both sides.
+
+This is a blind spot of `parity_differ.py`'s own `--baseline` regression net
+(`migration-parity.md`, BASELINE): the net fingerprints the **sections and style** a passing run
+produced, never the **flag/option set** that produced them — a REGRESSION (exit 8) reported
+against a re-run invoked with a different `--bands`/`--min-pairs`/`--style-min-pairs`/
+correspondence-table scope is a flag-set change wearing a regression's clothes, and the net alone
+cannot tell the two apart. Before trusting a REGRESSION or a score drop, confirm the two runs
+share one invocation, not just one baseline file.
+
+## Classify every failing check REAL vs HARNESS-ARTIFACT — report a visible-parity score beside the raw score
+
+A parity gate's one aggregate score conflates two different kinds of failing check: a **real,
+visible** difference a user would notice, and a **harness-artifact** — a measurement-only quirk
+(timing, font substitution, a headless-renderer default) with no visible effect. Reporting only
+the raw score either overstates how broken the product looks, or gets the whole gate dismissed
+the moment a few artifacts turn up.
+
+For every failing check, attach evidence — a cropped screenshot region plus the relevant computed
+styles (the `data-cs` properties `templates/parity-capture.md` captures) — and classify it REAL
+(a user would see this) or HARNESS-ARTIFACT (measurement-only). Report **both** numbers side by
+side: the raw pass rate, and the **visible-parity score** = pass / (pass + REAL) — and never
+present the raw number alone as "how aligned" the product is. A known harness-artifact (a
+headless font-substitution difference, a settle-timing flake) is labeled as such, with its
+evidence, not folded into the same bucket as a genuine layout defect.

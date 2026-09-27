@@ -22,19 +22,26 @@ For every page in the correspondence table, at every viewport in the list below,
    as a mismatch; with `--require-settled` a capture carrying no marker at all is the same
    `COULD_NOT_CHECK` (an older capture cannot certify it settled). Treat a first low score as provisional —
    re-check with a longer settle window before reporting it as a real difference.
-2. `<out>/<side>/<page>@<width>.html` is a DOM snapshot after the page settles. Every section root carries
+2. **Fonts-ready, then one frame — not just hydration (#1196).** A screenshot captured right
+   after hydration, before web fonts finish loading, can still show the fallback font: the
+   metrics the differ compares — element widths, line heights, positions — reflect the fallback's
+   metrics, not the intended font's, and show up as spurious drift rather than a real layout
+   issue. Wait for the browser's fonts API to report ready (`document.fonts.ready`) and then one
+   additional animation frame before taking the DOM snapshot or a screenshot; a capture pipeline
+   that only waits on hydration is incomplete.
+3. `<out>/<side>/<page>@<width>.html` is a DOM snapshot after the page settles. Every section root carries
    `data-section="<id>"` (the same ids on both sides), and populated units carry `data-item`.
-3. **Computed styles.** Every visible text-bearing element that should be style-checked carries a
+4. **Computed styles.** Every visible text-bearing element that should be style-checked carries a
    `data-cs` JSON object with a non-empty value for each property the differ compares (`font-family`,
    `font-size`, `font-weight`, `line-height`, `letter-spacing`, `color`, `background-color`, `padding`,
    `border-radius`, `box-shadow`). Values come from `getComputedStyle`, exported in the same browser for
    both sides.
-4. **Visibility markers.** Every element whose class hides it through a stylesheet (`hidden`, `sr-only`,
+5. **Visibility markers.** Every element whose class hides it through a stylesheet (`hidden`, `sr-only`,
    `invisible`, `d-none`, `visually-hidden`) carries `data-visible="true"` or `"false"`, read from
    `checkVisibility()`.
-5. Optional section screenshots: `<out>/<side>-shots/<page>@<width>/<section id>.png`. Pass that folder
+6. Optional section screenshots: `<out>/<side>-shots/<page>@<width>/<section id>.png`. Pass that folder
    to `--design-shots` / `--app-shots` together with `--report`.
-6. **Band markers (only with `BANDS=1`, for `parity_differ.py --bands headings`).** Use this when the design
+7. **Band markers (only with `BANDS=1`, for `parity_differ.py --bands headings`).** Use this when the design
    and the app nest a section differently, so `data-section` ancestors would crop different regions. Every
    element under `<body>` carries `data-y`, its integer top y in page coordinates. Section titles that are
    not h1/h2 carry `data-anchor` on both sides. The screenshots become heading y-band clips named by band
@@ -49,9 +56,17 @@ For every page in the correspondence table, at every viewport in the list below,
 | `AUTH_COOKIE` | env: the name=value of a dev session cookie for that persona | Keep it in env or a gitignored file. Never commit it. |
 | `SEED_CMD` | env, e.g. `SEED_CMD="make seed-dev"` | Idempotent, dev-only, and it writes through the app's own create paths. Run it before every app capture. |
 | `VIEWPORTS` | fixed list, e.g. `1440x900,1024x768,390x844` | Use the same list for both sides and every run. |
+| `DPR` | fixed, e.g. `DPR=1` (`deviceScaleFactor` below) | Same value both sides and every run — a differing device-pixel ratio changes every measured size. |
 
 The signed-out default surface is a separate capture (no identity, no cookie) and gets its own parity
 check. This matched-state capture does not replace it.
+
+Every setting that shapes the rendered screenshot — this table's rows, plus any harness-side
+flag/option that changes which sections or states get captured — belongs in **one committed
+config**, used identically by every run that is compared (#1216). Pinning the flag/option set
+itself (which sections, which states, which viewport list) is `rendered-parity.md`'s own rule;
+this table is the capture-mechanics half — viewport, DPR, wait/settle strategy — the two share
+one discipline, not two.
 
 ## Playwright snippet (template only)
 
@@ -70,7 +85,8 @@ if (side === "app" && process.env.SEED_CMD) execSync(process.env.SEED_CMD, { std
 const browser = await chromium.launch();
 for (const vp of (process.env.VIEWPORTS || "1440x900").split(",")) {
   const [width, height] = vp.split("x").map(Number);
-  const ctx = await browser.newContext({ viewport: { width, height } });
+  const ctx = await browser.newContext({ viewport: { width, height },
+    deviceScaleFactor: Number(process.env.DPR || 1) });
   if (process.env.AUTH_COOKIE) {
     const [name, ...rest] = process.env.AUTH_COOKIE.split("=");
     await ctx.addCookies([{ name, value: rest.join("="), url }]);
@@ -97,6 +113,9 @@ for (const vp of (process.env.VIEWPORTS || "1440x900").split(",")) {
     document.documentElement.setAttribute("data-parity-ready", r ? "1" : "0");
     document.documentElement.setAttribute("data-parity-settle-ms", String(ms));
   }, [ready, settleMs]);
+  // Fonts-ready + one frame (#1196): a capture taken right after hydration can still show the
+  // fallback font, so its metrics (widths, line heights, positions) drift from the intended font.
+  await tab.evaluate(() => document.fonts.ready.then(() => new Promise(requestAnimationFrame)));
   await tab.evaluate(([props, bands]) => {
     for (const el of document.querySelectorAll(bands ? "body *" : "[data-section] *")) {
       if (bands) el.setAttribute("data-y", String(Math.round(el.getBoundingClientRect().top + scrollY)));
