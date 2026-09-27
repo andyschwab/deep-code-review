@@ -3,6 +3,23 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.467.0] — 2026-09-27
+
+### Added
+- Flag-swap render-tree parity (`release-engineering.md`): a feature flag that swaps a production route's rendered content must render the same component tree the reviewed preview route was measured through, including every layout wrapper or context provider, verified by diffing the flag-on route's component tree against the preview route's rather than trusting a matching screenshot (#1206).
+- Theme-attribute scope mismatch (`ux-components.md`): a dark-mode/theme stylesheet scoped to a data attribute or class is only conformant once checked against where the toggle actually writes that attribute in the live DOM, not merely that the CSS rule and the toggle both exist, verified by driving the real control and inspecting computed styles rather than code presence (#1207).
+- Hardcoded live-looking count badge (`ux-dataviz.md`): a UI literal that reads as live/social-proof data (a viewer/online/activity count, an "as of"/"last updated" string) is a release-blocking data-honesty defect, not a style nit, verified by tracing the literal back to a real fetch/computation (#1209).
+- Ported Tab-handler keyboard trap (`a11y-focus.md`): a keyboard handler ported from a reference implementation that unconditionally captures Tab is a WCAG 2.1.2 No Keyboard Trap violation once the widget has nothing left to cycle to, verified by a full keyboard-only Tab/Shift+Tab sweep through every internal state (#1210).
+- Optimistic input-clear before write resolves (`ux-writes.md`): a write fired without awaiting its result that clears the input immediately loses the user's draft silently on failure, verified by forcing the write to reject and confirming the typed content and a visible error both survive (#1211).
+- 5 new evals (deep-code-review), one per lesson above.
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/release-engineering.md 26332→27370 flag-swap render-tree parity bullet (#1206)
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-components.md 27305→28499 theme-attribute scope mismatch bullet (#1207)
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-dataviz.md 9904→11151 hardcoded count-badge bullet (#1209)
+- size-budget-raise: .claude/skills/deep-code-review/references/a11y-focus.md 20838→22485 ported Tab-handler keyboard-trap bullet (#1210)
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-writes.md 10215→11797 optimistic input-clear-before-resolve section (#1211)
+
 ## [1.466.0] — 2026-09-27
 
 ### Added

@@ -80,6 +80,16 @@ dares remove.
   closed = the *old code path* (safe), but an **ops kill-switch**'s safe default is *engaged*
   (feature degraded), not disengaged. Name the safe default **per category**, so an outage
   neither silently enables a half-built feature nor disables a safety lever.
+- **A flag that swaps a production route's rendered content must render the same component tree the
+  reviewed preview route was measured through.** The preview route is usually a standalone page built to
+  iterate safely; splicing the same page component into a production route's flag-on branch is easy to do
+  without carrying the shell/providers the standalone page always had (a layout wrapper, an auth/theme/global
+  context) — nothing crashes, since a missing provider commonly reads as a wrong default rather than an
+  error, and any review or screenshot taken through the preview route alone never sees the flagged path at
+  all. Detect: with the flag on, diff the production route's rendered component tree against the preview
+  route's, not just a screenshot of each (the **structure** axis, `rendered-parity.md`) — a visual match
+  won't surface a missing provider whose effect isn't visible on screen. Verify live: render both routes with
+  the flag on and confirm an identical component tree, not merely a similar look.
 
 ## Canary / blue-green — claims need config, not prose
 

@@ -6884,6 +6884,56 @@
         "States the spend multiplies by lane count (N), not that it stays bounded",
         "Recommends host-enforced tool omission from lane toolsets, not a per-lane prompt instruction alone"
       ]
+    },
+    {
+      "id": "release-engineering-flag-swap-render-tree-parity",
+      "prompt": "A feature flag now serves a new dashboard page on the production `/dashboard` route; the page was built and reviewed entirely through a separate preview route (`/preview/dashboard`). QA screenshots of both routes look identical with the flag on. Is that enough to sign off the flag-on production route?",
+      "expected_output": "No. Screenshots only cover the styling axis; they cannot show whether the flag-on route renders the same component tree as the preview route -- specifically whether every layout wrapper or context provider (auth, theme, global state) the preview route always had is also present on the production route's flag-on branch (release-engineering.md, feature-flag lifecycle). A missing provider commonly breaks a child silently rather than crashing, so it will not show up in a screenshot. The check is a structural diff of the two rendered component trees with the flag on, not a visual comparison.",
+      "expectations": [
+        "Says a matching screenshot is not sufficient sign-off",
+        "Names the missing wrapper/provider risk specifically, not just 'something could be different'",
+        "Calls for a component-tree / structural diff between the flag-on production route and the preview route, not another visual check"
+      ]
+    },
+    {
+      "id": "ux-components-theme-attribute-scope-mismatch",
+      "prompt": "A dark-mode toggle correctly flips its stored state on click, and the codebase has `[data-theme=\"dark\"] .card { ... }` CSS rules. A reviewer confirms both exist and signs off the feature as implemented. What might this review have missed?",
+      "expected_output": "It never confirmed the `data-theme` attribute is actually written onto an ancestor of the elements the CSS targets. The toggle, the stored state, and the CSS rules can each be correct in isolation while the attribute lands on the wrong DOM ancestor -- a wrapper added later, a portal rendering outside the themed subtree, or a moved component -- so the CSS never matches and the page never visibly changes appearance (ux-components.md). The fix to the review is to exercise the real control in a running instance and inspect computed styles on a themed element, not just confirm the code exists.",
+      "expectations": [
+        "Identifies that CSS-rule-exists plus toggle-exists is not proof the theme renders",
+        "Names checking where the attribute is actually written vs. which elements the CSS targets",
+        "Calls for driving the live control and checking computed styles, not a code-presence check"
+      ]
+    },
+    {
+      "id": "ux-dataviz-hardcoded-count-badge-placeholder",
+      "prompt": "A dashboard card reads \"3 people viewing this page\" and has looked that way in every demo for weeks with no crashes or obviously wrong values. Should this be treated as fine until someone reports it?",
+      "expected_output": "No -- treat it as a release blocker to verify, not a nit. A count badge that reads as live/social-proof data (viewer/online/activity counts, \"as of\"/\"last updated\" strings) must trace to a real fetch or computation; a plausible-looking static number is a factual misrepresentation to real users, and it is exactly the kind of defect that persists for a long time because it never looks obviously wrong (ux-dataviz.md). Trace the literal back to its source before shipping or continuing to ship it: if it originates from no data fetch/computation, it is a hardcoded placeholder that must be wired up or removed.",
+      "expectations": [
+        "Rejects 'no crashes, looks plausible' as evidence it's fine",
+        "Classifies it as a data-honesty / release-blocking defect, not a cosmetic nit",
+        "Calls for tracing the literal to a real data source before shipping"
+      ]
+    },
+    {
+      "id": "a11y-focus-ported-tab-handler-keyboard-trap",
+      "prompt": "A date-picker widget was ported from a reference implementation whose keydown handler always calls `preventDefault()` on Tab to keep focus cycling through the widget's internal cells. Mouse QA and the existing test suite both pass. Is this widget accessible?",
+      "expected_output": "Not necessarily -- an unconditional Tab capture is a WCAG 2.1.2 No Keyboard Trap violation the moment the widget has nothing left to cycle to (a11y-focus.md): once focus reaches the edge of the internal cycle, or the widget isn't the meaningfully active element, the handler still fires and the keyboard user cannot Tab out. Mouse QA never triggers Tab and most automated tests don't drive a full keyboard-only Tab sequence through the widget's edge states, so both can pass while the trap exists. The fix is an explicit condition that lets Tab proceed at the edge of the cycle; verification is tabbing through every internal stop in both directions and confirming focus leaves the widget.",
+      "expectations": [
+        "Flags the unconditional Tab capture as a keyboard-trap risk despite passing mouse QA and tests",
+        "Cites the specific failure condition: the widget's edge-of-cycle / not-active-element state",
+        "States the fix (a conditional bail on Tab capture) and the verification method (full keyboard Tab/Shift+Tab sweep), not just 'add ARIA'"
+      ]
+    },
+    {
+      "id": "ux-writes-optimistic-clear-before-write-resolves",
+      "prompt": "A comment box calls the save API and clears its own text field in the same handler, without awaiting the save call's result. What's wrong with this, and how should it be fixed?",
+      "expected_output": "If the save call fails (network error, validation rejection, timeout), the field has already been cleared, so the user's typed content is silently lost with no visible error and no way to recover it -- it looks like the save succeeded normally (ux-writes.md). Fix: await the write and branch on success/failure; keep the typed value in the field until success is confirmed, never clear on submit alone; and on failure, surface a visible error and leave the input in place, editable, for retry.",
+      "expectations": [
+        "Identifies the failure mode as silent, unrecoverable data loss on a failed write, not just 'bad UX'",
+        "States the fix requires awaiting the write before clearing, not clearing at submit time",
+        "States failure must surface a visible error and preserve the input for retry"
+      ]
     }
   ]
 }

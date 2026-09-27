@@ -1333,3 +1333,9 @@ fact).
 | Standard / source | URL | What was confirmed |
 |---|---|---|
 | Claude Code — Hooks reference | https://code.claude.com/docs/en/hooks | Verbatim, "SubagentStart input": "In addition to the common input fields, SubagentStart hooks receive `agent_id` with the unique identifier for the subagent and `agent_type` with the agent name that the matcher filters on." Verbatim, the JSON-output table for `SubagentStart`: "SubagentStart hooks can't block subagent creation, but they can inject context into the subagent... you can return:" a table with field `additionalContext`, description "String added to the subagent's context at the start of its conversation, before its first prompt." Common input fields table confirms `session_id`, `prompt_id`, `transcript_path`, `cwd`, `scratchpad_dir`, `permission_mode`; `hook_event_name` appears 38 times across the page's JSON examples (each hook event's own example payload), consistent with this repo's existing `stop_reminder.py` reading `data.get("hook_event_name")`. |
+
+## Verified by direct fetch (2026-09-27) — WCAG 2.1.2 No Keyboard Trap (`a11y-focus.md`)
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| W3C — WCAG 2.1, Success Criterion 2.1.2 No Keyboard Trap | https://www.w3.org/TR/WCAG21/#no-keyboard-trap | Verbatim, Level A: "If keyboard focus can be moved to a component of the page using a keyboard interface, then focus can be moved away from that component using only a keyboard interface, and, if it requires more than unmodified arrow or tab keys or other standard exit methods, the user is advised of the method for moving focus away." |
