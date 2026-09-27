@@ -6757,6 +6757,38 @@
         "Requires confirming the suite's job is both present in the triggered workflow and named in the branch-protection required-checks list, not just present in the repo",
         "States a green/passing status is unverified for visual parity until both the pinned-settings and merge-gate-wiring checks are confirmed"
       ]
+    },
+    {
+      "id": "regression-test-must-run-red-then-green",
+      "prompt": "A fix lane ships a bug fix plus a regression test, and its PR body says: 'this test would have failed on the old code' -- established by reading the diff, with no pre-fix run mentioned. Should this be accepted as a proven regression test?",
+      "expected_output": "No. Inspection is not verification -- a test can look like it exercises the bug and still pass on the old code for reasons invisible from the diff alone (a different code path, a mock that absorbs the bug, a looser-than-intended assertion, or a bug already fixed by an unrelated recent change). Require one of two executed proofs: run the test against the pre-fix commit/branch and confirm it fails there and passes after the fix, or -- if checking out the old code is impractical -- temporarily revert only the fix's logic (never the test), rerun to confirm red, then undo the revert. A claim resting only on reading the diff is unverified. (testing-and-evals.md.)",
+      "expectations": [
+        "Rejects diff-reading alone as proof of a red-then-green transition",
+        "Names at least one concrete way a test can look right but still pass on old code (wrong path, absorbing mock, loose assertion, already-fixed bug)",
+        "Prescribes an executed pre-fix run or a fix-logic-only revert-and-rerun as the required proof",
+        "Treats an unexecuted 'would have caught it' claim as unverified"
+      ]
+    },
+    {
+      "id": "lane-causal-claim-verified-against-evidence-override-disclosed",
+      "prompt": "A subagent reports: 'the failing test was a pre-existing flake, not caused by my change; the lint gate also passed.' The conductor is about to merge on that report. What should happen first, and what is missing from the gate report?",
+      "expected_output": "The conductor independently re-verifies the flake claim against the actual test output/CI log/reproduction before merging -- a lane's narrative about why something failed carries no authority on its own, in either direction (misattributed cause or premature victory). Separately, 'the lint gate passed' must state whether it passed cleanly or via a documented override/escape-hatch flag; an override-flagged pass is a distinct, lower-trust status and must never be folded into an undifferentiated 'passed.' (parallel-audit.md, section 4.)",
+      "expectations": [
+        "Requires independently re-checking the flake claim against real test/CI evidence before merging",
+        "Rejects taking the lane's self-report as ground truth for the cause",
+        "Requires the gate report to disclose whether an override/escape-hatch flag was used",
+        "States an override-flagged pass is a distinct, lower-trust status from a clean pass"
+      ]
+    },
+    {
+      "id": "issue-close-gated-on-confirmed-merge-not-merge-command-success",
+      "prompt": "Automation merges a PR and immediately closes the issue it was meant to fix, based on the merge API call returning success. Later, the merge is discovered to have failed due to a race with another merge. What went wrong, and what check should have gated the close?",
+      "expected_output": "Closing fired on 'the merge command returned success,' not on a confirmed post-merge state -- under a transient failure (a race, a conflict surfacing only during the real merge, a permission hiccup) the merge can fail while the issue is already marked closed, understating real remaining work. Gate the close on the target branch's head commit actually containing the merged change, verified by commit ancestry (e.g. `git merge-base --is-ancestor`) or an equivalent check -- never on the merge command/API having returned success alone. Verify the gate itself by injecting a merge failure and confirming the issue is NOT closed, then confirming it IS closed once a real, verified merge lands. (merge-operations.md, section 6 continued.)",
+      "expectations": [
+        "Identifies the root cause as gating on command-success rather than confirmed landed state",
+        "Prescribes an ancestry check (or equivalent) against the target branch's head commit as the gate",
+        "Names an injected-failure test as how to verify the gate: not closed on failure, closed on real success"
+      ]
     }
   ]
 }

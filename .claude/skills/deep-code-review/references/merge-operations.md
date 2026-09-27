@@ -533,6 +533,23 @@ off the remote. Two things must be true before a stop is actually complete:
 
 ### §6 continued — rails for executing a triage row (delete, close, resolve, absorb, automate)
 
+- **Close the issue a merge was meant to resolve only after the merge is
+  confirmed to have landed — never on "the merge command returned success" or
+  "the merge was requested."** Automation that merges a PR and closes its
+  linked issue in the same step, without waiting for confirmation, can close an
+  issue whose merge failed or landed in a dirty state under a transient
+  failure — a race with another merge, a conflict surfacing only during the
+  real merge operation, a permission hiccup. A closed issue reads to every
+  later human and agent as "this is done"; if the change never actually
+  landed, the backlog now understates real remaining work and nothing is
+  watching it anymore. Gate the close on a **confirmed post-merge state**: the
+  target branch's head commit actually contains the merged change, verified by
+  commit ancestry (`git merge-base --is-ancestor <merged-sha> <base-branch>`)
+  or an equivalent check — not merely that the merge API/command returned
+  success. To verify the gate itself works, inject a merge failure (a
+  conflicting concurrent change) into a test run and confirm the issue is
+  **not** closed when the merge does not actually land, then confirm it **is**
+  closed once a real, verified merge completes.
 - **A branch can be safely merged-away and still be another PR's base — check before deleting *any* branch,
   even a confirmed-merged one.** If another open PR uses this branch as its **base** (a stacked PR reviewing
   changes on top of an unmerged branch), deleting the base auto-closes the stacked PR on most forges, with no

@@ -418,6 +418,26 @@ column; Phase 5 reports lead-read coverage alongside finder coverage.
 independent passes plus lead re-verify at `START_SHA` — more units on a settled
 sink is theater, not coverage.
 
+**This re-verify duty generalizes past findings — to any lane's causal claim an
+orchestrator acts on.** A lane's self-report about *why* something failed or
+succeeded (a misattributed regression, "this isn't a real bug," "this is now
+fixed") carries the same no-authority-on-its-own-say rule as a finding above
+(principle 2, `SKILL.md`). Before dispatching further work, closing an
+investigation, or merging on the strength of that claim, the conductor (or a
+human reviewer) checks the actual evidence the claim rests on — the real test
+output, the real CI log, an actual reproduction — never the lane's summary of
+it; independently re-running the same check the lane claims to have run, from
+the evidence it cites, is the bar (mirrors the fix-against-suite gold standard
+above, applied to a claim instead of a finding). **A gate passed via a
+documented escape hatch or override flag is a distinct, lower-trust status,
+never folded into an undifferentiated "passed."** Any report of a gate passing
+must state explicitly whether an override/escape-hatch was used to get there;
+a conductor treats an override-flagged pass as `PLAUSIBLE`, not `CONFIRMED` —
+re-verify it before it blocks or clears a gate the same as any other
+unverified claim. Grep merged reports for override/escape-hatch flag usage and
+confirm each one is disclosed, not silently absorbed into "passed," as a
+standing audit habit.
+
 ---
 
 ## 5. Subagents inherit the reviewer's blind spots — inject the discriminators
