@@ -3,6 +3,17 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.471.0] — 2026-09-28
+
+### Added
+- Unreleased UI ships flagged in the real app, not as a separate prototype (`agentic-delivery`'s `roles.md`, Implementer discipline): new UI for a feature not yet ready to ship starts life as a flagged route/component inside the product itself, built with the app's own design-system primitives, so there is no separate mockup/prototype export a later step must port — the flag flip at release is a visibility change, not a rewrite (#1079).
+- A standalone prototype/mockup needing a later port is a fidelity-risk finding in its own right (`deep-code-review`'s `rendered-parity.md`), not just a parity check to schedule — every hand-off between a design artifact and the shipped surface is a place drift can leak; name it as a caveat even when the port passes all four axes, and point to the authoring-side fix above (#1079).
+- 2 new evals: 1 (deep-code-review) for the standalone-prototype-is-a-finding lesson, 1 (agentic-delivery) for the build-flagged-in-product lesson.
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/agentic-delivery/references/roles.md 25910→26619 unreleased-UI-behind-a-flag bullet (#1079)
+- size-budget-raise: .claude/skills/deep-code-review/references/rendered-parity.md 13993→14786 standalone-prototype-is-a-finding paragraph (#1079)
+
 ## [1.470.0] — 2026-09-28
 
 ### Added

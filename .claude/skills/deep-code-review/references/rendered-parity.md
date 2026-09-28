@@ -36,6 +36,15 @@ current design; when a comment and the live rendered reference disagree, the **c
 verify against it. This governs how you read **Y**; it doesn't soften the rule below that *your
 implementation's* evidence must be the **render**, not the DOM.
 
+**A standalone prototype/mockup file needing a later port is itself a finding, not just a parity check
+to schedule.** Every hand-off between a separate design artifact and the shipped surface is a place
+fidelity leaks (a different agent, session, or lossy export). A diff that ports new UI from a standalone
+mockup or prototyping-tool export — rather than having built it flagged, from the start, inside the real
+app with the app's own components — carries that whole risk class; name it as a caveat on the parity
+claim even when the port itself checks out on all four axes below. `agentic-delivery`'s `roles.md`
+(Implementer discipline) states the authoring-side fix: unreleased UI starts life as a flagged
+route/component in the product, so there is no separate artifact to drift from.
+
 **Four axes — name which one a claim covers; never conflate them.** A UI compares on four independent
 axes:
 
