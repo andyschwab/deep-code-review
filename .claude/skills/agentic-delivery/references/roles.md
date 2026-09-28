@@ -267,6 +267,16 @@ what already works. It is a generic engineering standard; a project's own
   provider/consumer column per item, not just a file/owner column.
 - **No magic values.** Named constants/config; a status string or threshold lives
   in one shared place, not inline.
+- **Unreleased UI ships flagged in the real app, not as a separate prototype.**
+  New UI for a feature not yet ready to ship starts life as a flagged
+  route/component inside the product itself, built with the app's own
+  design-system primitives — never a standalone mockup or prototyping-tool
+  export a later step must port. Design review happens by visiting the
+  flagged route in the real app; the flag flip at release time is a
+  visibility change, not a rewrite. This removes the fidelity-loss hand-off
+  instead of building tooling to catch it after the fact (cross-ref
+  `deep-code-review`'s `rendered-parity.md`, which names a standalone
+  prototype needing a port as a finding in its own right).
 - **Applied operations are idempotent** — safe to run twice, last-write-wins by a
   stable key — and **skip rather than guess**: an empty field beats a fabricated
   one; surface uncertainty.
