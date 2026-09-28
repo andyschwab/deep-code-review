@@ -421,6 +421,18 @@ Depth (a connector / transform pivot graph): `data-identity.md`.
   entity id, dated events, location) the working copy lacks. Scope external
   acquisition to the **measured residual** only; a plan that adds scrapers before
   measuring over-scopes.
+- **Gate a paid-enrichment pilot on verified-correct-ENTITY rate, not cost-per-item or raw
+  hit-rate.** A pilot that reports only cost and fill-rate can green-light a source that is cheap,
+  high-hit, and half wrong-entity: a name-only search silently returns an unrelated same-named
+  firm (short/generic names collide), so a headline "93% hit at $0.004" can still be only ~47%
+  correct once each hit is cross-checked against an **independent** source (the target's own
+  website/domain — the corroboration discipline in §2). Resolve a **strong key first** (a
+  canonical URL/domain), fall back to name-search only with a **mandatory post-hoc cross-check
+  that discards a mismatch** — never promote a name-search hit to a result on the raw hit-rate
+  alone. Skip-rather-than-guess (§2) applies at pilot scale too: a blank beats a confidently-wrong
+  row, especially where the row is human-facing. For this class of vendor, identity accuracy plus
+  its verification step is usually the binding constraint, not cost — size and judge the pilot on
+  the verified rate, and land the resolver + cross-check in the pipeline before any full run.
 
 Depth (a feasibility probe for a current-state signal): `data-freshness.md`.
 
@@ -472,3 +484,4 @@ a non-empty value-A→value-B overwrite with no source-grade arbitration;
 a corroboration count that collapses same-domain duplicates but not derivation;
 a diff / index keyed on a **bare `id`** over a list mixing multiple entity **kinds** (a `(kind, id)` collision that silently merges two entities into one delta);
 a dataset join by unguarded substring containment (`a in b or b in a`) that inherits an unrelated entity's confidential row, or a bare exact-match overlay that silently drops rows differing only by a legal suffix / case / punctuation;
+an enrichment-pilot readout headlined by cost-per-item or raw hit-rate with no verified-correct-entity rate cross-checked against an independent source;

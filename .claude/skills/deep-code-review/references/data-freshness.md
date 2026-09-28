@@ -106,6 +106,19 @@ Read this when the target or diff scores activity over time (recency, trend, vel
   is invented, not observed — the same family as a predicted buying-stage score. Take the window,
   reject the curve; and treat a vendor / marketing **half-life figure** as **unverified** unless it traces to a
   primary source — use it only to illustrate window *ordering*, never as a number.
+- **Derive a liveness/status verdict from the signal's DATE, computed by construction — but date-math alone
+  still mislabels a dead or mirrored source, and a verified terminal state overrides both.** An 'active'/'live'
+  label asserted by a human or model, decoupled from the cited signal's date, goes stale silently (a row reads
+  active on a year-old citation) — so compute the bucket (fresh/recent/slowing/dormant) from age-of-latest-signal,
+  never assert it free-text (the binary-window discipline above, bucketed). Date-math alone is not sufficient,
+  though: a wound-down org's archival commit, a bot/mirror sync, or a routine CMS touch is a recent **timestamp**
+  on a **weak** signal — distinguish signal **TYPE** (a real release/announcement vs a CMS-edit / fork-sync /
+  archival commit / bot mirror) and label the weak kind as weak, never let it read "thriving" on recency alone.
+  A **human-verified terminal state** (wound-down / acquired / ceased) **overrides the date bucket outright** —
+  the verified status wins over any recent low-signal activity, the same precedence discipline as
+  `data-scoring.md`'s stated-precedence-over-a-decision-field rule, terminal-state case. Finally, label the
+  freshness **source** (a public-market signal vs an internal-platform engagement event) on the row — internal
+  engagement recency must not masquerade as public-market liveness.
 
 ## Freshness of an external source (depth of `data-quality.md` §11)
 
@@ -128,3 +141,5 @@ an entity's structurally-low-observability class read as inactive rather than no
 a non-monotone recency curve;
 an external-source feasibility sign-off with no max-timestamp freshness check;
 a fabricated freshness decay curve (`0.5^(days/half_life)`) or an adopted vendor half-life in place of an observable in-window gate;
+a liveness/status verdict asserted free-text with no age-of-latest-signal bucket behind it, or a recent-but-weak signal (archival commit, bot/mirror sync, CMS touch) bucketed as fresh/thriving with no signal-type check;
+a verified terminal state (wound-down/acquired/ceased) not overriding a recent-date bucket;

@@ -7054,6 +7054,39 @@
         "States the DNS lookup callback must handle the {all: true} Happy Eyeballs / dual-stack shape",
         "Names the identity-based opt-out footgun (fetchImpl === fetch) as silently disabling the pin for any caller passing a default, recommending an explicit test-only parameter instead"
       ]
+    },
+    {
+      "id": "liveness-status-date-derived-terminal-state-overrides-recent-weak-signal",
+      "prompt": "A dataset labels companies 'active' from free-text research notes. Switching to a date-derived bucket (fresh/recent/slowing/dormant) from the newest cited signal's age fixes the stale-label problem, but then two rows still mislabel: (1) a company that self-declared shutdown and archived all its repos shows a recent 'commit' (the archival action itself) and buckets as fresh; (2) a company acquired and rebranded shows daily commits on its now-open-sourced repos and buckets as thriving. What is wrong with the date-derived bucket alone, and what two additional checks fix these two rows?",
+      "expected_output": "Date-math alone is not sufficient because it only measures the AGE of the newest signal, not its TYPE or whether a human-verified terminal state exists that outranks any date. Fix: (1) classify signal type -- an archival commit, a bot/mirror sync, or a routine CMS touch is a recent timestamp on a weak signal and must be labeled weak, never read as thriving, distinct from a real release/announcement; (2) a human-verified terminal state (wound-down/acquired/ceased) overrides the date bucket outright -- the verified status wins over any recent low-signal activity, so both the archived-shutdown row and the acquired-rebrand row bucket as their verified terminal state, not as fresh/thriving.",
+      "expectations": [
+        "States liveness must be computed from age-of-latest-signal, never asserted free-text",
+        "Identifies that a recent timestamp on a weak signal (archival commit, bot/mirror sync, CMS touch) must not read as fresh/thriving",
+        "States a human-verified terminal state overrides the date-derived bucket outright",
+        "Resolves both example rows (shutdown-archival and acquired-rebrand) via signal-type weakness or the terminal-state override, not via date alone"
+      ]
+    },
+    {
+      "id": "enrichment-pilot-gate-on-verified-correct-entity-not-cost-or-hit-rate",
+      "prompt": "A paid company-data vendor returns a result for 93% of input company names at $0.004 each. The pilot report leads with those two numbers and recommends scaling to the full list. What is missing from this pilot, and what should the go/no-go metric actually be?",
+      "expected_output": "The pilot reports only cost-per-item and raw hit-rate, neither of which proves the returned result is the CORRECT entity -- a name-only search on a short/generic company name can silently return an unrelated same-named firm. The headline metric must be the verified-correct-entity rate, cross-checked against an independent source (the target's own website/domain), not raw hit-rate or cost. The fix: resolve a strong key first (a canonical URL/domain), fall back to name-search only with a mandatory post-hoc cross-check that discards a mismatch, and skip rather than guess on an unresolved row. Scaling on hit-rate alone risks fabricating wrong data (e.g. headcounts) for every mismatched row.",
+      "expectations": [
+        "Identifies that hit-rate and cost do not prove entity correctness",
+        "Names the correct headline metric as verified-correct-entity rate cross-checked against an independent source",
+        "States resolving a strong key (canonical URL/domain) first, with cross-check-and-discard on any name-search fallback",
+        "Invokes skip-rather-than-guess for an unresolved/mismatched row rather than scaling on the raw hit-rate"
+      ]
+    },
+    {
+      "id": "quality-score-ruler-change-must-not-read-as-regression",
+      "prompt": "A design-parity tool reports the app at 69% parity while its accept-file has several owner-approved tolerances counted as passes (an accessibility color override, a minimum font size). The owner then decides the bar should be strict and removes those tolerances from the accept-file. A re-score comes back at 48%. The owner reads this as a regression. What went wrong with how the score was reported, and how should the tool report the next score to avoid this?",
+      "expected_output": "The 69% -> 48% drop is not a regression in the product; it is a change in the RULER -- the set of approved tolerances the score was computed against. The original report failed to name the ruler (that N tolerances were counted as passes) beside the number, so the owner had no way to distinguish a ruler change from a product regression. Going forward: every reported score states the ruler it was computed under (e.g. 'ruler: strict, no tolerances' vs 'ruler: N approved tolerances') and the tolerance count; when the ruler changes, report the OLD-ruler and NEW-ruler score for the same head once, so the delta is attributable to the ruler, not the product. 'No visible difference' is only a valid claim under the strict ruler.",
+      "expectations": [
+        "Identifies the drop as a ruler change (tolerance set), not a product regression",
+        "States every reported score must name its ruler and tolerance count",
+        "States a ruler change requires a one-time dual old-ruler/new-ruler report on the same head",
+        "States a tolerated deviation still counts as a visible difference under the strict ruler"
+      ]
     }
   ]
 }

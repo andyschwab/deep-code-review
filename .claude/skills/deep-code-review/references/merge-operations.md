@@ -11,14 +11,19 @@ each subsequent PR's own checks ran. A **merge train** verifies the *combination
 1. Build a **throwaway integration branch** off the target with every candidate PR's head merged in. Resolve
    any collision **keep-both**, never dropping one side — a generated/compiled-file collision follows §6's
    regenerate-don't-hand-splice rule.
-2. Run the **full aggregate gate once** on that union. Green means the combined tree is sound.
-3. Merge the member PRs **individually and back-to-back**, preserving each one's own commits and issue-closing
+2. **Run cheap, union-only checks first** — a file-size/count ratchet, a lint pass, anything that needs no build
+   — before the full aggregate gate. A union-only failure (two PRs each grow the same file within its own
+   allowance, but together push it over the cap) is usually a seconds-long, no-build check; surfacing it only
+   after the full parallel gate run (which can run tens of minutes) turns a fast RED naming the file into an
+   expensive one. Run the full aggregate gate **second**, only once the cheap checks are clean.
+3. Run the **full aggregate gate once** on that union. Green means the combined tree is sound.
+4. Merge the member PRs **individually and back-to-back**, preserving each one's own commits and issue-closing
    keyword. **Never squash the union into one commit** — that orphans every member PR's own issue and review
    thread instead of closing them.
-4. Discard the integration branch; it's never itself merged.
+5. Discard the integration branch; it's never itself merged.
 
 **A squash or amend that collects several lanes' work must keep each closing keyword scoped to its
-own PR — a stray one silently closes someone else's.** Step 3 above already preserves each member's own
+own PR — a stray one silently closes someone else's.** Step 4 above already preserves each member's own
 commits and its own issue-closing keyword by never squashing the union; the same discipline applies to
 *any* squash or amend that consolidates multi-lane work into one commit (a merge-train squash fallback, a
 maintainer's "clean up the history" squash, an agent amending a commit message) — a keyword copy-pasted or
@@ -38,9 +43,9 @@ landing from a wholly unrelated commit.
 **The union verifies the combination; it is not on the critical path.** Its CI aggregates every member's
 checks, so it concludes no sooner than the slowest member and usually later — treating "union CI still pending
 or red" as a reason to hold members already green re-serializes the very wait the train exists to remove. Once
-the aggregate gate is green the proof is in hand: merge the green members (step 3) and **close the union with
+the aggregate gate is green the proof is in hand: merge the green members (step 4) and **close the union with
 a pointer to where they landed**. "Wait for union CI, then squash/merge the union" fails twice over — the wait
-is redundant and merging the union orphans its members' issues (step 3).
+is redundant and merging the union orphans its members' issues (step 4).
 
 **Sequence a gate-adding PR last within the batch.** A PR that adds a new required gate, merged first, forces
 every other PR in the batch to retrofit a gate that didn't exist when it was authored — extra round-trips for
@@ -102,7 +107,7 @@ This bites at two scales:
   is the bug. (The merge-train union above surfaces these collisions up front and proves the *combination
   builds* — but doesn't make a conflicting member mergeable: the union branch is thrown away and the member
   branches are left unchanged, so each member still resolves against the moving target and the per-merge
-  re-check still applies at step 3. Sequence the resolver first, *then* run the train.)
+  re-check still applies at step 4. Sequence the resolver first, *then* run the train.)
 
 - **Sweep-while-resolving (the coordinator *causes* the staleness).** Running a **merge sweep** (landing green
   PRs into a shared base) **concurrently with** a **resolver lane** (rebasing a conflict-prone set against

@@ -133,6 +133,11 @@ focus-indicator path a DOM query happens to return first.
 
 ## Pin the comparison harness's flag/option set — a re-invocation is not a regression
 
+This is the design-parity instance of `data-scoring.md`'s *name the ruler with every reported
+score* rule — here the ruler is the harness's flag/option set; the accept-file/tolerance-set case
+(an approved a11y color override, a minimum font size removed from the accept file) is the same
+rule again, one ruler dimension over, and owes the same one-time old-ruler/new-ruler dual report.
+
 A design-parity scorecard's score is computed against a **denominator** the harness's own
 run-time flags define — which sections are included, which states are rendered, the viewport
 set, any other run-time option. Change that flag set between two runs and the denominator moves

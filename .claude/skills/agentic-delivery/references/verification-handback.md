@@ -491,6 +491,18 @@ makes the claim checkable, it does not replace the forge run.
   local tree (`--require-clean`: an edit a rejected hook left uncommitted fails); `checks` reads each check's own
   latest run, never a rollup (#1066). Its `--json` is the `Verify:` evidence, bounded by its `proves` field
   (never "the feature works").
+- **A link handed to a human is probed at the exact URL, on rendered content, never on HTTP status alone.**
+  `surface_check.py served` above proves the running build's *id*; it does not prove the *route* a human is
+  about to open actually renders the feature — a feature-flagged page with the flag off can 200 a dev server's
+  not-found render, and a probe run against a variant URL (a preview query parameter, an extra cookie) says
+  nothing about the plain URL the owner will click. Before a link reaches a human: (1) probe the **exact** URL
+  they will open — no extra query parameter, no cookie the probe added and they won't carry; (2) assert on a
+  **content marker** — a DOM id/text unique to the real page and absent from the not-found/error shell (e.g.
+  `curl -s "$URL" | grep -qF 'data-testid="landing-hero"'` and `! grep -qF 'data-testid="app-not-found"'`), or a
+  screenshot someone actually looks at — never the status code alone (this generalizes the *exact-surface*
+  confirmation below from "the reviewer looked at the right page" to "the link itself renders the right page");
+  (3) when the route sits behind a flag, state that environment's flag state in the same message the link is
+  handed over in.
 
 ## "No defects found" names the exact surface reviewed and how that was confirmed to match the brief, or it is unverified
 

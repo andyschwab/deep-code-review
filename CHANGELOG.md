@@ -3,6 +3,28 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.470.0] — 2026-09-28
+
+### Added
+- Liveness/status derived from the signal's date, with a verified terminal state override (`data-freshness.md`): compute an active/live bucket from age-of-latest-signal, never assert it free-text; distinguish signal TYPE (a real release vs. a CMS-edit/fork-sync/archival commit/bot mirror) so a weak signal never reads as thriving; and a human-verified terminal state (wound-down/acquired/ceased) overrides the date bucket outright (#1232).
+- Enrichment-pilot gating on verified-correct-entity rate (`data-quality.md` §11): a pilot's headline metric is the verified-correct-entity rate cross-checked against an independent source, not raw hit-rate or cost — resolve a strong key first, cross-check-and-discard on any name-search fallback (#1233).
+- Quality-score ruler naming (`data-scoring.md`, cross-referenced from `rendered-parity.md`'s flag-set-pinning section): every reported quality/coverage/audit score states its ruler (tolerance count, exclusions) beside the number, and a ruler change gets a one-time old-ruler/new-ruler dual report on the same head so the delta is attributable to the ruler, not the product (#1234).
+- Away-mode decision holding (`unattended-operating-mode.md`): while the owner is away, decisions are deferred to the ledger, never posted as a message; the owner's next message is answered first, then the full pending batch is appended once; an answered item drops from the pending batch; peer sessions route through the conductor's ledger, never message the owner directly (#1235).
+- Link-to-human verification by rendered content (`verification-handback.md`): a link handed to a human is probed at the exact URL (no extra query parameters/cookies), asserted on a content marker unique to the real page (never HTTP status alone), with the environment's flag state stated in the same message (#1238).
+- Merge-train cheap-checks-first and defect-list open-PR coverage (`merge-operations.md`, `unattended-trackers.md`): run cheap, union-only checks (a ratchet, a lint pass) before the full aggregate gate; and before fanning a computed defect list out to fix lanes, tag each remaining defect with the open PR that already covers it or re-measure on a union including ready PRs (#1240).
+- 3 new evals (deep-code-review) for the liveness, enrichment-pilot, and ruler-naming lessons; 2 new evals (agentic-delivery) for the link-verification and merge-train lessons; 1 new eval (agentic-ceo) for the away-mode decision lesson.
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/data-freshness.md 10123→11835 liveness/terminal-state-override bullet (#1232)
+- size-budget-raise: .claude/skills/deep-code-review/references/data-quality.md 35147→36450 enrichment-pilot identity-accuracy bullet (#1233)
+- size-budget-raise: .claude/skills/deep-code-review/references/data-scoring.md 9578→11239 ruler-naming bullet (#1234)
+- size-budget-raise: .claude/skills/deep-code-review/references/rendered-parity.md 13604→13993 ruler cross-reference (#1234)
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 64809→65347 cheap-union-checks-first step (#1240)
+- size-budget-raise: .claude/skills/agentic-delivery/references/unattended-operating-mode.md 22306→23204 away-mode decision-holding bullet (#1235)
+- size-budget-raise: .claude/skills/agentic-delivery/references/verification-handback.md 55340→56571 link-verification bullet (#1238)
+- size-budget-raise: .claude/skills/agentic-delivery/references/unattended-trackers.md 45015→45931 bulk defect-list open-PR-coverage bullet (#1240)
+- Must-load ceiling re-pinned (`scripts/mustload-budgets.tsv`): data-quality.md's growth (#1233) moved the data / ETL archetype total 19548→19874; no archetype's must-load ref set changed, only the one file's size.
+
 ## [1.469.0] — 2026-09-28
 
 ### Added
