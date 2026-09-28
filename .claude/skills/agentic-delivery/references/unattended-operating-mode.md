@@ -41,6 +41,17 @@ loop, not a single task**. Frame it as the default stance:
   from `task_ledger.py questions` and can still stop the run or answer at any
   time. Optional hooks (a model-visible turn-start line, an owner notice on
   `Stop`): `host-enforcement.md` **Deferred-question hooks**.
+  **While the owner is away, `defer` alone — never a posted message**: a decision
+  request posted mid-run scrolls past and is unfindable later; the ledger, not the
+  chat, is the record. Before deferring, check `task_ledger.py questions` for a
+  near-duplicate already answered, so a settled question is never re-asked. On the
+  owner's **next** message, whatever it says, **answer it first**, then append the
+  full open batch from `questions` — never lead with the backlog of asks. Once
+  `answer` records a reply, the ledger drops that item from the pending batch (it
+  stays in `QUESTIONS.jsonl` as the decided record — the decision ledger); no
+  further pending prompt repeats it. A **peer session** (a spawned subagent, a
+  sibling lane) routes its own deferred questions to the **conductor's** ledger,
+  never messages the owner directly — one pending list, one owner-facing batch.
 - **Measure delivery, not activity.** Report the **operator's own metric** and grade
   against durable output. Useful signals — **no** target thresholds (fabricated
   otherwise): merged-**to-default** per window, base-red **minutes-to-green**,

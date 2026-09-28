@@ -65,6 +65,16 @@ running); here the proxy is a real, landed outcome that simply isn't the number 
 reconciliation **continuously**, the same byte-exact-per-issue discipline as the *already-delivered* report
 above — not only at the eventual default-branch promotion, which leaves the queue reading false until then.
 
+**The same staleness attacks a bulk, computed defect list, not only a single tracker issue.** A scoring pass
+(a stricter parity/coverage re-score, a lint sweep) run on the integration branch's current head goes stale the
+moment an open, already-ready PR fixes a whole defect class the pass measured (a color override, an extra
+link, a disabled chip) — the resulting "N root causes" list then sends fan-out fix lanes after rows about to
+disappear on merge, the batch-scale sibling of *reproduce on current HEAD before opening a lane* above. Before
+fanning defects out to lanes: run an **open-PR coverage pass** — tag each remaining defect with the open,
+ready PR that already covers it — or re-measure the scoring pass on a **union that includes the ready PRs**
+(the merge-train union, `deep-code-review` `merge-operations.md` *Merge trains*), then assign lanes only against
+what still shows up on that union.
+
 ## The auto-close keyword fires on merge — do not write it where the issue should stay open
 
 The section above governs a keyword that was **correct but inert** (a `Closes #N` that merged off the default

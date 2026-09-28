@@ -96,6 +96,21 @@ Read this when the target or diff computes a score, rank, tier, leaderboard, or 
   this row's number are recoverable), never an opaque scalar. Principle 2 at row
   scope: a missing input is not a low input. (The *interpretation* rule — an
   absent window is not a decline — is in `data-freshness.md`; this owns the per-row mechanism.)
+- **Name the ruler with every reported score — a stricter ruler must never read as a regression.**
+  A quality/coverage/audit score (design-parity %, coverage %, pass rate) is only comparable across
+  two runs when the **measuring rule** — which tolerances/exclusions/approved deviations count as a
+  pass — stayed fixed. Reported alone, a raw number invites exactly this misread: a ~69% parity
+  score computed while N approved tolerances (an accessibility color override, a minimum font
+  size) still counted as passes, re-scored at ~48% once those tolerances were removed, reads as a
+  regression to the owner though the product never changed — the drop is attributable to the
+  ruler, not the product. State the ruler beside every number (`ruler: strict, no tolerances` vs
+  `ruler: N approved tolerances`) and the tolerance count; when the ruler changes, report **both**
+  the old-ruler and new-ruler score for the **same head, once**, so the delta is legible as a ruler
+  change rather than silently absorbed into "current score." Treat "no visible difference" as a
+  claim that is only valid under the **strict** ruler — a tolerated deviation is still a visible
+  difference under the strict one. (The design-parity instance of a ruler — the comparison
+  harness's own flag/option set — is `rendered-parity.md`'s *Pin the comparison harness's
+  flag/option set*; that section is this rule applied to flags instead of tolerances.)
 
 **🚩 red flags** (this file):
 a composite score that **sums** heterogeneous constructs;
@@ -105,3 +120,4 @@ a ranking/leaderboard with no observed-liveness gate (a missing liveness field r
 a corroboration / fusion step that raises a fused confidence past its **entity-attribution** component on agreement that only evidences occurrence;
 a hand-rolled composite / score / tiering where a citable external standard exists and wasn't used, or per-metric spec URLs over a **tool-chosen metric set** (the invented index one level up);
 a stated precedence (`A` outranks `B`) whose override writes an adjacent `notes`/`read` column while the `status` / decision field is computed only from `B` and never consults it (worse if that caveat-bearing field is then truncated to a length that cuts the disqualifying clause);
+a reported quality/coverage/audit score with no stated ruler (tolerance count, exclusions) beside it, or a ruler change reported as a single new number with no old-ruler/new-ruler dual report on the same head;
