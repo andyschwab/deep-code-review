@@ -117,6 +117,38 @@ finding against the suite. A merge train discovering broken specs this way after
 discovering a review gap, not a train defect — this belongs in review, before the member enters the
 batch.
 
+### Merge-train wrapper hygiene — admit, attribute, report and install without lying to yourself
+
+- **Pre-gate each PR before it is admitted.** Run a fast per-PR check first: merge-conflict check against the
+  current base, the count/size ratchets, the type check, and only the browser specs the diff touches (not the
+  full suite). A PR with an unresolved conflict or a plain type error that enters a train poisons the union's
+  result and costs a slot. Flag an admission step with no individual pre-check, and a pre-check that re-runs
+  the full suite.
+- **A ratchet counter counts every form of what it counts.** A style-duplication ratchet that scans only the
+  class form misses the inline-attribute form (and the reverse), so a member passes its own delta check and
+  still blows the limit in the union. Attribute a trip to the member by its own per-PR delta and drop that
+  member before the expensive browser suite, never after it.
+- **Attribute a regression only after the base alone fails to reproduce it, and compare by test title.** An
+  auto-bisect that runs "base plus one PR" per PR without first running the base blames every PR for a
+  timing-sensitive spec that also fails on the base, and file-level comparison blames PRs for unrelated failing
+  titles in the same file. Run the base once on the regressed spec files, drop every title that fails there,
+  and compare the remaining titles per PR. If every regression also fails at the base, treat the union as
+  proven.
+- **A train wrapper keeps every verdict line.** `| tail -3` hid the CONFLICT/DEFER lines above the final
+  RED/GREEN, so a member vanished with no visible reason. Filter by verdict prefix
+  (`^(GREEN|RED|CONFLICT|DEFER|STALE)`), never by position.
+- **Chain PRs that regenerate the same generated artifact.** Two members that both rebuild one generated file
+  always conflict in a union. Merge the first into the second and rebuild so the second is a descendant, and
+  both land in one train in order. Any direct merge to the integration branch mid-train restarts this, so
+  announce a short merge freeze while a release is being cut.
+- **Install before the gate, never during it.** If the union's lockfile differs from the installed tree, do a
+  clean install first. A gate step that reinstalls packages or checks out another ref in a working tree a
+  running browser suite is still reading deletes modules under its workers, and the missing-module crash reads
+  as a real regression. Use a fresh isolated tree per concurrent suite. Flag any gate script that can mutate
+  `node_modules`/vendor dirs in a tree another live process reads.
+- **A wait loop built on `pgrep -f <pattern>` can match itself** when its own command text contains the
+  pattern, so it waits to its timeout. Anchor to the target's argv0 (`^bash /path/script.sh`) or track PIDs.
+
 ### Committed generated docs plus a freshness check don't survive a merge train — generate at build time or serve on demand
 
 A doc generated from source and then committed, guarded by a test asserting it's still fresh, works for

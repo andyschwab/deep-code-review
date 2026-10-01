@@ -3,6 +3,24 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.473.0] — 2026-10-01
+
+### Added
+- Merge-train wrapper hygiene (`deep-code-review`'s `merge-operations.md`): per-PR pre-gate before admission, ratchet counters that count every syntactic form, base-first attribution by test title, verdict-prefix filtering instead of `tail`, chaining PRs that regenerate one artifact, clean install before (never during) a gate, and no self-matching `pgrep -f` waits (#1259, #1260, #1261, #1263).
+- New tests need repeat passes on fresh state and their own PR when flaky; a spec retargeted at a legacy surface is a finding (use a linked fixme); live-data-dependent branch tests rot (`testing-situational.md`) (#1259, #1264, #1265).
+- An inline literal in an effect dependency array re-fires the effect every render, causing scroll-jack and lost selection; ask for an interaction-level test (`web-render.md`, extends the existing inline-literal bullet) (#1266).
+- Stakeholder-facing updates state verified present-tense outcomes only: no effort counts, no roadmap promises (`communication-structure` 1.2.2) (#1269).
+- 5 new evals (4 deep-code-review, 1 communication-structure).
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 70388→73230 merge-train wrapper hygiene section (#1259, #1260, #1261, #1263)
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 34945→36521 new-test readiness section (#1264, #1265)
+- size-budget-raise: .claude/skills/deep-code-review/references/web-render.md 18524→18925 effect dependency-array sentence (#1266)
+- size-budget-raise: .claude/skills/communication-structure/SKILL.md 6208→6616 stakeholder-update bullet (#1269)
+
+### Skipped as duplicates of existing doctrine
+- #1262 (CPU-load gating and merge only the proven head SHA: `fanout-host-sizing.md`, `host-enforcement.md`), #1267 (code-search parity is not visual parity: `rendered-parity.md`, `migration-parity.md`), #1268 (proxy signals such as a grep count are not "done": `gate-epistemology.md` principle 11).
+
 ## [1.472.0] — 2026-09-30
 
 ### Added

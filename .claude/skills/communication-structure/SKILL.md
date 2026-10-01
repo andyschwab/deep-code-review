@@ -9,7 +9,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.2.1"
+  version: "1.2.2"
 ---
 
 # Communication structure
@@ -37,6 +37,10 @@ shorthand. This is about shape and length, not vocabulary. Lookup table:
 - **Their next action, not your process.** The reader is overloaded and mid
   context-switch. Give them what changes what they do next; drop the
   reasoning trail that got you there.
+- **A stakeholder-facing update states verified present-tense outcomes only.** List what is delivered and
+  working on the surface they use, in plain value terms (what changed for them), checked on that live surface
+  before you write it. No effort counts ("12 tasks done", lines, PRs, "% complete") and no "coming next week"
+  promises. The backlog-count rule below applies to backlog items, not to effort.
 - **Numbers over adjectives.** "40s to 6s" beats "significantly faster." Every headline metric states the
   **exact measured value and the exact target on the same line** (`X / Y`, or `X of Y`), computed at report time,
   not asserted from memory or rounded toward the desired outcome — "the vast majority" of a target where the
