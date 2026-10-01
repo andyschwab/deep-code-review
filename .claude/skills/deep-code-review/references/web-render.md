@@ -55,7 +55,7 @@ Read this when the target or diff renders a list or grid of rows / tiles, adds o
   alone: textbook child memo, unremarkable parent one-liner. Detect: grep call sites for a prop whose value is
   an inline `new Set(`/`new Map(`/`[...`/`{…}` **not** itself from a `useMemo`/stable state, confirm the
   receiving component keys a memo/effect dependency on it, then verify by counting the child's recompute while
-  triggering an *unrelated* parent state change. Fix: hoist the literal into the parent's `useMemo` keyed on
+  triggering an *unrelated* parent state change. The same unstable literal in an **effect's** dependency array re-fires the effect on every render and shows up as a list scrolling itself to the top or losing its selection while the user types in an unrelated box or a background refresh lands; a render-once unit test misses it, so ask for an interaction-level test of the invariant (scroll position holds while typing, one submit makes one record). Fix: hoist the literal into the parent's `useMemo` keyed on
   its true upstream (`const ids = useMemo(() => new Set(items.map(x => x.id)), [items])`) and pass the stable
   reference down. Distinct from the two bullets above by *what is unstable and whether anything flags it*: the
   memoized-callback bullet has **no `React.memo` on the child at all**; the unmemoized-view-model bullet has

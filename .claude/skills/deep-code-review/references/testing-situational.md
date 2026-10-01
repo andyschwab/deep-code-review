@@ -360,3 +360,20 @@ from a marker's own start to the **next** marker generically (positionally — "
 "the next `## ` boundary" — not by that neighbour's literal name), never by a specific neighbour's
 name. **Pass condition to check for:** renaming any *other* step/section keeps the test green;
 renaming or removing the step actually under test is the only thing that should break it.
+
+## A new test is "ready" only after repeat passes on fresh state, ships apart from unrelated changes, and never gets "fixed" by retargeting at a legacy surface
+
+Three ways a new or repaired test hurts other people's work. Flag each in a diff review:
+- **One green run is not "ready."** A new test that passed once and merged inside a larger batch fails
+  intermittently on unrelated PRs later, and the flake costs more to diagnose than it would have before
+  merge. Require a fixed repeat count (for example 3 of 3) on cold/fresh state as evidence, and treat a "ready"
+  claim backed by a single run as unverified. A test that is flaky on that bar ships in its own PR with the
+  flake tracked as a known issue, never bundled with unrelated functional changes.
+- **A fix that changes which page, route or URL a failing spec targets is a finding.** Pointing a spec that
+  failed against a rebuilt surface back at the old surface (still reachable behind a flag or route) turns the
+  suite green by deleting the coverage, and the real defect in the new surface stays invisible. If the new
+  surface genuinely is not ready for that check, mark the spec with an explicit skip/fixme that links a tracked
+  issue describing the gap. A retarget with no linked issue is reported.
+- **A test that asserts "some live record exercises branch X" rots when the data improves.** After a data
+  cleanup fills every gap, the test fails with no code change. Build the case from a real entity (take a real
+  record and clear the field) so the branch stays covered whatever state the data is in.
