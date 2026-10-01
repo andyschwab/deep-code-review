@@ -21,6 +21,10 @@ failure paths that *produce* these signals are section F /
    and check who can edit or delete it.
 5. **Find the backup config, then the restore evidence** — a backup with no
    documented, dated restore drill is untested.
+6. **A claim of absence needs proof the window held the event.** "No errors at startup" from a log query whose default
+   page holds only the last ~30 events is unverified. Show the anchor line that bounds the window (the boot line of
+   the exact deployment ID), then filter by deployment or page with an explicit time window; old-container shutdown
+   errors are not new-container errors. No anchor means `UNVERIFIED`, not "clean".
 
 ---
 

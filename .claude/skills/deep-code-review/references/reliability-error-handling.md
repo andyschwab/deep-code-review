@@ -496,6 +496,9 @@ subsystem never executing in production while local runs look fine.
 
 - Assert registration in the deployed entrypoint (boot log, readiness probe, or
   a smoke test that hits the real wiring).
+- **Fail closed must also fail loud.** A guard that refuses (a startup migration baseline that applies a schema diff
+  only when additive, an allow-list, a safety check) must log what it refused and why (the refused SQL, the rule
+  hit). A silent refusal looks identical to "guard never ran", so the only trace left is the original error.
 - Grep for optional `require`/`import` behind flags with no test that the flag
   path runs in CI for both states.
 - **A build/codegen step keyed on an explicit source allow-list silently emits

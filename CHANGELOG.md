@@ -3,6 +3,19 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.474.0] — 2026-10-02
+
+### Added
+- A fire-and-forget promise in a timer or startup hook needs a terminal `.catch` that logs, because a per-item catch does not cover an earlier await and Node exits on the unhandled rejection (`lang-js-ts.md`); a fail-closed guard must also log what it refused and why (`reliability-error-handling.md`); a claim of absence needs an anchor line proving the log window held the event (`observability.md`) (#1272).
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/deep-code-review/references/lang-js-ts.md 11153→11617 timer fire-and-forget bullet (#1272)
+- size-budget-raise: .claude/skills/deep-code-review/references/observability.md 17984→18418 absence-claim anchor step (#1272)
+- size-budget-raise: .claude/skills/deep-code-review/references/reliability-error-handling.md 44746→45085 fail-loud guard bullet (#1272)
+
+### Not planned
+- #1273 (pairwise isolation for multi-PR interactions) is covered by `merge-operations.md` ("Test pairs, not only singles"); #1274 (structural vs cosmetic design diff) is covered by `rendered-parity.md` ("Classify every diff structural vs cosmetic").
+
 ## [1.473.0] — 2026-10-01
 
 ### Added

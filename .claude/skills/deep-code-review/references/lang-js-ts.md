@@ -52,6 +52,10 @@ Read this when the target contains JavaScript or TypeScript. Split from `languag
   to non-`strict`.
 - Floating promises (missing `await`), `.catch` absent, `async` in `forEach`
   (does not await) → dropped errors / races.
+- A fire-and-forget promise in a timer, event handler or startup hook (`setInterval(() => void run(), HOUR)`) needs a
+  terminal `.catch` that logs: a per-item `try/catch` inside `run()` does not cover an `await` before the loop (a
+  briefly unreachable database), and Node's default `--unhandled-rejections=throw` then exits the whole server.
+  Pair it with one log line per scheduled run (inputs counted, per-step result) so the job is verifiable in production.
 - `addEventListener` / `.on(` / `.subscribe(` / `setInterval` / `setTimeout` with no matching
   `removeEventListener` / `.off(` / `unsubscribe` / `clearInterval` / `clearTimeout` on
   unmount / request-end / disposal → listener + timer leaks (a `useEffect` with no cleanup return
