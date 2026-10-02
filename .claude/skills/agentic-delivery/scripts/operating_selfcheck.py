@@ -33,7 +33,7 @@ own installed skill directory (`--skill-root`, default: two directories up
 from this file):
 - `fan-out-probe` — `scripts/host_probe.py`.
 - `usage-window-pacer` — the sibling `agentic-ceo` skill's
-  `scripts/token_report.py`; `COULD_NOT_CHECK` (not `MISSING`) when that
+  `scripts/token_report.py`; `N/A: ... install.sh --with-ceo` (not `MISSING`) when that
   sibling skill isn't installed at all, since its absence is a project
   choice, not a broken install of this one.
 
@@ -122,7 +122,7 @@ def check_scripts(skill_root: str) -> dict:
     elif os.path.isdir(pacer_sibling_dir):
         pacer_status = "MISSING"
     else:
-        pacer_status = "COULD_NOT_CHECK: agentic-ceo sibling skill not installed"
+        pacer_status = "N/A: agentic-ceo not installed; add it with install.sh --with-ceo"
     return {
         "fan-out-probe": "PRESENT" if os.path.isfile(probe) else "MISSING",
         "usage-window-pacer": pacer_status,
@@ -226,7 +226,7 @@ def _selftest() -> int:
         fake = check_scripts(fake_root)
         case("fake-skill-root-fan-out-probe-missing", fake["fan-out-probe"], "MISSING")
         case("fake-skill-root-pacer-could-not-check",
-             fake["usage-window-pacer"].startswith("COULD_NOT_CHECK"), True)
+             fake["usage-window-pacer"].startswith("N/A") and "--with-ceo" in fake["usage-window-pacer"], True)
 
         full = report(after_path, real_root)
         for item in PROTOCOL_ONLY:

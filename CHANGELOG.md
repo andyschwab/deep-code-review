@@ -3,6 +3,11 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.476.1] — 2026-10-02
+
+### Fixed
+- `operating_selfcheck.py` reports `usage-window-pacer` as `N/A: agentic-ceo not installed; add it with install.sh --with-ceo` instead of `COULD_NOT_CHECK` when the sibling skill is not installed; exit status unchanged (closes #1286).
+
 ## [1.476.0] — 2026-10-02
 
 ### Changed (size budgets)
