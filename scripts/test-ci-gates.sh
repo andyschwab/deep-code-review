@@ -3661,7 +3661,7 @@ if command -v jq >/dev/null 2>&1; then
   echo '{"model":"opus"}' >"$OPA/.claude/settings.local.json"
   bash "$ROOT/install.sh" --with-delivery --apply-operating-layer "$OPA" >"$WORK/opa1.log" 2>&1
   cp "$OPA/.claude/settings.local.json" "$WORK/opa.first"
-  bash "$ROOT/scripts/update-installed.sh" "$OPA" >"$WORK/opa2.log" 2>&1
+  DCR_NO_PULL=1 bash "$ROOT/scripts/update-installed.sh" "$OPA" >"$WORK/opa2.log" 2>&1
   if cmp -s "$WORK/opa.first" "$OPA/.claude/settings.local.json" \
     && [ "$(jq '.hooks.SubagentStart | length' "$OPA/.claude/settings.local.json")" = 1 ] \
     && [ "$(jq '.hooks.SubagentStop | length' "$OPA/.claude/settings.local.json")" = 2 ] \
@@ -3672,6 +3672,36 @@ if command -v jq >/dev/null 2>&1; then
   else
     record 1 "operating-layer: apply twice is idempotent, single hook entries"
   fi
+fi
+
+# ===========================================================================
+# update-installed.sh pulls first: a clone behind its origin is fast-forwarded
+# (and the new version printed); a dirty clone is refused.
+# ===========================================================================
+UI="$WORK/ui"
+mkdir -p "$UI/seed/scripts" "$UI/seed/.claude/skills/deep-code-review" "$UI/tgt/.claude"
+cp "$ROOT/scripts/update-installed.sh" "$UI/seed/scripts/"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$UI/seed/install.sh"
+echo 1.0.0 >"$UI/seed/.claude/skills/deep-code-review/VERSION"
+: >"$UI/tgt/.claude/.dcr-install-flags"
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+git -C "$UI/seed" init -q -b main
+git -C "$UI/seed" add -A
+git -C "$UI/seed" commit -qm v1
+git clone -q "$UI/seed" "$UI/clone"
+echo 2.0.0 >"$UI/seed/.claude/skills/deep-code-review/VERSION"
+git -C "$UI/seed" commit -qam v2
+ui_out="$(bash "$UI/clone/scripts/update-installed.sh" "$UI/tgt" 2>&1)" || true
+echo 3.0.0 >"$UI/seed/.claude/skills/deep-code-review/VERSION"
+git -C "$UI/seed" commit -qam v3
+echo dirty >>"$UI/clone/install.sh"
+ui_dirty="$(bash "$UI/clone/scripts/update-installed.sh" "$UI/tgt" 2>&1)" && ui_rc=0 || ui_rc=$?
+if [ "$(cat "$UI/clone/.claude/skills/deep-code-review/VERSION")" = 2.0.0 ] \
+  && printf '%s' "$ui_out" | grep -q "dcr version: 2.0.0" \
+  && [ "$ui_rc" -ne 0 ] && printf '%s' "$ui_dirty" | grep -q "uncommitted changes"; then
+  record 0 "update-installed: fast-forwards a behind clone, refuses a dirty one"
+else
+  record 1 "update-installed: fast-forwards a behind clone, refuses a dirty one"
 fi
 
 # ===========================================================================
