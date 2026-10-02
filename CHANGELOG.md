@@ -3,6 +3,29 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.476.0] — 2026-10-02
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/agentic-delivery/references/gate-epistemology.md 10450→10708 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/agentic-delivery/references/host-enforcement.md 35323→36464 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 67484→68103 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/agentic-delivery/references/verification-handback.md 56571→56685 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/deep-code-review/references/data-freshness.md 11835→12384 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/deep-code-review/references/infra-evolution-by-stage.md 6889→7856 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/deep-code-review/references/lang-js-ts.md 11617→12493 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 73230→73813 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/deep-code-review/references/model-tiering.md 16840→16991 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/deep-code-review/references/parallel-audit.md 38548→39203 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 36521→36962 lesson rules from issues 1276-1284
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-gates.md 13619→14077 lesson rules from issues 1276-1284
+
+### Added
+- Convention-loaded entry files (Next `src/instrumentation.ts`) must be proven loaded from the build output; measure peak build RSS against the builder quota; an optional secret is unsettable where the platform renders inputs only for REQUIRED vars (`lang-js-ts.md`, `infra-evolution-by-stage.md`).
+- Multi-row puller ingestion upserts on (entity, date) (`data-freshness.md`); UI-affecting PRs land through a browser-suite train plus a nightly halt (`merge-operations.md`); a changed control needs a real-browser drive before "No UX change" (`ux-gates.md`); fixed-protocol perf comparisons (`testing-situational.md`).
+- Cross-lane dedup, four-domain-lane FULL-review default, call-site coverage list (`parallel-audit.md`); owner-ruled model tiers stay (`model-tiering.md`).
+- No-commit hand-off flow, owner-run rollout of agent-rule files, fixup over amend, toolchain preflight (`host-enforcement.md`); one checked-in priorities file (`multi-session-coordination.md`); exact test-count hand-backs (`verification-handback.md`); handles are identifiers (`gate-epistemology.md`).
+- Closes issues 1276-1284; duplicates of existing doctrine (1277 items 1, 5, 7) not re-added.
+
 ## [1.475.0] — 2026-10-02
 
 ### Changed (size budgets)

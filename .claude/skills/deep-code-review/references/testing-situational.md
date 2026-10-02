@@ -377,3 +377,5 @@ Three ways a new or repaired test hurts other people's work. Flag each in a diff
 - **A test that asserts "some live record exercises branch X" rots when the data improves.** After a data
   cleanup fills every gap, the test fails with no code change. Build the case from a real entity (take a real
   record and clear the field) so the branch stays covered whatever state the data is in.
+
+- **A comparison of two implementations needs a fixed protocol, not ad-hoc timing.** Same machine and data, a verified quiet window (load checked first), runs back-to-back, median of 3, and the CPU/RAM load level reported beside each number so a reader can tell a clean comparison from a noisy one. For user-facing latency, add a protocol-level load ramp plus a few real-browser runs; a server-side synthetic benchmark alone is not enough.

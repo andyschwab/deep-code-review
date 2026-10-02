@@ -243,3 +243,6 @@ subagent handback-size cap live in `agentic-delivery`'s `host-enforcement.md`
 — read the levers above as the protocol-level rationale, that file as the
 enforced instance; verified sources and fetch dates in
 `docs/standards-index.md`.
+
+
+A model tier set by an explicit owner ruling is a deliberate choice: record it and leave it in place in a cost review; flag only tiers nobody chose.

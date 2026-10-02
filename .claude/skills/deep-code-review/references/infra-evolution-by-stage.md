@@ -73,6 +73,11 @@ and error budgets; evolutionary architecture and fitness functions. These are
 named leads; a skill that cites a version or number must fetch and log the source
 first (repo convention).
 
+### Deploy-readiness checks
+
+- **Measure peak build memory against the builder's declared quota.** A change that adds a boot hook or a dependency can raise a container build's peak RSS enough to cross a builder memory quota, and the build then fails without a clear error. **Detect:** a deploy-readiness check that never records peak build RSS. **Fix:** measure it (for example `/usr/bin/time -l` on macOS or `-v` on Linux) and compare to the quota with headroom.
+- **An optional secret is unsettable if the deploy platform only renders input fields for variables marked REQUIRED.** An app that declares a feature-gating secret optional can leave the feature silently dark in production, with no error. **Detect:** every optional env var that gates a user-visible feature. **Fix:** mark it required, or confirm the platform has a real path to set optional secrets; verify a human can set it through the platform's own UI, not only that the local `.env` supports it.
+
 Cross-references: the going-forward roadmap this feeds (`report-format.md`);
 how-to-secure existing infra (`infra-iac-containers.md`, domain L); the SLI/SLO
 lens (`role-coverage.md`, Platform/SRE); the stage model (`SKILL.md`, Project
