@@ -3,6 +3,11 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.476.2] — 2026-10-02
+
+### Fixed
+- `scripts/update-installed.sh` now runs `git fetch` and fast-forwards its own checkout when behind upstream before reinstalling, prints the installed version, and refuses on a dirty tree, diverged history, or no upstream (#1289).
+
 ## [1.476.1] — 2026-10-02
 
 ### Fixed
