@@ -3,6 +3,15 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.475.0] — 2026-10-02
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 3954→4662 apply-operating-layer and update-installed doc
+
+### Added
+- `install.sh --apply-operating-layer`: idempotent jq-merge of the operating-layer hooks/env and `model: sonnet` into `.claude/settings.local.json` (backup first, fail closed without jq), plus a `delivery-lane` agent written only if absent. Installs now record their flags in `.claude/.dcr-install-flags`.
+- `scripts/update-installed.sh TARGET...`: replays the recorded flags so projects pull the latest skills.
+
 ## [1.474.0] — 2026-10-02
 
 ### Added

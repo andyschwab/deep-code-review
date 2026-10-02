@@ -103,6 +103,13 @@ on re-install). Overlay skills are opt-in.
                        (agentic-delivery/references/operating-discipline.md).
                        Never overwrites an existing file at that path (writes
                        .new-1, .new-2, ... instead). Requires --with-delivery.
+  --apply-operating-layer
+                       Instead of writing a .new snippet, jq-merge the operating-layer
+                       hooks/env (plus model "sonnet" if unset) into
+                       TARGET/.claude/settings.local.json idempotently (backup first;
+                       fails closed if jq is missing) and write
+                       .claude/agents/delivery-lane.md if absent. Implies
+                       --with-operating-layer; requires --with-delivery.
   --recommend          Inspect TARGET and print a recommended pack; no writes
   -h, --help           Show this help
 
@@ -133,6 +140,7 @@ WITH_BUSINESS=0
 WITH_OUTPUT_SAFETY=0
 WITH_GATES=0
 WITH_OPERATING_LAYER=0
+APPLY_OPLAYER=0
 RECOMMEND_ONLY=0
 POSITIONAL=()
 for arg in "$@"; do
@@ -153,6 +161,7 @@ for arg in "$@"; do
     --with-output-safety) WITH_OUTPUT_SAFETY=1 ;;
     --with-gates) WITH_GATES=1 ;;
     --with-operating-layer) WITH_OPERATING_LAYER=1 ;;
+    --apply-operating-layer) WITH_OPERATING_LAYER=1; APPLY_OPLAYER=1 ;;
     --full) WITH_DELIVERY=1; WITH_CRITIC=1; WITH_COMMS=1 ;;
     --recommend) RECOMMEND_ONLY=1 ;;
     --with-cursor) echo "note: --with-cursor is default now; ignoring." >&2 ;;
@@ -165,6 +174,11 @@ done
 
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
   echo "error: --with-operating-layer requires --with-delivery (writes an agentic-delivery snippet)" >&2
+  exit 1
+fi
+
+if [[ "${APPLY_OPLAYER}" -eq 1 ]] && ! command -v jq >/dev/null 2>&1; then
+  echo "error: --apply-operating-layer needs jq (fail closed); install jq or use --with-operating-layer" >&2
   exit 1
 fi
 
@@ -404,6 +418,38 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   fi
   OPLAYER_DEST="${TARGET_DIR}/.claude/settings.operating-layer.json.new"
   mkdir -p "$(dirname "${OPLAYER_DEST}")"
+  if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
+    OPLAYER_LOCAL="${TARGET_DIR}/.claude/settings.local.json"
+    [[ -f "${OPLAYER_LOCAL}" ]] || echo '{}' > "${OPLAYER_LOCAL}"
+    # Append template hook entries not already present; existing env/model win.
+    jq --slurpfile t "${OPLAYER_SRC}" '
+      ($t[0]) as $t
+      | reduce ($t.hooks | keys[]) as $e (.;
+          (.hooks[$e] // []) as $a
+          | .hooks[$e] = $a + ($t.hooks[$e] | map(select(. as $x | $a | index([$x]) | not))))
+      | .env = ($t.env + (.env // {}))
+      | .model //= "sonnet"' "${OPLAYER_LOCAL}" > "${OPLAYER_LOCAL}.tmp"
+    if cmp -s "${OPLAYER_LOCAL}" "${OPLAYER_LOCAL}.tmp"; then
+      rm -f "${OPLAYER_LOCAL}.tmp"
+    else
+      cp "${OPLAYER_LOCAL}" "${OPLAYER_LOCAL}.bak"
+      mv "${OPLAYER_LOCAL}.tmp" "${OPLAYER_LOCAL}"
+    fi
+    OPLAYER_AGENT="${TARGET_DIR}/.claude/agents/delivery-lane.md"
+    if [[ ! -e "${OPLAYER_AGENT}" ]]; then
+      mkdir -p "$(dirname "${OPLAYER_AGENT}")"
+      cat > "${OPLAYER_AGENT}" <<'AGENT'
+---
+name: delivery-lane
+description: Default delivery lane for bounded implementation work. Terse, cheap, one-line hand-back.
+model: sonnet
+---
+Do the assigned bounded task with the simplest change that works. Read only the line ranges you need. Run the project's own gates before claiming done. Final message is one line: status, evidence (sha/path/test), next step.
+AGENT
+    fi
+    echo "applied operating layer to ${OPLAYER_LOCAL} (backup: .bak if changed); verify with:"
+    echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py --settings .claude/settings.local.json"
+  else
   if [[ -e "${OPLAYER_DEST}" ]]; then
     OPLAYER_N=1
     while [[ -e "${OPLAYER_DEST}-${OPLAYER_N}" ]]; do
@@ -414,7 +460,12 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   cp "${OPLAYER_SRC}" "${OPLAYER_DEST}"
   echo "wrote ${OPLAYER_DEST} -- merge its \"hooks\"/\"env\" keys into ${TARGET_DIR}/.claude/settings.json by hand, then verify with:"
   echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py"
+  fi
 fi
+
+# Record the flags so scripts/update-installed.sh can replay this install.
+mkdir -p "${TARGET_DIR}/.claude"
+{ for a in "$@"; do [[ "${a}" == -* ]] && printf '%s\n' "${a}"; done; true; } > "${TARGET_DIR}/.claude/.dcr-install-flags"
 
 upsert_agents_block() {
   local agents="$1"
@@ -597,5 +648,5 @@ if [[ "${WITH_GATES}" -eq 1 ]]; then
   echo "  gates:    dcr-gates.yml + scripts/dcr-gates.sh wired -- push/open a PR to run them"
 fi
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
-  echo "  operating-layer: settings.operating-layer.json.new written -- merge it, then run operating_selfcheck.py"
+  [[ "${APPLY_OPLAYER}" -eq 1 ]] && echo "  operating-layer: applied to .claude/settings.local.json" || echo "  operating-layer: settings.operating-layer.json.new written -- merge it, then run operating_selfcheck.py"
 fi
