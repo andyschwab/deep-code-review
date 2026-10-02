@@ -128,3 +128,6 @@ environment, not a transient flake.
     mechanical call either — stop and queue it to the owner rather than silently applying it (the
     code-level instance — never loosening a ratified assert-absent test to ship a conflicting
     feature — is `deep-code-review`'s `testing-situational.md`).
+
+
+**Handles are identifiers too.** A brief that names a person by handle can get that handle copied into a code string. Names and handles belong only in PR bodies and comments, never in code, and the privacy gate's pattern list should also scan for handles.

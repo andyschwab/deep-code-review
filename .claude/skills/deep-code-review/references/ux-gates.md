@@ -149,3 +149,5 @@ task:
 
 Ship these **idempotent and additive**, per Phase 6 — detect-and-stop if present, add only what is
 missing, defer to an existing style guide (the parity differ only when the task is a parity task).
+
+**Drive every changed interactive control in a real browser before "No UX change".** A passing logic test proves a function was called, and a static screenshot proves someone looked; neither proves the control is reachable, visible, or in the right enabled/disabled state in the rendered page. For each changed control: open it, act on it, reload, verify it again, at a narrow and a wide width, with before/after screenshots, before the PR is marked ready.

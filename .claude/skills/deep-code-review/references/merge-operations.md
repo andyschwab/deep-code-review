@@ -788,3 +788,8 @@ off the remote. Two things must be true before a stop is actually complete:
   the remote ref is an ancestor of your new HEAD (verify that first; if diverged, it needs a real merge, not a
   push). The "already checked out" collision is usually a symptom of stale worktrees never pruned —
   `git worktree prune` (and removing a merged lane's tree) clears it.
+
+
+### A UI-affecting change lands through a train that runs the browser suite, not one-at-a-time on unit and type proof
+
+When each merge is proven only by unit tests and a type check, browser-level failures accumulate silently across many merges until release QA. Gate any UI-affecting PR behind a batch/train union that runs the full browser suite before merge, and add a nightly full run that halts further merges while it is red. **Check:** count PRs merged since the last green browser run; a nonzero count with no train that ran the suite in between means the gate was skipped.

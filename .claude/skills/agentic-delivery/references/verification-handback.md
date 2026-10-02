@@ -654,3 +654,6 @@ Moved from `SKILL.md` **Worktrees and occupancy**; "the tree-sharing risk above"
   proves nothing about an issue filed, a comment posted, or a message sent
   (`parallel-audit.md` §2 covers the read-only fan-out case; this is the
   general-lane case).
+
+
+A hand-back pastes the test runner's exact count string (for example `Tests: 219/219`), not a paraphrase of it.

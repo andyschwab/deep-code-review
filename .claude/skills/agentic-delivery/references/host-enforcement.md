@@ -531,3 +531,11 @@ hand; `install.sh` never edits settings:
   ]
 }
 ```
+
+
+## When agents may not commit, push, or edit agent-rule files
+
+- **No-commit repos.** Where agents may not commit or push, the standard hand-off is: stage the changes, print the exact hand-off commands, and write each PR body to a file, batched across worktrees. Push everything first, confirm with a remote-ref check, and only then create PRs, passing an explicit `--base` for stacked PRs; creating a PR before a slow hook finishes the push races it.
+- **Host classifiers block self-modification.** In auto mode a host safety classifier can refuse an agent's commit of agent-instruction files (`AGENTS.md`, `.claude/agents/*`) even when the owner authored them. Ship such a rollout as an install-script step the owner runs; never have an agent commit it.
+- **Prefer fixup commits to amend.** The same classifiers treat amending an unpushed commit as destructive, so doctrine should say fixup commit, not amend.
+- **Toolchain preflight.** Before gates run, check that each required tool resolves on `PATH` (a package manager supplied by a shim such as corepack often does not); a missing shim otherwise surfaces as an opaque hook failure.

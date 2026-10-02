@@ -559,3 +559,8 @@ security/permission/authz boundary, split the remediation by risk surface (see
 `SKILL.md` Phase 5) — the security-critical diff rides its own small PR for a
 decorrelated reviewer, never buried under nits. Report files follow Phase 5's
 shared-tree escape hatch.
+
+
+### Dedupe across lanes before synthesis, and default a FULL review of an agent-layer service to four domain lanes
+
+Overlapping High findings from several lanes cost tokens in synthesis, so run one shared dedup step (merge by location and root cause) before the orchestrator re-verifies. For a FULL review of a service with an agent layer, four domain lanes (security, AI, cost, privacy/CI) are a good default: one field run produced five High findings across them with little overlap. Also require the review prompt to list every call site of a changed pattern, each marked covered or uncovered, and a per-diff independent review pass before hand-off.

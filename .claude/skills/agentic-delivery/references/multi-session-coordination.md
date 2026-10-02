@@ -931,3 +931,8 @@ running to notice the limit lifted or to act on it.
 advance the clock past the stated reset time, and confirm the recovery (a) triggers with no human
 action, (b) resumes the in-progress worktrees rather than starting duplicate lanes, and (c)
 re-discovers peer identities rather than sending to a stale, hardcoded name.
+
+
+## Agents sharing a backlog read one checked-in priorities file, and raise conflicts once
+
+Agents without a shared source of truth for priority order re-derive or disagree on what is next, and conflicting asks from different sources produce duplicate or contradictory work. Keep one priorities file in the repo that every agent reads before picking work, and a one-message escalation rule: a genuine conflict between two instructions is raised once, explicitly, never guessed at or resolved differently by each agent. **Check:** a fresh session states the current priority order from that file alone, without asking.

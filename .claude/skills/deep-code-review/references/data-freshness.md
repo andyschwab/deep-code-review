@@ -143,3 +143,7 @@ an external-source feasibility sign-off with no max-timestamp freshness check;
 a fabricated freshness decay curve (`0.5^(days/half_life)`) or an adopted vendor half-life in place of an observable in-window gate;
 a liveness/status verdict asserted free-text with no age-of-latest-signal bucket behind it, or a recent-but-weak signal (archival commit, bot/mirror sync, CMS touch) bucketed as fresh/thriving with no signal-type check;
 a verified terminal state (wound-down/acquired/ceased) not overriding a recent-date bucket;
+
+### A puller must keep every row of a multi-row result
+
+A background puller written for one value per run silently keeps only the newest row when the source returns several (dated or time-series results), so history depends on a manual backfill nobody scheduled. Ingest idempotently and multi-row-safe by construction: upsert on an (entity, date) key and never implicitly reduce a multi-row result to "latest". **Check:** compare source row count with destination row count for one ingestion window; a 1:1 ratio, not N:1, proves multi-row capture.
