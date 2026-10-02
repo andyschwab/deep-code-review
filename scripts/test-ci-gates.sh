@@ -2015,6 +2015,16 @@ else
   record 1 "install --with-gates: runner with a missing selftest script exits non-zero (planted RED)"
 fi
 
+# operating_selfcheck: a not-installed agentic-ceo sibling reports N/A naming --with-ceo, exit 0 (#1286).
+sc_root="$WORK/selfcheck-root/agentic-delivery"
+mkdir -p "$sc_root/scripts"
+if sc_out="$(python3 "$ROOT/.claude/skills/agentic-delivery/scripts/operating_selfcheck.py" --skill-root "$sc_root" --settings "$WORK/none.json")" \
+  && printf '%s\n' "$sc_out" | grep -q '^usage-window-pacer: N/A: .*--with-ceo'; then
+  record 0 "operating_selfcheck: absent agentic-ceo sibling reports N/A naming --with-ceo (exit 0)"
+else
+  record 1 "operating_selfcheck: absent agentic-ceo sibling reports N/A naming --with-ceo (exit 0)"
+fi
+
 # ---------------------------------------------------------------------------
 # autonomy-doctrine — a STRUCTURAL check, not a behavioural eval: pins the
 # standing-grant clause (Human gates + termination conditions), its
