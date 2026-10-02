@@ -3641,6 +3641,30 @@ else
 fi
 
 # ===========================================================================
+# --apply-operating-layer: jq-merge is idempotent (apply twice -> identical
+# file, one hook entry per template entry), writes the lane agent once, and
+# update-installed.sh replays the recorded flags.
+# ===========================================================================
+if command -v jq >/dev/null 2>&1; then
+  OPA="$WORK/oplayer-target"
+  mkdir -p "$OPA/.claude"
+  echo '{"model":"opus"}' >"$OPA/.claude/settings.local.json"
+  bash "$ROOT/install.sh" --with-delivery --apply-operating-layer "$OPA" >"$WORK/opa1.log" 2>&1
+  cp "$OPA/.claude/settings.local.json" "$WORK/opa.first"
+  bash "$ROOT/scripts/update-installed.sh" "$OPA" >"$WORK/opa2.log" 2>&1
+  if cmp -s "$WORK/opa.first" "$OPA/.claude/settings.local.json" \
+    && [ "$(jq '.hooks.SubagentStart | length' "$OPA/.claude/settings.local.json")" = 1 ] \
+    && [ "$(jq '.hooks.SubagentStop | length' "$OPA/.claude/settings.local.json")" = 2 ] \
+    && [ "$(jq -r .model "$OPA/.claude/settings.local.json")" = opus ] \
+    && [ -f "$OPA/.claude/settings.local.json.bak" ] \
+    && [ -f "$OPA/.claude/agents/delivery-lane.md" ]; then
+    record 0 "operating-layer: apply twice is idempotent, single hook entries"
+  else
+    record 1 "operating-layer: apply twice is idempotent, single hook entries"
+  fi
+fi
+
+# ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a
 # fixture into the real checkout instead of $WORK — exactly the kind of

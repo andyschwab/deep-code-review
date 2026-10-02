@@ -24,6 +24,15 @@ injector (`scripts/subagent_start_inject.py`), both `SubagentStop` hand-back-cap
 `CLAUDE_CODE_SUBAGENT_MODEL` pin, every path relative to the installed skill — and prints how to
 merge the snippet into the real settings file.
 
+`install.sh --with-delivery --apply-operating-layer TARGET` applies it instead: it jq-merges the
+template's hooks and env (plus `model: sonnet` when unset; existing env and model win) into
+`TARGET/.claude/settings.local.json`, appends only hook entries not already present (re-running
+yields an identical file), writes `settings.local.json.bak` first when the file changes, writes
+`.claude/agents/delivery-lane.md` (Sonnet, terse, one-line hand-back) only if absent, and fails
+closed when `jq` is missing. Every install records its flags in `TARGET/.claude/.dcr-install-flags`;
+`scripts/update-installed.sh TARGET...` replays them from this checkout so installed skills pull the
+latest main (update this checkout first).
+
 `scripts/operating_selfcheck.py [--settings F] [--skill-root D]` reports, per item above,
 `PRESENT`, `MISSING`, or `COULD_NOT_CHECK <why>` — the three settings-backed items (1's injector,
 2's two-tier cap, 3's model pin) read `--settings`; the two script-file items (4, 5) check the
