@@ -81,6 +81,8 @@ in `domain-f.md` / `reliability-error-handling.md` (an error *discarded* at the 
 layer, with no log or signal): here the fetch error is caught correctly, and the defect is which
 **rendered** state a correctly-handled failure is allowed to collapse into.
 
+**A control hidden or disabled by permission, with no reason shown, is a defect.** If edit controls render only for members and everyone else gets a read-only page with no explanation, the user cannot tell "not allowed" from "broken". Every permission-gated surface needs a view-only state that says why and how to get access (a client gate is still not a security boundary: `appsec-design.md`). Test: render as a non-member and assert the reason text is present.
+
 **An empty list must disclose *why* it is empty — a filter or search removed everything, versus
 nothing exists yet — and any header, count, or banner above it must be gated on content, never
 implying rows a filter has hidden.** These are two halves of one defect: the render never

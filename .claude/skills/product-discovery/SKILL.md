@@ -15,7 +15,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Product discovery
@@ -106,6 +106,11 @@ report a result that was not measured.
   **blank inputs and a how-to-obtain note per column**; the user supplies
   the numbers, the skill does the arithmetic and orders the list.
 
+## Spec a product that names a reference
+- **Name the reference's core loop as acceptance.** When an ask is "<known product>-style X", the spec lists that product's core interactions as acceptance criteria, not a narrow agent-written "done when". Before closing, use the result as a non-pilot user and judge it against the reference.
+- **Spec recipe.** Gather three independent inputs: sourced competitor/standards research, real-user evidence (existing docs and transcripts, read for structure only), and a codebase inventory of reusable parts and gaps. Write: BLUF, evidence, JTBD, a "beats the reference" bar as acceptance tests, scope, metrics with denominators, riskiest assumptions with a test-first plan, milestones that each end in a real pilot, kill criteria, at most 2 owner questions. Run an independent `idea-critic` pass, then revise.
+- **Pilot ordering.** The first pilot is a workflow the team itself runs. Ship whatever that workflow's live use already exposes (concurrent editing, links it carries), even if hard; defer only what the pilot does not use.
+
 ## Non-goals (what you are deliberately NOT building)
 The inverse of the prioritization list, and the scope-defense that stops a coding
 agent from gold-plating. A non-goal is a **recorded, stage-tied decision** — "not
@@ -179,4 +184,5 @@ specific figure or URL (repo convention; nothing added to
   (`routes-unknowable-to-owner`).
 - A request to add adjacent scope is checked against stage non-goals and
   reopened explicitly, not gold-plated (`non-goals-scope-defense`).
+- A "<product>-style X" ask is accepted against the reference's core loop, not a narrow done-when (`reference-core-loop-acceptance`).
 - `evals/evals.json` plants these cases.
