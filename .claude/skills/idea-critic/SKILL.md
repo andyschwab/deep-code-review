@@ -9,7 +9,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.476.2"
+  version: "1.477.0"
 ---
 
 # Idea critic
@@ -110,6 +110,8 @@ One skill, three hats. Default: run all three. Do not invent a fourth.
 | `skeptic` | Attack assumptions, inverted incentives, "what would have to be true" | Unsupported claims presented as fact |
 | `better-way` | Cheaper, simpler, or already-existing paths; Chesterton's fence | No alternative considered |
 | `kill-criteria` | When not to do it, reversibility, what reverses the rec; run a **premortem** — assume this has already failed badly, write why, then extract kill criteria from it (Klein, 2007) | No stop condition |
+
+**Skeptic checks for product specs** (standing; each caught by a critic after synthesis missed it): overlap with an already-shipped feature (two implementations); the owner's #1 ask deferred past the first pilot; a core mechanism left unnamed (e.g. how comments anchor); an infrastructure limit (e.g. a pub/sub payload cap); a vacuous metric (always 0 during the first pilot).
 
 ---
 

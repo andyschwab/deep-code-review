@@ -3,6 +3,18 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.477.0] — 2026-10-03
+
+### Added
+- `product-discovery` 1.2.0: "Spec a product that names a reference" (reference core loop as acceptance, spec recipe, pilot ordering).
+- `idea-critic`: standing skeptic checks for product specs (shipped-feature overlap, deferred top ask, unnamed core mechanism, infrastructure limit, vacuous metric).
+- `deep-code-review` `ux-states.md`: permission-gated control with no reason shown is a defect. Evals added for each. Closes #1291.
+
+### Changed (size budgets)
+- size-budget-raise: .claude/skills/idea-critic/SKILL.md 12715→13093 issue 1291 lesson rules
+- size-budget-raise: .claude/skills/product-discovery/SKILL.md 10459→11665 issue 1291 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-states.md 12588→13053 issue 1291 lesson rules
+
 ## [1.476.2] — 2026-10-02
 
 ### Fixed
