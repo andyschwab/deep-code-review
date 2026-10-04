@@ -3,6 +3,17 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.479.0] — 2026-10-04
+
+### Added
+- `deep-code-review`: multi-worker process-local-state go/no-go audit (`concurrency-shared-state.md`); profile per-section time under load, scalability audits by dimension, bundle budgets stay green (`concurrency-shared-state.md`); one brokered agent write path with append-only history (`domain-c.md`); per-test timeouts (`testing-situational.md`); release-age cooldown never bypassed (`dependency-bulk-upgrades.md`). `agentic-delivery`: kill only your own PIDs (`dev-env-ownership.md`). Evals added. Closes #1296.
+
+- size-budget-raise: .claude/skills/agentic-delivery/references/dev-env-ownership.md 33360→33688 issue 1296 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/concurrency-shared-state.md 39754→41599 issue 1296 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/dependency-bulk-upgrades.md 8440→8901 issue 1296 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/domain-c.md 4376→5128 issue 1296 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 37394→37743 issue 1296 lesson rules
+
 ## [1.478.0] — 2026-10-04
 
 ### Added

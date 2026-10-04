@@ -143,3 +143,8 @@ to a dependency change:
 - **A03 (`appsec-supply.md`)** — transitive-dependency and install-script
   supply-chain surface referenced in §4.
 - **`SKILL.md` Q** — license-change handling referenced in §4.
+
+
+## A release-age cooldown turns every gate red until the package ages in
+
+A dependency release-age cooldown (for example Renovate `minimumReleaseAge`, see `dependency-currency-and-upgrades.md`) fails every install and gate that touches a too-new version, so a security bump can look like a broken pipeline. Check the version's publish time and wait it out, or use the cooldown's documented per-package override; never bypass or disable the gate to get green.
