@@ -392,6 +392,11 @@ never saw this PR — `SKILL.md` principle 2). Two ways it happens:
   clears them all. Sync the integration branch on **each** additive `main` merge, not only before the final
   train; a new gate baselined on `origin/main` must **document that assumption** (prefer the PR base for a
   long-lived-branch workflow).
+- **A "net-new" ratchet on a merge commit must compare against the merge's own base, not the PR's old merge-base.**
+  A lint-warning or count ratchet that diffs against the PR's original merge-base charges the PR for everything
+  it just merged in from base, so every PR that merges base forward fails on warnings it did not add. While
+  `MERGE_HEAD` exists (or on a merge commit), diff against `MERGE_HEAD` / the base tip. **Check:** merge a clean
+  base into a PR that adds nothing; the ratchet must stay green.
 - **A change-detection gate's hardcoded base is the scope-selection sibling of stale-base — loud when the
   branch outruns the stale ref, silently skipped when that ref won't resolve.** The bug above corrupts a
   gate's *verdict*; the same mistake in a **change-detection** step — a path filter / "did `app/` change?" /
