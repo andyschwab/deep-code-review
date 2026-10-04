@@ -3,6 +3,18 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.478.0] — 2026-10-04
+
+### Added
+- `agentic-delivery`: slice work around a human gate instead of parking the whole item.
+- `agentic-delivery`: inventory repo scripts before an LLM lane; re-arm watchers after restart (`multi-session-coordination.md`). `deep-code-review` `ux-gates.md`: gate the assembled page. Closes #1294.
+- `deep-code-review` `merge-operations.md`: a net-new ratchet on a merge commit compares against `MERGE_HEAD`/base tip; `testing-situational.md`: a completeness self-test's matcher needs a near-miss check. Evals added. Closes #1293.
+
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 68103→68731 issue 1294 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 73813→74327 issue 1293 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 36962→37394 issue 1293 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-gates.md 14077→14666 issue 1294 lesson rules
+
 ## [1.477.0] — 2026-10-03
 
 ### Added

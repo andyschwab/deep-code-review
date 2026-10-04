@@ -379,3 +379,5 @@ Three ways a new or repaired test hurts other people's work. Flag each in a diff
   record and clear the field) so the branch stays covered whatever state the data is in.
 
 - **A comparison of two implementations needs a fixed protocol, not ad-hoc timing.** Same machine and data, a verified quiet window (load checked first), runs back-to-back, median of 3, and the CPU/RAM load level reported beside each number so a reader can tell a clean comparison from a noisy one. For user-facing latency, add a protocol-level load ramp plus a few real-browser runs; a server-side synthetic benchmark alone is not enough.
+
+- **A completeness self-test ("every table/route/key is classified") needs its matcher run on a near-miss input.** A pattern like `[a-z_]+` silently drops names with a digit or capital, so the very item the test exists to catch is skipped and the test stays green. Feed the matcher one near-miss name (with a digit, a capital, a hyphen) and assert it is seen; an exact-match test should fail loudly on anything it cannot classify.

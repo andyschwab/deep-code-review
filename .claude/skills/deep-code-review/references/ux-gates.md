@@ -151,3 +151,7 @@ Ship these **idempotent and additive**, per Phase 6 — detect-and-stop if prese
 missing, defer to an existing style guide (the parity differ only when the task is a parity task).
 
 **Drive every changed interactive control in a real browser before "No UX change".** A passing logic test proves a function was called, and a static screenshot proves someone looked; neither proves the control is reachable, visible, or in the right enabled/disabled state in the rendered page. For each changed control: open it, act on it, reload, verify it again, at a narrow and a wide width, with before/after screenshots, before the PR is marked ready.
+
+## A UI built in slices is not verified by per-slice tests — gate the assembled page
+
+Every slice of one page can pass its own tests and merge while the assembled page is unreachable from navigation, view-only, or still dominated by the old layout. Before the page is called done, open it as a real user would: arrive via navigation (not a direct URL), run the reference product's core actions end to end, and run the parity check against the design reference. **Check:** the receipt names the navigation path taken and the core actions performed, not just the slice tests that passed.

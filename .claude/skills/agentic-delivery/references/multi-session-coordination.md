@@ -936,3 +936,7 @@ re-discovers peer identities rather than sending to a stale, hardcoded name.
 ## Agents sharing a backlog read one checked-in priorities file, and raise conflicts once
 
 Agents without a shared source of truth for priority order re-derive or disagree on what is next, and conflicting asks from different sources produce duplicate or contradictory work. Keep one priorities file in the repo that every agent reads before picking work, and a one-message escalation rule: a genuine conflict between two instructions is raised once, explicitly, never guessed at or resolved differently by each agent. **Check:** a fresh session states the current priority order from that file alone, without asking.
+
+## A watcher dies with its session — re-arm it first, and read peers' latest state before any status, ETA, or dispatch
+
+A background activity watcher does not survive a session restart, resume, or context compaction, and nothing announces its death; the agent then reports from stale state and can duplicate a peer's fix. As the first action after any restart, resume, or compaction, re-arm every watcher the run depends on, then read each peer's latest posted state before giving a status or ETA or dispatching work. **Check:** after a restart, the first tool calls re-arm the watchers and read the board before any report.

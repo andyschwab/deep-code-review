@@ -10,7 +10,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.477.0"
+  version: "1.478.0"
 ---
 
 # Agentic delivery
@@ -252,6 +252,7 @@ throwaway integration SHA plus one aggregate gate before a merge train (G7).
   `references/dev-env-ownership.md` *Another mis-fire: "one writer per file" reads a legitimate stacked pair as a
   collision*).
 - **A forked lane with a narrower brief than its inherited context** (research-only, "change nothing"): prefer a fresh unit; verify from effects — `references/verification-handback.md` **A context-inheriting fork is not a blank slate**.
+- **Inventory the repo's own scripts before spawning a lane for a repeatable step.** On start, read `scripts/` and the README; if a tick, train, bisect, land, or release script exists, run it instead of having an LLM lane do the step (or hand-resolve a generated-file conflict) by judgment.
 - Serialize shared-state edits, migrations, generated files, and the
   integration branch — lanes sharing a host: `scripts/serial_gate.py`.
 - Occupancy is **visibility, not a lock**. Say what is live or stale; do not
@@ -311,7 +312,7 @@ merge triggers deploy or publish is a deploy (an auto-deploying `main`) — neve
 covered. Force-push, history rewrite, deploy/prod, secrets/IAM, spend, external
 sends, and destructive data stay gated always. The un-gated half of an unattended run is
 `references/unattended-operating-mode.md` **The Human-gate boundary**. A gated
-item is parked with its next step while the loop continues; it is not a stop.
+item is parked with its next step while the loop continues; it is not a stop. A gate usually covers one step, so slice the work around it rather than parking the whole item: pre-fill the decision so the human acts once, build behind a switch, write and dry-run the script, dispatch what is un-gated, and ask only about the human step itself.
 
 Shape every ask as one issue, two approaches:
 
