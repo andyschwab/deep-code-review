@@ -56,3 +56,8 @@ test or eval gate.
   long-running agent whose compaction/memory can silently drop a safety
   constraint or whose sub-agents run without the parent's cap (context/memory
   lifecycle — depth in `references/security-ai-agents.md`).
+
+
+## Give agents one brokered write path, not an endpoint per feature
+
+Hosts impose silent platform caps (for example a limit on public route patterns): adding one public endpoint per route can drop agent features with no error once the cap is hit. Route every agent write through a single brokered path that carries a `surface` field naming where the write came from. Around it, check that the app exposes: an MCP server mapped onto the app's self-describing API rather than hand-written tools; a change-event stream instead of polling; and one append-only history of every agent action (who, which agent, before and after values, marked as AI-recommended with its source) with a revert. A write path with no such history cannot be audited or undone.

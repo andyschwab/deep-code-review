@@ -390,3 +390,7 @@ The procedure behind `SKILL.md` **Local environment (own it)** and its G5 rule.
 5. **Never** `npm run build` (or equivalent) against a directory a running
    server is serving — that stale-asset bug is a known ship failure; use the
    project's isolated verify dir.
+
+## On a shared machine, kill only your own PIDs
+
+Never stop processes by name (`pkill node`, `killall`): on a machine shared by parallel lanes this kills other lanes' dev servers and test runs. Record the PID of every process you start and kill only those PIDs (or your own process group), and leave no orphan listener behind.

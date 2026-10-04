@@ -520,3 +520,14 @@ a shared resource with no fencing token on the write path and no idempotency/CAS
 especially a "re-check the lease, then write" pattern, which reads as safe but isn't; a
 non-idempotent side-effect (a charge, a send, a third-party write) performed before the CAS/claim
 meant to guard its transition — the guard covers the state, not the action that already fired.
+
+## Turning on multi-process workers is a go/no-go audit of process-local state
+
+Raising the worker (or replica) count from 1 to N silently changes every guarantee that lived in process memory. Before enabling it, audit and produce a go/no-go with fixes: an in-memory rate limit becomes N times looser (each worker counts alone); a file-store fallback now races between writers; caches and presence maps become per-process and disagree; and resource arithmetic changes: DB pool size × workers must stay under the database's max connections, and memory per worker × workers under the container limit. Then prove it with a 2-worker end-to-end test that exercises live updates, presence, rate limits and co-editing across workers, not a single-worker run.
+
+
+## Measure before optimizing: per-section time under load, and scalability audits by dimension
+
+Profile per-section handler or loader time and behaviour under concurrent load before touching code. A service whose warm loaders take single-digit milliseconds but whose p95 collapses at 50 concurrent users is saturating its event loop (or worker pool), not running slow code; in one measurement, 4 workers instead of 1 gave a 5.8× better p95. Optimizing the loaders would have fixed nothing. Run scalability audits by dimension (data layer; runtime, memory and streaming connections; frontend and rendering; external dependencies and failure modes; multi-worker behaviour; see the section above) and give each finding a severity, a file:line, a fix, and the regression test or budget that catches it.
+
+**A bundle-size budget must stay green, and a red one drifts silently.** Report the per-PR delta, and never raise the ceiling just to pass; shrink or lazy-load instead. A test asserting that something opens "instantly" is not a reason to block lazy-loading: assert it opens within N ms.
