@@ -360,6 +360,9 @@ delivery gate's own verdict.
   conflict resolution and before `git push`; `templates/pre-push-verify.sh` (`deep-code-review`) can enforce this
   mechanically (and refuses every push while `<git-common-dir>/DCR_HOLD` exists — an operator freeze), but a hook is self-report, not the control — `branch-and-merge-hygiene.md`'s "Self-report ≠
   control" is the trusted-evidence rule (not restated here).
+- **After fixing a hit from a gate that scans the index, stage the fixed file again.** A pre-commit gate reads
+  the staged content, not the working tree, so an unstaged fix leaves the old hit in place and the same
+  failure repeats. Re-add the file, then rerun the gate.
 
 Distinct from *Gate on free RAM and the swap trend* and *CI-offload the heavy gate* (#935): those decide
 **whether and how heavily** to run the local gate (sizing) — prevention; this decides

@@ -3,6 +3,15 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.484.0] — 2026-10-05
+
+### Added
+- `deep-code-review` `method.md`: sweep-scope issues ("every page", "all mentions") need the target set enumerated and diffed against touched files before accepting "closes #N" (#1311).
+- `deep-code-review`: tiny fixed test deadlines flake under load (`testing-situational.md`); attribute items by their own owner, not the page (`data-identity.md`); on a base-merge conflict over a flaky-test file take the base's version (`merge-operations.md`) (#1312, #1313).
+- `agentic-delivery`: full QA runs compete with lanes for RAM and flake-fix lanes dedupe against open PRs (`multi-session-coordination.md`); re-stage after fixing an index-scanning gate hit (`merge-queue-worktrees.md`); owner-opt-in deploy mode, never a default, human approval on deploy unchanged (`unattended-operating-mode.md`) (#1312, #1313).
+- Deduped, not added: idle-session routing by label (already in `multi-session-coordination.md` pull-not-push).
+- size-budget-raise: .claude/skills/deep-code-review/references/method.md 50527→51218, .claude/skills/deep-code-review/references/testing-situational.md 38081→38407, .claude/skills/deep-code-review/references/data-identity.md 7082→7547, .claude/skills/deep-code-review/references/merge-operations.md 77305→77644, .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 64581→64853, .claude/skills/agentic-delivery/references/multi-session-coordination.md 70484→71017, .claude/skills/agentic-delivery/references/unattended-operating-mode.md 23204→23854 issues 1311 1312 1313 lesson rules
+
 ## [1.483.1] — 2026-10-05
 
 ### Fixed

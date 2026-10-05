@@ -56,6 +56,11 @@ Read this when the target or diff resolves or clusters entity identity without a
   the answer depend on crawl order and later claimants silently lose. Finish discovery across the whole population,
   then attribute; until then report the candidates, not a winner. Finding: any attribution written or published
   inside the discovery loop.
+- **Attribute each item by its own owner, never by the page it appeared on.** A source that lists other
+  parties' items (a calendar page that also shows partner or featured events) makes page-level attribution
+  wrong. Check each item's own host or owner ID against the claimed owner. A live-page check of one such
+  port found 6 of 6 listed events belonged to other calendars. Finding: items attributed from the page or
+  feed owner with no per-item owner check.
 
 ## Connector pivot graphs (depth of `data-quality.md` §10)
 
