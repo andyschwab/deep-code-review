@@ -3474,6 +3474,12 @@ if [ -f "$lp" ]; then
     record 1 "lane-preamble: stays within 60 lines ($lp_lines)"
   fi
 
+  if grep -q 'git diff --check' "$lp" && grep -q 'inventory the old capabilities' "$lp"; then
+    record 0 "lane-preamble: names the diff --check and migration-inventory closers"
+  else
+    record 1 "lane-preamble: names the diff --check and migration-inventory closers"
+  fi
+
   lp_missing=0
   while IFS= read -r lp_script; do
     [ -n "$lp_script" ] || continue

@@ -385,3 +385,5 @@ Three ways a new or repaired test hurts other people's work. Flag each in a diff
 ## Every test runner needs a per-test timeout
 
 A runner with no per-test timeout lets one hung test block pushes and merge trains for hours (it happened twice in one project). Set a per-test timeout on every runner (unit, integration, end-to-end), well above the slowest healthy test, so a hang fails fast with a name instead of stalling the gate.
+
+- **Split a test file every lane appends to.** A single hotspot spec that each parallel lane edits turns every merge into a textual conflict and serializes the train. Split it into per-feature spec files so lanes touch disjoint files. **Check:** list the files touched by recent merged PRs; one spec file in most of them is the hotspot.

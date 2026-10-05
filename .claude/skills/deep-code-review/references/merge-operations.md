@@ -798,3 +798,7 @@ off the remote. Two things must be true before a stop is actually complete:
 ### A UI-affecting change lands through a train that runs the browser suite, not one-at-a-time on unit and type proof
 
 When each merge is proven only by unit tests and a type check, browser-level failures accumulate silently across many merges until release QA. Gate any UI-affecting PR behind a batch/train union that runs the full browser suite before merge, and add a nightly full run that halts further merges while it is red. **Check:** count PRs merged since the last green browser run; a nonzero count with no train that ran the suite in between means the gate was skipped.
+
+### Run the merge preflight from the PR's own worktree and assert HEAD equals the PR head — cheap gates first
+
+A merge preflight (receipt, changelog, clean tree) reads the current working directory. Run from a shared clone, it validates the wrong tree and can pass a PR that should be refused. Run it from the PR's own worktree, and have it assert that the checked-out `HEAD` equals the PR head SHA before reporting anything; refuse on a mismatch. Order the gates cheapest first (changelog, whitespace, file-size ratchets, then the expensive suite) so a trivially refusable PR fails in seconds. **Check:** run the preflight from an unrelated checkout; it must refuse, not pass.
