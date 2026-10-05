@@ -802,3 +802,29 @@ When each merge is proven only by unit tests and a type check, browser-level fai
 ### Run the merge preflight from the PR's own worktree and assert HEAD equals the PR head — cheap gates first
 
 A merge preflight (receipt, changelog, clean tree) reads the current working directory. Run from a shared clone, it validates the wrong tree and can pass a PR that should be refused. Run it from the PR's own worktree, and have it assert that the checked-out `HEAD` equals the PR head SHA before reporting anything; refuse on a mismatch. Order the gates cheapest first (changelog, whitespace, file-size ratchets, then the expensive suite) so a trivially refusable PR fails in seconds. **Check:** run the preflight from an unrelated checkout; it must refuse, not pass.
+
+### Merge-train fast path — batch it, prove it once, land each PR pinned to its proven head
+
+Three scripts in agentic-delivery's `scripts/` (paths and refs come only from args or env) package the loop;
+`merge_train.py` stays the verifier and the scripts wrap what comes after it. Read each script's header for its env.
+- `train_land.sh <tag> <pr> <pr>…` union-verifies via `VERIFY_CMD`, then lands only if the verdict is `GREEN`.
+  It refuses a **single-PR train** (one PR takes the normal merge path; a train's cost is amortized only over a batch)
+  and a RED union lands nothing.
+- `land_train.sh <base-sha> <union-sha>` lands each member **pinned to the head SHA the union proved**
+  (`gh pr merge --match-head-commit`). A member whose head moved is skipped, never merged unproven; it waits out
+  `mergeable=UNKNOWN` instead of treating it as a conflict; it readies a draft; and a PR with no changelog fragment
+  is appended to a **backfill list** (a visible follow-up), not skipped or silently merged without one.
+- `reap_own.sh` kills only dev servers owned by the current user whose cwd is under your own tree and older than
+  a cutoff, so it is safe to run on every tick; never `pkill` by pattern (`dev-env-ownership.md`).
+
+Operating rules the scripts rely on:
+- **Run the train scripts from a detached tools worktree on the base branch**, not from a lane checkout whose
+  branch or tree moves under them; the script re-detaches it onto the fresh base before each verify.
+- **Find the union by commit, not by name.** When a culprit is dropped and the train reruns, the rerun's worktree
+  gets a new name; `land_train.sh` searches `UNION_DIRS` for the one that contains the union SHA.
+- **In a shell loop, give every `gh` call `</dev/null`** (it reads the loop's stdin and eats the rest of the
+  list), and **`set -o pipefail` before `gate | tail`** (or the pipeline's status is `tail`'s and a red gate
+  reads green). Filter verdicts by prefix, not position (above).
+- **Freeze merges while a release is cut** (above), and **run the full browser suite at release or in the union,
+  not per PR**: per-PR runs get cheap gates (type check, ratchets, touched specs) first, so the expensive suite
+  only ever sees a candidate that already passed them (`Run the merge preflight…`, below).

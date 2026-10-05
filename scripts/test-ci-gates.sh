@@ -3710,6 +3710,13 @@ else
   record 1 "update-installed: fast-forwards a behind clone, refuses a dirty one"
 fi
 
+# merge-train scripts: own per-feature file (scripts/test-train-scripts.sh), one case here.
+if bash "$ROOT/scripts/test-train-scripts.sh" >"$WORK/train-scripts.log" 2>&1; then
+  record 0 "train scripts: land_train/train_land/reap_own tests pass"
+else
+  record 1 "train scripts: land_train/train_land/reap_own tests pass"; tail -5 "$WORK/train-scripts.log"
+fi
+
 # ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a
