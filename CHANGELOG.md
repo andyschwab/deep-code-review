@@ -3,6 +3,11 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.483.1] — 2026-10-05
+
+### Fixed
+- `install.sh`: the `AGENTS.md` blocks are compact by default (at most 6 lines each, one pointer line to the installed `SKILL.md` paths) so a target repo's own `AGENTS.md` size gate is not broken; re-run still replaces each block in place. Covered in `scripts/test-ci-gates.sh`. Closes #1309.
+
 ## [1.483.0] — 2026-10-05
 
 ### Added

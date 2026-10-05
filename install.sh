@@ -521,20 +521,9 @@ if [[ "${WRITE_AGENTS}" -eq 1 ]]; then
   REVIEW_BLOCK="$(cat <<EOF
 <!-- deep-code-review:begin -->
 ## Code review — deep-code-review
-
-Installed: **${VERSION}** (@ \`${INSTALL_SHA}\`).
-
-Agent-agnostic deep code-review method (same phases on any coding agent).
-${PRIMARY_PATH_LINE}
-Depth lives in that skill \`references/\` directory.
-
-How to run: read \`SKILL.md\`, state scope (\`FULL\` | \`DIFF <base-ref>\` |
-\`FILE <paths>\`), work phases in order, load \`references/*.md\` on demand as
-routed. Or invoke \`/deep-code-review <scope>\` where slash-skills are supported.
-Yields a severity-ranked findings report (chat BLUF by default; full table
-out-of-tree or, with explicit confirmation, under \`code-review/\`).
-
-Re-run upstream \`install.sh\` to refresh this stamp.
+Installed: **${VERSION}** (@ \`${INSTALL_SHA}\`). Agent-agnostic method.
+${PRIMARY_PATH_LINE} Scope: \`FULL\` | \`DIFF <base-ref>\` | \`FILE <paths>\`; or \`/deep-code-review <scope>\`.
+Re-run upstream \`install.sh\` to refresh.
 <!-- deep-code-review:end -->
 EOF
 )"
@@ -543,87 +532,40 @@ EOF
   if [[ "${WITH_DELIVERY}" -eq 1 || "${WITH_CRITIC}" -eq 1 || "${WITH_COMMS}" -eq 1 || "${WITH_CONTRIBUTION}" -eq 1 || "${WITH_DISCOVERY}" -eq 1 || "${WITH_CEO}" -eq 1 || "${WITH_GROWTH}" -eq 1 || "${WITH_POSITIONING}" -eq 1 || "${WITH_BUSINESS}" -eq 1 || "${WITH_OUTPUT_SAFETY}" -eq 1 ]]; then
     OVERLAY_LINES=""
     if [[ "${WITH_DELIVERY}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`agentic-delivery\` — gated G0–G10 delivery plus the software-house role
-  roster (Conductor, Product Analyst, Architect, Implementer, Evil Twin, QA,
-  Security, UX & Design, Release, Docs — hats, not standing bots;
-  \`references/roles.md\`). Load it for features that span implementation +
-  QA + security. Names \`deep-code-review\` at specification, review, and
-  integrate."
+      OVERLAY_LINES="${OVERLAY_LINES} \`agentic-delivery\`"
     fi
     if [[ "${WITH_CRITIC}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`idea-critic\` — attack a plan or \"we should\" before the owner sees it.
-  Three hats; HOLD / REVISE / PASS_TO_USER. Owner-request cannot HOLD."
+      OVERLAY_LINES="${OVERLAY_LINES} \`idea-critic\`"
     fi
     if [[ "${WITH_COMMS}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`communication-structure\` — makes a PR body, issue/PR comment, or status
-  update BLUF, one ask, scannable, zero AI-slop by default. Governs
-  persisted-message structure and length, not chat voice (see below)."
+      OVERLAY_LINES="${OVERLAY_LINES} \`communication-structure\`"
     fi
     if [[ "${WITH_CONTRIBUTION}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`contribution\` — prepare a privacy-safe, generalized improvement back to the
-  public skillset for a human to review and open as a PR. The agent drafts and
-  gates the change and flags residual risk; a human is the privacy authority and
-  the only one who pushes. Default off; never auto-PRs."
+      OVERLAY_LINES="${OVERLAY_LINES} \`contribution\`"
     fi
     if [[ "${WITH_DISCOVERY}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`product-discovery\` — decide whether something is worth building, what to
-  build first, and whether what shipped works, by structuring evidence from real
-  users (Mom Test, JTBD, riskiest-assumption gate, PMF read, ICE). Never
-  fabricates findings, personas, scores, or a validated verdict. Default off."
+      OVERLAY_LINES="${OVERLAY_LINES} \`product-discovery\`"
     fi
     if [[ "${WITH_CEO}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`agentic-ceo\` — the suite's conductor: routes (stage, area) to the right skill
-  and lens, sizes effort to the project (no swarm on small work), and runs the
-  under-pressure chaos playbook. Routes; never duplicates a skill. Default off."
+      OVERLAY_LINES="${OVERLAY_LINES} \`agentic-ceo\`"
     fi
     if [[ "${WITH_GROWTH}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`growth-analytics\` — the standing scoreboard: one customer-value North Star (not
-  vanity), the AARRR funnel read bottom-up (retention first), and an event taxonomy
-  that answers a named question — on your own analytics, never fabricated benchmarks.
-  Default off."
+      OVERLAY_LINES="${OVERLAY_LINES} \`growth-analytics\`"
     fi
     if [[ "${WITH_POSITIONING}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`positioning\` — value proposition, segment, differentiation, and message house on
-  your own inputs, as a hypothesis to validate with real buyers. Never fabricates TAM,
-  competitor claims, quotes, or trademark clearance. Default off."
+      OVERLAY_LINES="${OVERLAY_LINES} \`positioning\`"
     fi
     if [[ "${WITH_BUSINESS}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`business-ops\` — Lane A applies pricing / unit-economics arithmetic to your own
-  numbers with the formula shown (never a directive); Lane R routes legal / tax /
-  securities / fundraising to a licensed professional (never concludes). Educational
-  information, not advice. Default off."
+      OVERLAY_LINES="${OVERLAY_LINES} \`business-ops\`"
     fi
     if [[ "${WITH_OUTPUT_SAFETY}" -eq 1 ]]; then
-      OVERLAY_LINES="${OVERLAY_LINES}
-- \`product-output-safety\` — govern harm from the product's own AI outputs and
-  automated decisions to end-users (bias, hallucination-as-fact, missing disclosure,
-  unsafe high-stakes automation): map the harm inventory, measure it, gate high-stakes
-  actions with a human. Never certifies 'safe'; routes legal duty to counsel. Default off."
+      OVERLAY_LINES="${OVERLAY_LINES} \`product-output-safety\`"
     fi
     OVERLAY_BLOCK="$(cat <<EOF
 <!-- dcr-overlays:begin -->
-## Optional overlays
-
-Installed alongside deep-code-review **${VERSION}** (@ \`${INSTALL_SHA}\`).
-These are optional; default \`install.sh\` does not add them.
-${OVERLAY_LINES}
-
-Do not also run a second delivery OS on this repo. Persisted artifacts
-(code, PR bodies, docs) stay normal English. Chat voice is not vendored
-here — if compressed assistant prose is wanted, add JuliusBrussee/caveman
-separately.
-
-Re-run upstream \`install.sh --with-delivery\` / \`--with-critic\` /
-\`--with-comms\` / \`--with-contribution\` / \`--with-discovery\` / \`--with-ceo\` / \`--with-growth\` / \`--with-positioning\` / \`--with-business\` / \`--with-output-safety\` / \`--full\` to refresh this stamp.
+## Optional overlays (deep-code-review ${VERSION} @ \`${INSTALL_SHA}\`)
+Installed, each at \`.claude/skills/<name>/SKILL.md\`:${OVERLAY_LINES}. Persisted artifacts stay normal English.
+Re-run upstream \`install.sh\` with the same \`--with-*\` flags (or \`--full\`) to refresh.
 <!-- dcr-overlays:end -->
 EOF
 )"
