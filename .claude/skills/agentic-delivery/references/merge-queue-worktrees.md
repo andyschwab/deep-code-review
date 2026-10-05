@@ -719,3 +719,5 @@ agents, one branch. State it explicitly, one line per brief:
   status --short` it first (as above): foreign lane WIP is still never stashed (the rule just above); the **owner's
   own** uncommitted work is preserved first with `git stash create` (the dangling-SHA, shared-stack-safe mechanic
   above), never a bare `stash push`, rather than left to be silently overwritten.
+
+**An OOM-killed train moves, it does not retry in place.** A train killed with SIGKILL during the unit-test step will be killed again on the same loaded machine. Move the train runner to the least-loaded machine and re-run the union there.

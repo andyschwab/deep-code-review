@@ -41,3 +41,7 @@ Read this when the target or diff ships data another system consumes for scoring
 **🚩 red flags** (this file):
 a data provider that ships raw events where the consumer scores on aggregates, or a claimed provider-input never reconciled against the provider's live output before it feeds a downstream score;
 a percent-unit guard with a lower bound only, so a value above 1 (legitimate over-100% semantics, or a double conversion) renders wrong with no error;
+
+### Verify the upstream response shape with one real call before trusting a port
+
+Ported or delegated code repeatedly invents response fields the upstream never returns, and the claim then ships unproven. Make one real call (or replay a recorded real response) and check each consumed field exists, with its type, before accepting the port. No real call possible: mark the field `unverified`.
