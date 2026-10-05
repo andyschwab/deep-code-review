@@ -3725,6 +3725,25 @@ else
   record 1 "train scripts: land_train/train_land/reap_own tests pass"; tail -5 "$WORK/train-scripts.log"
 fi
 
+# install.sh AGENTS.md blocks are compact (<= 6 lines each, markers included)
+# and a re-run replaces them in place (idempotent), so a target repo's own
+# AGENTS.md size gate is not broken by the default install (#1309).
+dest_ag="$WORK/dest-agents-compact"
+mkdir -p "$dest_ag"
+bash "$ROOT/install.sh" --full --with-delivery --with-critic --with-comms --with-contribution --with-discovery --with-ceo --with-growth --with-positioning --with-business --with-output-safety "$dest_ag" >/dev/null 2>&1
+bash "$ROOT/install.sh" --full --with-delivery --with-critic --with-comms --with-contribution --with-discovery --with-ceo --with-growth --with-positioning --with-business --with-output-safety "$dest_ag" >/dev/null 2>&1
+ag_ok=1
+for m in deep-code-review dcr-overlays; do
+  n="$(awk -v b="<!-- $m:begin -->" -v e="<!-- $m:end -->" '$0==b{s=1} s{c++} $0==e{s=0} END{print c+0}' "$dest_ag/AGENTS.md")"
+  [ "$n" -ge 3 ] && [ "$n" -le 6 ] || ag_ok=0
+  [ "$(grep -c "$m:begin" "$dest_ag/AGENTS.md")" -eq 1 ] || ag_ok=0
+done
+if [ "$ag_ok" -eq 1 ]; then
+  record 0 "install: AGENTS.md blocks stay within 6 lines and re-run replaces them once"
+else
+  record 1 "install: AGENTS.md blocks stay within 6 lines and re-run replaces them once"
+fi
+
 # ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a
