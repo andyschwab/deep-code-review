@@ -12,6 +12,9 @@
 # PR_RE (sed -E regex with one group, default 'merge-train: #([0-9]+)'), GH (default gh),
 # LAND_CMD (default: gh pr merge N --merge --match-head-commit SHA; run via bash -c with $1=N $2=SHA),
 # WAIT_TRIES/WAIT_SECS (mergeable=UNKNOWN retry, default 10 x 8s).
+# Stacked children (open PRs based on a member's head branch) are retargeted to BASE_BRANCH before each merge.
+# Refuses (skips) a PR whose base is not BASE_BRANCH. On every exit, linked worktrees in UNION_DIRS are removed
+# (_clean_union.sh).
 # Exit: 0 all landed or skipped-with-notice, 2 usage/no union worktree.
 set -euo pipefail
 [ $# -eq 2 ] || { echo "usage: land_train.sh <base-sha> <union-sha>" >&2; exit 2; }
@@ -22,6 +25,7 @@ BACKFILL_FILE=${BACKFILL_FILE:-./changelog_backfill.txt} PR_RE=${PR_RE:-merge-tr
 export GH
 LAND_CMD=${LAND_CMD:-'"$GH" pr merge "$1" --merge --match-head-commit "$2"'}
 WAIT_TRIES=${WAIT_TRIES:-10} WAIT_SECS=${WAIT_SECS:-8}
+. "$(dirname "$0")/_clean_union.sh"; trap clean_union_dirs EXIT
 
 git fetch -q "$REMOTE" "$BASE_BRANCH"
 [ "$(git rev-parse "$REMOTE/$BASE_BRANCH")" = "$(git rev-parse "$BASE")" ] || echo "WARN $BASE_BRANCH moved past $BASE"
@@ -38,6 +42,8 @@ LAST=$(printf '%s\n' "$members" | tail -1 | cut -d' ' -f1)
 while read -r N SHA; do
   cur=$("$GH" pr view "$N" --json headRefOid -q .headRefOid </dev/null)
   [ "$cur" = "$SHA" ] || { echo "SKIP #$N moved"; continue; }
+  bb=$("$GH" pr view "$N" --json baseRefName -q .baseRefName </dev/null)
+  [ "$bb" = "$BASE_BRANCH" ] || { echo "REFUSE #$N base is $bb, expected $BASE_BRANCH"; continue; }
   files=$("$GH" pr diff "$N" --name-only </dev/null)  # not piped to grep -q: its early exit + pipefail = false miss
   grep -q "^$CHANGELOG_DIR/" <<<"$files" \
     ||{ echo "$N" >>"$BACKFILL_FILE"; echo "NOTE #$N needs changelog backfill"; }
@@ -47,6 +53,12 @@ while read -r N SHA; do
     M=$("$GH" pr view "$N" --json mergeable -q .mergeable </dev/null)
     [ "$M" = UNKNOWN ] || break
     sleep "$WAIT_SECS"
+  done
+  # Landing may delete this PR's head branch, and GitHub closes (unreopenably) any open PR based on it:
+  # retarget those stacked children to the base branch first. Unconditional: harmless when nothing is stacked.
+  hb=$("$GH" pr view "$N" --json headRefName -q .headRefName </dev/null)
+  for c in $("$GH" pr list --base "$hb" --state open --json number -q '.[].number' </dev/null); do
+    "$GH" pr edit "$c" --base "$BASE_BRANCH" </dev/null >/dev/null && echo "RETARGET #$c: $hb -> $BASE_BRANCH"
   done
   out=$(bash -c "$LAND_CMD" _ "$N" "$SHA" </dev/null 2>&1 | tail -1) || true
   echo "#$N($M)$([ "$N" = "$LAST" ] && echo ' last'): $out"

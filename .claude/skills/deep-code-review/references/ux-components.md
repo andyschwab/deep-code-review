@@ -193,6 +193,10 @@ consequence, so it is ruled on here too.
   be checked, the zero-entry result is `unverified`, not found-nothing (could-not-check discipline,
   Enforcing gate in `ux-gates.md`). Flag a confirmed case to **wire it up or retire it**; retirement is an owner
   call under *Decisions needed (owner)*, never a unilateral delete.
+- **First-run and attention-seeking UI must mount on the route users actually land on.** An onboarding or
+  announcement component rendered only on a secondary page is never seen by new users, and it passes the
+  render-reachability walk above because it *is* reachable. Resolve each role's landing route by following the root
+  redirect, then confirm the component renders there. Finding: first-run UI reachable only from a non-landing route.
 - **One component, divergent props, is the other half of inconsistency.** Even a correctly-unified
   shared component reads as inconsistent when a **feature-bearing optional prop defaults off** and some
   mount sites omit it — one listing passes `votes` (the chip shows), another embedding doesn't (no

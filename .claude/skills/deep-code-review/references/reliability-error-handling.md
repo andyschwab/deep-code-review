@@ -489,6 +489,14 @@ only the finish-in-flight goal above.
 
 ---
 
+## Per-item paid loop in front of a shared step — trip the breaker on the first shared failure
+
+When a loop pays per item (a search API, say) and each result then feeds one shared downstream step (a model call),
+a 4xx from the shared step (bad key, missing required header, quota) fails every item identically, and the loop
+keeps paying for all the rest. Stop the tick on the first such non-retryable failure of the shared step, surface it,
+and skip the remaining paid calls. Finding: a paid per-item loop with no abort on a shared-step 4xx. Spend caps
+(`security-ai-agents.md` LLM06) bound the total; this stops the identical-failure waste inside one run.
+
 ## Silent no-op of whole subsystems
 
 A load-order, feature-flag, or registration bug can leave a paid/optional

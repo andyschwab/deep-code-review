@@ -51,6 +51,12 @@ Read this when the target or diff resolves or clusters entity identity without a
   Pure false-merge insurance — it does not conflict with monotonic-quality (`data-quality.md` §1); it keeps a bad
   merge from ever entering the bundle.
 
+- **Attribute identity only after discovery is complete.** A multi-claimant question ("this channel belongs to
+  team X") can only be decided once every claimant has been seen. Publishing an attribution mid-discovery makes
+  the answer depend on crawl order and later claimants silently lose. Finish discovery across the whole population,
+  then attribute; until then report the candidates, not a winner. Finding: any attribution written or published
+  inside the discovery loop.
+
 ## Connector pivot graphs (depth of `data-quality.md` §10)
 
 - **A connector/transform *pivot graph* multiplies both risks per hop — gate every
