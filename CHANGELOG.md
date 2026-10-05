@@ -3,6 +3,14 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.480.0] — 2026-10-05
+
+### Added
+- `deep-code-review` `merge-operations.md`: run the merge preflight from the PR's own worktree and assert `HEAD` equals the PR head; cheap gates first. `testing-situational.md`: split a hotspot spec every lane appends to. `agentic-delivery` `lane-preamble.md`: changelog fragment, `git diff --check`, and a capability inventory before any migration. Closes #1298
+
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 74327→75008 issue 1298 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 37743→38081 issue 1298 lesson rules
+
 ## [1.479.0] — 2026-10-04
 
 ### Added
