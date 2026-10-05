@@ -405,6 +405,12 @@ Depth (the model never authors a fact, adversarial input, grounding gate, output
 
 Depth (a connector / transform pivot graph): `data-identity.md`.
 
+- **Keep a scraper canary.** Parsers written against synthetic fixtures can match nothing on the real page (extra
+  CSS classes, changed markup) while every fixture test stays green. Require a canary that runs each parser
+  against a well-known public live example and fails loudly (non-zero exit, alert) when the match count drops
+  below a floor. Finding: a scraper with only synthetic-fixture tests and no live-page canary; a 0-match run that
+  reports success.
+
 ## 11. Cost discipline (enrichment specifics)
 
 - Cascade free/keyless pre-gates **ahead of** any paid call, and apply the spend

@@ -30,9 +30,12 @@ echo "gh $*" >>"$STUB/calls.log"
 [ -t 0 ] && echo "STDIN-IS-TTY" >>"$STUB/calls.log"
 n=$3
 case "$1 $2" in
-  "pr view") f=${5#.}; if [ "$f" = mergeable ] && [ "$n" = 3 ] && [ ! -e "$STUB/seen3" ]; then touch "$STUB/seen3"; echo UNKNOWN
+  "pr view") f=${5#.}; [ "$f" = headRefName ] && { echo "br$n"; exit 0; }
+              if [ "$f" = mergeable ] && [ "$n" = 3 ] && [ ! -e "$STUB/seen3" ]; then touch "$STUB/seen3"; echo UNKNOWN
              else cat "$STUB/$f.$n"; fi ;;
   "pr diff") cat "$STUB/files.$n" ;;
+  "pr list") cat "$STUB/children.$4" 2>/dev/null ;;
+  "pr edit") echo "$*" >>"$STUB/edits.log" ;;
   "pr merge") echo "merged $n $*" ;;
   "pr ready") touch "$STUB/ready.$n" ;;
 esac
@@ -42,6 +45,7 @@ echo "$H1" >"$STUB/headRefOid.1"; echo "deadbeef" >"$STUB/headRefOid.2"; echo "$
 for n in 1 2 3; do echo false >"$STUB/isDraft.$n"; echo MERGEABLE >"$STUB/mergeable.$n"; done
 echo true >"$STUB/isDraft.3"
 echo changelog.d/1.md >"$STUB/files.1"; echo src/x >"$STUB/files.2"; echo src/y >"$STUB/files.3"
+echo 77 >"$STUB/children.br1"
 export STUB PATH="$STUB/bin:$PATH"
 
 cd "$R" || exit 2
@@ -50,6 +54,7 @@ out=$(UNION_DIRS="/nonexistent $R" BACKFILL_FILE="$WORK/backfill.txt" WAIT_SECS=
 grep -q "^SKIP #2 moved" <<<"$out" && ! grep -q "pr merge 2" "$STUB/calls.log"; ok $? "land_train: skips a PR whose head moved, never merges it"
 grep -q "^#3(MERGEABLE) last: merged 3 .*$H3" <<<"$out" && [ -e "$STUB/ready.3" ]; ok $? "land_train: waits out UNKNOWN, readies a draft, flags the last PR"
 [ "$(cat "$WORK/backfill.txt")" = "3" ] && grep -q "NOTE #3 needs changelog backfill" <<<"$out" ; ok $? "land_train: missing changelog goes on the backfill list (not a skip)"
+grep -q "^RETARGET #77: br1 -> main" <<<"$out" && grep -qx "pr edit 77 --base main" "$STUB/edits.log" && [ "$(wc -l <"$STUB/edits.log")" -eq 1 ]; ok $? "land_train: retargets open children of a member's branch before merging it"
 grep -q "STDIN-IS-TTY" "$STUB/calls.log"; [ $? -ne 0 ]; ok $? "land_train: every gh call has stdin redirected from /dev/null"
 UNION_DIRS="/nonexistent" bash "$SC/land_train.sh" "$B" "$U" >/dev/null 2>&1; [ $? -eq 2 ]; ok $? "land_train: no worktree holds the union -> exit 2"
 

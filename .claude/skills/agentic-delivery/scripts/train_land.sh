@@ -2,6 +2,8 @@
 # train_land.sh <tag> <pr> <pr> [pr...] — union-verify a train from the fresh base, then land every PR of a
 # GREEN union via land_train.sh. Never a single-PR train: one PR goes through the normal merge path.
 #
+# Stacked children of each member are retargeted to the base by land_train.sh before the merge.
+#
 # Run it from a detached tools worktree on the base branch; it re-detaches that worktree onto the fresh base.
 # Env: VERIFY_CMD (required; run via bash -c as `$VERIFY_CMD <tag> <pr...>`, must print a final line
 # "GREEN base=<sha> union=<sha>" on success, e.g. a merge_train.py wrapper), UNION_DIRS (required, passed on

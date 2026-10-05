@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.483.0] — 2026-10-05
+
+### Added
+- `agentic-delivery` `land_train.sh` (and `train_land.sh`, which lands through it): before each merge, open PRs based on the member's head branch are retargeted to the base branch, so deleting the branch cannot close stacked children. `scripts/test-train-scripts.sh` covers it with a stubbed `gh`.
+- `deep-code-review`: attribute identity only after discovery completes (`data-identity.md`); scraper live-page canary (`data-quality.md` section 10); per-item paid loop breaker on a shared-step 4xx (`reliability-error-handling.md`); first-run UI must mount on the real landing route (`ux-components.md`). Four evals.
+- Deduped, not re-added: stacked-PR retarget doctrine (`merge-operations.md`), dead-on-arrival exports (`ux-components.md` render-reachability, `domain-h.md`), live-call verification of third-party clients (shipped in 1.482.0).
+
 ## [1.482.0] — 2026-10-05
 
 ### Added

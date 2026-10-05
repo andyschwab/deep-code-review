@@ -12,6 +12,7 @@
 # PR_RE (sed -E regex with one group, default 'merge-train: #([0-9]+)'), GH (default gh),
 # LAND_CMD (default: gh pr merge N --merge --match-head-commit SHA; run via bash -c with $1=N $2=SHA),
 # WAIT_TRIES/WAIT_SECS (mergeable=UNKNOWN retry, default 10 x 8s).
+# Stacked children (open PRs based on a member's head branch) are retargeted to BASE_BRANCH before each merge.
 # Exit: 0 all landed or skipped-with-notice, 2 usage/no union worktree.
 set -euo pipefail
 [ $# -eq 2 ] || { echo "usage: land_train.sh <base-sha> <union-sha>" >&2; exit 2; }
@@ -47,6 +48,12 @@ while read -r N SHA; do
     M=$("$GH" pr view "$N" --json mergeable -q .mergeable </dev/null)
     [ "$M" = UNKNOWN ] || break
     sleep "$WAIT_SECS"
+  done
+  # Landing may delete this PR's head branch, and GitHub closes (unreopenably) any open PR based on it:
+  # retarget those stacked children to the base branch first. Unconditional: harmless when nothing is stacked.
+  hb=$("$GH" pr view "$N" --json headRefName -q .headRefName </dev/null)
+  for c in $("$GH" pr list --base "$hb" --state open --json number -q '.[].number' </dev/null); do
+    "$GH" pr edit "$c" --base "$BASE_BRANCH" </dev/null >/dev/null && echo "RETARGET #$c: $hb -> $BASE_BRANCH"
   done
   out=$(bash -c "$LAND_CMD" _ "$N" "$SHA" </dev/null 2>&1 | tail -1) || true
   echo "#$N($M)$([ "$N" = "$LAST" ] && echo ' last'): $out"
