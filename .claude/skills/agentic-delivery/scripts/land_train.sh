@@ -13,6 +13,8 @@
 # LAND_CMD (default: gh pr merge N --merge --match-head-commit SHA; run via bash -c with $1=N $2=SHA),
 # WAIT_TRIES/WAIT_SECS (mergeable=UNKNOWN retry, default 10 x 8s).
 # Stacked children (open PRs based on a member's head branch) are retargeted to BASE_BRANCH before each merge.
+# Refuses (skips) a PR whose base is not BASE_BRANCH. On every exit, linked worktrees in UNION_DIRS are removed
+# (_clean_union.sh).
 # Exit: 0 all landed or skipped-with-notice, 2 usage/no union worktree.
 set -euo pipefail
 [ $# -eq 2 ] || { echo "usage: land_train.sh <base-sha> <union-sha>" >&2; exit 2; }
@@ -23,6 +25,7 @@ BACKFILL_FILE=${BACKFILL_FILE:-./changelog_backfill.txt} PR_RE=${PR_RE:-merge-tr
 export GH
 LAND_CMD=${LAND_CMD:-'"$GH" pr merge "$1" --merge --match-head-commit "$2"'}
 WAIT_TRIES=${WAIT_TRIES:-10} WAIT_SECS=${WAIT_SECS:-8}
+. "$(dirname "$0")/_clean_union.sh"; trap clean_union_dirs EXIT
 
 git fetch -q "$REMOTE" "$BASE_BRANCH"
 [ "$(git rev-parse "$REMOTE/$BASE_BRANCH")" = "$(git rev-parse "$BASE")" ] || echo "WARN $BASE_BRANCH moved past $BASE"
@@ -39,6 +42,8 @@ LAST=$(printf '%s\n' "$members" | tail -1 | cut -d' ' -f1)
 while read -r N SHA; do
   cur=$("$GH" pr view "$N" --json headRefOid -q .headRefOid </dev/null)
   [ "$cur" = "$SHA" ] || { echo "SKIP #$N moved"; continue; }
+  bb=$("$GH" pr view "$N" --json baseRefName -q .baseRefName </dev/null)
+  [ "$bb" = "$BASE_BRANCH" ] || { echo "REFUSE #$N base is $bb, expected $BASE_BRANCH"; continue; }
   files=$("$GH" pr diff "$N" --name-only </dev/null)  # not piped to grep -q: its early exit + pipefail = false miss
   grep -q "^$CHANGELOG_DIR/" <<<"$files" \
     ||{ echo "$N" >>"$BACKFILL_FILE"; echo "NOTE #$N needs changelog backfill"; }

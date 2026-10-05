@@ -46,6 +46,7 @@ for n in 1 2 3; do echo false >"$STUB/isDraft.$n"; echo MERGEABLE >"$STUB/mergea
 echo true >"$STUB/isDraft.3"
 echo changelog.d/1.md >"$STUB/files.1"; echo src/x >"$STUB/files.2"; echo src/y >"$STUB/files.3"
 echo 77 >"$STUB/children.br1"
+for n in 1 2 3; do echo main >"$STUB/baseRefName.$n"; done
 export STUB PATH="$STUB/bin:$PATH"
 
 cd "$R" || exit 2
@@ -66,6 +67,26 @@ out=$(VERIFY_CMD='echo "GREEN base='"$B"' union='"$U"'"' UNION_DIRS="$R" LOG_DIR
 : >"$STUB/calls.log"
 out=$(VERIFY_CMD='echo "RED union bad"; exit 1' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t2 1 2 2>&1); rc=$?
 [ $rc -eq 0 ] && grep -q "nothing landed" <<<"$out" && ! grep -q "pr merge" "$STUB/calls.log"; ok $? "train_land: RED union lands nothing"
+
+# --- base check: refuse a PR targeting the wrong trunk ---
+echo wrong >"$STUB/baseRefName.1"; : >"$STUB/calls.log"
+out=$(UNION_DIRS="$R" BACKFILL_FILE="$WORK/b3.txt" WAIT_SECS=0 bash "$SC/land_train.sh" "$B" "$U" 2>&1)
+grep -q "^REFUSE #1 base is wrong, expected main" <<<"$out" && ! grep -q "pr merge 1" "$STUB/calls.log"; ok $? "land_train: refuses a PR whose base is not the trunk"
+: >"$WORK/verified"
+out=$(VERIFY_CMD='echo ran >>'"$WORK"'/verified' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t3 1 2 2>&1); rc=$?
+[ $rc -eq 2 ] && grep -q "^REFUSE #1 base is wrong" <<<"$out" && [ ! -s "$WORK/verified" ]; ok $? "train_land: wrong-base PR refuses the train before any union is built"
+echo main >"$STUB/baseRefName.1"
+
+# --- EXIT trap: scratch (linked) worktrees are removed on every path, the current one is kept ---
+W1="$WORK/wt-green"; g worktree add -q --detach "$W1" "$U"
+VERIFY_CMD='echo "GREEN base='"$B"' union='"$U"'"' UNION_DIRS="$R $W1" LOG_DIR="$WORK" BACKFILL_FILE="$WORK/b4.txt" WAIT_SECS=0 bash "$SC/train_land.sh" t4 1 2 3 >/dev/null 2>&1
+[ ! -e "$W1" ] && [ -d "$R/.git" ]; ok $? "train_land: GREEN path removes the scratch worktree, keeps the current one"
+W2="$WORK/wt-red"; g worktree add -q --detach "$W2" "$U"
+VERIFY_CMD='echo "RED union bad"; exit 1' UNION_DIRS="$R $W2" LOG_DIR="$WORK" bash "$SC/train_land.sh" t5 1 2 >/dev/null 2>&1
+[ ! -e "$W2" ] && [ -d "$R/.git" ]; ok $? "train_land: RED early-return path also removes the scratch worktree"
+W3="$WORK/wt-err"; g worktree add -q --detach "$W3" "$U"
+UNION_DIRS="$W3" bash "$SC/land_train.sh" "$B" deadbeef >/dev/null 2>&1; rc=$?
+[ $rc -ne 0 ] && [ ! -e "$W3" ]; ok $? "land_train: error exit (union not found) still removes the scratch worktree"
 
 # --- reap_own: kills only own, old, under-ROOT processes ---
 if command -v lsof >/dev/null; then
