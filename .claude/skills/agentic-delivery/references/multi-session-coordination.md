@@ -940,3 +940,16 @@ Agents without a shared source of truth for priority order re-derive or disagree
 ## A watcher dies with its session — re-arm it first, and read peers' latest state before any status, ETA, or dispatch
 
 A background activity watcher does not survive a session restart, resume, or context compaction, and nothing announces its death; the agent then reports from stale state and can duplicate a peer's fix. As the first action after any restart, resume, or compaction, re-arm every watcher the run depends on, then read each peer's latest posted state before giving a status or ETA or dispatching work. **Check:** after a restart, the first tool calls re-arm the watchers and read the board before any report.
+
+## Multi-machine work is pulled, not pushed — label by machine, let an idle machine claim
+
+A coordinator that defaults to local lanes and pushes work to a peer machine only after saturating, over a
+message nobody confirmed reading, leaves the peer idle for hours. Pull beats push: a claim is visible and
+durable; a message may never be read.
+
+- **Label at filing.** The coordinator tags each machine-suited issue `lane:<machine>` as it is filed.
+- **An idle machine claims the oldest labelled issue without a ping:** assign it and post a claim comment
+  (`claim_probe.py` first, so two machines never take the same issue).
+- **Each machine posts its free-lane count on one coordination issue**, and new work routes to the
+  least-loaded machine first. Treat a machine as full per the host probe (`fanout-host-sizing.md`; starting values load1 > 20 or swap > 70%, and load1 alone is not a reliable signal).
+- **🚩 tell:** a peer idle while labelled issues wait, or "I messaged it" offered as the reason work did not move.

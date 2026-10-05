@@ -3,6 +3,15 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.481.0] — 2026-10-05
+
+### Added
+- `agentic-delivery` `scripts/`: `train_land.sh` (union-verify, then land a GREEN train; refuses a single-PR train), `land_train.sh` (land each member pinned to its proven head SHA, find the union by commit, wait out `mergeable=UNKNOWN`, changelog backfill list), `reap_own.sh` (kill only your own old servers under your own tree); tested in `scripts/test-train-scripts.sh`, run from `test-ci-gates.sh`.
+- `deep-code-review` `merge-operations.md`: merge-train fast path (batch, tools worktree, `</dev/null` for `gh` in loops, `pipefail`, browser suite at union/release). `agentic-delivery` `multi-session-coordination.md`: multi-machine pull queue (`lane:<machine>` labels, idle machine claims). `lane-preamble.md`: fresh lane per PR after hand-back. Evals added. Closes #1299. Already shipped in 1.480.0 and not repeated: preflight from the PR worktree and cheap gates first, changelog fragment plus `git diff --check`, per-feature spec files, capability inventory before a migration, kill own PIDs, freeze merges during a release cut.
+
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 75008→77305 issue 1299 merge-train fast path
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 68731→69757 issue 1299 pull queue
+
 ## [1.480.0] — 2026-10-05
 
 ### Added
