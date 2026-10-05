@@ -316,6 +316,14 @@ comment-mining pass above: that pass catches a bespoke reimplementation via the 
 *admission comment*; this catches one that shares neither a literal nor a comment, by keying
 on the **fields the canonical predicate reads**.
 
+**Sweep-scope issue → enumerate the target set, diff it against the files touched.** When an issue's
+scope is a sweep ("every page", "all mentions", "each handler"), do not accept "closes #N" on the
+author's say-so: enumerate the target set yourself (a route list, a directory glob, a grep) and diff it
+against the files the change touched. Any target not touched is a finding, or an explicit,
+reasoned exclusion in the PR; the issue stays open for the remainder. A lane that covers 7 of roughly 20
+pages and reports "done" is the failure this catches. Same discipline as **audit-every-implementation**
+(Phase 4), applied to the issue's stated scope instead of one function's call sites.
+
 **Product UI (domain P) → rendered route sweep.** On a `FULL` or broad-`DIFF`
 review of a product UI, enumerate every route and rule domain P on each across the
 render matrix, reporting coverage as a ledger — the domain-P analogue of Phase 3's

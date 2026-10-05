@@ -953,6 +953,12 @@ durable; a message may never be read.
 - **Each machine posts its free-lane count on one coordination issue**, and new work routes to the
   least-loaded machine first. Treat a machine as full per the host probe (`fanout-host-sizing.md`; starting values load1 > 20 or swap > 70%, and load1 alone is not a reliable signal).
 - **🚩 tell:** a peer idle while labelled issues wait, or "I messaged it" offered as the reason work did not move.
+- **A full QA run competes with lanes for RAM.** Lane spawning is gated on free RAM, but a long release QA
+  run (for example a browser suite) consumes RAM too and starves the gate's reading. Run release QA on a
+  quiet machine, or pause new lane spawns while it runs.
+- **Dedupe flake-fix lanes before dispatch.** Parallel PRs fixing the same test show a missing step. Before
+  starting a flake-fix lane, search open PRs for the test file it would touch (`gh pr list --search
+  "<test file>"`) and join or defer to an existing one.
 
 ### Lane definitions load from the main checkout, and caps are per machine
 

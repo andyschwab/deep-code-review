@@ -334,6 +334,13 @@ publish; a deploy or an external send stays gated always (`SKILL.md` **Human gat
 escape hatch** and `unattended-trackers.md`'s termination-conditions bullet. Never silently reverse a
 dated / ratified decision (`SKILL.md` Gate epistemology principle 12).
 
+**Owner-opt-in deploy mode (never a default).** Agent-driven deploy is gated by default. Only the owner may
+enable an exception, by their own authored artifact (the standing-grant rules in `SKILL.md` **Human gates**),
+and only when all of these hold: the deploy key is scoped to one project and environment and lives in the
+secret store, never in the repo or a recipe; every deploy and status poll is written to an audit trail; and
+the agent verifies the served result after the async deploy API returns (for example a 202, then polling
+status until done). Record the recipe, never the key. Absent the owner artifact, the deploy stays a Human gate.
+
 ## Less talk, more work
 
 Default to **one line per material landing**, no status essays; raise verbosity

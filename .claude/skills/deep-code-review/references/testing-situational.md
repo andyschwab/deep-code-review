@@ -160,6 +160,10 @@ Read this when `testing-and-evals.md` routes here: a doc-comment promises a fall
   chronically-flaky-test bullet above — that is the *triage* once a test is already known-flaky
   (quarantine + fix root cause, one clause of which is this same await-not-sleep fix); this names
   the CI-contention *trigger* so the test is authored correctly the first time.
+- **A tiny fixed deadline in a test is the same bet: it passes idle and fails under load.** A 1 ms
+  deadline or timeout assertion holds on a quiet machine and flakes on a busy runner. Give time-dependent
+  tests a deadline in the hundreds of milliseconds, or inject a clock so the test controls time and never
+  waits on it.
 - **Testing an outbound alert/webhook from a spawned job needs async spawn + a
   localhost listener.** The natural test — run a scheduled/unattended job to a
   failure and assert its alert fired with a privacy-safe body — deadlocks under

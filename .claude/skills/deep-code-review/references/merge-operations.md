@@ -134,6 +134,10 @@ batch.
   titles in the same file. Run the base once on the regressed spec files, drop every title that fails there,
   and compare the remaining titles per PR. If every regression also fails at the base, treat the union as
   proven.
+- **When merging the base into a release branch conflicts on a flaky-test file two PRs fixed differently,
+  take the base's version, then run that test file.** The base's fix already landed and passed its own gate;
+  re-resolving by hand invents a third variant. Keep the release branch's change only if the base has none
+  for that hunk.
 - **A train wrapper keeps every verdict line.** `| tail -3` hid the CONFLICT/DEFER lines above the final
   RED/GREEN, so a member vanished with no visible reason. Filter by verdict prefix
   (`^(GREEN|RED|CONFLICT|DEFER|STALE)`), never by position.
