@@ -3710,6 +3710,14 @@ else
   record 1 "update-installed: fast-forwards a behind clone, refuses a dirty one"
 fi
 
+# update-installed.sh infers flags when the install marker is missing (own per-feature file).
+if bash "$ROOT/scripts/test-update-installed-infer.sh" >"$WORK/ui-infer.log" 2>&1; then
+  record 0 "update-installed: infers flags and writes the marker when missing"
+else
+  cat "$WORK/ui-infer.log" >&2
+  record 1 "update-installed: infers flags and writes the marker when missing"
+fi
+
 # merge-train scripts: own per-feature file (scripts/test-train-scripts.sh), one case here.
 if bash "$ROOT/scripts/test-train-scripts.sh" >"$WORK/train-scripts.log" 2>&1; then
   record 0 "train scripts: land_train/train_land/reap_own tests pass"

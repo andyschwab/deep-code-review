@@ -293,3 +293,12 @@ retain the distinct corroborating evidence, add a gate that fails if a count eve
 outruns its evidence — not larger. (The scored / shown cousins live in
 `data-scoring.md` and the confidence-tier false-precision rule in
 `ux-dataviz.md`.)
+
+### Pre-filing precision checks (run before a finding is filed)
+
+Fan-out finders over-grade and mis-flag in four repeatable ways. Before filing, verify each that applies and downgrade or drop the finding when the check clears it:
+
+- **Existing bounds cap severity.** Before grading an unbounded per-tenant query or growing table Critical, look for a retention, prune, or TTL job that already bounds the data window. A bounded window is a lower severity (or a note), not Critical.
+- **Every way a control gets its accessible name.** Before flagging a missing label, check `aria-label`, `aria-labelledby`, a wrapping `<label>`, and visible text, not only `label for`.
+- **Check the runtime version before flagging a missing global.** A missing import of a built-in (for example `crypto` on Node 19 and later) is a false positive when the target's pinned runtime provides it as a global. Read the engine pin first.
+- **Grade prompt injection by who authors the interpolated text,** not by the fact that text is interpolated. Text written by trusted staff is low risk; text from an external upstream source (for example third-party titles or fetched pages) is high risk (`security-ai-agents.md`).

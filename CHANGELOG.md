@@ -3,6 +3,20 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.482.0] — 2026-10-05
+
+### Added
+- `deep-code-review` `method-situational.md`: pre-filing precision checks (retention caps lower severity, every accessible-name source, runtime-version globals, grade prompt injection by who authors the text). `data-freshness.md`: keep earliest first-seen on re-assertion. `data-identity.md`: dedupe keys need the fact's own identity. `data-contracts.md`: one real call before trusting a port. Evals added. Closes #1302, closes #1304.
+- `agentic-delivery`: lane definitions load from the main checkout, caps are per machine, direct heavy test runs need the semaphore (`multi-session-coordination.md`); an OOM-killed train moves machines (`merge-queue-worktrees.md`). Evals added. Closes #1303. Already covered and not repeated: per-machine disk and caps summing on a shared host, least-loaded routing.
+- `scripts/update-installed.sh`: with no install marker, infer one flag per installed sibling skill (plus the operating layer if its hooks are present), write the marker, print what was inferred; `scripts/test-update-installed-infer.sh`. Closes #1305.
+
+- size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 64340→64581 issue 1302 lesson rules
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 69757→70484 issue 1302 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/data-contracts.md 3632→4026 issue 1302 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/data-freshness.md 12384→12705 issue 1302 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/data-identity.md 6281→6601 issue 1302 lesson rules
+- size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 23334→24528 issue 1302 lesson rules
+
 ## [1.481.0] — 2026-10-05
 
 ### Added

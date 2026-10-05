@@ -21,7 +21,22 @@ fi
 echo "dcr version: $(cat "${HERE}/.claude/skills/deep-code-review/VERSION")"
 for t in "$@"; do
   m="${t}/.claude/.dcr-install-flags"
-  [[ -f "${m}" ]] || { echo "error: no install marker at ${m}; run install.sh once first" >&2; exit 1; }
+  if [[ ! -f "${m}" ]]; then
+    # Pre-marker install: infer one flag per installed sibling skill, plus the operating layer.
+    inf=()
+    for p in agentic-delivery:--with-delivery idea-critic:--with-critic communication-structure:--with-comms \
+      contribution:--with-contribution product-discovery:--with-discovery agentic-ceo:--with-ceo \
+      growth-analytics:--with-growth positioning:--with-positioning business-ops:--with-business \
+      product-output-safety:--with-output-safety; do
+      [[ -d "${t}/.claude/skills/${p%%:*}" ]] && inf+=("${p#*:}")
+    done
+    grep -qs SubagentStart "${t}/.claude/settings.local.json" && inf+=(--apply-operating-layer)
+    [[ -d "${t}/.claude/skills/deep-code-review" ]] \
+      || { echo "error: no install marker at ${m} and no deep-code-review skill to infer from; run install.sh once first" >&2; exit 1; }
+    mkdir -p "${t}/.claude"
+    printf '%s\n' ${inf[@]+"${inf[@]}"} > "${m}"
+    echo "no install marker in ${t}; inferred flags: ${inf[*]:-(none, review-only)}; wrote ${m}"
+  fi
   flags=()
   while IFS= read -r l; do [[ -n "${l}" ]] && flags+=("${l}"); done < "${m}"
   bash "${HERE}/install.sh" ${flags[@]+"${flags[@]}"} "${t}"

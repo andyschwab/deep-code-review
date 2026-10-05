@@ -147,3 +147,7 @@ a verified terminal state (wound-down/acquired/ceased) not overriding a recent-d
 ### A puller must keep every row of a multi-row result
 
 A background puller written for one value per run silently keeps only the newest row when the source returns several (dated or time-series results), so history depends on a manual backfill nobody scheduled. Ingest idempotently and multi-row-safe by construction: upsert on an (entity, date) key and never implicitly reduce a multi-row result to "latest". **Check:** compare source row count with destination row count for one ingestion window; a 1:1 ratio, not N:1, proves multi-row capture.
+
+### Re-assertion must keep the earliest first-seen date
+
+When a re-assertion overwrites a prior row (an upsert of the same fact), carry the earliest first-seen date forward and update only last-seen. Overwriting first-seen makes old facts look new every day and corrupts any "new this week" or recency view built on it.

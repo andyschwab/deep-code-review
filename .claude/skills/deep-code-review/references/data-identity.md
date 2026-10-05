@@ -71,3 +71,7 @@ Read this when the target or diff resolves or clusters entity identity without a
 a join / corroboration key not weighted by value-commonness (a value shared by dozens treated as a confirming match);
 a per-dimension volume-floor drop acked or blocked with no fold investigation after an identity/roster/entity-resolution change (a correction and a regression are identical from the count);
 an identity cluster built from raw connected components with no bridge / centrality check (transitive over-merge);
+
+### A dedupe key needs the fact's own identity
+
+A key built only from a lineage label many rows share (for example a non-navigable source ID) collapses an entity's whole history into one row. Include the fact's own name or date in the key. Test with two distinct facts from the same source and assert two rows survive.
