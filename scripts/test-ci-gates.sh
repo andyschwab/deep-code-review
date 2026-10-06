@@ -1822,6 +1822,11 @@ fi
 # make the gate go non-zero AND name the failing eval, so it cannot pass
 # vacuously. No model, no network, no spend.
 # ---------------------------------------------------------------------------
+# Trigger coverage (#1333): every description <= 300 chars, every should_trigger
+# moment named in it, every ceo_route phrase present in agentic-ceo.
+if python3 "$ROOT/scripts/trigger_coverage.py" "$ROOT" >"$WORK/last.log" 2>&1; then GATE_RC=0; else GATE_RC=$?; fi
+record "$GATE_RC" "trigger-coverage: descriptions <=300, moments and ceo routes covered"
+
 PRED="$ROOT/scripts/eval_predicates.py"
 if [ ! -f "$PRED" ]; then
   record 1 "eval-predicates: engine present"

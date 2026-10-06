@@ -53,6 +53,12 @@ import os
 import sys
 
 MINIMAL_CODE_TAG = "MINIMAL-CODE: "
+# One-line skill-route reminder appended to every injection (default-on; set
+# SKILL_ROUTE_REMINDER=0 to drop). Names the moments that are skipped most:
+# the adversarial pass before an owner ask, structure before a human-facing message.
+SKILL_ROUTE = ("Skill route: idea-critic before any owner ask or new plan; "
+               "communication-structure before any human-facing message; "
+               "agentic-ceo to choose among skills.")
 
 
 def build_context(house_text: str, agent_type: str, exempt_types: set) -> str:
@@ -99,6 +105,8 @@ def run(stdin_text: str) -> str:
     context = build_context(house_text, str(data.get("agent_type") or ""), exempt_types)
     if not context.strip():
         return ""
+    if os.environ.get("SKILL_ROUTE_REMINDER") != "0":
+        context += "\n" + SKILL_ROUTE
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": context}})
 
 
@@ -133,7 +141,7 @@ def _selftest() -> int:
     with open(house_path, "w", encoding="utf-8") as fh:
         fh.write(house)
 
-    saved_env = {k: os.environ.get(k) for k in ("HOUSE_DEFAULTS_FILE", "HOUSE_MINIMAL_CODE_EXEMPT_TYPES")}
+    saved_env = {k: os.environ.get(k) for k in ("HOUSE_DEFAULTS_FILE", "HOUSE_MINIMAL_CODE_EXEMPT_TYPES", "SKILL_ROUTE_REMINDER")}
     try:
         os.environ["HOUSE_DEFAULTS_FILE"] = house_path
         os.environ.pop("HOUSE_MINIMAL_CODE_EXEMPT_TYPES", None)
@@ -154,6 +162,12 @@ def _selftest() -> int:
         ctx = obj.get("hookSpecificOutput", {}).get("additionalContext", "")
         case("exempt-type-drops-minimal-code-line", "Simplest change" not in ctx and "MINIMAL-CODE" not in ctx, True)
         case("exempt-type-keeps-other-lines", "Be terse." in ctx and "No unrequested features." in ctx, True)
+
+        case("route-reminder-default-on", "Skill route: idea-critic" in ctx, True)
+        os.environ["SKILL_ROUTE_REMINDER"] = "0"
+        off = json.loads(run(payload))["hookSpecificOutput"]["additionalContext"]
+        case("route-reminder-opt-out", "Skill route" not in off, True)
+        os.environ.pop("SKILL_ROUTE_REMINDER")
 
         case("non-subagentstart-event-empty", run(json.dumps({"hook_event_name": "Stop"})), "")
         case("malformed-stdin-empty", run("not json"), "")

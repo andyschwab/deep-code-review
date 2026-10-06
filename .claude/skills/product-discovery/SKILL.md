@@ -1,21 +1,14 @@
 ---
 name: product-discovery
 description: >-
-  Use when deciding whether something is worth building, what to build
-  first, what to deliberately not build (non-goals), or whether what
-  already shipped is working — by structuring
-  evidence gathered from real users and real usage, never by asserting
-  it. Designs Mom-Test / Jobs-to-be-Done interviews and fake-door /
-  concierge experiments, runs the riskiest-assumption gate before a
-  build, reads product-market fit from the very-disappointed survey and
-  retention cohorts, and prioritizes with ICE — always on the user's own
-  inputs. Never fabricates findings, quotes, personas, market size,
-  scores, or a "validated" verdict; routes what it cannot know to the
-  owner. Opt-in overlay, default off; install with --with-discovery.
+  Use when deciding whether something is worth building, what to build first,
+  what not to build, or whether what shipped is working. Structures real-user
+  evidence: Mom-Test interviews, riskiest-assumption gate, PMF survey, ICE.
+  Never fabricates findings. Opt-in: --with-discovery.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.2.0"
+  version: "1.2.1"
 ---
 
 # Product discovery

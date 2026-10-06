@@ -1,21 +1,14 @@
 ---
 name: growth-analytics
 description: >-
-  Use when deciding what to measure and how to read it once you are building
-  or shipping: choosing the one customer-value North Star metric (not a vanity
-  count), reading the AARRR funnel bottom-up (retention first), designing the
-  event taxonomy that answers a named question, deciding what to instrument
-  at each stage, and reading an A/B experiment honestly (a pre-committed design,
-  no peeking). Works on the user's own analytics data; never fabricates
-  benchmarks, metrics, or "good" thresholds, and routes real figures to the
-  user's analytics. Distinct from product-discovery (which decides whether to
-  build and reads the product-market-fit threshold) and from the ops
-  observability reference in deep-code-review (system health, not product
-  behaviour). Opt-in overlay, default off; install with --with-growth.
+  Use when deciding what to measure once building or shipping: North Star
+  metric, AARRR funnel (retention first), event taxonomy, A/B reads. Works on
+  the user's own analytics; never fabricates benchmarks. Not product-
+  discovery. Opt-in overlay: --with-growth.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.1.1"
+  version: "1.1.2"
 ---
 
 # Growth analytics

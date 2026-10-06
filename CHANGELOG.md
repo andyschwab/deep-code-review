@@ -3,6 +3,17 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.493.0] — 2026-10-06
+
+### Changed
+- Every skill `description` now fits the 300-character host cap, with the firing moments up front (before: 0/11 fit, so the host truncated them; after: 11/11). `idea-critic` fires before any owner ask or new plan; `communication-structure` before any human-facing message or report; `agentic-ceo` at the start of any multi-step session. Independent skill versions bumped by a patch: agentic-ceo 1.1.3, communication-structure 1.2.3, product-discovery, growth-analytics, positioning, business-ops, product-output-safety, contribution.
+- `agentic-ceo` routing: new rows for "about to ask the owner" (idea-critic first), "about to post a PR body, comment, status update or report" (communication-structure before drafting), and "starting a multi-step session".
+- `subagent_start_inject.py` appends a one-line skill-route reminder to every injection (default-on; `SKILL_ROUTE_REMINDER=0` drops it). Selftest 10 to 12 cases (#1333).
+
+### Added
+- `evals/triggers.json` per skill (34 should_trigger / should_not cases) and `scripts/trigger_coverage.py`, run from `scripts/test-ci-gates.sh`. Measured against origin/main at 1.492.0 (repo-only, no usage data): descriptions at or under 300 chars 0/11 to 11/11; trigger moments named in the first 300 chars 19/21 to 21/21; moments routed from agentic-ceo 4/8 to 8/8; skills with a trigger-eval pair 0/11 to 11/11.
+- size-budget-raise: .claude/skills/agentic-delivery/references/host-enforcement.md 36464→36672 document skill-route reminder (#1333)
+
 ## [1.492.0] — 2026-10-06
 
 ### Added

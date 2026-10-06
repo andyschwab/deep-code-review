@@ -1,20 +1,14 @@
 ---
 name: positioning
 description: >-
-  Use when shaping how a product is positioned and described to its market —
-  the value proposition, the target segment, the differentiation, the
-  messaging — with the Value Proposition Canvas, a positioning statement, and
-  a message house, always built on the USER's own inputs and validated with
-  real buyers. Produces a hypothesis to test, never asserted market truth: it
-  never fabricates market size / TAM, competitor claims, customer quotes,
-  outcome numbers, or trademark / domain clearance — those route to the user
-  or a licensed professional. Distinct from product-discovery (whether
-  something is worth building) and growth-analytics (measuring usage). Opt-in
-  overlay, default off; install with --with-positioning.
+  Use when shaping how a product is positioned to its market: value
+  proposition, segment, differentiation, messaging (Value Proposition Canvas,
+  message house). A hypothesis to validate with real buyers; never fabricates
+  TAM or competitor claims. Opt-in: --with-positioning.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # Positioning
