@@ -3,6 +3,16 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.496.0] — 2026-10-07
+
+### Added
+- `method-situational.md` "DIFF review hygiene": two bullets from a benchmark of this skill against a cloud diff review on one 124-file diff (5 verified defects). Blind Perun runs with the 1.494.0 method found 3.5/5, 4/5 and 3/5 (one more run, 1/5, was confounded by a harness fault); every run missed the same one: a frozen size budget pinned 130 bytes above the file's real size, because the run trusted the one-sided green gate. New bullets: recompute every pin the diff writes and compare for equality; a fan-out finder without a shell hands candidate probes to the lead instead of filing "read, not run". With them, one matched run found 5/5 (a single sample, and the bullet was written from that miss). Eval `diff-review-recompute-pins-blocked-finder-probes`.
+- `docs/bench/ultrareview-ground-truth.json`: the 5 verified findings as a reusable scoring fixture (`git diff 6d64f84 1bf7ae0`).
+
+### Fixed
+- `method-situational.md` base-validation bullet: `git merge-base --is-ancestor <merge-base> HEAD` is always true; replaced with `git rev-parse --verify <base>^{commit}` plus a non-empty `git merge-base <base> HEAD`.
+- size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 26318→27133 DIFF review hygiene pin and probe bullets
+
 ## [1.495.0] — 2026-10-06
 
 ### Changed
