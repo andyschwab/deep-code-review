@@ -77,6 +77,16 @@ out=$(VERIFY_CMD='echo ran >>'"$WORK"'/verified' UNION_DIRS="$R" LOG_DIR="$WORK"
 [ $rc -eq 2 ] && grep -q "^REFUSE #1 base is wrong" <<<"$out" && [ ! -s "$WORK/verified" ]; ok $? "train_land: wrong-base PR refuses the train before any union is built"
 echo main >"$STUB/baseRefName.1"
 
+# --- train_land: BASE RED audit + per-PR ratchet attribution ---
+: >"$WORK/verified"
+out=$(BASE_AUDIT_CMD='exit 1' VERIFY_CMD='echo ran >>'"$WORK"'/verified' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t6 1 2 2>&1); rc=$?
+[ $rc -eq 1 ] && grep -q "^BASE RED" <<<"$out" && [ ! -s "$WORK/verified" ]; ok $? "train_land: failing bare-base audit prints BASE RED, builds no union"
+for n in 1 2 3; do g push -q origin "pr$n:refs/pull/$n/head"; done
+out=$(RATCHET_CMD='[ "$PR" != 2 ]' VERIFY_CMD='echo "RED ratchet"; exit 1' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t7 1 2 3 2>&1)
+grep -q "^CULPRIT #2 " <<<"$out" && ! grep -qE "^CULPRIT #[13]" <<<"$out" && grep -q "nothing landed" <<<"$out"; ok $? "train_land: RED union names only the PR that fails the ratchet alone on the base"
+out=$(VERIFY_CMD='echo "RED"; exit 1' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t8 1 2 2>&1)
+! grep -q "^CULPRIT" <<<"$out"; ok $? "train_land: no CULPRIT lines when RATCHET_CMD is unset"
+
 # --- EXIT trap: scratch (linked) worktrees are removed on every path, the current one is kept ---
 W1="$WORK/wt-green"; g worktree add -q --detach "$W1" "$U"
 VERIFY_CMD='echo "GREEN base='"$B"' union='"$U"'"' UNION_DIRS="$R $W1" LOG_DIR="$WORK" BACKFILL_FILE="$WORK/b4.txt" WAIT_SECS=0 bash "$SC/train_land.sh" t4 1 2 3 >/dev/null 2>&1
@@ -103,6 +113,12 @@ if command -v lsof >/dev/null; then
   o=$(ROOT="$WORK/mine" PATTERN='sleep 31337' bash "$SC/reap_own.sh")
   [ "$o" = "reaped=0" ] && kill -0 "$P3" 2>/dev/null; ok $? "reap_own: spares a process younger than MAX_AGE_S"
   kill "$P3" 2>/dev/null; wait "$P3" 2>/dev/null
+  (cd "$WORK/mine" && exec python3 -m http.server 38417 --bind 127.0.0.1) >/dev/null 2>&1 & P4=$!
+  sleep 1
+  o=$(ROOT="$WORK/mine" PATTERN='no-such-proc' QA_PORTS=38417 MAX_AGE_S=-1 bash "$SC/reap_own.sh")
+  sleep 0.2
+  [ "$o" = "reaped=1" ] && ! kill -0 "$P4" 2>/dev/null; ok $? "reap_own: QA_PORTS reaps an own listener on the port under ROOT"
+  kill "$P4" 2>/dev/null; wait "$P4" 2>/dev/null
 else
   echo "SKIP  reap_own (no lsof)"
 fi

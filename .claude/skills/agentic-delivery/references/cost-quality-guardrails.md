@@ -211,6 +211,9 @@ itself. Check each of these on any conductor/lane setup:
 - **No leaked background shells.** A wait loop (`until …; sleep`, `tail -f`) started as a background task
   can survive for days once its parent session moves on. Run only finite commands in the background, and
   detach a genuinely long job with `nohup … & disown` so it reports through a file instead of a held shell.
+- **Detached `nohup` jobs can die silently.** A job launched with `nohup ... & disown` from an agent's tool
+  shell sometimes exits with an empty log. For anything long-running, prefer the agent host's tracked
+  background task (finite command, completion reported to the session) and confirm the log is non-empty.
 - **A subagent has real per-call overhead** (its own rule set and tool definitions load fresh). Do small
   git/CLI/single-test checks inline; reserve a subagent dispatch for work that's actually large and
   isolated, with a token budget stated in the brief.

@@ -156,6 +156,17 @@ regressions. It is a **diagnosis shortcut, not a new merge authority**: it does 
 mainline beyond whatever narrow, human-approved change-control path a project already has for exactly this case
 (one reviewed, unblocking fix).
 
+## A red union is not automatically the first PR's fault: attribute it, and check the bare base first
+
+Three train-failure shapes look like a PR failure and are not. **(1) Culprit attribution:** when a union fails a
+ratchet (a file-length or count limit), dropping the first PR drops the wrong one when a later PR's diff is what
+exceeds the limit; measure each PR merged **alone onto the current base** and drop the one that fails. **(2) Stale-base
+measurement:** a PR can be under a line limit on its own stale base and over it once the current base is merged in,
+so measure ratchets only after merging the current base. **(3) Red base:** a new advisory or a broken base fails the
+audit gate in every train; run the audit on the bare base first and report `BASE RED` instead of blaming a PR.
+`scripts/train_land.sh` implements (1) and (3) behind optional `RATCHET_CMD` and `BASE_AUDIT_CMD` (tested in
+`scripts/test-train-scripts.sh`); (2) is the same measurement taken on the merged result.
+
 ## An independent-PR-queue cascade is a cadence choice, not a new authority
 
 Gate epistemology principle 6 (union proof before a train) runs as `scripts/merge_train.py`. A related but

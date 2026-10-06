@@ -337,6 +337,13 @@ data may already be polluted with demo content (or demo actions may have mutated
   shared layer is the same caller-census discipline `appsec-design.md`'s shared-endpoint scoping
   check uses for authorization — applied here to a mode gate instead of a permission rule.
 
+## A deploy 504 "another deploy in progress" is a wait, not a retry
+
+A platform deploy that fails with a 504 saying another deploy is in progress usually clears by itself. Check the
+deploy status (and what that other deploy is) before retrying; a blind retry can queue a duplicate or race the first
+deploy. Separate it from a 504 that recurs at a fixed duration with a growing artifact, which is a size or timeout
+problem, not contention.
+
 ## Cross-references
 
 - `dependency-currency-and-upgrades.md` — the other half of domain K (build,
