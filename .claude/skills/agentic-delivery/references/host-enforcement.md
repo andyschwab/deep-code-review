@@ -182,7 +182,9 @@ because a subagent spawned without it in its brief ran verbose or wrote more tha
 requested. Stdlib-only; a missing `HOUSE_DEFAULTS_FILE`, an unreadable file, a
 non-`SubagentStart` event, or malformed stdin all print nothing and exit 0 —
 `SubagentStart` cannot block subagent creation at all, and this hook never tries to.
-`--selftest` proves the tag-strip/exempt/fail-open branches.
+The hook also appends a one-line skill-route reminder (idea-critic before an owner ask,
+communication-structure before a human-facing message, agentic-ceo to choose); set
+`SKILL_ROUTE_REMINDER=0` to drop it. `--selftest` proves the tag-strip/exempt/fail-open branches.
 
 ## Attended-to-unattended profile switch: one env var (a Host-enforced instance)
 

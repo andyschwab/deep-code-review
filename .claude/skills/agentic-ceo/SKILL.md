@@ -1,19 +1,14 @@
 ---
 name: agentic-ceo
 description: >-
-  Use at the start of any multi-step or multi-skill session in this suite,
-  and whenever choosing which skill to reach for. Routes (project stage +
-  area of work) to the right skill and lens; sizes its own effort to the
-  project — one agent wearing several skill-hats for a small or early
-  project, fan-out only for read-mostly, decomposable work; and runs the
-  under-pressure chaos playbook when the owner floods it with many
-  conflicting asks. The suite's conductor and registry: it says which skill
-  to use when and never duplicates a skill's method. For gated delivery
-  mechanics use agentic-delivery; for the adversarial pass use idea-critic.
+  Use at the START of any multi-step or multi-skill session, and whenever
+  choosing a skill. Conductor: routes stage + area to the skill - idea-critic
+  before any plan or owner ask, communication-structure before any human-
+  facing message, agentic-delivery to build, deep-code-review to review.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.1.2"
+  version: "1.1.3"
 ---
 
 # Agentic CEO — the suite's conductor
@@ -68,7 +63,14 @@ model: prototype / mvp / growth / mature), the **area** of the ask, and the
   stage*).
 - "Should we even do this?" (a plan, a new skill, an unsolicited "we
   should") → `idea-critic` **before** the owner sees it.
-- "Send this message." → `communication-structure`.
+- "About to ask the owner a question, or present a recommendation or
+  decision." → `idea-critic` first (an owner-requested change still gets the
+  pass; it cannot HOLD) — an ask that skipped it is the default failure.
+- "Send this message." / about to post a PR body, issue or PR comment, status
+  update, report, plan, or summary → `communication-structure` **before you
+  draft**, not after.
+- "Starting a session with more than one step." → load this skill first, then
+  the one row above that matches; re-check at each new kind of artifact.
 - "How is it performing? what should we measure or instrument?" → `growth-analytics`.
 - "How do we position and describe this to the market?" → `positioning`.
 - "Pricing or unit economics (apply to the user's numbers) vs. a legal / tax /

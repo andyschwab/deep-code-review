@@ -1,23 +1,14 @@
 ---
 name: product-output-safety
 description: >-
-  Use when designing or shipping a product feature whose OWN outputs or automated
-  decisions reach end-users — AI-generated content, recommendations, or actions
-  taken on a user's behalf — and could harm them. Governs output harm: bias,
-  hallucination surfaced as fact, over-reliance, missing AI-disclosure, deceptive
-  patterns, and unsafe automation of high-stakes or irreversible actions. Method:
-  MAP the per-feature harm inventory, MEASURE it with output-harm evals and
-  red-teaming, MANAGE it with a human-in-the-loop gate on high-stakes actions.
-  This is NOT code security (that is `deep-code-review`) and NOT money/legal/tax
-  routing (that is `business-ops`) — it is the behavior of the shipped product
-  toward its users. Boundary: red-team, measure, and RECOMMEND human review; never
-  certifies a system "safe"/"unbiased"/"compliant", never fabricates a harm
-  metric, and routes any legal disclosure duty to counsel. Opt-in overlay, default
-  off; install with --with-output-safety.
+  Use when designing or shipping a feature whose OWN AI outputs or automated
+  decisions reach end-users and could harm them: bias, hallucination as fact,
+  missing AI disclosure, unsafe high-stakes automation. MAP, MEASURE, MANAGE
+  with a human gate; never certifies safe. Opt-in: --with-output-safety.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.3.2"
+  version: "1.3.3"
 ---
 
 # Product output safety

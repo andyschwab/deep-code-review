@@ -1,21 +1,14 @@
 ---
 name: contribution
 description: >-
-  Use when you have learned a genuinely reusable, generalizable lesson about
-  the universal skillset itself while working on a project, and want to prepare
-  a privacy-safe improvement — to a skill, an agent prompt, or orchestration —
-  back to the public repository. The agent drafts the change, CHANGELOG, eval,
-  and routing, runs the repo's own gates, and
-  assembles a provenance-and-risk block — then hands it to a human to review and
-  open the PR. Never pushes or opens a PR autonomously; the human is the privacy
-  authority and the mechanical scrub is necessary, not sufficient. Not for
-  project-specific lessons (imprint those locally) and not artifact polish.
-  Opt-in overlay, default off; install with --with-contribution (deliberately
-  not part of --full).
+  Use when you learned a reusable, generalizable lesson about the skillset
+  itself and want a privacy-safe upstream improvement. Drafts the change,
+  CHANGELOG, eval and provenance block, runs gates, hands to a human to open
+  the PR; never pushes. Opt-in: --with-contribution.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.2.0"
+  version: "1.2.1"
 ---
 
 # Contribution

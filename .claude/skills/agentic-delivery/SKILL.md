@@ -1,16 +1,14 @@
 ---
 name: agentic-delivery
 description: >-
-  Use when implementing a feature, migration, or end-to-end change that
-  needs gated multi-role delivery — not a typo fix. Smallest-sufficient
-  hats, independent QA and security, one writer per worktree, exact-SHA
-  receipts, human approval on push/merge/deploy. Load deep-code-review
-  at specification, review, and integrate. Opt-in overlay; do not install
-  by default next to another delivery pack.
+  Use when implementing a feature, migration, or end-to-end change needing
+  gated multi-role delivery, not a typo fix. Smallest-sufficient hats,
+  independent QA and security, one writer per worktree, exact-SHA receipts,
+  human approval on push/merge/deploy. Opt-in overlay.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.492.0"
+  version: "1.493.0"
 ---
 
 # Agentic delivery

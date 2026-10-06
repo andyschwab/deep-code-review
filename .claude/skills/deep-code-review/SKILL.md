@@ -1,17 +1,14 @@
 ---
 name: deep-code-review
 description: >-
-  Use when reviewing, auditing, hardening, red-teaming, or quality-gating a
-  repo, PR, branch, or diff. Evidence-grounded review across correctness,
-  OWASP AppSec/LLM/agent security, data integrity, performance/cost,
-  reliability, testing, CI/supply chain, infra, observability, docs,
-  accessibility, privacy, and branch hygiene. Severity-ranked file:line
-  report; can imprint durable standards. Prefer this over an ad-hoc
-  read-through even when the word review is absent.
+  Use when reviewing, auditing, hardening, red-teaming or quality-gating a
+  repo, PR, branch or diff, even without the word review. Evidence-grounded
+  review: correctness, security, data, performance, reliability, tests, CI,
+  infra, docs, a11y, privacy. Severity-ranked file:line report.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.492.0"
+  version: "1.493.0"
 ---
 
 # Deep Code Review

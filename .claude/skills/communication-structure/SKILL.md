@@ -1,15 +1,14 @@
 ---
 name: communication-structure
 description: >-
-  Use before sending any human-facing message — a PR body, issue/PR
-  comment, status update, or reply — or before producing a human-facing
-  deliverable: a report, plan, doc, summary, or table. Forces BLUF, one
-  ask, core value only, zero AI-slop before you draft, not after. Skip for
-  chat with the user, which may keep whatever house voice is already set.
+  Use BEFORE sending any human-facing message (PR body, issue/PR comment,
+  status update, reply) or producing a report, plan, doc, summary or table.
+  Forces BLUF, one ask, core value only, zero AI-slop before you draft. Skip
+  for chat with the user, which keeps its house voice.
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.2.2"
+  version: "1.2.3"
 ---
 
 # Communication structure
