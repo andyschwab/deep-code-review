@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.489.0] — 2026-10-06
+
+### Added
+- `contribution` 1.2.0: `scripts/prefile_check.sh <title-file> <body-file>` refuses a public-repo issue draft that hits the banlist (including `.banlist.local.txt`), names another `<org>/<repo>`, cites a `#NNNN+` issue number, or contains an absolute home path. Wired into the filing step with the routing rule that project bugs go to the project's tracker (#1327). Tests in `scripts/test-ci-gates.sh`.
+- size-budget-raise: .claude/skills/contribution/SKILL.md 11660→12025 #1327 pre-file step
+- size-budget-raise: .claude/skills/agentic-delivery/references/unattended-operating-mode.md 23854→23941 #1327 routing phrase
+
 ## [1.488.0] — 2026-10-06
 
 ### Added

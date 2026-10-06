@@ -279,7 +279,7 @@ wake/poll cadence is not the work cadence**). A worked default set:
 | PRODUCER | ~15m (phase-offset from MERGE) | pull the next backlog wave (an OPEN owner priority's scope first), verify-first — **An open tracker issue is not proof the fix is absent** |
 | HYGIENE | ~30m | worktree / process reaping, stale-claim reconcile — **A worktree is a resource with a lifecycle** |
 | QUALITY / UX-VERIFY | ~20m | central browser / UX verification of landed UI — **Draft-gated heavy checks hide a UI-regression wave** |
-| LEARNINGS | ~2/hr | capture standing findings as tracked items — **Research is not delivery**; `SKILL.md` G10 |
+| LEARNINGS | ~2/hr | capture standing findings as tracked items — **Research is not delivery**; `SKILL.md` G10; project bugs go to the project tracker, suite lessons upstream via `prefile_check.sh` |
 
 - **Same-period loops carry an explicit phase offset** (MERGE and PRODUCER both
   ~15m wake roughly 7m apart) so they do not land on one tick; when loops *do*
