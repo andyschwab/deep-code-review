@@ -3,6 +3,16 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.492.0] — 2026-10-06
+
+### Added
+- `roles.md`: an owner-reported fix is done only when a spec pins the exact behaviour; later edits to it need a quoted owner decision. `unattended-operating-mode.md`: search closed issues and PRs by meaning before filing and reopen a hit as a regression. `verification-handback.md`: chunk verification batches to about 10 items per lane (#1331).
+- `escaped_defects.py`: `--gh` skips the `gh` search when the term is empty. Test in `scripts/test-ci-gates.sh`; eval `fix-pinned-search-closed-guard-search`.
+- Deduped against existing doctrine: regression-test-first (`roles.md`), never re-ask (`unattended-operating-mode.md` ledger), coordinator-as-CEO (`agentic-ceo`).
+- size-budget-raise: .claude/skills/agentic-delivery/references/roles.md 26619→26774 #1331 pinned-fix rule
+- size-budget-raise: .claude/skills/agentic-delivery/references/unattended-operating-mode.md 23941→24057 #1331 search-closed rule
+- size-budget-raise: .claude/skills/agentic-delivery/references/verification-handback.md 56941→57146 #1331 chunking rule
+
 ## [1.491.0] — 2026-10-06
 
 ### Added

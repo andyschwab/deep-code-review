@@ -44,7 +44,7 @@ loop, not a single task**. Frame it as the default stance:
   **While the owner is away, `defer` alone — never a posted message**: a decision
   request posted mid-run scrolls past and is unfindable later; the ledger, not the
   chat, is the record. Before deferring, check `task_ledger.py questions` for a
-  near-duplicate already answered, so a settled question is never re-asked. On the
+  near-duplicate already answered, so a settled question is never re-asked. Before filing an issue, search closed issues and PRs by meaning; a hit is a regression to reopen, not a new filing. On the
   owner's **next** message, whatever it says, **answer it first**, then append the
   full open batch from `questions` — never lead with the backlog of asks. Once
   `answer` records a reply, the ledger drops that item from the pending batch (it

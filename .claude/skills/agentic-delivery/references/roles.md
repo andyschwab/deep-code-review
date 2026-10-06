@@ -250,6 +250,8 @@ what already works. It is a generic engineering standard; a project's own
   coefficients of a scoring/heuristic function; snapshot a stable identity (an id,
   a dedup/join key). A change that would break a passing test is a signal the
   behaviour is intended, not a defect (cross-ref the review's REFUTED rule).
+  An owner-reported fix is done only when a spec pins the exact geometry or
+  behaviour; a later change edits that spec only with a quoted owner decision.
 - **Errors handled per item.** External calls handle failure explicitly; a loop
   body catches per-item, logs, and continues — one bad item never halts the run.
   Never silently swallow.
