@@ -3757,6 +3757,23 @@ done
 rm "$pf_dir/.banlist.txt"
 if pf "t" "clean"; then record 1 "prefile: missing banlist fails closed"; else record 0 "prefile: missing banlist fails closed"; fi
 
+# pipe_mask_guard (#1328): gate|tail without pipefail warns/blocks; pipefail and unrelated pipes pass.
+pmg="$ROOT/.claude/skills/agentic-delivery/scripts/pipe_mask_guard.py"
+pmg_run() { printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" | python3 "$pmg"; }
+pmg_blk=0
+printf '{"tool_input":{"command":"make test | tail"}}' | PIPE_MASK_MODE=block python3 "$pmg" >/dev/null 2>&1 || pmg_blk=$?
+if pmg_run 'git push origin x 2>&1 | tail -5' | grep -q additionalContext \
+   && ! pmg_run 'set -o pipefail; git push origin x | tail -5' | grep -q . \
+   && ! pmg_run 'bash gate.sh | tee /tmp/g; echo ${PIPESTATUS[0]}' | grep -q . \
+   && ! pmg_run 'ls | grep foo' | grep -q . \
+   && ! pmg_run 'git push || tail x' | grep -q . \
+   && ! printf 'not json' | python3 "$pmg" | grep -q . \
+   && [ "$pmg_blk" -eq 2 ]; then
+  record 0 "pipe_mask_guard: gate|tail warns/blocks; pipefail, PIPESTATUS, unrelated pipe, || pass"
+else
+  record 1 "pipe_mask_guard: gate|tail warns/blocks; pipefail, PIPESTATUS, unrelated pipe, || pass"
+fi
+
 # ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a

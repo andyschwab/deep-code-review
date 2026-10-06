@@ -3,6 +3,18 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.490.0] — 2026-10-06
+
+### Added
+- `agentic-delivery/scripts/pipe_mask_guard.py`: a `PreToolUse` Bash hook that warns (or blocks with `PIPE_MASK_MODE=block`) when a gate, `git commit|push|merge`, `gh pr merge`, test or qa command is piped to `tail`, `head` or `grep` without `pipefail` or `PIPESTATUS`. Wired into `templates/operating-layer.settings.json`; tested in `scripts/test-ci-gates.sh` (#1328).
+- `lang-js-ts.md`: Yjs replace-versus-merge semantics and the Next.js server-component `createContext` import-graph trap. `lang-shell.md`: pointer to the hook. (Kept out of `language-stack-redflags.md`, a Phase 0-2 floor file at its must-load ceiling.)
+- `merge-queue-worktrees.md`: "first not run today" schedulers starve the tail; pick least-recently-run. `verification-handback.md`: check a review subagent's coverage verdict against live run status.
+- Evals for each rule.
+- size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 65846→66147 new #1328 scheduler-starvation rule
+- size-budget-raise: .claude/skills/agentic-delivery/references/verification-handback.md 56685→56941 new #1328 coverage-verdict rule
+- size-budget-raise: .claude/skills/deep-code-review/references/lang-js-ts.md 12493→13288 new #1328 Yjs and RSC stack traps
+- size-budget-raise: .claude/skills/deep-code-review/references/lang-shell.md 7968→8379 new #1328 pipe-mask hook pointer
+
 ## [1.489.0] — 2026-10-06
 
 ### Added

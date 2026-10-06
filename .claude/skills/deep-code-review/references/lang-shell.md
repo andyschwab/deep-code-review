@@ -90,3 +90,5 @@ Read this when the target runs any shell — CI `run:` steps, hooks, Dockerfile 
   Dry-run the check against one known-green and one known-red log before it
   runs unattended. The last line is an explicit positive result; its absence is
   failure.
+
+- **A gate piped to `tail`/`head`/`grep` masks its exit code, and doctrine alone did not stop the recurrence** (two branches reported pushed after failing a pre-push gate). The operating layer ships a `PreToolUse` Bash hook, `agentic-delivery/scripts/pipe_mask_guard.py`, that warns (or blocks with `PIPE_MASK_MODE=block`) on a gate/push/merge piped to `tail`/`head`/`grep` without `pipefail` or `PIPESTATUS`.

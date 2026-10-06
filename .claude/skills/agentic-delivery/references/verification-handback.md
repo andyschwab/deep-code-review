@@ -522,6 +522,8 @@ assumed I landed on it." **A "no defects found" report without that confirmation
 same as a completion claim with no `Verify:` line** — not scored as a pass, and not distinguishable from "never
 looked."
 
+**A review subagent's coverage verdict ("all X run", "every Y covered") is checked against live run status** (the scheduler's or CI's actual records), not against the agent's reading of the code. An unsupported "all run" verdict hid units that never ran.
+
 ## A fan-out review is not complete until every worker has joined — a partial aggregate can drop the tail's top-severity finding
 
 The relay section below governs the *provenance* of each number a lane reports; this governs whether the **set**
