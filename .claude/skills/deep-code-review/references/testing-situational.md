@@ -141,6 +141,8 @@ Read this when `testing-and-evals.md` routes here: a doc-comment promises a fall
   moving branch can't change what a test exercises. **Check:** flag an unmocked
   memory/`sysctl`/load-average call and an unpinned "latest N commits" git-log sample inside
   a test file.
+- **A test service owned by one gate run breaks every concurrent run on the machine.** A fixture database that a gate run starts if absent and kills on exit is shut down under the other runs by whichever finishes first, and the resulting connection errors (for example Postgres `57P03`, "the database system is shutting down") read as flaky tests. When lanes share a machine, start shared test services detached, or ref-count them so only the last user stops them. Finding: a gate that stops a service it did not exclusively start. Test: two overlapping runs both pass when the first exits early.
+
 - **A chronically flaky test is quarantined and fixed, not retried until green.** A test that
   passes and fails on the same code is a real signal (a race, an order/time/network dependence,
   a leaked fixture) — a blanket **retry-until-green** in CI masks it, manufactures false
@@ -274,7 +276,7 @@ Read this when `testing-and-evals.md` routes here: a doc-comment promises a fall
   doesn't separate client-timeout from connection-error from server-error-code. **Fix:** confirm
   the host is quiet (or explicitly report concurrent load as a caveat) before trusting a number;
   set the client's timeout comfortably above the slowest acceptable successful response; break
-  failures down by cause. **Test:** run the identical, unchanged service twice — once with a
+  failures down by cause. **Test:** **Free memory decides whether a perf number can be trusted:** at about 235 MB free, the same commit swung an RSS slope 34 times past its budget. Before any perf run or bisect, measure the noise floor by running the same commit twice, and refuse to run below a free-memory threshold. **Confirm a suspected regression before bisecting:** compare baseline against head, interleaved, with N of at least 3, and bisect only if the gap exceeds the measured noise floor. run the identical, unchanged service twice — once with a
   synthetic background CPU load competing, once without — and confirm the two runs report visibly
   different load-average readings alongside their throughput, so a review rejects an unqualified
   "before/after" throughput comparison whenever the load readings differ; separately, drive a

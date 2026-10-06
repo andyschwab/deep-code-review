@@ -58,7 +58,7 @@ Read this when the target or diff resolves or clusters entity identity without a
   inside the discovery loop.
 - **Attribute each item by its own owner, never by the page it appeared on.** A source that lists other
   parties' items (a calendar page that also shows partner or featured events) makes page-level attribution
-  wrong. Check each item's own host or owner ID against the claimed owner. A live-page check of one such
+  wrong. Check each item's own host or owner ID against the claimed owner. Attribute an item from a side source (for example JSON-LD event listings) to an org only through a hard key such as an equal host website or owner ID, never through a name match: a live measurement found only 14 of 318 name matches were real. A live-page check of one such
   port found 6 of 6 listed events belonged to other calendars. Finding: items attributed from the page or
   feed owner with no per-item owner check.
 

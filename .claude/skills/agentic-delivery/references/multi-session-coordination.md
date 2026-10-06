@@ -941,6 +941,8 @@ Agents without a shared source of truth for priority order re-derive or disagree
 
 A background activity watcher does not survive a session restart, resume, or context compaction, and nothing announces its death; the agent then reports from stale state and can duplicate a peer's fix. As the first action after any restart, resume, or compaction, re-arm every watcher the run depends on, then read each peer's latest posted state before giving a status or ETA or dispatching work. **Check:** after a restart, the first tool calls re-arm the watchers and read the board before any report.
 
+**Watch by issue and keyword, never by author.** A watcher that filters out "self" goes blind when several agents share one account, and an URGENT regression report from a peer was missed for hours. Match on the issue plus a keyword set (URGENT, BLOCKED, regression) regardless of who posted. **Check:** a watcher's filter contains no author or "not me" clause.
+
 ## Multi-machine work is pulled, not pushed — label by machine, let an idle machine claim
 
 A coordinator that defaults to local lanes and pushes work to a peer machine only after saturating, over a

@@ -202,6 +202,7 @@ Common in agent/tooling repos: JSON/YAML "DB" files, append logs, lockfiles.
   its own concurrency guard does what it was built to do.
 - Idempotency keys for charges/sends: store the key uniquely; retries return
   the first result.
+- **A send job claims its work atomically before sending, and releases the claim if nothing was delivered.** Select-then-send lets two overlapping runs both read the same unsent rows and double-send. Claim in one SQL statement (`UPDATE ... SET claimed_at = now() WHERE sent_at IS NULL AND claimed_at IS NULL RETURNING ...`, or `FOR UPDATE SKIP LOCKED`) and send only what the claim returned. If the send fails or delivers nothing, clear the claim so the next run retries instead of the work being stranded as "claimed". Finding: a send job that reads unsent rows, sends, then marks them; or one that claims and never releases on failure. Test: two concurrent runs send each row once; a forced send failure leaves the row claimable.
 - **An idempotency / no-op short-circuit must diff against the *real* current state, not a
   stubbed baseline.** A shared `apply(current, next)` that skips the write when `next` already
   equals `current` is only correct if `current` is the store's actual state. A DB/adapter path

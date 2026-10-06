@@ -42,7 +42,7 @@ Standards (URLs + dates in `docs/standards-index.md`): OWASP API Security Top 10
   breaking change (below), so freeze it post-release and treat it as an extensible
   enum a consumer may not yet know.
 - Pagination/filter/sort parameters are bounded; "return everything" defaults
-  are a reliability and cost finding (cross-ref E). A cursor/page token is part
+  are a reliability and cost finding (cross-ref E). **A capped page that feeds a client-side filter must report truncation.** When the API offers only limit/cursor and no server-side filter, the client filters what it fetched; if the fetch stopped at the page cap, the result is a partial set, so return a `truncated` flag (or follow the cursor to the end under a stated bound) and never present it as complete. Finding: a client-side filter over one capped page whose output carries no truncation signal. Test: a fixture with more rows than the cap reports `truncated: true`. A cursor/page token is part
   of the versioned contract even though it looks like an implementation
   detail: keep it **opaque**, URL-safe, and never user-parseable — a client
   that can decode, edit, and re-encode it turns your pagination internals into
