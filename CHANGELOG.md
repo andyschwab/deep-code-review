@@ -3,7 +3,7 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
-## [1.497.0] — 2026-10-07
+## [1.498.0] — 2026-10-07
 
 ### Added
 - `method-situational.md` "DIFF review hygiene": two bullets from a benchmark of this skill against a cloud diff review on one 124-file diff (5 verified defects). Blind Perun runs with the 1.494.0 method found 3.5/5, 4/5 and 3/5 (one more run, 1/5, was confounded by a harness fault); every run missed the same one: a frozen size budget pinned 130 bytes above the file's real size, because the run trusted the one-sided green gate. New bullets: recompute every pin the diff writes and compare for equality; a fan-out finder without a shell hands candidate probes to the lead instead of filing "read, not run". With them, one matched run found 5/5 (a single sample, and the bullet was written from that miss). Eval `diff-review-recompute-pins-blocked-finder-probes`.
@@ -12,6 +12,19 @@ follows Keep a Changelog; versioning follows Semantic Versioning.
 ### Fixed
 - `method-situational.md` base-validation bullet: `git merge-base --is-ancestor <merge-base> HEAD` is always true; replaced with `git rev-parse --verify <base>^{commit}` plus a non-empty `git merge-base <base> HEAD`.
 - size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 26318→27133 DIFF review hygiene pin and probe bullets
+
+
+## [1.497.0] — 2026-10-07
+
+### Fixed
+- `clean_finished.sh`: a worktree path containing spaces was silently never cleaned (the porcelain parse split on whitespace); a missing `lsof` made every worktree look idle, so a worktree with a live process could be removed (now exit 2, nothing removed); two dirty worktrees with the same directory name overwrote one archive (now `<name>.N.patch`).
+- `land_train.sh`: a failing merge command was piped through `tail` and the script exited 0; it now prints `FAILED rc=N: ...` per PR and exits 1 when any landing failed.
+- `prefile_check.sh`: an invalid regex in the banlist matched nothing and the check passed; it now refuses (fail closed).
+- `pipe_mask_guard.py`: also flags pytest, jest, vitest, lint, build, make, tsc, mypy, ruff, cargo, npm, pnpm and yarn piped to `tail`, `head`, `grep`, `tee`, `sed` or `awk`, and `|&`.
+
+### Added
+- Coordinator loop template: the wake checklist runs `host_probe.py --lane-type cpu` and starts no new lane on `HOLD` or `COULD_NOT_CHECK`.
+- `scripts/test-ops-edge.sh`: regression tests for the fixes above (8 cases, red on the previous scripts), wired into `scripts/test-ci-gates.sh`.
 
 ## [1.496.0] — 2026-10-07
 
