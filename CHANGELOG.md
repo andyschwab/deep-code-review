@@ -3,6 +3,14 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.488.0] — 2026-10-06
+
+### Added
+- `agentic-delivery/scripts/clean_finished.sh`: removes your own worktrees whose PR is merged or closed or whose lane handed back, and your own scratch. A dirty worktree is archived first (`git diff HEAD` plus the untracked list). It skips a worktree a process uses or that has unpushed commits.
+- `reap_own.sh`: kills are verified (`kill -0`, SIGKILL after 5 seconds), the default idle cutoff is 2 hours, and `--report` is a read-only cross-session mode (orphans by worktree path, free RAM, `FINDING hot` for high CPU over 2 hours).
+- `train_land.sh`: optional `CLEAN_ROOT` runs both scripts at train start. `lane-preamble.md`: teardown step with the `orphans=0` hand-back check. Rules in `merge-operations.md` (#1324). Tests in `scripts/test-train-scripts.sh`.
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 78227→79273 #1324 cleanup doctrine
+
 ## [1.487.0] — 2026-10-06
 
 ### Added
