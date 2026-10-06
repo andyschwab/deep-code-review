@@ -15,7 +15,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.1.1"
+  version: "1.2.0"
 ---
 
 # Contribution
@@ -110,7 +110,11 @@ contribution.
 5. **Route through the bar** — `deep-code-review` on the diff; `idea-critic` on
    the "we should contribute this" claim.
 6. **Run all gates green** — the gate list in `CONTRIBUTING.md`.
-7. **Assemble the provenance-and-risk block** (below) and **hand to a human.**
+7. **Pre-file check** before any `gh issue create` or comment on the public repo: write
+   title and body to files and run `bash .claude/skills/contribution/scripts/prefile_check.sh
+   <title-file> <body-file>`; a refusal blocks filing. Route first: a bug in a project's own
+   code goes to that project's tracker; only a generalized lesson about the suite comes here.
+8. **Assemble the provenance-and-risk block** (below) and **hand to a human.**
 
 ## Provenance & risk block (the human signs this)
 
