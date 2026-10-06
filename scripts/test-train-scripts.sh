@@ -87,6 +87,12 @@ grep -q "^CULPRIT #2 " <<<"$out" && ! grep -qE "^CULPRIT #[13]" <<<"$out" && gre
 out=$(VERIFY_CMD='echo "RED"; exit 1' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t8 1 2 2>&1)
 ! grep -q "^CULPRIT" <<<"$out"; ok $? "train_land: no CULPRIT lines when RATCHET_CMD is unset"
 
+# --- train_land: BROWSER_CMD gate on the GREEN union ---
+G='echo "GREEN base='"$B"' union='"$U"'"'
+out=$(BROWSER_CMD='exit 1' VERIFY_CMD="$G" UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t9 1 2 2>&1); rc=$?
+[ $rc -eq 1 ] && grep -q "^BROWSER RED" <<<"$out"; ok $? "train_land: failing BROWSER_CMD prints BROWSER RED and exits 1 before landing"
+out=$(VERIFY_CMD="$G" UNION_DIRS="$R" LOG_DIR="$WORK" BACKFILL_FILE="$WORK/b9.txt" WAIT_SECS=0 bash "$SC/train_land.sh" t10 1 2 2>&1)
+grep -q "^WARN: browser specs NOT run" <<<"$out"; ok $? "train_land: unset BROWSER_CMD warns loudly"
 # --- EXIT trap: scratch (linked) worktrees are removed on every path, the current one is kept ---
 W1="$WORK/wt-green"; g worktree add -q --detach "$W1" "$U"
 VERIFY_CMD='echo "GREEN base='"$B"' union='"$U"'"' UNION_DIRS="$R $W1" LOG_DIR="$WORK" BACKFILL_FILE="$WORK/b4.txt" WAIT_SECS=0 bash "$SC/train_land.sh" t4 1 2 3 >/dev/null 2>&1
