@@ -39,3 +39,6 @@ latest main (update this checkout first).
 installed skill tree; items 3's routing doctrine, 6, 7, and 8 are protocol-only (no host artifact
 represents prose) and always report `COULD_NOT_CHECK: protocol only`. `--selftest` proves every
 branch with throwaway settings files, before and after a merge.
+
+Copy-paste `/loop` prompts and scheduled-task templates for the coordinator, peer and cleanup loops live in
+`templates/loops/` (installed with `--with-delivery`); event-driven or every 20 minutes at the fastest.

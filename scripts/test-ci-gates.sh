@@ -3725,6 +3725,13 @@ else
   record 1 "train scripts: land_train/train_land/reap_own tests pass"; tail -5 "$WORK/train-scripts.log"
 fi
 
+# loop templates: own per-feature file (scripts/test-loop-templates.sh), one case here.
+if bash "$ROOT/scripts/test-loop-templates.sh" >"$WORK/loop-templates.log" 2>&1; then
+  record 0 "loop templates: scripts exist, >=20 min, installed, routed"
+else
+  record 1 "loop templates: scripts exist, >=20 min, installed, routed"; tail -5 "$WORK/loop-templates.log"
+fi
+
 # install.sh AGENTS.md blocks are compact (<= 6 lines each, markers included)
 # and a re-run replaces them in place (idempotent), so a target repo's own
 # AGENTS.md size gate is not broken by the default install (#1309).
