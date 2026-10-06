@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.494.0] — 2026-10-06
+
+### Added
+- `method-situational.md` gains a "DIFF review hygiene" section: validate the diff base (merge-base ancestor, SHA, commit count, three-dot diff), read each hunk's enclosing function, exclude lockfiles and generated code from semantic critique, judge dependency age against today's date, ground library-API claims in the dependency source, merge same-root-cause findings into one defect-class entry, and name the revert test per behaviour change. `method.md` routes every `DIFF` there, net 20 bytes smaller (must-load floors re-pinned down). New eval `diff-review-hygiene-base-grounding-generated` (#1337).
+- Already covered, not re-added: per-hunk depth routing by kind (`method.md` Phase 2) and the fix-plus-test red-then-green procedure (`testing-and-evals.md`).
+- size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 24528→26318 #1337 DIFF review hygiene
+
 ## [1.493.0] — 2026-10-06
 
 ### Changed

@@ -302,3 +302,13 @@ Fan-out finders over-grade and mis-flag in four repeatable ways. Before filing, 
 - **Every way a control gets its accessible name.** Before flagging a missing label, check `aria-label`, `aria-labelledby`, a wrapping `<label>`, and visible text, not only `label for`.
 - **Check the runtime version before flagging a missing global.** A missing import of a built-in (for example `crypto` on Node 19 and later) is a false positive when the target's pinned runtime provides it as a global. Read the engine pin first.
 - **Grade prompt injection by who authors the interpolated text,** not by the fact that text is interpolated. Text written by trusted staff is low risk; text from an external upstream source (for example third-party titles or fetched pages) is high risk (`security-ai-agents.md`).
+
+### DIFF review hygiene (run on a `DIFF` before and while filing)
+
+- **Validate the base.** Confirm the base ref resolves and `git merge-base --is-ancestor <merge-base> HEAD` holds; print the merge-base SHA and the commit count, and anchor the review to the three-dot diff (`<base>...HEAD`) so unrelated base-side changes are not reviewed as the author's.
+- **Read around each hunk.** Before flagging a hunk, read its enclosing function and the immediate callers; a line that looks wrong in isolation is often guarded two lines above the hunk.
+- **Exclude lockfiles and generated code from semantic critique** (lockfiles, vendored trees, codegen output, minified bundles). Review the generator input or the manifest instead. A blast-radius flag still applies: a lockfile change that adds or swaps a package, or an install script, is reviewed as a supply-chain change.
+- **Judge dependency age and compromise against today's date,** taken from the system clock or the repo's latest commit, never from the model's training cutoff. A version that postdates the cutoff is not "nonexistent", and an advisory published after it is not "unknown".
+- **Ground library-API claims.** Before claiming an API is missing, misused or deprecated, grep the installed dependency's source or its pinned-version docs and cite the file or URL; otherwise mark the claim `unverified`.
+- **Merge same-root-cause findings** into one defect-class entry that lists every site (`file:line` each), with one fix, and keep the report to what a reader can act on; a long list of siblings of one defect is noise.
+- **Name the revert test.** For each behaviour change in the diff, name the test that fails if the change is reverted; "none" is itself a finding (the fix-verification procedure is in `testing-and-evals.md`).
