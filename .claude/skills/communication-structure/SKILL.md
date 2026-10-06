@@ -110,6 +110,10 @@ you want me to dig deeper."
 After: "The 'Next' button is disabled but styled identically to the active
 one — looks clickable, does nothing. **Fixing now; no decision needed.**"
 
+**Stakeholder update.**
+Before: "12 tasks done, 3 in progress, 40 PRs merged. The new export button is live. Saved filters ship next week."
+After: "**The export button is live: you can now export your data from the dashboard.** [Unverified until checked on the live page.]" (effort counts and the next-week promise are dropped, not softened; an unchecked claim is flagged, never asserted)
+
 **Progress status, exact vs. flattering.**
 Before: "Strong progress on the backlog this week — we've closed the vast
 majority of the open items and are nearly done."
