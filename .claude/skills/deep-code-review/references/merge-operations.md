@@ -822,8 +822,19 @@ Three scripts in agentic-delivery's `scripts/` (paths and refs come only from ar
   (`gh pr merge --match-head-commit`). A member whose head moved is skipped, never merged unproven; it waits out
   `mergeable=UNKNOWN` instead of treating it as a conflict; it readies a draft; and a PR with no changelog fragment
   is appended to a **backfill list** (a visible follow-up), not skipped or silently merged without one.
-- `reap_own.sh` kills only dev servers owned by the current user whose cwd is under your own tree and older than
-  a cutoff, so it is safe to run on every tick; never `pkill` by pattern (`dev-env-ownership.md`).
+- `reap_own.sh` kills only dev servers owned by the current user whose cwd is under your own tree and idle more
+  than 2 hours, so it is safe to run on every tick; never `pkill` by pattern (`dev-env-ownership.md`). Every kill
+  is verified (`kill -0`, SIGKILL after 5 seconds). `--report` is the read-only cross-session mode: it lists
+  orphans by worktree path and never kills.
+- `clean_finished.sh` removes your own worktrees whose PR is merged or closed or whose lane handed back, and
+  deletes your own scratch. A dirty one is archived first (`git diff HEAD` plus the untracked list). It skips a
+  worktree a process still uses or that has unpushed commits, so cleanup stays reversible.
+
+Everything finished is cleaned automatically, but only what you own or what is provably finished: at train start
+(`CLEAN_ROOT` on `train_land.sh` runs both scripts), at lane teardown, and on every coordinator wake. Anything
+else is report-only. The hand-back check is `ROOT=<lane worktree> reap_own.sh --report` printing `orphans=0` (no
+server or listener left under the worktree). The coordinator-wake check is the same `--report` without `ROOT`:
+free RAM plus any `FINDING hot` line (a process at high CPU for more than 2 hours is a finding to act on, not noise).
 
 Operating rules the scripts rely on:
 - **Run the train scripts from a detached tools worktree on the base branch**, not from a lane checkout whose

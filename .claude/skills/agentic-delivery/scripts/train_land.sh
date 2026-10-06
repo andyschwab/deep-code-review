@@ -11,7 +11,7 @@
 # Env: VERIFY_CMD (required; run via bash -c as `$VERIFY_CMD <tag> <pr...>`, must print a final line
 # "GREEN base=<sha> union=<sha>" on success, e.g. a merge_train.py wrapper), UNION_DIRS (required, passed on
 # to land_train.sh), BASE_BRANCH (default main), REMOTE (default origin), LOG_DIR (default .).
-# Optional: BASE_AUDIT_CMD (run via bash -c on the bare fresh base before verifying; non-zero prints
+# Optional: CLEAN_ROOT (your own worktree tree: runs reap_own.sh and clean_finished.sh on it first), BASE_AUDIT_CMD (run via bash -c on the bare fresh base before verifying; non-zero prints
 # "BASE RED" and exits 1, so a red base is never blamed on a PR), RATCHET_CMD (run via bash -c on each PR
 # merged alone onto the base, with PR=<n>; when no union is GREEN, prints "CULPRIT #n" for each PR that fails it),
 # BROWSER_CMD (run via bash -c in this worktree checked out at the GREEN union, with UNION_SHA and BASE_SHA set,
@@ -24,6 +24,9 @@ T=$1; shift
 BASE_BRANCH=${BASE_BRANCH:-main} REMOTE=${REMOTE:-origin} LOG=${LOG_DIR:-.}/train$T.log
 HERE=$(cd "$(dirname "$0")" && pwd) GH=${GH:-gh}
 . "$HERE/_clean_union.sh"; trap clean_union_dirs EXIT
+if [ -n "${CLEAN_ROOT:-}" ]; then  # start-of-train cleanup of your own finished work; never blocks the train
+  ROOT=$CLEAN_ROOT bash "$HERE/reap_own.sh" || true; ROOT=$CLEAN_ROOT bash "$HERE/clean_finished.sh" || true
+fi
 for n in "$@"; do
   bb=$("$GH" pr view "$n" --json baseRefName -q .baseRefName </dev/null)
   [ "$bb" = "$BASE_BRANCH" ] || { echo "REFUSE #$n base is $bb, expected $BASE_BRANCH; nothing built" >&2; exit 2; }

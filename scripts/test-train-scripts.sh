@@ -129,5 +129,49 @@ else
   echo "SKIP  reap_own (no lsof)"
 fi
 
+# --- reap_own: SIGKILL escalation, --report ---
+if command -v lsof >/dev/null; then
+  (cd "$WORK/mine" && trap '' TERM && exec sleep 31338) & P5=$!
+  sleep 1
+  o=$(ROOT="$WORK/mine" PATTERN='sleep 31338' MAX_AGE_S=-1 KILL_WAIT_S=1 bash "$SC/reap_own.sh")
+  [ "$o" = "reaped=1" ] && ! kill -0 "$P5" 2>/dev/null; ok $? "reap_own: SIGTERM-proof process is SIGKILLed after the wait and verified dead"
+  wait "$P5" 2>/dev/null
+  (cd "$WORK/mine" && exec sleep 31339) & P6=$!
+  sleep 1
+  o=$(ROOT="$WORK/mine" PATTERN='sleep 31339' bash "$SC/reap_own.sh" --report)
+  grep -q "^$(cd "$WORK/mine" && pwd -P) pid=$P6 age=" <<<"$o" && grep -q "^orphans=1$" <<<"$o" && grep -q "^ram_free_mb=" <<<"$o" && kill -0 "$P6" 2>/dev/null; ok $? "reap_own --report: lists the orphan by worktree path, reports RAM, never kills"
+  o=$(ROOT="$WORK/other" PATTERN='sleep 31339' bash "$SC/reap_own.sh" --report)
+  grep -q "^orphans=0$" <<<"$o"; ok $? "reap_own --report: ROOT with no process under it prints orphans=0"
+  kill "$P6" 2>/dev/null; wait "$P6" 2>/dev/null
+fi
+
+# --- clean_finished: the gh stub says every branch is MERGED with a head that is not HEAD ---
+CF="$WORK/cf"; mkdir -p "$CF/bin" "$CF/wts"
+cat >"$CF/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in *baseRefName*) echo main ;; *) echo "${CF_STATE:-MERGED} 0000000000000000000000000000000000000000" ;; esac
+EOF
+chmod +x "$CF/bin/gh"
+for w in clean dirty unpushed busy; do g worktree add -q -b "cf-$w" "$CF/wts/$w" "$B"; done
+echo scratch >"$CF/wts/dirty/new.txt"; echo tracked >"$CF/wts/dirty/t.txt"; git -C "$CF/wts/dirty" add t.txt
+git -C "$CF/wts/unpushed" -c user.email=t@example.com -c user.name=T commit -q --allow-empty -m local-only
+(cd "$CF/wts/busy" && exec sleep 31340) & PB=$!
+mkdir -p "$CF/scratch/x"; sleep 1
+o=$(cd "$R" && GH="$CF/bin/gh" ROOT="$CF/wts" ARCHIVE_DIR="$CF/ar" SCRATCH="$CF/scratch" bash "$SC/clean_finished.sh")
+[ ! -e "$CF/wts/clean" ] && [ ! -e "$CF/wts/dirty" ]; ok $? "clean_finished: removes finished worktrees (clean and dirty)"
+[ -e "$CF/wts/unpushed" ]; ok $? "clean_finished: skips a worktree with unpushed commits"
+[ -e "$CF/wts/busy" ]; ok $? "clean_finished: skips a worktree a process still uses"
+grep -q "t.txt" "$CF/ar/dirty.patch" && grep -q "new.txt" "$CF/ar/dirty.patch"; ok $? "clean_finished: dirty worktree diff and untracked list archived before removal"
+[ ! -e "$CF/scratch" ]; ok $? "clean_finished: deletes SCRATCH"
+[ "$o" = "removed=2 skipped=2 archived=1" ]; ok $? "clean_finished: summary line ($o)"
+kill "$PB" 2>/dev/null; wait "$PB" 2>/dev/null
+o=$(cd "$R" && CF_STATE=OPEN GH="$CF/bin/gh" ROOT="$CF/wts" bash "$SC/clean_finished.sh")
+[ "$o" = "removed=0 skipped=0 archived=0" ]; ok $? "clean_finished: an OPEN PR's worktree is never touched"
+echo cf-unpushed >"$CF/handed"; o=$(cd "$R" && CF_STATE=OPEN HANDED_BACK="$CF/handed" GH="$CF/bin/gh" ROOT="$CF/wts" bash "$SC/clean_finished.sh")
+[ -e "$CF/wts/unpushed" ] && [ "$o" = "removed=0 skipped=1 archived=0" ]; ok $? "clean_finished: a handed-back lane with unpushed commits is kept"
+g worktree add -q -b cf-late "$CF/wts/late" "$B"
+CLEAN_ROOT="$CF/wts" VERIFY_CMD='echo "RED"; exit 1' UNION_DIRS="$R" LOG_DIR="$WORK" GH="$CF/bin/gh" bash "$SC/train_land.sh" t11 1 2 >/dev/null 2>&1
+[ ! -e "$CF/wts/late" ] && [ -e "$CF/wts/unpushed" ]; ok $? "train_land: CLEAN_ROOT cleans finished worktrees at train start, keeps unpushed ones"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
