@@ -40,6 +40,7 @@ not a queue.
 - **🚩 tell:** a drain/retry loop that `break`s or `return`s on the first refusal, or re-selects `queue[0]` each
   cycle; or a *cheap* pre-filter (green + mergeable) used as the loop's selection key while a stricter final
   gate does the real admission.
+- **Fixed-quota schedulers starve the tail the same way.** A scheduler that each tick picks the first unit "not yet run today" never reaches the last units when units outnumber ticks per day (14 lanes never ran in the field). Pick the **least-recently-run** unit, and test with more units than ticks.
 
 ## An auto-merger scopes by a manufactured ownership signal, not by author — shared identity makes authorship useless
 
