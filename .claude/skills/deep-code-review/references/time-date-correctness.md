@@ -230,3 +230,5 @@ wall-clock subtraction for a duration or timeout; a hard-coded `86400` / `3600*2
 tzdata/ICU with no version pin or no update path; a blanket "store everything in UTC"
 applied to a wall-clock-anchored recurrence; a test fixture built from a pinned `NOW` passed to
 an entry point that reads the real clock.
+
+**Validate a calendar-day input with a strict real-day check, not a lenient parse.** `Date.parse` / `new Date(...)` (and any lenient parser) can accept or roll over an impossible day: `2026-02-31` becomes a March date, so a bad value silently lands as a different valid day. At a trust boundary, match the `YYYY-MM-DD` shape, then round-trip it (build the date and confirm year, month and day come back unchanged) or use a strict date-only type. Finding: a date field validated only by "the parser did not return NaN". Test: `2026-02-31`, `2026-04-31` and `2025-02-29` are rejected; `2024-02-29` is accepted.

@@ -158,6 +158,10 @@ snapshot is not a clean pass (`ux-gates.md` gate 1). It complements
 `domain-p.md`'s SSR/static-HTML inspection, which catches hydration-*nesting* faults
 in the same server-rendered output.
 
+## Assert a client-only element's absence only after hydration completes
+
+A `querySelector` run right after a heading wait can execute before client hydration replaces the server-rendered markup, so a real client-only element looks absent and a bug reads as a false negative. Wait on a hydration-complete signal (a `data-hydrated` marker, an attached handler, or the element's enabled state), not a fixed sleep: a few seconds of `sleep` is the field workaround and violates the no-fixed-sleeps rule. Finding: an absence assertion gated only on a text or heading wait, or on a sleep.
+
 ## A rewritten browser spec names its retired coverage and pins the wiring it can no longer reach
 
 The geometry assertions above prove a rendered claim you can still reach. This is the

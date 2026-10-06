@@ -148,6 +148,10 @@ while the difference is intentional) — the exact inverse error, why the
 *render-identically-at-all-mount-sites* question there must pass this classifier first, so the drive to
 unify never collapses a distinction the product intends.
 
+## Sibling ports of one component drift apart
+
+Two independent ports of the same UI component (two apps, or a legacy and a new surface) diverge: one gets an accessibility or state fix and the other does not. When a UX finding looks like a port-specific issue, grep for the component's literal values (class strings, labels, ARIA attributes) in every sibling and fix or file all of them. Finding: a fix landed in one port while an identical literal sits unfixed in a sibling.
+
 ## "Feels like a prototype" is usually one or two shared-primitive roots — fix the root, not each surface
 
 When users call a web app "a mediocre prototype" — hover states that behave oddly, motion that isn't

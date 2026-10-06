@@ -3,6 +3,25 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.487.0] — 2026-10-06
+
+### Added
+- `deep-code-review`: strict real-day date validation (`time-date-correctness.md`); atomic claim-before-send with release on failure (`concurrency-shared-state.md`); report truncation when a capped page feeds a client-side filter (`api-contracts.md`); a perf noise-floor and confirm-before-bisect rule plus the shared-test-service rule (`testing-situational.md`); hydration-aware absence checks (`testing-ui.md`); sibling-port drift (`ux-sweep.md`).
+- `agentic-delivery` `multi-session-coordination.md`: watch by issue and keyword, never by author.
+- Evals for each rule.
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 71280→71643 new #1322/#1323 rule text
+- size-budget-raise: .claude/skills/deep-code-review/references/api-contracts.md 27601→28126 new #1322/#1323 rule text
+- size-budget-raise: .claude/skills/deep-code-review/references/concurrency-shared-state.md 41599→42331 new #1322/#1323 rule text
+- size-budget-raise: .claude/skills/deep-code-review/references/data-identity.md 7547→7790 new #1322/#1323 rule text
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 38407→39468 new #1322/#1323 rule text
+- size-budget-raise: .claude/skills/deep-code-review/references/testing-ui.md 17432→18016 new #1322/#1323 rule text
+- size-budget-raise: .claude/skills/deep-code-review/references/time-date-correctness.md 18635→19245 new #1322/#1323 rule text
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-sweep.md 20273→20749 new #1322/#1323 rule text
+
+### Changed
+- `data-identity.md`: the item-level attribution rule now requires a hard key (equal host website or owner ID) for side-source items, never a name match.
+- Deduped (#1322, #1323): idempotency-key, claim-first CAS and perf-confound guidance already existed; only the missing specifics were added to those bullets.
+
 ## [1.486.0] — 2026-10-06
 
 ### Changed
