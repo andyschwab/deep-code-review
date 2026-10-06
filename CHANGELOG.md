@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.491.0] — 2026-10-06
+
+### Added
+- `agentic-delivery/templates/loops/{coordinator,peer,cleanup}.md`: copy-paste `/loop` prompts and scheduled-task templates for the coordinator, peer and cleanup loops, built on `reap_own.sh`, `clean_finished.sh`, `train_land.sh` and the pull-queue doctrine. Event-driven or 20-minute minimum. Shipped by `install.sh --with-delivery`; routed from `SKILL.md` and `operating-discipline.md`; `scripts/test-loop-templates.sh` checks referenced scripts exist and no interval is under 20 minutes (#1332).
+- size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 22794→22907 route loop templates (#1332)
+- size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 4662→4875 route loop templates (#1332)
+
 ## [1.490.0] — 2026-10-06
 
 ### Added
