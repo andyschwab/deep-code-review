@@ -10,9 +10,21 @@ follows Keep a Changelog; versioning follows Semantic Versioning.
 - `agentic-delivery` SKILL.md: the preflight claim no longer accepts a bare assignment (assigned is intent, not progress; an ownership map locks files, not the objective) and the multi-session route carries an inline one-line digest of the atomic-claim-token rule, so a chat-only model is not blind to it.
 - `communication-structure`: worked Before/After for a stakeholder update (drop effort counts and the next-week promise, flag an unchecked claim). `idea-critic`: any unresolved skeptic check means REVISE. `product-discovery`: reference-core-loop bullet states the non-pilot walk and first-pilot scope.
 - Evals: `chaos-playbook-reached-via-trigger` no longer requires opening a file a chat-only model cannot open; `an-announcement-comment-is-not-an-atomic-claim` no longer requires repo-internal issue numbers a reader cannot know (both were eval defects, not skill failures).
-- size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 22907→23261 plain-chat rule + preflight claim fix + atomic-claim digest
+- size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 22777→23261 plain-chat rule + preflight claim fix + atomic-claim digest
 - size-budget-raise: .claude/skills/communication-structure/SKILL.md 6616→6923 stakeholder-update worked example
 - `agentic-ceo`, `communication-structure`, `product-discovery` are touched but stay on their independent version lines.
+
+## [1.494.1] — 2026-10-06
+
+### Fixed
+Five findings from an ultrareview pass:
+- `install.sh --apply-operating-layer` no longer merges the template SubagentStop entry whose matcher is the literal placeholder `<your-read-only-review-type>` (it never fires); it warns instead. `operating_selfcheck.py` reports a placeholder matcher as not configured.
+- `reap_own.sh` `age()` tolerates a PID that vanished mid-run instead of aborting under `set -euo pipefail`.
+- `update-installed.sh` infers `--apply-operating-layer` only from `subagent_start_inject.py`, not any `SubagentStart` hook.
+- `update-installed.sh` processes each target independently and exits non-zero at the end if any failed, instead of aborting on the first bad target.
+- `subagent_start_inject.py` exits 0 with a note on non-object hook JSON (`null`, `[]`, `5`).
+- `scripts/size-budgets.tsv`: agentic-delivery/SKILL.md re-pinned 22907 to 22777 (exact size).
+- Regression tests: `scripts/test-ultrareview-fixes.sh`.
 
 ## [1.494.0] — 2026-10-06
 
@@ -808,7 +820,7 @@ follows Keep a Changelog; versioning follows Semantic Versioning.
 - 38,083 is the `web` archetype's MUST-LOAD **floor**, not a typical review's real load: a typical dashboard also triggers `web-fetch.md` (22,040 bytes / 4 = 5,510 tokens) and `a11y-live.md` (6,889 bytes / 4 = 1,722 tokens), for a combined 45,315 estimated tokens (`scripts/mustload-budgets.tsv` WEB NOTE).
 
 ### Added
-- `deep-code-review/scripts/reaper_lint.py` (opt-in `DCR_REAPER_LINT=1` in `templates/dcr-gates.sh`): a heuristic, opt-in lint, not a proof. It can miss a reaper built from variables, `eval`, or a helper in another file, and a clean run means only that no known shape matched. It flags cleanup scripts that pipe `lsof -t` with an `-i` selector into `kill` without `-sTCP:LISTEN` (any flag order or cluster, including through a `pids=$(lsof …)` variable killed later in the file), kill across a port range (`seq`, `{A..B}`, or `for ((…))` with bounds of 1024 or more), use `pkill`/`killall`/`pgrep` or `ps | grep` on a browser/server name (whole-word match on the pattern argument only), call `fuser -k <port>/tcp` or `kill-port`, or assign a protected-port list of two or more port numbers. Comments are stripped and `\` continuations joined before matching. An unlistable directory, an unreadable file, or a file that is not UTF-8 text exits 2. Extensionless scripts are found by shebang, along with `*.mk`, `GNUmakefile`, and `justfile`. A line is exempted only by `# reaper-lint: allow <reason>` on that same line. Doctrine: reap only provably own or orphaned processes; dry-run by default. Closes #1101.
+- `deep-code-review/scripts/reaper_lint.py` (opt-in `DCR_REAPER_LINT=1` in `templates/dcr-gates.sh`): a heuristic, opt-in lint, not a proof. It can miss a reaper built from variables, `eval`, or a helper in another file, and a clean run means only that no known shape matched. It flags cleanup scripts that pipe `lsof -t` with an `-i` selector into `kill` without `-sTCP:LISTEN` (any flag order or cluster, including through a `pids=$(lsof …)` variable killed later in the file), kill across a port range (`seq`, `{A..B}`, or `for ((…))` with bounds of 1024 or more), use `pkill`/`killall`/`pgrep` or `ps | grep` on a browser/server name (whole-word match on the pattern argument only), call `fuser -k <port>/tcp` or `kill-port`, or assign a protected-port list of two or more port numbers. Comments are stripped and `` continuations joined before matching. An unlistable directory, an unreadable file, or a file that is not UTF-8 text exits 2. Extensionless scripts are found by shebang, along with `*.mk`, `GNUmakefile`, and `justfile`. A line is exempted only by `# reaper-lint: allow <reason>` on that same line. Doctrine: reap only provably own or orphaned processes; dry-run by default. Closes #1101.
 - Log-parsing gates anchor on the runner's real summary line and are dry-run against a known-green and a known-red log (`lang-shell.md`, #1097); a review harness with no report file raises its handback cap with a matcher-scoped `SubagentStop` entry instead of being exempted (`host-enforcement.md`, #1099). +evals.
 - size-budget-raise: .claude/skills/deep-code-review/references/concurrency-shared-state.md 30122→30933 reaper rules + reaper_lint command (#1101)
 
