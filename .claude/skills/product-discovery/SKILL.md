@@ -177,5 +177,5 @@ specific figure or URL (repo convention; nothing added to
   (`routes-unknowable-to-owner`).
 - A request to add adjacent scope is checked against stage non-goals and
   reopened explicitly, not gold-plated (`non-goals-scope-defense`).
-- A "<product>-style X" ask is accepted against the reference's core loop, not a narrow done-when (`reference-core-loop-acceptance`).
+- A "<product>-style X" ask is accepted against the reference's core loop, not a narrow done-when (`reference-core-loop-acceptance`): a non-pilot user walks it against the reference before close, and the first pilot ships what the team's own workflow already exposes.
 - `evals/evals.json` plants these cases.

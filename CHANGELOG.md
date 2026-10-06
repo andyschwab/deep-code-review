@@ -3,6 +3,17 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.495.0] — 2026-10-06
+
+### Changed
+- Portability pass from a non-Claude chat-model evidence loop (4 models, 26 cases, before vs after on identical cases and fixed expectations): judged pass 92/104 to 92/104 overall; edited skills 37/48 to 40/48; unedited control skills 55/56 to 52/56, so run noise is about 3 trials and the lift is not significant. Manual regrade of the stakeholder-update case: 0/4 to 2/4. Remaining failures: model limits, an over-strict model judge, and reasoning-model output budgets. `agentic-delivery` and `agentic-ceo` gain a "No files or tools (plain chat)?" rule: say so once, never claim a reference loaded or a command run, write `would run: <cmd>`, mark skipped depth `unverified-depth`, open with the answer. `deep-code-review` is untouched here: its plain-chat fallback belongs to #1339 (the chat-length and START_SHA rules) and its SKILL.md has no must-load headroom.
+- `agentic-delivery` SKILL.md: the preflight claim no longer accepts a bare assignment (assigned is intent, not progress; an ownership map locks files, not the objective) and the multi-session route carries an inline one-line digest of the atomic-claim-token rule, so a chat-only model is not blind to it.
+- `communication-structure`: worked Before/After for a stakeholder update (drop effort counts and the next-week promise, flag an unchecked claim). `idea-critic`: any unresolved skeptic check means REVISE. `product-discovery`: reference-core-loop bullet states the non-pilot walk and first-pilot scope.
+- Evals: `chaos-playbook-reached-via-trigger` no longer requires opening a file a chat-only model cannot open; `an-announcement-comment-is-not-an-atomic-claim` no longer requires repo-internal issue numbers a reader cannot know (both were eval defects, not skill failures).
+- size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 22907→23261 plain-chat rule + preflight claim fix + atomic-claim digest
+- size-budget-raise: .claude/skills/communication-structure/SKILL.md 6616→6923 stakeholder-update worked example
+- `agentic-ceo`, `communication-structure`, `product-discovery` are touched but stay on their independent version lines.
+
 ## [1.494.0] — 2026-10-06
 
 ### Added

@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.494.0"
+  version: "1.495.0"
 ---
 
 # Agentic delivery
@@ -24,6 +24,8 @@ this pack for gated multi-role work, always `deep-code-review` for audit.
 
 Persisted artifacts (code, PR bodies, ADRs, commits) are **normal English**;
 chat may be terse.
+
+**No files/tools (plain chat)?** Say so once; never claim a reference loaded or a command run. Write `would run: <cmd>`, mark skipped depth `unverified-depth`, answer first, reasoning short.
 
 **Read `INDEX.md` first** — every reference/script's trigger; open one only
 when its row matches, never blindly. **On a new machine or a new fleet, read
@@ -201,7 +203,7 @@ gate this skill applies to push/deploy.
 conductor).** Two or more agent sessions coordinating over a shared async
 channel instead of one orchestrator's own lanes:
 `references/multi-session-coordination.md` — **read it when** designing a
-claim/lock registry, a pre-write collision probe, a peer-liveness check, a
+claim/lock registry (an announcement comment is not an atomic claim: the claim is a token whose second create fails, e.g. `O_CREAT|O_EXCL`; the registry row only records the winner), a pre-write collision probe, a peer-liveness check, a
 shared-board reader, pushing a house comms/review default down to spawned
 subagents, retracting your own in-flight lane, or any peer trigger in that
 file's **Routed triggers** (broadcast asks, crossed splits, merge-holds, shared budgets).
@@ -244,7 +246,7 @@ throwaway integration SHA plus one aggregate gate before a merge train (G7).
   Read-only reviewers may share a pinned checkout.
 - **Preflight before spawning any lane.** Enumerate what is already in flight —
   running workers, worktrees (`git worktree list`), open PRs — and claim the
-  work (a draft PR or assigned issue) before starting. Never spawn a duplicate
+  work (a draft PR, or an assignment you confirmed is in progress: assigned is intent, not progress; a module-ownership map locks files, not the objective) before opening the worktree. Never spawn a duplicate
   of a running lane, and never start on a branch that already carries commits
   without reading them first. One writer per file (narrow stacked-lane exception:
   `references/dev-env-ownership.md` *Another mis-fire: "one writer per file" reads a legitimate stacked pair as a
