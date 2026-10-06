@@ -3,6 +3,18 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.485.0] — 2026-10-06
+
+### Added
+- `agentic-delivery/scripts/train_land.sh`: optional `BASE_AUDIT_CMD` (failing audit on the bare base prints `BASE RED`, no union built) and `RATCHET_CMD` (a RED union prints `CULPRIT #n` for each PR that fails the ratchet merged alone onto the base). `reap_own.sh`: optional `QA_PORTS` reaps own leftover listeners on QA ports. Tests in `scripts/test-train-scripts.sh` (#1318).
+- `agentic-delivery`: red-union attribution, stale-base ratchet measurement and BASE RED audit (`merge-queue-worktrees.md`); detached `nohup` jobs can die silently, prefer tracked background tasks (`cost-quality-guardrails.md`) (#1318).
+- `deep-code-review`: deploy 504 "another deploy in progress" is a wait (`release-engineering.md`); CLS fixes land with their partners (`ux-gates.md`) (#1318).
+- size-budget-raise: .claude/skills/agentic-delivery/references/cost-quality-guardrails.md 15531→15846 one tracked-background-task bullet (#1318)
+- size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 64853→65846 red-union attribution section (#1318)
+- size-budget-raise: .claude/skills/deep-code-review/references/release-engineering.md 27370→27810 deploy-504 section (#1318)
+- size-budget-raise: .claude/skills/deep-code-review/references/ux-gates.md 14666→15024 CLS-chain section (#1318)
+- Deduped, not added: enum-value gate that passes vacuously (#1317; `data-quality.md` real-value-distribution bullet and gate-epistemology principle 4 already cover it).
+
 ## [1.484.0] — 2026-10-05
 
 ### Added

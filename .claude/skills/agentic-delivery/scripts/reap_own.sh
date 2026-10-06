@@ -4,14 +4,18 @@
 # under ROOT, so other lanes' and other users' servers are untouchable. Safe to run on every tick.
 #
 # Env: ROOT (required, absolute dir), PATTERN (pgrep -f regex, default 'next-server|next dev'),
-# KEEP (optional dir under ROOT whose servers are spared), MAX_AGE_S (default 10800).
+# KEEP (optional dir under ROOT whose servers are spared), MAX_AGE_S (default 10800),
+# QA_PORTS (optional space-separated TCP ports: an own listener there with cwd under ROOT is reaped too,
+# since a leftover server on a QA port makes the QA script skip its browser half).
 # Prints "reaped=N".
 set -euo pipefail
 : "${ROOT:?set ROOT to your own tree}"
 ROOT=$(cd "$ROOT" && pwd -P)  # lsof reports resolved paths; a symlinked ROOT would match nothing
 KEEP=${KEEP:+$(cd "$KEEP" && pwd -P)}; PATTERN=${PATTERN:-next-server|next dev}; KEEP=${KEEP:-}; MAX=${MAX_AGE_S:-10800}
 n=0
-for P in $(pgrep -u "$(id -u)" -f "$PATTERN" || true); do
+PIDS=$(pgrep -u "$(id -u)" -f "$PATTERN" || true)
+for q in ${QA_PORTS:-}; do PIDS="$PIDS $(lsof -t -a -u "$(id -u)" -iTCP:"$q" -sTCP:LISTEN 2>/dev/null || true)"; done
+for P in $(printf '%s\n' $PIDS | sort -u); do
   C=$(lsof -a -p "$P" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
   case "$C" in
     "$ROOT"|"$ROOT"/*) ;;
