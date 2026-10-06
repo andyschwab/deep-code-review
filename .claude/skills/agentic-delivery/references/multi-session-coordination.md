@@ -965,3 +965,4 @@ durable; a message may never be read.
 - **Lane definitions (agent files) load from the main checkout's working tree.** A rule merged to the integration branch does not reach new lanes until that file is synced into the main checkout. After merging a lane-definition change, sync it there and verify before dispatching.
 - **A cap applies to the machine that measured it.** Do not broadcast one saturated machine's lane cap to peers (a peer that adopted it sat idle); each machine sizes itself from its own probe.
 - **A heavy-test cap inside a git hook does not cover tests a lane runs directly.** Wrap direct heavy runs in the same machine-wide semaphore (`serial_gate.py run --slots N`).
+- **Identify a peer by who answers, not by its display name.** A session's display name can differ from the name you message; an idle machine went unused because its name did not match. Probe the channel and treat the responder as the peer, then pull work to it.

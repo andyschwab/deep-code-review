@@ -3,6 +3,18 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.486.0] — 2026-10-06
+
+### Changed
+- `deep-code-review` `merge-operations.md`: the v1.481.0 "full browser suite at release or in the union" fast-path rule is replaced, not stacked, by the field-incident rules (#1320): trains run affected browser specs plus a smoke set on the union before landing (explicit loud opt-out); a nightly full suite on the integration HEAD on the least-loaded machine, red = P0 and a merge pause; cut the release a day before deploy, deploy day fixes-only; no heavy QA on the coordinator. The earlier "UI-affecting change lands through a train" section is folded into the same section.
+
+### Added
+- `agentic-delivery/scripts/train_land.sh`: optional `BROWSER_CMD` run on the GREEN union before landing (`BROWSER RED` lands nothing); unset or `skip` warns loudly. Tested in `scripts/test-train-scripts.sh`.
+- `agentic-delivery` `multi-session-coordination.md`: identify peers by who answers, not by display name.
+- Evals: `release-cut-day-before-fixes-only`, `peer-identity-by-responder`; `ui-train-browser-suite-and-nightly-halt` updated to the new rule.
+- size-budget-raise: .claude/skills/deep-code-review/references/merge-operations.md 77644→78227 browser-proof rules replace two older passages
+- size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 71017→71280 one peer-identity bullet
+
 ## [1.485.0] — 2026-10-06
 
 ### Added

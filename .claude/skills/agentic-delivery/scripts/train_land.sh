@@ -13,7 +13,10 @@
 # to land_train.sh), BASE_BRANCH (default main), REMOTE (default origin), LOG_DIR (default .).
 # Optional: BASE_AUDIT_CMD (run via bash -c on the bare fresh base before verifying; non-zero prints
 # "BASE RED" and exits 1, so a red base is never blamed on a PR), RATCHET_CMD (run via bash -c on each PR
-# merged alone onto the base, with PR=<n>; when no union is GREEN, prints "CULPRIT #n" for each PR that fails it).
+# merged alone onto the base, with PR=<n>; when no union is GREEN, prints "CULPRIT #n" for each PR that fails it),
+# BROWSER_CMD (run via bash -c in this worktree checked out at the GREEN union, with UNION_SHA and BASE_SHA set,
+# before anything lands: the affected browser specs plus the smoke set; non-zero prints "BROWSER RED" and lands
+# nothing. Unset = loud "WARN" that the union's browser specs were NOT run; BROWSER_CMD=skip is the explicit opt-out).
 set -euo pipefail
 [ $# -ge 3 ] || { echo "usage: train_land.sh <tag> <pr> <pr> [pr...] (a train is >= 2 PRs)" >&2; exit 2; }
 : "${VERIFY_CMD:?set VERIFY_CMD}" "${UNION_DIRS:?set UNION_DIRS}"
@@ -49,4 +52,12 @@ if [ -z "$L" ]; then
   echo "no GREEN union (verify rc=$rc); nothing landed"; exit 0
 fi
 B=$(sed -E 's/.*base=([0-9a-f]+).*/\1/' <<<"$L"); U=$(sed -E 's/.*union=([0-9a-f]+).*/\1/' <<<"$L")
+if [ -z "${BROWSER_CMD:-}" ] || [ "$BROWSER_CMD" = skip ]; then
+  echo "WARN: browser specs NOT run on union $U (BROWSER_CMD unset or skip); UI breakage can land unproven" >&2
+else
+  git checkout -q --detach "$U"
+  rc=0; UNION_SHA=$U BASE_SHA=$B bash -c "$BROWSER_CMD" >"$LOG.browser" 2>&1 </dev/null || rc=$?
+  git checkout -q --detach "$REMOTE/$BASE_BRANCH"
+  [ $rc -eq 0 ] || { echo "BROWSER RED: union $U fails browser specs (see $LOG.browser); nothing landed" >&2; exit 1; }
+fi
 bash "$HERE/land_train.sh" "$B" "$U"  # not exec: the EXIT trap must still fire

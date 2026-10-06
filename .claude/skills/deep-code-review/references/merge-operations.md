@@ -799,9 +799,13 @@ off the remote. Two things must be true before a stop is actually complete:
   `git worktree prune` (and removing a merged lane's tree) clears it.
 
 
-### A UI-affecting change lands through a train that runs the browser suite, not one-at-a-time on unit and type proof
+### Browser proof lives in the train and a nightly run, never only at release
 
-When each merge is proven only by unit tests and a type check, browser-level failures accumulate silently across many merges until release QA. Gate any UI-affecting PR behind a batch/train union that runs the full browser suite before merge, and add a nightly full run that halts further merges while it is red. **Check:** count PRs merged since the last green browser run; a nonzero count with no train that ran the suite in between means the gate was skipped.
+A release went red on deploy day with 40 real browser failures after about 260 merges proven by unit tests alone; the browser suite had never run on the integration branch between releases. The rules:
+- **Trains run the affected browser specs plus a smoke set on the union before landing** (`BROWSER_CMD` in `train_land.sh`). Skipping is an explicit opt-out (`BROWSER_CMD=skip`) that warns loudly; an unset hook warns too. The full suite is not per PR: cheap gates (type check, ratchets, touched specs) run first.
+- **A nightly full browser suite runs on the integration branch's HEAD**, on the least-loaded machine, never the coordinating one (heavy QA there starves the coordinator and turns the signal into noise). A red run is a P0 within the hour and **feature merges pause until it is green**.
+- **Cut the release a day before deploy**, with a full QA receipt by end of that day. Deploy day is fixes-only: no branch refresh that restarts QA.
+- **Check:** count PRs merged since the last green browser run; a nonzero count with no train or nightly that ran browser specs means the gate was skipped.
 
 ### Run the merge preflight from the PR's own worktree and assert HEAD equals the PR head — cheap gates first
 
@@ -829,6 +833,6 @@ Operating rules the scripts rely on:
 - **In a shell loop, give every `gh` call `</dev/null`** (it reads the loop's stdin and eats the rest of the
   list), and **`set -o pipefail` before `gate | tail`** (or the pipeline's status is `tail`'s and a red gate
   reads green). Filter verdicts by prefix, not position (above).
-- **Freeze merges while a release is cut** (above), and **run the full browser suite at release or in the union,
-  not per PR**: per-PR runs get cheap gates (type check, ratchets, touched specs) first, so the expensive suite
-  only ever sees a candidate that already passed them (`Run the merge preflight…`, below).
+- **Freeze merges while a release is cut** (above); browser proof is in the train and nightly run
+  (`Browser proof lives in the train…`, above), and per-PR gates run cheap checks first so the expensive suite only
+  sees a candidate that already passed them (`Run the merge preflight…`, below).
