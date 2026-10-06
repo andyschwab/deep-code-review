@@ -9,6 +9,12 @@ pointer to a section not in this file resolves through that index.
 
 ---
 
+## Chunk verification batches
+
+A big verification batch handed to one lane fails: lanes stop after a few items. Split it into chunks of about 10 items per lane, each item with its own browser check.
+
+---
+
 ## Confirm a reported gap exists in the code before briefing a fix lane from it
 
 A peer or the owner reporting a gap from the **running app** ("this editor doesn't autosave") is a lead, not a

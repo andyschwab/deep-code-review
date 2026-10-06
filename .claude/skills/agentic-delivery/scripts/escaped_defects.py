@@ -115,7 +115,7 @@ def ledger(repo, since, until=None, baseline_start=None):
 
 def gh_escaped(since, until):
     """Count issues labelled `escaped` created in the window, or None when gh is unavailable."""
-    if not shutil.which("gh"):
+    if not shutil.which("gh") or not (since or "").strip():  # empty search term would match unrelated issues
         return None
     created = f"created:{since}..{until}" if until else f"created:>={since}"
     proc = subprocess.run(["gh", "issue", "list", "--label", "escaped", "--state", "all", "--limit", "1000",

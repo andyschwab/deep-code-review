@@ -3781,6 +3781,14 @@ else
   record 1 "pipe_mask_guard: gate|tail warns/blocks; pipefail, PIPESTATUS, unrelated pipe, || pass"
 fi
 
+# escaped_defects --gh (#1331): an empty --since is an empty search term; must not query gh.
+ed="$ROOT/.claude/skills/agentic-delivery/scripts/escaped_defects.py"
+if python3 -c "import sys; sys.path.insert(0,'$(dirname "$ed")'); import escaped_defects as e; assert e.gh_escaped('', None) is None and e.gh_escaped('  ', None) is None"; then
+  record 0 "escaped_defects: empty gh search term returns None"
+else
+  record 1 "escaped_defects: empty gh search term returns None"
+fi
+
 # ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a
