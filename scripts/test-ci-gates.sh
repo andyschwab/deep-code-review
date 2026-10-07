@@ -3836,6 +3836,13 @@ else
   record 1 "escaped_defects: empty gh search term returns None"
 fi
 
+# finding_ground_check.py + merge_findings.py: grounding and merge gates behave (plain-assert suite).
+if python3 "$ROOT/scripts/test_finding_gates.py" >/dev/null; then
+  record 0 "finding gates: ground check + merge/dedupe/cap tests pass"
+else
+  record 1 "finding gates: ground check + merge/dedupe/cap tests pass"
+fi
+
 # /perun-run command: exists, has frontmatter, names the drain test it depends on.
 if head -1 "$ROOT/commands/perun-run.md" | grep -q '^---$' \
   && grep -q 'description:' "$ROOT/commands/perun-run.md" \

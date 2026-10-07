@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.516.0"
+  version: "1.517.0"
 ---
 
 # Deep Code Review
@@ -284,9 +284,8 @@ infra/docs already in place stays in `infra-iac-containers.md` (L) and
 Exact templates (machine table, plain-language report, invariants ledger):
 `report-format.md` — **read when** writing Phase 5, or when an author disputes a filed finding; the
 machine-readable findings file a program consumes (or a `PRIOR`
-re-verification) follows `machine-report.md`. Worked
-fictional example: `docs/example-review-report.md` in this repository,
-copied to `references/example-review-report.md` by `install.sh`.
+re-verification) follows `machine-report.md`. Gate and dedupe rows with `scripts/merge_findings.py`. Worked
+fictional example: `references/example-review-report.md`.
 
 Default: chat BLUF ≤30 lines + full table **out-of-tree**. Never paste the
 machine table as the first chat bubble. In-repo `code-review/` only on
