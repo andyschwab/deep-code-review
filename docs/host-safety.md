@@ -25,4 +25,5 @@ Hosts without an OS sandbox (OpenCode, Windsurf, Kiro, Hermes `local`, Copilot C
 
 ## Where this is enforced
 
-- `install.sh` reads [`host-safety.tsv`](../.claude/skills/agentic-delivery/templates/host-safety.tsv) and prints one `safety:` line per installed host.- `python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py` (or `host_safety.py` alone) prints `host-safety-<host>: ON | OFF | COULD_NOT_CHECK | NO_OS_SANDBOX` for each installed host. `ON`/`OFF` appear only where a project file proves it (Claude Code settings, `.gemini/settings.json`); user-level switches report `COULD_NOT_CHECK`.
+- `install.sh` reads [`host-safety.tsv`](../.claude/skills/agentic-delivery/templates/host-safety.tsv) and prints one `safety:` line per installed host.
+- `python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py` (or `host_safety.py` alone) prints `host-safety-<host>: ON | OFF | COULD_NOT_CHECK | NO_OS_SANDBOX` for each installed host. `ON`/`OFF` appear only where a project file proves it (Claude Code settings, `.gemini/settings.json`); user-level switches report `COULD_NOT_CHECK`.
