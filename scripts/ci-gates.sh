@@ -269,6 +269,17 @@ cmd_version() {
     *) die "version: first CHANGELOG release heading does not announce $ver" ;;
   esac
 
+  # The plugin manifest must carry the same version (land-release.sh stamps it); the marketplace entry
+  # must carry none, because plugin.json silently wins when both are set.
+  local pj="$root/.claude-plugin/plugin.json" mj="$root/.claude-plugin/marketplace.json"
+  if [ -f "$pj" ]; then
+    [ "$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' "$pj")" = "$ver" ] \
+      || die "version: .claude-plugin/plugin.json version does not equal $ver"
+  fi
+  if [ -f "$mj" ] && grep -q '"version"' "$mj"; then
+    die "version: marketplace.json must not set a version (plugin.json is the single source)"
+  fi
+
   printf 'version: ok (%s announced in CHANGELOG)\n' "$ver"
 }
 
