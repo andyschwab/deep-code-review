@@ -70,6 +70,30 @@ documents itself in its header and prints usage with `--help`.
   references on explicit triggers, so a lane that doesn't hit a trigger never
   reads that depth.
 
+## Efficiency by default
+
+Every resource is spent efficiently unless you name a front to push. One file,
+`.perun/policy.json`, sets a mode per dimension: `efficient` (default), `maximize`,
+`off`, or a numeric cap. Dimensions: `tokens`, `local_cpu`, `local_ram`,
+`github_actions`, `paid_api_calls`, `network`. Example, push local CPU, stay off GitHub runners:
+
+```json
+{ "local_cpu": "maximize", "github_actions": "off", "share_learnings": "auto" }
+```
+
+- `local_cpu: maximize` fills idle cores, never past the load, free-RAM and swap
+  ceilings in `host_probe.py`. `train_land.sh` exports `PERUN_JOBS` from it.
+- `github_actions: off` means local gates only: Perun's merges carry `[skip ci]`,
+  it never polls or re-runs CI, and the shipped workflows skip when the repository
+  variable `PERUN_GITHUB_ACTIONS` is `off`.
+- `share_learnings` (`auto|ask|off`, default `ask`) governs `share_learning.py`.
+- Agents read the policy (`python3 scripts/perun_policy.py get <dim>`) before choosing
+  parallelism, CI, or model. A malformed file fails closed.
+
+Self-improvement loop: a field lesson is generalized and privacy-checked, filed as an
+upstream issue (deduped, logged to a local ledger), fixed in a release, then measured
+against the benchmark corpus before the next lesson is trusted.
+
 ## Where the doctrine lives
 
 - Parallel sessions, claims, and the board:

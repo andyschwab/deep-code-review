@@ -58,6 +58,7 @@ idle %, free disk) and the top three processes by CPU, one per line; the first l
 from __future__ import annotations
 
 import argparse
+import perun_policy
 import os
 import re
 import shutil
@@ -77,7 +78,8 @@ def decide(*, swap_samples: tuple, free_ram_pct: float | None, lane_type: str,
            free_disk_bytes: int | None = None, per_lane_disk_bytes: int | None = None,
            live_lanes: int | None = None, max_lanes: int | None = None,
            canary_requested: bool = False, canary_ratio: float | None = None,
-           swap_used_pct_hold: float | None = None, swap_total_mb: float | None = None) -> str:
+           swap_used_pct_hold: float | None = None, swap_total_mb: float | None = None,
+           free_ram_hold_pct: float = FREE_RAM_HOLD_PCT) -> str:
     """One verdict: `SPAWN`, `HOLD <reason,...>`, or `COULD_NOT_CHECK <what>` — see module doc."""
     s1, s2 = swap_samples
     if s1 is None or s2 is None:
@@ -91,7 +93,7 @@ def decide(*, swap_samples: tuple, free_ram_pct: float | None, lane_type: str,
             return "HOLD swap-level"
     if free_ram_pct is None:
         return "COULD_NOT_CHECK ram"
-    if free_ram_pct < FREE_RAM_HOLD_PCT:
+    if free_ram_pct < free_ram_hold_pct:
         return "HOLD low-ram"
     if per_lane_disk_bytes is not None:
         if free_disk_bytes is None:
@@ -234,7 +236,7 @@ def run_canary(cmd: str, baseline_file: str) -> tuple:
 def probe(lane_type: str, canary_cmd: str | None = None, baseline_file: str | None = None,
           sample_interval: float = 1.0, live_lanes: int | None = None, max_lanes: int | None = None,
           per_lane_disk_bytes: int | None = None, swap_used_pct_hold: float | None = None,
-          readings: dict | None = None) -> str:
+          readings: dict | None = None, free_ram_hold_pct: float = FREE_RAM_HOLD_PCT) -> str:
     """The real, host-reading invocation: samples swap twice `sample_interval` seconds
     apart, reads the rest of the predicate's inputs, runs the canary if given, and
     returns one `decide()` verdict. A caller-given `readings` dict is filled with every value read."""
@@ -253,6 +255,7 @@ def probe(lane_type: str, canary_cmd: str | None = None, baseline_file: str | No
         canary_requested=bool(canary_cmd), canary_ratio=canary_ratio,
         swap_used_pct_hold=swap_used_pct_hold,
         swap_total_mb=read_swap_used_mb("total") if swap_used_pct_hold is not None else None,
+        free_ram_hold_pct=free_ram_hold_pct,
     )
     if readings is not None:
         readings.update(kw)
@@ -261,7 +264,7 @@ def probe(lane_type: str, canary_cmd: str | None = None, baseline_file: str | No
 
 def format_why(readings: dict) -> list:
     """Reading lines for `--why`: every `decide()` input that was read (None shown as `unreadable`), then top CPU."""
-    skip = ("lane_type", "canary_requested", "per_lane_disk_bytes", "live_lanes", "max_lanes", "swap_used_pct_hold")
+    skip = ("free_ram_hold_pct", "lane_type", "canary_requested", "per_lane_disk_bytes", "live_lanes", "max_lanes", "swap_used_pct_hold")
     lines = [f"  {k}={'unreadable' if v is None else v}" for k, v in readings.items() if k not in skip]
     return lines + [f"  top_cpu={p}" for p in top_cpu_procs()]
 
@@ -287,8 +290,24 @@ def main(argv: list | None = None) -> int:
     if args.canary and not args.baseline_file:
         parser.error("--canary needs --baseline-file")
     readings: dict = {}
+    # `.perun/policy.json` (perun_policy.py): local_cpu sets the lane cap when the caller gave none; a numeric
+    # local_ram raises the free-RAM floor (never lowers it: the ~15% veto is a ceiling maximize must not pass).
+    max_lanes, ram_floor = args.max_lanes, FREE_RAM_HOLD_PCT
+    try:
+        pol = perun_policy.load()
+        if max_lanes is None and args.live_lanes is not None:
+            load1, cores = read_load1_and_cores()
+            max_lanes = perun_policy.lanes(pol["local_cpu"], cores or 1, load1)
+            print(f"host_probe: lane cap {max_lanes} applied from policy local_cpu={pol['local_cpu']} "
+                  "(pass --max-lanes to override)", file=sys.stderr)
+        if isinstance(pol["local_ram"], (int, float)):
+            ram_floor = max(ram_floor, float(pol["local_ram"]))
+    except ValueError as e:
+        print(f"COULD_NOT_CHECK policy ({e})")
+        return EXIT["COULD_NOT_CHECK"]
     verdict = probe(args.lane_type, args.canary, args.baseline_file, args.sample_interval,
-                    args.live_lanes, args.max_lanes, args.per_lane_disk_bytes, args.swap_used_pct_hold, readings)
+                    args.live_lanes, max_lanes, args.per_lane_disk_bytes, args.swap_used_pct_hold, readings,
+                    ram_floor)
     print(verdict)
     if args.why:
         print("\n".join(format_why(readings)))
@@ -327,6 +346,7 @@ def _selftest() -> int:
          decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="light",
                 canary_requested=True, canary_ratio=None), "COULD_NOT_CHECK canary")
     case("low-ram-holds", decide(swap_samples=(100, 100), free_ram_pct=10, lane_type="light"), "HOLD low-ram")
+    case("policy-ram-floor-raises", decide(swap_samples=(100, 100), free_ram_pct=20, lane_type="light", free_ram_hold_pct=30), "HOLD low-ram")
     case("ram-unreadable-could-not-check",
          decide(swap_samples=(100, 100), free_ram_pct=None, lane_type="light"), "COULD_NOT_CHECK ram")
     case("disk-insufficient-holds",

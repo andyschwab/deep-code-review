@@ -3779,6 +3779,13 @@ else
   record 1 "loop templates: scripts exist, >=20 min, installed, routed"; tail -5 "$WORK/loop-templates.log"
 fi
 
+# impact_map.py / context_pack.py: own per-feature file (scripts/test_impact_map.py), one case here.
+if python3 "$ROOT/scripts/test_impact_map.py" >"$WORK/impact-map.log" 2>&1; then
+  record 0 "impact_map/context_pack: callers, callees, caps, bounded pack on a synthetic repo"
+else
+  record 1 "impact_map/context_pack: callers, callees, caps, bounded pack on a synthetic repo"; tail -5 "$WORK/impact-map.log"
+fi
+
 # install.sh AGENTS.md blocks are compact (<= 6 lines each, markers included)
 # and a re-run replaces them in place (idempotent), so a target repo's own
 # AGENTS.md size gate is not broken by the default install (#1309).
@@ -3834,6 +3841,22 @@ if python3 -c "import sys; sys.path.insert(0,'$(dirname "$ed")'); import escaped
   record 0 "escaped_defects: empty gh search term returns None"
 else
   record 1 "escaped_defects: empty gh search term returns None"
+fi
+
+# finding_ground_check.py + merge_findings.py: grounding and merge gates behave (plain-assert suite).
+if python3 "$ROOT/scripts/test_finding_gates.py" >/dev/null; then
+  record 0 "finding gates: ground check + merge/dedupe/cap tests pass"
+else
+  record 1 "finding gates: ground check + merge/dedupe/cap tests pass"
+fi
+
+# /perun-run command: exists, has frontmatter, names the drain test it depends on.
+if head -1 "$ROOT/commands/perun-run.md" | grep -q '^---$' \
+  && grep -q 'description:' "$ROOT/commands/perun-run.md" \
+  && grep -q 'next --check' "$ROOT/commands/perun-run.md"; then
+  record 0 "perun-run command: frontmatter and next --check present"
+else
+  record 1 "perun-run command: frontmatter and next --check present"
 fi
 
 # ===========================================================================
