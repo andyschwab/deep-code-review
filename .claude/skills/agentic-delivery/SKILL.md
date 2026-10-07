@@ -253,6 +253,7 @@ throwaway integration SHA plus one aggregate gate before a merge train (G7).
   collision*).
 - **A forked lane with a narrower brief than its inherited context** (research-only, "change nothing"): prefer a fresh unit; verify from effects — `references/verification-handback.md` **A context-inheriting fork is not a blank slate**.
 - **Inventory the repo's own scripts before spawning a lane for a repeatable step.** On start, read `scripts/` and the README; if a tick, train, bisect, land, or release script exists, run it instead of having an LLM lane do the step (or hand-resolve a generated-file conflict) by judgment.
+- **P0 count inflated / "what next?":** read when many open issues are P0. Don't relabel; rank a top-N in PRIORITIES.md, tag the rest `p0:unranked`; `scripts/queue_guard.py` prints the next pull and flags inflation.
 - Serialize shared-state edits, migrations, generated files, and the
   integration branch — lanes sharing a host: `scripts/serial_gate.py`.
 - Occupancy is **visibility, not a lock**. Say what is live or stale; do not
