@@ -5,11 +5,11 @@ argument-hint: <goal>
 
 The owner started an autonomous run. Goal: $ARGUMENTS
 
-This run only continues across items if it is self-paced by the host's loop mechanism. A model turn ends when the model returns, so prose alone does not keep a run going.
+Read `unattended-operating-mode.md` section "Why sessions stop after one item, and how to run autonomously" (in the `agentic-delivery` skill's `references/`) and follow it. Summary:
 
-1. Start dynamic (self-paced) loop mode for the goal above, as if the owner had typed `/loop $ARGUMENTS`. Use the `loop` skill if it is available. If you cannot start a loop from here, print exactly this line for the owner to run, then stop: `/loop $ARGUMENTS`
-2. Each tick: run `python3 .claude/skills/agentic-ceo/scripts/task_ledger.py next --check` (or read the project's tracker queue). Exit 3 means drained.
-3. Do that one item, then record it (`task_ledger.py done --id T-### --evidence ...`). Then take the next item in the same tick. Never end the run while `next --check` exits 0.
-4. A question for the absent owner, or any irreversible, destructive or shared-state action (push, merge, deploy, external send, deletion) with no owner-authored standing grant: `task_ledger.py defer --id T-### --question "<q>" --park`, then continue with the next item. Do not ask and wait.
-5. When the only work left is waiting on an event (CI, a build, a peer), schedule the next tick with `ScheduleWakeup` at a fallback delay of 1200-1800 seconds instead of ending the run.
-6. Stop only when `next --check` exits 3, or the owner says stop. On stop, report what was done with evidence, then `task_ledger.py questions` as one batch.
+1. Continuation comes from a self-paced loop, not prose. Invoke the `loop` skill with the goal only (no interval token; if the goal starts with one like `5m`, prefix it with `goal:` so it is not read as a fixed interval). If no loop can be started, print `/loop <goal>` for the owner and stop. Host loop and wakeup behaviour is unverified here; if a tick ends with no loop running, say so.
+2. Each tick: `python3 <agentic-ceo>/scripts/task_ledger.py next --check`, where `<agentic-ceo>` is the skill directory (`.claude/skills/agentic-ceo` in a script install; under the plugin directory in a plugin install; locate it with `find` if unsure). No script: read the project tracker. Exit 3 = drained.
+3. If the owner says stop, stop and go to step 6. Otherwise do one item, record it (`done --id T-### --evidence ...`), take the next in the same tick.
+4. Default to park: any question for the owner, and any irreversible, destructive or shared-state action (push, merge, deploy, external send, deletion), is `defer --id T-### --question "<q>" --park`. Proceed with such an action only when the owner's own message granting it is quoted in the ledger row and covers that action.
+5. Waiting on an event (CI, build, peer): schedule the next tick with the host's wakeup tool if it has one (about 20-30 minutes). Ceiling: after 24 hours or 100 ticks, park the waiting item and go to step 6.
+6. End: report what was done with evidence, then `task_ledger.py questions` as one batch, including blocked rows.

@@ -106,6 +106,8 @@ EXIT CODES (fail closed)
      pending questions (informational), or a question already answered
   2  a hard error: an unreadable/malformed ledger or questions file, an
      unknown `--id`/`--qid`, malformed `--transcript-asks` input, or bad CLI usage
+  3  `next --check` only: DRAINED, no non-gated row left. A signal, not a failure
+     (a `set -e` caller must handle it); blocked rows are still reported
 
 USAGE
 -----
@@ -134,6 +136,8 @@ and otherwise falls back to the oldest open row.
 `next --check` is the loop's drain test: same output, but exit 3 (DRAINED) when no
 non-gated row is left (only done, dropped or blocked/parked rows remain), else 0.
 A self-paced loop ends only on exit 3; a parked item never keeps it alive.
+Exit 3 does NOT mean the owner has nothing outstanding: blocked rows and pending
+deferred questions are still printed, so a caller reports them on drain.
 `defer` records a question for an absent owner in `QUESTIONS.jsonl` (same
 directory as the ledger; one JSON object per line: id, item, question,
 default, ts, answer) so the run never stalls on it: `--default` names the
@@ -162,7 +166,7 @@ import tempfile
 from datetime import datetime, timezone
 
 OK, WARN, ERROR = 0, 1, 2
-DRAINED = 3  # `next --check`: no doing/open row left (every other row is done, dropped or blocked/parked)
+DRAINED = 3  # `next --check`: no non-gated (doing/open) row left; rows are done, dropped, blocked or parked
 
 HEADER_CELLS = ("id", "status", "created", "updated", "ask", "evidence", "source")
 HEADER_LINE = "| " + " | ".join(HEADER_CELLS) + " |"
@@ -880,6 +884,9 @@ def main(argv: list = None) -> int:
             row = pick_next(rows, priority_lines)
             if row is None:
                 print("next: none (nothing doing or open)")
+                nblocked = sum(1 for r in rows if r["status"] == "blocked")
+                if nblocked:
+                    print(f"blocked rows awaiting a party: {nblocked} (see `status`)")
             else:
                 print(f"next: {row['id']} [{row['status']}] {row['ask']}")
                 print(f"created: {row['created']} source: {row['source']}")
@@ -1217,6 +1224,23 @@ def _selftest() -> int:
             rc_plain = main(["--file", d_path, "next"])
         check("next-check-ok-while-open", rc_has == OK, str(rc_has))
         check("next-check-drained-when-only-parked", rc_parked == DRAINED and rc_plain == OK, f"{rc_parked} {rc_plain}")
+
+        # -- I/O: blocked-only and done-only ledgers also drain.
+        os.mkdir(os.path.join(tmpdir, "e"))
+        e_path = os.path.join(tmpdir, "e", "E.md")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            main(["--file", e_path, "add", "--ask", "Wait on vendor"])
+            main(["--file", e_path, "block", "--id", "T-001", "--party", "Vendor", "--evidence", "awaiting quote"])
+            rc_blocked = main(["--file", e_path, "next", "--check"])
+        check("next-check-drained-when-only-blocked", rc_blocked == DRAINED and "blocked rows awaiting" in buf.getvalue(), buf.getvalue())
+        os.mkdir(os.path.join(tmpdir, "f"))
+        f_path = os.path.join(tmpdir, "f", "F.md")
+        with contextlib.redirect_stdout(io.StringIO()):
+            main(["--file", f_path, "add", "--ask", "Tidy docs"])
+            main(["--file", f_path, "done", "--id", "T-001", "--evidence", "#1"])
+            rc_done = main(["--file", f_path, "next", "--check"])
+        check("next-check-drained-when-only-done", rc_done == DRAINED, str(rc_done))
 
         # -- I/O: defer --park via the CLI writes both files; `next` skips the
         #    parked item and reports the pending count; `questions` exits 1.
