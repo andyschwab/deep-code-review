@@ -20,6 +20,8 @@
 #                                        no size-budgets.tsv row may increase vs <ref> without a `size-budget-raise:` marker (fail closed on unresolvable base)
 #   binaries <root>                      no git-tracked file at a banned image/media/archive/build-output extension (allowlist: scripts/binaries-allowlist.tsv)
 #   mustload --config <file> <root>      every SKILL.md load-map archetype's MUST-LOAD token-est total is within its frozen mustload-budgets.tsv ceiling; the Phase 0-2 floor equals its pin exactly, and every " when " ref is a pinned phase-conditional row
+#   rules --baseline <file> [--base <ref>] [--list] <root>
+#                                        every MUST/NEVER/ALWAYS (or bold "Never") rule line in a SKILL.md must sit in a paragraph that names a mechanism (scripts/, ci-gates, evals, hook) or says "advisory"; unenforced rules not in the baseline FAIL (ratchet); --base: baseline rows added vs <ref> need a `rule-baseline-raise:` commit marker
 #
 set -euo pipefail
 
@@ -1314,6 +1316,73 @@ cmd_mustload() {
     "$floor_full_total" "$floor_full_ceiling" "${#cfg_conditional[@]}"
 }
 
+# ---------------------------------------------------------------------------
+# rules — rule-enforcement lint. A "hard rule" is a line in a SKILL.md with
+# uppercase MUST/NEVER/ALWAYS or a bold leading "Never". It is enforced when
+# its blank-line-bounded paragraph names a mechanism (scripts/, ci-gates,
+# evals, hook) or is marked advisory/enforced. Heuristic by design (prose
+# lint, not proof the mechanism works); fenced code and MUST-LOAD are skipped.
+# Existing debt lives in --baseline (path<TAB>rule line); only rules absent
+# from it fail, so debt never blocks but cannot grow.
+# ---------------------------------------------------------------------------
+rules_scan() {
+  local f
+  for f in "$1"/.claude/skills/*/SKILL.md; do
+    [ -f "$f" ] || continue
+    awk -v P="${f#"$1"/}" '
+      function flush(  i) {
+        if (!(para ~ /scripts\/|ci-gates|evals?\/|evals\.json|[Hh]ook|[Aa]dvisory|[Ee]nforced/))
+          for (i = 1; i <= n; i++) print P "\t" rl[i]
+        para = ""; n = 0
+      }
+      /^```/ { fence = !fence; next }
+      fence { next }
+      /^[[:space:]]*$/ { flush(); next }
+      { para = para "\n" $0; t = $0; gsub(/MUST-LOAD/, "", t)
+        if (t ~ /(^|[^A-Za-z])(MUST|NEVER|ALWAYS)([^A-Za-z]|$)/ || t ~ /^[-* ]*\*\*Never/) {
+          sub(/^[[:space:]]+/, "", t); rl[++n] = substr(t, 1, 160) } }
+      END { flush() }' "$f"
+  done | LC_ALL=C sort -u
+}
+
+cmd_rules() {
+  local baseline="" base="" list=0 root=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --baseline) baseline="${2:-}"; shift 2 ;;
+      --base) base="${2:-}"; shift 2 ;;
+      --list) list=1; shift ;;
+      -*) die "rules: unknown option: $1" ;;
+      *) [ -z "$root" ] || die "rules: unexpected extra argument: $1"; root="$1"; shift ;;
+    esac
+  done
+  [ -n "$root" ] && [ -d "$root" ] || die "rules: <root> directory is required (fail closed)"
+  local cur new
+  cur="$(rules_scan "$root")"
+  if [ "$list" -eq 1 ]; then printf '%s\n' "$cur"; return 0; fi
+  [ -n "$baseline" ] && [ -f "$baseline" ] || die "rules: --baseline <file> is required and must exist (fail closed)"
+  new="$(comm -23 <(printf '%s\n' "$cur") <(LC_ALL=C sort -u "$baseline"))"
+  if [ -n "$new" ]; then
+    printf 'RULE UNENFORCED (new): name a mechanism (scripts/, ci-gates, evals, hook) in the same paragraph or mark it advisory:\n%s\n' "$new" >&2
+    die "rules: new hard rule(s) without a named mechanism"
+  fi
+  if [ -n "$base" ]; then
+    git -C "$root" rev-parse --verify --quiet "${base}^{commit}" >/dev/null \
+      || die "rules: base ref \"$base\" does not resolve to a commit (fail closed)"
+    local rel grown
+    rel="$(cd "$(dirname "$baseline")" && pwd)/$(basename "$baseline")"; rel="${rel#"$(cd "$root" && pwd)"/}"
+    if git -C "$root" cat-file -e "${base}:${rel}" 2>/dev/null; then
+      grown="$(comm -13 <(git -C "$root" show "${base}:${rel}" | LC_ALL=C sort -u) <(LC_ALL=C sort -u "$baseline"))"
+      if [ -n "$grown" ] && ! git -C "$root" log --format=%B "${base}..HEAD" | grep -q '^rule-baseline-raise: .\+'; then
+        printf '%s\n' "$grown" >&2
+        die "rules: baseline grew vs $base without a 'rule-baseline-raise: <reason>' commit-message line"
+      fi
+    fi
+  fi
+  printf 'rules: ok (%d hard rule(s) without a named mechanism, all baselined; none new)\n' \
+    "$(printf '%s\n' "$cur" | grep -c . || true)"
+}
+
 [ "$#" -gt 0 ] || { usage; exit 2; }
 subcmd="$1"; shift
 case "$subcmd" in
@@ -1326,6 +1395,7 @@ case "$subcmd" in
   size-ratchet) cmd_size_ratchet "$@" ;;
   binaries) cmd_binaries "$@" ;;
   mustload) cmd_mustload "$@" ;;
+  rules) cmd_rules "$@" ;;
   -h|--help) usage; exit 0 ;;
   *) printf 'ci-gates: unknown subcommand: %s\n' "$subcmd" >&2; usage; exit 2 ;;
 esac
