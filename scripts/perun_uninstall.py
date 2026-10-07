@@ -1,77 +1,123 @@
 #!/usr/bin/env python3
-"""perun uninstall: undo install.sh in a target repo.
+"""perun uninstall: undo install.sh in a target repo, using only what the install marker recorded.
 
-Usage: python3 scripts/perun_uninstall.py [REPO] [--dry-run]
+Usage: python3 scripts/perun_uninstall.py [REPO] [--apply]
 
-For each skill this checkout ships, in every host dir (.claude/.cursor/.agents/.codex):
-removes the installed copy and restores the OLDEST backup under <host>/skill-backups/
-that is not itself a Perun copy (no VERSION file), i.e. what you had before install.
-Removes exactly the operating-layer hook entries (and env values) that match the template
-from .claude/settings.local.json, plus .claude/.dcr-install-flags and an untouched
-.claude/agents/delivery-lane.md. Leaves .bak files, the "model" key, AGENTS.md blocks and
-backups of Perun copies in place. Stdlib only.
+Default is a dry run: it prints the full plan and changes nothing. `--apply` performs it.
+Source of truth is REPO/.claude/.perun-install.json (written by install.sh). Without it
+nothing is removed (re-run install.sh once to write it).
+
+Plan, built and validated before anything is touched:
+  * settings.local.json is parsed first; invalid JSON aborts with no change. Only hook
+    entries and env values recorded in the marker (and still equal to the recorded value)
+    are removed, and the "model" key only if Perun set it. Written via temp file + rename.
+  * Skill dirs: only files whose sha256 still equals the recorded install hash are removed.
+    Files you added or edited are kept and listed; the dir stays if any are kept. When a
+    dir is fully removed, the oldest pre-install backup (no VERSION file) is restored.
+  * delivery-lane.md is removed only if Perun created it and it is unchanged.
+Leaves .bak.<ts> files and AGENTS.md blocks alone. Stdlib only.
 """
-import argparse, json, shutil, sys
+import argparse, json, os, shutil, sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import perun_marker  # noqa: E402
+
 SRC = Path(__file__).resolve().parent.parent
-TEMPLATE = SRC / ".claude/skills/agentic-delivery/templates/operating-layer.settings.json"
-HOSTS = (".claude", ".cursor", ".agents", ".codex")
 
 
-def run(repo, dry=False):
-    log = []
-
-    def do(msg, fn):
-        log.append(msg)
-        if not dry:
-            fn()
-
-    for host in HOSTS:
-        for sk in sorted(p.name for p in (SRC / ".claude/skills").iterdir() if (p / "SKILL.md").is_file()):
-            dest = repo / host / "skills" / sk
-            if not dest.is_dir():
-                continue
-            do(f"remove {dest.relative_to(repo)}", lambda d=dest: shutil.rmtree(d))
-            origs = sorted(b for b in (repo / host / "skill-backups").glob(sk + "-*") if b.is_dir() and not (b / "VERSION").exists())
-            if origs:
-                do(f"restore {origs[0].relative_to(repo)} -> {dest.relative_to(repo)}", lambda b=origs[0], d=dest: shutil.copytree(b, d))
+def plan(repo):
+    """Return (ops, notes). ops = list of (description, callable). Raises ValueError before any change."""
+    m = perun_marker.load(repo)
+    if m is None:
+        raise ValueError("no .claude/.perun-install.json marker: nothing is safe to remove (re-run install.sh to write one)")
+    ops, notes = [], []
     cfg = repo / ".claude/settings.local.json"
-    if cfg.is_file() and TEMPLATE.is_file():
-        t, c = json.loads(TEMPLATE.read_text()), json.loads(cfg.read_text())
+    if cfg.is_file() and (m.get("hooks") or m.get("env") or m.get("model")):
+        try:
+            c = json.loads(cfg.read_text())
+        except ValueError as e:
+            raise ValueError(f"{cfg} is not valid JSON ({e}); fix it first, nothing changed")
         n = 0
-        for ev, entries in t.get("hooks", {}).items():
-            have = c.get("hooks", {}).get(ev, [])
-            keep = [e for e in have if e not in entries]
-            n += len(have) - len(keep)
-            if keep:
-                c["hooks"][ev] = keep
-            elif ev in c.get("hooks", {}):
-                del c["hooks"][ev]
-        if not c.get("hooks", True):
+        for item in m.get("hooks", []):
+            have = c.get("hooks", {}).get(item["event"], [])
+            if item["entry"] in have:
+                have.remove(item["entry"]); n += 1
+                if not have:
+                    del c["hooks"][item["event"]]
+        if "hooks" in c and not c["hooks"]:
             del c["hooks"]
-        for k, v in t.get("env", {}).items():
+        envn = 0
+        for k, v in m.get("env", {}).items():
             if c.get("env", {}).get(k) == v:
-                del c["env"][k]
+                del c["env"][k]; envn += 1
         if "env" in c and not c["env"]:
             del c["env"]
-        do(f"remove {n} operating-layer hook entr{'y' if n == 1 else 'ies'} from {cfg.relative_to(repo)}", lambda: cfg.write_text(json.dumps(c, indent=2) + "\n"))
-    agent = repo / ".claude/agents/delivery-lane.md"
-    if agent.is_file() and "Default delivery lane for bounded implementation work" in agent.read_text():
-        do(f"remove {agent.relative_to(repo)}", agent.unlink)
-    flags = repo / ".claude/.dcr-install-flags"
-    if flags.is_file():
-        do(f"remove {flags.relative_to(repo)}", flags.unlink)
-    return log
+        model = bool(m.get("model")) and c.get("model") == m["model"]
+        if model:
+            del c["model"]
+
+        def write(c=c):
+            tmp = cfg.with_name(cfg.name + ".perun-tmp")
+            tmp.write_text(json.dumps(c, indent=2) + "\n")
+            os.replace(tmp, cfg)
+        ops.append((f"settings.local.json: remove {n} hook entr{'y' if n == 1 else 'ies'}, {envn} env value(s)" + (", model pin" if model else ""), write))
+    for d, files in sorted(m.get("skills", {}).items()):
+        dest = repo / d
+        if not dest.is_dir():
+            continue
+        keep = [str(p.relative_to(dest)) for p in sorted(dest.rglob("*")) if p.is_file()
+                and "__pycache__" not in p.parts and files.get(str(p.relative_to(dest))) != perun_marker.sha(p)]
+        gone = [r for r in files if (dest / r).is_file() and r not in keep]
+
+        def rm(dest=dest, gone=gone):
+            for r in gone:
+                (dest / r).unlink()
+            for dp, _, _ in sorted(os.walk(dest), reverse=True):
+                if not any(Path(dp).iterdir()):
+                    Path(dp).rmdir()
+            shutil.rmtree(dest / "__pycache__", ignore_errors=True)
+        ops.append((f"{d}: remove {len(gone)} installed file(s)" + (f"; KEEP {len(keep)} added/edited: {', '.join(keep[:5])}" if keep else ""), rm))
+        host, _, name = d.partition("/skills/")
+        orig = sorted(b for b in (repo / host / "skill-backups").glob(name + "-*") if b.is_dir() and not (b / "VERSION").exists())
+        if orig and not keep:
+            ops.append((f"{d}: restore {orig[0].relative_to(repo)}", lambda b=orig[0], dest=dest: shutil.copytree(b, dest)))
+        elif keep:
+            notes.append(f"{d}: kept files, so the pre-install backup was not restored (see {host}/skill-backups)")
+    a = m.get("agent")
+    if a and (repo / a["path"]).is_file() and perun_marker.sha(repo / a["path"]) == a["sha"]:
+        ops.append((f"remove {a['path']}", (repo / a["path"]).unlink))
+    return ops, notes
+
+
+def finish(repo):
+    for f in (".claude/.dcr-install-flags", perun_marker.MARKER):
+        (repo / f).unlink(missing_ok=True)
+
+
+def run(repo, apply=False):
+    """Print the plan; apply it only when apply=True. Returns the list of plan lines."""
+    ops, notes = plan(repo)
+    lines = [d for d, _ in ops] + notes
+    if apply:
+        for _, fn in ops:
+            fn()
+        finish(repo)
+    return lines
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("repo", nargs="?", default=".")
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--apply", action="store_true", help="perform the plan (default: print it only)")
     a = ap.parse_args()
     repo = Path(a.repo).resolve()
     if repo == SRC:
         sys.exit("error: target is the checkout itself")
-    for line in run(repo, a.dry_run) or ["nothing to undo"]:
-        print(("would " if a.dry_run else "") + line)
+    try:
+        out = run(repo, a.apply)
+    except ValueError as e:
+        sys.exit(f"error: {e}")
+    print("\n".join(("" if a.apply else "would: ") + l for l in out) or "nothing to undo")
+    if not a.apply:
+        print("dry run: nothing changed; re-run with --apply to do it")

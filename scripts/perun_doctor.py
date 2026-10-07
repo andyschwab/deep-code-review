@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """perun doctor: report whether an installed Perun actually runs in a repo.
 
-Usage: python3 scripts/perun_doctor.py [REPO] [--fix] [--home DIR]
+Usage: python3 scripts/perun_doctor.py [REPO] [--fix [--yes]] [--home DIR]
 
 Checks, in plain language: installed version vs this checkout (and the global copy),
 hook entries whose files exist, shipped hook scripts that nothing calls, forked copies
 that drifted from the checkout (sha256), janitor/scheduler presence, policy file.
-Exit 0 = nothing to fix, 1 = at least one WARN/FAIL. `--fix` prints a plan, then
+Exit 0 = nothing to fix, 1 = at least one WARN/FAIL. `--fix` prints a plan (and what default-on would add), needs a typed yes on a TTY or --yes, then
 re-runs the recorded install flags via scripts/update-installed.sh (skills are backed up
 by install.sh first), and re-checks. Stdlib only; read-only without --fix.
 """
@@ -130,10 +130,43 @@ def show(rows):
         print(f"{s:<5} {c:<{w}}  {d}")
 
 
+FIXABLE = {"installed version", "install record", "hook files exist", "hooks wired", "drifted copies"}
+
+
+def default_on_preview(repo):
+    """Lines describing what the default-on operating layer would add when old flags are replayed."""
+    f = repo / ".claude/.dcr-install-flags"
+    flags = f.read_text().split() if f.is_file() else []
+    if not ({"--with-delivery", "--full"} & set(flags)) or {"--no-operating-layer", "--with-operating-layer", "--apply-operating-layer"} & set(flags):
+        return []
+    t = json.loads((SRC / ".claude/skills/agentic-delivery/templates/operating-layer.settings.json").read_text())
+    cfg = repo / ".claude/settings.local.json"
+    try:
+        has_model = "model" in json.loads(cfg.read_text())
+    except (OSError, ValueError):
+        has_model = False
+    return ["Default-on operating layer: replaying your old flags will ALSO write to .claude/settings.local.json (backup saved as .bak.<timestamp>):",
+            "  hooks: " + ", ".join(sorted(t["hooks"])) + " (placeholder-matcher entries skipped)",
+            "  env: " + ", ".join(t["env"]),
+            "  model: " + ("your existing model kept" if has_model else "sonnet (you have none)"),
+            "  opt out instead: add --no-operating-layer to .claude/.dcr-install-flags"]
+
+
+def confirmed(yes):
+    if yes:
+        print("warning: --yes given, applying without an interactive confirmation", file=sys.stderr)
+        return True
+    if not sys.stdin.isatty():
+        print("error: --fix needs a TTY to confirm (type yes) or --yes; nothing changed", file=sys.stderr)
+        return False
+    return input("Apply this plan? Type yes: ").strip() == "yes"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("repo", nargs="?", default=".")
     ap.add_argument("--fix", action="store_true")
+    ap.add_argument("--yes", action="store_true", help="with --fix: skip the typed confirmation (prints a warning)")
     ap.add_argument("--home", default=str(Path.home()))
     a = ap.parse_args(argv)
     repo, home = Path(a.repo).resolve(), Path(a.home)
@@ -141,9 +174,18 @@ def main(argv=None):
     show(rows)
     bad = [r for r in rows if r[0] in ("WARN", "FAIL")]
     if a.fix and bad:
+        if not any(r[1] in FIXABLE for r in bad):
+            print("\nNothing here a reinstall fixes (janitor, scheduler and policy need to be added by you).")
+            return 1
         print(f"\nPlan: bash {SRC}/scripts/update-installed.sh {repo}  (replays .claude/.dcr-install-flags; "
               "existing skills move to <host>/skill-backups/; loose forks and the global copy are left alone)")
+        print("\n".join(default_on_preview(repo)))
+        if not confirmed(a.yes):
+            return 2
         r = subprocess.run(["bash", str(SRC / "scripts/update-installed.sh"), str(repo)], env={**os.environ, "DCR_NO_PULL": "1"})
+        if r.returncode != 0:
+            print(f"error: update-installed.sh failed (exit {r.returncode}); repo may be partly updated, see skill-backups", file=sys.stderr)
+            return 2
         print("\nAfter fix:")
         rows = check(repo, home)
         show(rows)

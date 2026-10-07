@@ -6,7 +6,7 @@ Installed scripts and hooks can sit in a repo and never run: an operating layer 
 
 ```bash
 python3 scripts/perun_doctor.py [REPO]          # read-only table; exit 0 = clean, 1 = something to fix
-python3 scripts/perun_doctor.py [REPO] --fix    # prints the plan, replays .claude/.dcr-install-flags, re-checks
+python3 scripts/perun_doctor.py [REPO] --fix    # prints the plan, asks you to type yes (or pass --yes), replays flags, re-checks
 ```
 
 Run from your deep-code-review checkout (pull it first: "latest" means this checkout's version). It checks:
@@ -22,7 +22,7 @@ Run from your deep-code-review checkout (pull it first: "latest" means this chec
 | janitor/scheduler | a janitor or scheduler file exists, so something runs Perun without you |
 | policy file | a `perun-policy` file exists |
 
-`--fix` only re-runs `install.sh` with the recorded flags (existing skill copies move to `<host>/skill-backups/` first). It does not delete loose forks, touch the global copy, or invent a janitor or policy.
+`--fix` prints the plan and what the default-on operating layer would add to your settings, then needs a typed `yes` on a terminal (or `--yes`, which prints a warning). It exits non-zero if the reinstall fails. It only re-runs `install.sh` with the recorded flags (existing skill copies move to `<host>/skill-backups/` first). It does not delete loose forks, touch the global copy, or invent a janitor or policy.
 
 ## Default-on operating layer
 
@@ -31,7 +31,12 @@ Run from your deep-code-review checkout (pull it first: "latest" means this chec
 ## Uninstall
 
 ```bash
-python3 scripts/perun_uninstall.py [REPO] [--dry-run]
+python3 scripts/perun_uninstall.py [REPO]            # dry run: prints the plan, changes nothing
+python3 scripts/perun_uninstall.py [REPO] --apply    # does it
 ```
 
-Per host dir, removes each installed skill and restores the oldest pre-install backup from `skill-backups/` (a backup that is itself a Perun copy, with a `VERSION` file, is never restored). Removes exactly the operating-layer hook entries and env values from `.claude/settings.local.json`, the `.dcr-install-flags` record, and an untouched `delivery-lane.md`. It leaves `.bak` files, the `model` key and any `AGENTS.md` block alone.
+It trusts only `.claude/.perun-install.json`, written by `install.sh` (no marker: nothing is removed; re-run `install.sh` once). Settings are parsed first; invalid JSON aborts with no change, and the file is replaced by temp file plus rename. It removes only the hook entries and env values the marker recorded, and the `model` key only if Perun set it. Skill files are removed only if their sha256 still matches the install; files you added or edited stay and are listed, and the pre-install backup in `skill-backups/` is restored only when the whole dir was removed. It leaves `.bak.<timestamp>` files and any `AGENTS.md` block alone.
+
+## Releases and tags
+
+`scripts/land-release.sh` stamps the release and never tags. After the release commit is on origin/main, run `scripts/land-release.sh tag` from a checkout at that commit: it creates and pushes the annotated `vX.Y.Z`, skips a tag that already exists locally, and refuses if origin/main is not at your version.

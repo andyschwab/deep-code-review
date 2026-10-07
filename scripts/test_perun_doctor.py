@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Tests for perun_doctor.py, perun_uninstall.py and install.sh default-on operating layer (temp repos)."""
-import json, os, shutil, subprocess, sys, tempfile, unittest
+import contextlib, io, json, os, shutil, subprocess, sys, tempfile, unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-import perun_doctor, perun_uninstall  # noqa: E402
+import perun_doctor  # noqa: E402
 
 HAS_JQ = shutil.which("jq") is not None
 
@@ -77,34 +78,137 @@ class DoctorTests(unittest.TestCase):
         r = rows(self.repo, self.home)
         self.assertEqual((r["policy file"][0], r["janitor/scheduler"][0]), ("OK", "OK"))
 
-    def test_fix_repairs_stale_install(self):
-        install(self.repo, "--with-delivery")
+    def _break(self):
         (self.repo / ".claude/skills/agentic-delivery/scripts/handback_cap.py").write_text("# stale fork\n")
         (self.repo / ".claude/settings.local.json").unlink()
-        rc = perun_doctor.main([str(self.repo), "--fix", "--home", str(self.home)])
+
+    def test_fix_needs_confirmation(self):
+        install(self.repo, "--with-delivery")
+        self._break()
+        with mock.patch("sys.stdin.isatty", return_value=False):  # no TTY, no --yes: refuse, change nothing
+            self.assertEqual(perun_doctor.main([str(self.repo), "--fix", "--home", str(self.home)]), 2)
+        self.assertFalse((self.repo / ".claude/settings.local.json").exists())
+        with mock.patch("sys.stdin.isatty", return_value=True), mock.patch("builtins.input", return_value="y"):
+            self.assertEqual(perun_doctor.main([str(self.repo), "--fix", "--home", str(self.home)]), 2)
+        self.assertFalse((self.repo / ".claude/settings.local.json").exists())
+        with mock.patch("sys.stdin.isatty", return_value=True), mock.patch("builtins.input", return_value="yes"):
+            perun_doctor.main([str(self.repo), "--fix", "--home", str(self.home)])
+        self.assertEqual(rows(self.repo, self.home)["hooks wired"][0], "OK")
+
+    def test_fix_yes_warns_repairs_and_previews_default_on(self):
+        install(self.repo, "--with-delivery")
+        self._break()
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = perun_doctor.main([str(self.repo), "--fix", "--yes", "--home", str(self.home)])
+        self.assertIn("without an interactive confirmation", err.getvalue())
+        self.assertIn("Default-on operating layer", out.getvalue())
+        self.assertIn("model:", out.getvalue())
         r = rows(self.repo, self.home)
         self.assertEqual((r["hooks wired"][0], r["hook files exist"][0]), ("OK", "OK"))
         self.assertTrue(list((self.repo / ".claude/skill-backups").glob("agentic-delivery-*")))  # fork preserved
         self.assertEqual(rc, 1)  # policy/janitor warnings remain: fix never invents them
 
-    def test_uninstall_restores_backup_and_removes_hooks(self):
+    def test_fix_fails_loudly_when_reinstall_fails(self):
+        install(self.repo, "--with-delivery")
+        self._break()
+        err = io.StringIO()
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=1)), contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            rc = perun_doctor.main([str(self.repo), "--fix", "--yes", "--home", str(self.home)])
+        self.assertEqual(rc, 2)
+        self.assertIn("update-installed.sh failed", err.getvalue())
+
+    def test_bak_is_timestamped_never_overwritten(self):
+        cfg = self.repo / ".claude/settings.local.json"
+        cfg.parent.mkdir(parents=True)
+        cfg.write_text(json.dumps({"mine": 1}))
+        install(self.repo, "--with-delivery")
+        c = json.loads(cfg.read_text()); c["hooks"].pop("PreToolUse"); cfg.write_text(json.dumps(c))
+        install(self.repo, "--with-delivery")
+        baks = sorted(cfg.parent.glob("settings.local.json.bak.*"))
+        self.assertEqual(len(baks), 2)
+        self.assertEqual(json.loads(baks[0].read_text()), {"mine": 1})  # first backup survived the second install
+
+    def test_summary_names_model_pin(self):
+        self.assertIn("sonnet, set only if you had none", install(self.repo, "--with-delivery").stdout)
+        r2 = self.tmp / "r2"; r2.mkdir(); (r2 / ".claude").mkdir()
+        (r2 / ".claude/settings.local.json").write_text('{"model": "opus"}')
+        self.assertIn("your existing model kept", install(r2, "--with-delivery").stdout)
+
+
+@unittest.skipUnless(HAS_JQ, "jq needed to apply the operating layer")
+class UninstallTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.repo = self.tmp / "r"
+        self.repo.mkdir()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.cfg = self.repo / ".claude/settings.local.json"
+
+    def cli(self, *a):
+        return subprocess.run([sys.executable, str(ROOT / "scripts/perun_uninstall.py"), str(self.repo), *a], capture_output=True, text=True)
+
+    def test_dry_run_is_default_and_inert(self):
+        install(self.repo, "--with-delivery")
+        before = self.cfg.read_text()
+        p = self.cli()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("dry run", p.stdout)
+        self.assertEqual(self.cfg.read_text(), before)
+        self.assertTrue((self.repo / ".claude/skills/agentic-delivery").exists())
+        self.assertTrue((self.repo / ".claude/.perun-install.json").exists())
+
+    def test_apply_restores_backup_keeps_user_files_and_foreign_hooks(self):
         orig = self.repo / ".claude/skills/deep-code-review"
         orig.mkdir(parents=True)
         (orig / "SKILL.md").write_text("mine\n")
-        cfg = self.repo / ".claude/settings.local.json"
-        cfg.write_text(json.dumps({"hooks": {"SubagentStart": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}, "env": {"KEEP": "1"}}))
+        self.cfg.write_text(json.dumps({"hooks": {"SubagentStart": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}, "env": {"KEEP": "1"}}))
         install(self.repo, "--with-delivery")
         install(self.repo, "--with-delivery")  # reinstall: a Perun copy lands in backups too
-        perun_uninstall.run(self.repo, dry=True)
-        self.assertTrue((self.repo / ".claude/skills/agentic-delivery").exists())  # dry run is inert
-        perun_uninstall.run(self.repo)
-        self.assertEqual((orig / "SKILL.md").read_text(), "mine\n")  # original, not a Perun copy, restored
+        ad = self.repo / ".claude/skills/agentic-delivery"
+        (ad / "my-notes.md").write_text("user file\n")                         # added by user: kept
+        (ad / "SKILL.md").write_text((ad / "SKILL.md").read_text() + "\nedit\n")  # edited: kept
+        p = self.cli("--apply")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("my-notes.md", p.stdout)
+        self.assertEqual((ad / "my-notes.md").read_text(), "user file\n")
+        self.assertTrue((ad / "SKILL.md").exists())
+        self.assertFalse((ad / "references").exists())  # untouched installed files are gone
+        self.assertEqual((orig / "SKILL.md").read_text(), "mine\n")  # fully removed dir -> original restored
         self.assertFalse((orig / "VERSION").exists())
-        self.assertFalse((self.repo / ".claude/skills/agentic-delivery").exists())
-        c = json.loads(cfg.read_text())
+        c = json.loads(self.cfg.read_text())
         self.assertEqual(c["hooks"], {"SubagentStart": [{"hooks": [{"type": "command", "command": "echo mine"}]}]})
         self.assertEqual(c["env"], {"KEEP": "1"})
-        self.assertFalse((self.repo / ".claude/.dcr-install-flags").exists())
+        self.assertNotIn("model", c)  # Perun set it, so it is reverted
+        self.assertFalse((self.repo / ".claude/.perun-install.json").exists())
+
+    def test_preexisting_model_and_identical_hook_are_kept(self):
+        t = json.loads((ROOT / ".claude/skills/agentic-delivery/templates/operating-layer.settings.json").read_text())
+        self.cfg.parent.mkdir(parents=True)
+        self.cfg.write_text(json.dumps({"model": "opus", "hooks": {"PreToolUse": t["hooks"]["PreToolUse"]}}))
+        install(self.repo, "--with-delivery")
+        self.assertEqual(self.cli("--apply").returncode, 0)
+        c = json.loads(self.cfg.read_text())
+        self.assertEqual(c["model"], "opus")
+        self.assertEqual(c["hooks"], {"PreToolUse": t["hooks"]["PreToolUse"]})  # was yours before install: not removed by template equality
+        self.assertNotIn("SubagentStart", c["hooks"])
+
+    def test_invalid_settings_abort_with_no_change(self):
+        install(self.repo, "--with-delivery")
+        self.cfg.write_text("{not json")
+        p = self.cli("--apply")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(self.cfg.read_text(), "{not json")
+        self.assertTrue((self.repo / ".claude/skills/agentic-delivery").exists())  # nothing else touched
+        self.assertFalse(list(self.cfg.parent.glob("*.perun-tmp")))
+
+    def test_no_marker_removes_nothing(self):
+        install(self.repo, "--with-delivery")
+        (self.repo / ".claude/.perun-install.json").unlink()
+        p = self.cli("--apply")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("marker", p.stderr)
+        self.assertTrue((self.repo / ".claude/skills/agentic-delivery").exists())
 
 
 class NoJqTests(unittest.TestCase):
