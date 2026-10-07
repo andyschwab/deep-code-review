@@ -10,6 +10,8 @@ follows Keep a Changelog; versioning follows Semantic Versioning.
 - `operating_selfcheck.py` reports `sandbox-on: MISSING RED` when the sandbox is off or unsandboxed retry is allowed.
 - Doctrine (operating-discipline item 8, lane preamble): never run delete/kill experiments on a host, never `rm -rf` a variable-built path; deny rules match command text only, the sandbox is the real boundary.
 
+size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 5655→6126 item 8: no delete/kill experiments on a host, sandbox is the boundary
+
 ## [1.520.0] — 2026-10-07
 
 ### Added
