@@ -3,6 +3,11 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.526.0] — 2026-10-08
+
+### Added
+- Weekly value receipt (opt-in primitive, refs #1380): `agentic-ceo/scripts/weekly_receipt.py` and `/perun` print a one-screen card of PRs landed (git), tokens per PR vs a baseline (`token_report.py`), spend (`spend_report.py`), and optional findings and heavy-job-hold counts from files you supply. Every line names its source; missing data prints "unknown". Nothing calls it automatically. Tests: `scripts/test_weekly_receipt.py`.
+
 ## [1.525.0] — 2026-10-08
 
 ### Added
