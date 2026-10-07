@@ -3,6 +3,46 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.522.0] — 2026-10-08
+
+### Added
+- `docs/host-safety.md`: per-host table (Claude Code, Cursor, Codex, Gemini CLI, Copilot, OpenCode, Windsurf, Hermes, Kiro, shared `.agents`) of OS-sandbox presence and default, the documented switch, auto-approve modes to avoid and residual risk, plus the rule that hosts without an OS sandbox run agents in a dev container or VM. Sources dated in `docs/standards-index.md`.
+- `install.sh` prints one `safety:` warning line (with the doc link) per installed host, from the single-source `templates/host-safety.tsv`.
+- `host_safety.py` and `operating_selfcheck.py` report `host-safety-<host>: ON | OFF | COULD_NOT_CHECK | NO_OS_SANDBOX` for each installed host. Tests: `scripts/test-host-safety.sh`.
+
+## [1.521.0] — 2026-10-07
+
+### Added
+- Operating layer is sandbox-on by default: `install.sh --apply-operating-layer` sets `sandbox.enabled: true` and `sandbox.allowUnsandboxedCommands: false` and denies `Bash(rm -rf *)`, `Bash(rm -fr *)`, `Bash(rm -r *)`, `Bash(rm -R *)`, `Bash(sudo *)` (existing values win; deny list is merged). `--no-sandbox` opts out with a printed risk warning. Prevents the `rm -rf "$EMPTY"/*` class of host deletion.
+- `operating_selfcheck.py` reports `sandbox-on: MISSING RED` when the sandbox is off or unsandboxed retry is allowed.
+- Doctrine (operating-discipline item 8, lane preamble): never run delete/kill experiments on a host, never `rm -rf` a variable-built path; deny rules match command text only, the sandbox is the real boundary.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 5655→6126 item 8: no delete/kill experiments on a host, sandbox is the boundary
+
+## [1.520.0] — 2026-10-07
+
+### Added
+- `scripts/perun_doctor.py` (`--fix`): reports installed-but-never-runs hooks, missing hook files, stale repo/global versions, drifted forks, missing janitor/scheduler and policy file. `--fix` prints the plan and what default-on would add, then needs a typed "yes" on a TTY (or `--yes`, which warns) and fails loudly if the reinstall fails. See `docs/perun-doctor.md`.
+- `scripts/perun_uninstall.py`: dry run by default, `--apply` to act. Driven by the install marker `.claude/.perun-install.json` (written by `install.sh` via `scripts/perun_marker.py`): removes only recorded hook entries, env values, a model pin Perun set, and skill files whose hash still matches; your added or edited files are kept and listed. Settings are validated first and written by temp file plus rename.
+- `land-release.sh tag`: creates and pushes the annotated tag `vX.Y.Z` only after the release commit is on origin/main; an existing local tag is skipped with a message. Land itself never tags (tags had stopped at v1.211.0).
+
+### Changed
+- `install.sh --with-delivery` / `--full` applies the operating layer by default and prints a what-changed and undo summary that names the model pin; `--no-operating-layer` opts out. Settings backups are now timestamped (`settings.local.json.bak.<ts>`) and never overwritten.
+
+## [1.519.0] — 2026-10-07
+
+### Added
+- Work-tracker hygiene for delivery installs (Linear first-class, tracker-agnostic core): `agentic-delivery/references/work-tracking.md` (object mapping, three status moves, weekly project update, verified Linear gotchas: ID in a PR title auto-closes the issue on merge, `#NNN` autolinks to a guessed repo, portfolio-owned priority), `scripts/tracker_check.py` (PRs without an ID, auto-close hazards on revert/partial PRs, and with `LINEAR_API_KEY` issues missing assignee/priority/status or stale In Progress; fail-open `NOT CHECKED` lines), `scripts/tracker_weekly_update.py` (drafts the update, never posts), coordinator loop step, and `install.sh --tracker-project ID [--tracker linear|github|jira]` writing an idempotent "Work tracking" AGENTS.md block replayed by `update-installed.sh`. Tests: `scripts/test_tracker_hygiene.py`; two new `agentic-delivery` evals.
+
+size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 23261→23424 one routing line for the new work-tracking reference
+
+## [1.518.0] — 2026-10-07
+
+### Added
+- `deep-code-review/templates/perun-review.yml`: opt-in reusable GitHub workflow for PR-native review. Job 1 runs the review headless and read-only (`contents: read`, read-only tools, per-run spend cap) and uploads a findings artifact; job 2 (`pull-requests: write`, `checks: write`, base checkout, no model key) runs `post_review.sh --post`, replaces its prior pending review on re-push, and updates one sticky comment and one check run with severity counts. `pull_request` only; fork PRs are skipped. `install.sh` never writes it.
+- `scripts/test-pr-review-workflow.sh` (actionlint when installed, YAML and permission assertions), wired into `test-ci-gates.sh` and CI.
+- Hardening: the review job fetches full history, checks out the PR head and reads a prebuilt `pr.diff`; the CLI is installed in a separate secret-free step at a pinned version (job fails until `CLAUDE_CODE_VERSION` is set); `Bash`/edit/web tools are denied and project settings ignored. The post job sanitizes model output (severity enum, commit pinned to the PR head, size caps) and dry-runs `post_review.sh` before deleting the prior pending review. The dead grounding step is removed. Prerequisites now include a non-empty `.banlist.txt`.
+
 ## [1.517.0] — 2026-10-07
 
 ### Added
