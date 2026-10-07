@@ -127,6 +127,7 @@ def check_scripts(skill_root: str) -> dict:
     probe = os.path.join(skill_root, "scripts", "host_probe.py")
     pacer = os.path.normpath(os.path.join(skill_root, "..", "agentic-ceo", "scripts", "token_report.py"))
     pacer_sibling_dir = os.path.dirname(os.path.dirname(pacer))
+    ratchet = os.path.join(pacer_sibling_dir, "scripts", "token_ratchet.py")
     if os.path.isfile(pacer):
         pacer_status = "PRESENT"
     elif os.path.isdir(pacer_sibling_dir):
@@ -136,6 +137,9 @@ def check_scripts(skill_root: str) -> dict:
     return {
         "fan-out-probe": "PRESENT" if os.path.isfile(probe) else "MISSING",
         "usage-window-pacer": pacer_status,
+        # token_ratchet.py = tokens per delivered PR vs a baseline; same N/A rule as the pacer
+        "token-ratchet": ("PRESENT" if os.path.isfile(ratchet) else "MISSING")
+        if os.path.isdir(pacer_sibling_dir) else pacer_status,
     }
 
 
@@ -254,6 +258,7 @@ def _selftest() -> int:
         case("fake-skill-root-pacer-could-not-check",
              fake["usage-window-pacer"].startswith("N/A") and "--with-ceo" in fake["usage-window-pacer"], True)
 
+        case("fake-skill-root-ratchet-na", fake["token-ratchet"].startswith("N/A"), True)
         full = report(after_path, real_root)
         for item in PROTOCOL_ONLY:
             case(f"protocol-only-{item}-could-not-check", full[item].startswith("COULD_NOT_CHECK"), True)
