@@ -298,6 +298,8 @@ def main(argv: list | None = None) -> int:
         if max_lanes is None and args.live_lanes is not None:
             load1, cores = read_load1_and_cores()
             max_lanes = perun_policy.lanes(pol["local_cpu"], cores or 1, load1)
+            print(f"host_probe: lane cap {max_lanes} applied from policy local_cpu={pol['local_cpu']} "
+                  "(pass --max-lanes to override)", file=sys.stderr)
         if isinstance(pol["local_ram"], (int, float)):
             ram_floor = max(ram_floor, float(pol["local_ram"]))
     except ValueError as e:

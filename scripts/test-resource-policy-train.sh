@@ -38,11 +38,14 @@ export PERUN_POLICY="$WORK/policy.json"
 echo '{}' >"$PERUN_POLICY"; land >/dev/null
 grep -q "pr merge 1 --merge --match-head-commit $H1\$" "$STUB/calls.log"; ok $? "land_train: default policy merges without [skip ci]"
 echo '{"github_actions": "off"}' >"$PERUN_POLICY"; land >/dev/null
+g log -1 --format=%B pr1 | grep -q "skip ci"; [ $? -ne 0 ]; ok $? "PR-head commit message never carries [skip ci]"
 grep -q 'pr merge 1 --merge --match-head-commit .* --body \[skip ci\]' "$STUB/calls.log"; ok $? "land_train: github_actions=off adds [skip ci] to the merge"
-echo '{"github_actions": 5.5e' >"$PERUN_POLICY"; land >/dev/null; rc=$?
+echo '{"github_actions": 5.5e' >"$PERUN_POLICY"
 out=$(UNION_DIRS="$R" bash "$SC/land_train.sh" "$B" "$U" 2>&1); rc=$?
 [ $rc -eq 2 ] && grep -q "bad .perun/policy.json" <<<"$out"; ok $? "land_train: malformed policy fails closed (exit 2), nothing merged"
 
+out=$(LAND_CMD='echo ran "$1"' UNION_DIRS="$R" WAIT_SECS=0 BACKFILL_FILE="$WORK/bf2.txt" bash "$SC/land_train.sh" "$B" "$U" 2>&1)
+grep -q "^WARN: land_train: policy unreadable" <<<"$out" && grep -q "ran 1" <<<"$out"; ok $? "land_train: LAND_CMD override with bad policy warns and continues"
 echo '{"local_cpu": 3, "github_actions": "off"}' >"$PERUN_POLICY"
 out=$(VERIFY_CMD='echo "jobs=$PERUN_JOBS gha=$PERUN_GITHUB_ACTIONS"; echo "RED x"; exit 1' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t1 1 2 2>&1 >/dev/null; cat "$WORK/traint1.log")
 grep -q "jobs=3 gha=off" <<<"$out"; ok $? "train_land: VERIFY_CMD sees PERUN_JOBS from local_cpu and PERUN_GITHUB_ACTIONS"

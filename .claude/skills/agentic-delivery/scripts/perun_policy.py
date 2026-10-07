@@ -3,7 +3,8 @@
 
 WHY JSON AT `.perun/policy.json`: stdlib-only (no YAML dependency), readable by bash via this CLI, and
 `.perun/` is a single repo-local dir other Perun state can share. Found by walking up from the cwd, or
-`$PERUN_POLICY` (an explicit path). A missing file means every default; a malformed file or bad value
+`$PERUN_POLICY` (an explicit path; if set, a missing or unparseable file is an error, never defaults).
+No file found by the walk means every default; a malformed file or bad value
 fails closed (exit 2), never silently falls back.
 
 Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-negative number (a cap).
@@ -37,7 +38,10 @@ def find_policy(start: str = ".") -> Path | None:
 
 def load(path: Path | None = None) -> dict:
     """The validated policy with defaults filled. Raises ValueError on malformed JSON or a bad value."""
+    explicit = path is None and os.environ.get("PERUN_POLICY")
     path = path or find_policy()
+    if explicit and not path.is_file():  # an explicit $PERUN_POLICY that is absent never means "defaults"
+        raise ValueError(f"$PERUN_POLICY set but {path} is missing")
     raw: dict = {}
     if path is not None and path.is_file():
         try:
@@ -98,6 +102,13 @@ def _selftest() -> int:
     d = Path(tempfile.mkdtemp())
     p = d / "policy.json"
     assert load(d / "none.json")["github_actions"] == "efficient"
+    os.environ["PERUN_POLICY"] = str(d / "absent.json")
+    try:
+        load()
+        raise AssertionError("explicit missing policy must fail closed")
+    except ValueError:
+        pass
+    del os.environ["PERUN_POLICY"]
     p.write_text('{"local_cpu": "maximize", "github_actions": "off", "tokens": 5000, "share_learnings": "auto"}')
     pol = load(p)
     assert (pol["local_cpu"], pol["github_actions"], pol["tokens"], pol["share_learnings"]) == ("maximize", "off", 5000, "auto")

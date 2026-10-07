@@ -24,8 +24,12 @@ BASE=$1 U=$2
 BASE_BRANCH=${BASE_BRANCH:-main} REMOTE=${REMOTE:-origin} CHANGELOG_DIR=${CHANGELOG_DIR:-changelog.d}
 BACKFILL_FILE=${BACKFILL_FILE:-./changelog_backfill.txt} PR_RE=${PR_RE:-merge-train: #([0-9]+)} GH=${GH:-gh}
 export GH
-# github_actions=off (.perun/policy.json): the merge commit carries [skip ci] so landing triggers no runner.
-GHA=$(python3 "$(dirname "$0")/perun_policy.py" get github_actions) || { echo "land_train: bad .perun/policy.json" >&2; exit 2; }
+# github_actions=off (.perun/policy.json): the merge commit BODY carries [skip ci] so landing triggers no runner.
+# It goes only in that merge-commit body: it never suppresses PR-head checks (the PR's own commits are untouched)
+# or tag-triggered releases (a tag push is not a commit message).
+GHA=$(python3 "$(dirname "$0")/perun_policy.py" get github_actions) || {
+  [ -n "${LAND_CMD:-}" ] || { echo "land_train: bad .perun/policy.json" >&2; exit 2; }
+  echo "WARN: land_train: policy unreadable; LAND_CMD overridden, using efficient defaults" >&2; GHA=efficient; }
 SKIP=; [ "$GHA" = off ] && SKIP=' --body "[skip ci]"'
 LAND_CMD=${LAND_CMD:-'"$GH" pr merge "$1" --merge --match-head-commit "$2"'"$SKIP"}
 WAIT_TRIES=${WAIT_TRIES:-10} WAIT_SECS=${WAIT_SECS:-8}

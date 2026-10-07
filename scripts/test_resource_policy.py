@@ -30,6 +30,7 @@ class PolicyCli(unittest.TestCase):
         return run([sys.executable, str(AD / "perun_policy.py"), "get", dim], env=self.env)
 
     def test_defaults_without_file(self):
+        self.pol.write_text("{}")
         self.assertEqual(self.get("github_actions").stdout.strip(), "efficient")
         self.assertEqual(self.get("share_learnings").stdout.strip(), "ask")
 
@@ -38,6 +39,15 @@ class PolicyCli(unittest.TestCase):
         self.assertEqual(self.get("github_actions").stdout.strip(), "off")
         self.assertEqual(self.get("local_cpu").stdout.strip(), "maximize")
         self.assertEqual(self.get("tokens").stdout.strip(), "efficient")
+
+    def test_explicit_missing_policy_fails_closed(self):
+        self.assertEqual(self.get("github_actions").returncode, 2)  # PERUN_POLICY points at an absent file
+
+    def test_host_probe_notes_default_lane_cap(self):
+        self.pol.write_text("{}")
+        r = run([sys.executable, str(AD / "host_probe.py"), "--live-lanes", "0", "--sample-interval", "0"], env=self.env)
+        self.assertIn("lane cap", r.stderr)
+        self.assertNotIn("lane cap", r.stdout)
 
     def test_malformed_fails_closed(self):
         self.pol.write_text('{"tokens": "lots"}')
@@ -64,15 +74,17 @@ class ShareLearning(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         (self.d / ".banlist.txt").write_text("Acme Capital\n")
         self.pol = self.d / "p.json"
+        self.pol.write_text("{}")
         self.ledger = self.d / "ledger.jsonl"
         self.calls = self.d / "calls.log"
         gh = self.d / "gh"
         gh.write_text(f'#!/usr/bin/env bash\necho "$*" >>"{self.calls}"\n'
                       f'case "$2" in list) cat "{self.d}/existing.json";; create) echo https://example.com/i/9;; esac\n')
         gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+        (self.d / ".banlist.local.txt").write_text("# local\nZzzUnlikelyTerm\n")
         (self.d / "existing.json").write_text("[]")
         self.env = {**os.environ, "PERUN_POLICY": str(self.pol), "GH": str(gh), "BANLIST_DIR": str(self.d),
-                    "PERUN_LEDGER": str(self.ledger)}
+                    "PERUN_LEDGER": str(self.ledger), "PERUN_RATE_FILE": str(self.d / "rate")}
 
     def share(self, text, *extra):
         return run([sys.executable, str(CT / "share_learning.py"), "--text", text, *extra], env=self.env)
@@ -92,7 +104,7 @@ class ShareLearning(unittest.TestCase):
 
     def test_auto_generalizes_and_files(self):
         self.pol.write_text('{"share_learnings": "auto"}')
-        r = self.share("Acme Capital repo foo/bar at /Users/jane/x mailed jane@example.com: gates drift", "--title", "Gates drift")
+        r = self.share("Acme Capital repo foo/bar at /Users/jane/x mailed jane@example.com: gates drift", "--title", "Gates drift", "--send")
         self.assertEqual(r.returncode, 0, r.stderr)
         sent = self.calls.read_text()
         for leak in ("Acme", "foo/bar", "/Users/jane", "jane@example.com"):
@@ -102,14 +114,80 @@ class ShareLearning(unittest.TestCase):
         self.assertEqual((rec["status"], rec["url"]), ("created", "https://example.com/i/9"))
         self.assertNotIn("pr create", sent)
 
-    def test_ask_with_approve_files(self):
-        self.assertEqual(self.share("Gates drift under load", "--approve").returncode, 0)
+    def test_approve_without_tty_refused(self):
+        self.assertEqual(self.share("Gates drift under load", "--approve").returncode, 3)
+        self.assertFalse(self.created())
+
+    def _approve_on_tty(self, answer):
+        import pty
+        master, slave = pty.openpty()
+        os.write(master, answer.encode())
+        p = subprocess.run([sys.executable, str(CT / "share_learning.py"), "--text", "Gates drift under load",
+                            "--approve"], stdin=slave, capture_output=True, text=True, env=self.env)
+        os.close(master)
+        os.close(slave)
+        return p
+
+    def test_approve_on_tty_with_typed_yes_files(self):
+        self.assertEqual(self._approve_on_tty("yes\n").returncode, 0)
         self.assertTrue(self.created())
+
+    def test_approve_on_tty_wrong_answer_refused(self):
+        self.assertEqual(self._approve_on_tty("no\n").returncode, 3)
+        self.assertFalse(self.created())
+
+    def test_other_repo_needs_allow_flag(self):
+        self.pol.write_text('{"share_learnings": "auto"}')
+        self.assertEqual(self.share("Gates drift", "--send", "--repo", "other/repo").returncode, 2)
+        self.assertFalse(self.calls.exists())
+        self.assertEqual(self.share("Gates drift", "--send", "--repo", "other/repo", "--allow-repo", "other/repo").returncode, 0)
+        self.assertIn("--repo other/repo", self.calls.read_text())
+
+    def test_auto_refused_without_local_banlist(self):
+        self.pol.write_text('{"share_learnings": "auto"}')
+        (self.d / ".banlist.local.txt").unlink()
+        self.assertEqual(self.share("Gates drift", "--send").returncode, 2)
+        self.assertFalse(self.calls.exists())
+
+    def test_auto_is_dry_run_without_send(self):
+        self.pol.write_text('{"share_learnings": "auto"}')
+        r = self.share("Gates drift")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("dry run", r.stdout)
+        self.assertFalse(self.calls.exists())
+
+    def test_auto_rate_limited_to_three_per_day(self):
+        self.pol.write_text('{"share_learnings": "auto"}')
+        for i in range(3):
+            self.assertEqual(self.share(f"Distinct lesson number {i} alpha{i * 7} beta{i * 3}", "--send").returncode, 0)
+        r = self.share("Fourth lesson entirely different wording zeta", "--send")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("rate limit", r.stderr)
+        self.assertEqual(self.calls.read_text().count("issue create"), 3)
+
+    def test_footer_has_version_and_mode(self):
+        self.pol.write_text('{"share_learnings": "auto"}')
+        self.share("Gates drift", "--send")
+        sent = self.calls.read_text()
+        self.assertIn("Provenance: Perun", sent)
+        self.assertIn("share_learnings=auto", sent)
+
+    def test_paths_urls_and_long_code_stripped(self):
+        self.pol.write_text('{"share_learnings": "auto"}')
+        code = "\n".join(f"line{i}" for i in range(25))
+        text = (f"See ./src/app/main.py and https://evil.test/x and /opt/srv/data plus\n```\n{code}\n```\n"
+                "and short:\n```\na = 1\n```")
+        r = self.share(text, "--title", "Stripping", "--send")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sent = self.calls.read_text()
+        for leak in ("src/app", "evil.test", "/opt/srv", "line24"):
+            self.assertNotIn(leak, sent)
+        self.assertIn("a = 1", sent)
 
     def test_duplicate_open_or_closed_not_filed(self):
         self.pol.write_text('{"share_learnings": "auto"}')
         (self.d / "existing.json").write_text('[{"number": 4, "title": "Gates drift under load", "state": "CLOSED"}]')
-        r = self.share("Gates drift under load now")
+        r = self.share("Gates drift under load now", "--send")
         self.assertEqual(r.returncode, 0)
         self.assertIn("duplicate of #4", r.stdout)
         self.assertFalse(self.created())
@@ -118,13 +196,13 @@ class ShareLearning(unittest.TestCase):
     def test_missing_banlist_fails_closed(self):
         self.pol.write_text('{"share_learnings": "auto"}')
         (self.d / ".banlist.txt").unlink()
-        self.assertEqual(self.share("Gates drift").returncode, 2)
+        self.assertEqual(self.share("Gates drift", "--send").returncode, 2)
         self.assertFalse(self.created())
 
     def test_gh_list_failure_does_not_file(self):
         self.pol.write_text('{"share_learnings": "auto"}')
         (self.d / "existing.json").unlink()  # stub's `cat` fails
-        self.assertEqual(self.share("Gates drift").returncode, 2)
+        self.assertEqual(self.share("Gates drift", "--send").returncode, 2)
         self.assertFalse(self.created())
 
 
