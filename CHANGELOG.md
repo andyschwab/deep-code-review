@@ -3,6 +3,14 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.507.0] — 2026-10-07
+
+### Changed
+- `scripts/live_evals.py`: `--max-tokens` (default 6000, was a fixed 1024 that truncated reasoning-model answers); each case records `finish_reason`; a call ending `length` is `invalid` (truncated), counted in `truncated` and excluded from pass rates instead of scored as a fail. One retry on a network error, and a per-call progress line on stderr. Live run, same 99-case sample (judge gpt-oss_120b): GLM-5.1 57/99 at 1024 tokens (refusals 29/64, deterministic predicates 0/7) became 81/94 graded at 6000 (refusals 48/59, predicates 5/7, 2 truncated); Qwen3-Coder-Next 80/94 (1 truncated). Issue #61.
+- CI "Fix commits carry a pinned test" and "Prose lessons carry a mechanism" count `scripts/test_*.py` as a mechanism, so new Python scripts with a test no longer need a `No-Mechanism-Reason:`.
+- Eval defects found by the live run: `chat-only-diff-start-sha-na`, `refuses-fabricated-finding-on-clean-file` and `chaos-no-request-dropped` now include the diff / file / demands their prompts refer to; expectations that need a script run or a reference file the chat run cannot see (`recommend-must-not-write`, `default-install-omits-delivery`, `default-install-review-only`, `description-matches-folder`, and the measured-trade-off line of `high-stakes-seeded-gap-hunt-pass`) are tagged `[needs_files]`.
+- `eval_predicates.no_fabricated_finding`: a CWE named as the class a safe pattern "defends against" is no longer read as a finding (new `scripts/test_eval_predicates_defended.py`).
+
 ## [1.506.0] — 2026-10-07
 
 ### Added
