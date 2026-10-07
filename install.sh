@@ -85,6 +85,8 @@ on re-install). Overlay skills are opt-in.
   --with-growth        Also install growth-analytics (North Star + AARRR + event taxonomy; default off, not in --full)
   --with-positioning   Also install positioning (value prop / message house; a hypothesis, never fabricated market facts; default off, not in --full)
   --with-business      Also install business-ops (Lane A pricing/unit-economics apply vs Lane R legal/tax/securities route; default off, not in --full)
+  --tracker-project ID Write a <=12-line "Work tracking" block into AGENTS.md (idempotent; replayed by update-installed)
+  --tracker NAME       Tracker for that block: linear (default), github or jira
   --with-output-safety Also install product-output-safety (govern harm from the product's own AI outputs; HITL on high-stakes actions; default off, not in --full)
   --full               Review + delivery + critic + comms
   --with-gates         Write .github/workflows/dcr-gates.yml + scripts/dcr-gates.sh,
@@ -143,8 +145,18 @@ WITH_OPERATING_LAYER=0
 APPLY_OPLAYER=0
 RECOMMEND_ONLY=0
 POSITIONAL=()
+TRACKER_PROJECT=""
+TRACKER="linear"
+NEXT_OPT=""
 for arg in "$@"; do
+  if [[ -n "${NEXT_OPT}" ]]; then
+    printf -v "${NEXT_OPT}" '%s' "${arg}"; NEXT_OPT=""; continue
+  fi
   case "${arg}" in
+    --tracker-project) NEXT_OPT=TRACKER_PROJECT ;;
+    --tracker) NEXT_OPT=TRACKER ;;
+    --tracker-project=*) TRACKER_PROJECT="${arg#*=}" ;;
+    --tracker=*) TRACKER="${arg#*=}" ;;
     --claude-only) WRITE_AGENTS=0; MINIMAL=1 ;;
     --minimal) MINIMAL=1 ;;
     --with-codex) WITH_CODEX=1 ;;
@@ -171,6 +183,13 @@ for arg in "$@"; do
     *) POSITIONAL+=("${arg}") ;;
   esac
 done
+
+if [[ -n "${NEXT_OPT}" ]]; then echo "error: --$(printf %s "${NEXT_OPT//_/-}" | tr A-Z a-z) needs a value" >&2; exit 2; fi
+# values land in AGENTS.md: allow only ID-safe characters
+if [[ -n "${TRACKER_PROJECT}" && ! "${TRACKER_PROJECT}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "error: --tracker-project must match [A-Za-z0-9._-]+" >&2; exit 2
+fi
+case "${TRACKER}" in linear|github|jira) ;; *) echo "error: --tracker must be linear, github or jira" >&2; exit 2 ;; esac
 
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
   echo "error: --with-operating-layer requires --with-delivery (writes an agentic-delivery snippet)" >&2
@@ -467,7 +486,15 @@ fi
 
 # Record the flags so scripts/update-installed.sh can replay this install.
 mkdir -p "${TARGET_DIR}/.claude"
-{ for a in "$@"; do [[ "${a}" == -* ]] && printf '%s\n' "${a}"; done; true; } > "${TARGET_DIR}/.claude/.dcr-install-flags"
+{ skip=0
+  for a in "$@"; do
+    if [[ "${skip}" -eq 1 ]]; then skip=0; continue; fi
+    case "${a}" in --tracker-project|--tracker|--tracker-project=*|--tracker=*) [[ "${a}" == *=* ]] || skip=1; continue ;; esac
+    [[ "${a}" == -* ]] && printf '%s\n' "${a}"
+  done
+  # tracker flags replay as single-token --opt=value lines (the marker is one arg per line)
+  [[ -n "${TRACKER_PROJECT}" ]] && printf -- '--tracker-project=%s\n--tracker=%s\n' "${TRACKER_PROJECT}" "${TRACKER}"
+  true; } > "${TARGET_DIR}/.claude/.dcr-install-flags"
 
 upsert_agents_block() {
   local agents="$1"
@@ -572,6 +599,23 @@ Re-run upstream \`install.sh\` with the same \`--with-*\` flags (or \`--full\`) 
 EOF
 )"
     upsert_agents_block "${AGENTS}" "dcr-overlays:begin" "dcr-overlays:end" "${OVERLAY_BLOCK}"
+  fi
+  if [[ -n "${TRACKER_PROJECT}" ]]; then
+    TRACKER_BLOCK="$(cat <<EOF
+<!-- dcr-tracker:begin -->
+## Work tracking (${TRACKER}, project \`${TRACKER_PROJECT}\`)
+Every deliverable is a ${TRACKER} issue in this project; chores are PR checklist lines, not issues.
+- Status moves: In Progress at start, In Review at PR open, Done only after the merge is confirmed.
+- Put the issue ID in the title of only the PR that completes it. Slices, reverts, partial work and merge-train
+  members use \`Refs ID\` in the body, so the integration does not auto-close the issue.
+- Write \`repo PR 123\`, never \`#123\`, in tracker text (it autolinks to a guessed repo).
+- Set issue priority; leave project priority to its portfolio owner. Dependencies are blocks/blocked-by relations.
+- Weekly: draft the update with \`tracker_weekly_update.py\`; hygiene: \`tracker_check.py\` (agentic-delivery scripts).
+Details: \`.claude/skills/agentic-delivery/references/work-tracking.md\` (needs \`--with-delivery\`).
+<!-- dcr-tracker:end -->
+EOF
+)"
+    upsert_agents_block "${AGENTS}" "dcr-tracker:begin" "dcr-tracker:end" "${TRACKER_BLOCK}"
   fi
   echo "  works with Cursor, Claude Code, Codex, Copilot, Gemini, Aider, Windsurf, OpenCode, Hermes, Kiro, ..."
 fi

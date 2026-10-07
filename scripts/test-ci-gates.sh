@@ -3772,6 +3772,13 @@ else
   record 1 "loop templates: scripts exist, >=20 min, installed, routed"; tail -5 "$WORK/loop-templates.log"
 fi
 
+# tracker hygiene (own per-feature file scripts/test_tracker_hygiene.py): stubbed gh, fake GraphQL server, install block.
+if python3 "$ROOT/scripts/test_tracker_hygiene.py" >"$WORK/tracker-hygiene.log" 2>&1; then
+  record 0 "tracker hygiene: tracker_check/weekly_update/install --tracker-project"
+else
+  record 1 "tracker hygiene: tracker_check/weekly_update/install --tracker-project"; tail -8 "$WORK/tracker-hygiene.log"
+fi
+
 # install.sh AGENTS.md blocks are compact (<= 6 lines each, markers included)
 # and a re-run replaces them in place (idempotent), so a target repo's own
 # AGENTS.md size gate is not broken by the default install (#1309).
