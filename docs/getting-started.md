@@ -26,13 +26,13 @@ You need `git`, a terminal, and a coding agent that can open your project
 Kiro, or similar).
 
 ```bash
-git clone --branch vX.Y.Z --depth 1 https://github.com/remigiusz-antczak/deep-code-review.git
+git clone --depth 1 https://github.com/remigiusz-antczak/deep-code-review.git
 cd deep-code-review && shasum -a 256 -c SHA256SUMS   # Linux: sha256sum -c SHA256SUMS
 ./install.sh --recommend /path/to/your/project       # optional: see a suggested pack, writes nothing
 ./install.sh /path/to/your/project                   # review only (the default)
 ```
 
-Replace `vX.Y.Z` with the latest tag on the repository's Releases page. Every
+Release tags lag the main branch, so this clones main; run `git rev-parse HEAD` and record the commit you reviewed. The checksum file ships in the same repository, so it catches a damaged copy, not a malicious one. Every
 line of the checksum output should end in `OK`.
 
 The default install copies `deep-code-review` into `.claude/skills/`,
