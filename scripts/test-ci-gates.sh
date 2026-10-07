@@ -3773,6 +3773,13 @@ else
   record 1 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"; tail -8 "$WORK/ultrareview.log"
 fi
 
+# host safety: own per-feature file (scripts/test-host-safety.sh), one case here.
+if bash "$ROOT/scripts/test-host-safety.sh" >"$WORK/host-safety.log" 2>&1; then
+  record 0 "host safety: install warns per host, selfcheck reports per-host sandbox status"
+else
+  record 1 "host safety: install warns per host, selfcheck reports per-host sandbox status"; tail -8 "$WORK/host-safety.log"
+fi
+
 # sandbox by default: own per-feature file (scripts/test-sandbox-default.sh), one case here.
 if bash "$ROOT/scripts/test-sandbox-default.sh" >"$WORK/sandbox-default.log" 2>&1; then
   record 0 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"
