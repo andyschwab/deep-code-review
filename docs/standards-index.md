@@ -1396,6 +1396,7 @@ fact).
 | Aider — Options | https://aider.chat/docs/config/options.html | `--yes-always` (default false) confirms everything; `/run` and `/test` exist; no sandbox documented. Aider is not an install target. |
 | Dev Containers | https://containers.dev/ | Open specification for containers as development environments; `devcontainer.json`; spec at the `devcontainers/spec` repository. |
 | VS Code — Dev Containers | https://code.visualstudio.com/docs/devcontainers/containers | A container as a full development environment; with isolated container volumes the workspace is not bound to the local filesystem. |
+
 ## Verified by direct fetch (2026-10-07) — Claude Code sandbox (operating layer `sandbox` + `permissions.deny`)
 
 | Standard / source | URL | What was confirmed |
