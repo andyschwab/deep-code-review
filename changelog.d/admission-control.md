@@ -1,0 +1,2 @@
+### Added
+- Admission control for heavy local commands: `perun_policy.py heavy-slots` gives concurrency `max(2, free cores)` instead of a flat 2, and `host_probe.py --lane-type heavy` defers (`HOLD load-high`) when load1 exceeds cores; the existing free-RAM veto already defers on low RAM. Tests inject load and core values. Kill criterion: if the median pre-push time rises after adoption, revert to the flat cap.
