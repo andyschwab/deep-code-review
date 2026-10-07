@@ -53,6 +53,17 @@ sed 's#Allowlist hosts#at /home/jdoe/x#' "$WORK/f.json" >"$WORK/bad3.json"
 bash "$PR" 7 "$WORK/bad3.json" >/dev/null 2>&1; [ "$?" -eq 1 ]
 ok $? "absolute home path refuses"
 
+# decoded-text scan: probes are JSON-escaped in the findings file, so only a decoded scan sees them
+printf '\xc5\xbc\xc3\xb3\xc5\x82w-name\nAcme Capital\n' >>"$WORK/bl/.banlist.txt"
+probe() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["findings"][0]["fix"]=sys.argv[3]; json.dump(d,open(sys.argv[2],"w"))' "$WORK/f.json" "$WORK/p.json" "$1"; }
+sed 's/Allowlist hosts/\\u017c\\u00f3\\u0142w-name/' "$WORK/f.json" >"$WORK/p.json"; bash "$PR" 7 "$WORK/p.json" >/dev/null 2>&1; [ "$?" -eq 1 ]
+ok $? "non-ASCII banlist name hidden behind a JSON \\u escape refuses"
+probe 'see Acme
+Capital'; bash "$PR" 7 "$WORK/p.json" >/dev/null 2>&1; [ "$?" -eq 1 ]
+ok $? "banlist name split across a line break refuses"
+probe 'path C:\Users\jdoe\x'; bash "$PR" 7 "$WORK/p.json" >/dev/null 2>&1; [ "$?" -eq 1 ]
+ok $? "Windows home path (backslashes) refuses"
+
 rm "$WORK/bl/.banlist.txt"
 bash "$PR" 7 "$WORK/f.json" --post >/dev/null 2>&1; [ "$?" -eq 2 ] && [ ! -e "$GH_LOG" ]
 ok $? "missing banlist fails closed"

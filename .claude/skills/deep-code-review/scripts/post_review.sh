@@ -43,6 +43,13 @@ print(json.dumps(p, indent=2))
 PY
 )" || { echo "post_review: cannot read findings (need {\"findings\": [...]})" >&2; exit 2; }
 
+# Scan the DECODED text, not the JSON: escapes hide non-ASCII names (\u017c), backslash paths (C:\\Users)
+# and line-split names. Scan the strings as written, then again with all whitespace collapsed to one space.
+scan="$(printf '%s' "$payload" | python3 -X utf8 -c '
+import json, re, sys
+p = json.load(sys.stdin)
+t = "\n".join([p["body"], p.get("commit_id", "")] + [c["path"] + "\n" + c["body"] for c in p["comments"]])
+print(t); print(re.sub(r"\s+", " ", t))')" || { echo "post_review: cannot decode payload" >&2; exit 2; }
 hits=0
 flag() { echo "post_review: REFUSE: $1" >&2; hits=1; }
 for f in "$dir/.banlist.txt" "$dir/.banlist.local.txt"; do
@@ -50,13 +57,13 @@ for f in "$dir/.banlist.txt" "$dir/.banlist.local.txt"; do
   while IFS= read -r p || [ -n "$p" ]; do
     p="${p#"${p%%[![:space:]]*}"}"
     case "$p" in ''|'#'*) continue ;; esac
-    printf '%s' "$payload" | grep -qE -e "$p" 2>/dev/null; rc=$?
+    printf '%s' "$scan" | grep -qE -e "$p" 2>/dev/null; rc=$?
     [ "$rc" -eq 0 ] && flag "banlist pattern hit in $(basename "$f") (content withheld)"
     [ "$rc" -ge 2 ] && flag "invalid regex in $(basename "$f") (fail closed, content withheld)"
   done < "$f"
 done
-printf '%s' "$payload" | grep -qE 'AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' && flag "secret-shaped token"
-printf '%s' "$payload" | grep -qE '(/Users/|/home/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+' && flag "absolute home path"
+printf '%s' "$scan" | grep -qE 'AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' && flag "secret-shaped token"
+printf '%s' "$scan" | grep -qE '(/Users/|/home/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+' && flag "absolute home path"
 [ "$hits" -eq 0 ] || exit 1
 
 if [ "$POST" -eq 0 ]; then

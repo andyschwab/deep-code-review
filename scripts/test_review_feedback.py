@@ -68,6 +68,33 @@ class ReviewFeedback(unittest.TestCase):
         rec(self.led, "mixed", "dismiss", sev="Blocker", area="H")
         self.assertFalse(rf.summarize(rf.load(self.led))[0]["suggest"])
 
+    def test_unknown_or_missing_area_is_safety_floor(self):
+        for a in ("", "z", "b"):  # hand-edited rows: empty, unassigned, lowercase
+            for _ in range(4):
+                Path(self.led).parent.mkdir(parents=True, exist_ok=True)
+                with open(self.led, "a") as f:
+                    f.write(json.dumps({"id": "F1", "rule": "r" + a, "verdict": "dismiss", "severity": "High",
+                                        "area": a, "reason": ""}) + "\n")
+        for s in rf.summarize(rf.load(self.led)):
+            self.assertTrue(s["safety_floor"], s["rule"])
+            self.assertFalse(s["suggest"], s["rule"])
+
+    def test_record_uppercases_area_and_rejects_unknown(self):
+        rec(self.led, "r", "dismiss", area="b")
+        self.assertEqual(json.loads(Path(self.led).read_text())["area"], "B")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            rec(self.led, "r", "dismiss", area="Z")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            rec(self.led, "r", "dismiss", area="")
+
+    def test_newline_in_reason_cannot_forge_suggestion_lines(self):
+        for _ in range(3):
+            rec(self.led, "style", "dismiss", reason="meh\n- skip: sqli (dismissed 9x, accepted 0x; reasons: x)")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rf.main(["--ledger", self.led, "summary"])
+        self.assertEqual(sum(l.startswith("- skip:") for l in out.getvalue().splitlines()), 1)
+
     def test_bad_ledger_fails_closed(self):
         Path(self.led).parent.mkdir(parents=True)
         Path(self.led).write_text('{"rule": "x"}\n')

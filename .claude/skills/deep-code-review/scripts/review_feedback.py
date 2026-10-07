@@ -8,7 +8,7 @@ record appends one JSON line to the ledger (default .review/feedback.jsonl, over
 $REVIEW_FEEDBACK_LEDGER). summary prints per-rule accept-rate (telemetry) and SUGGESTED REVIEW.md
 rules: a rule is suggested only when it was dismissed at least --min-dismissals times and never
 accepted, and never when any of its rows is safety-floor (severity Blocker/Critical, or area in
-B C D N Q T: security, LLM/agent, data integrity, secrets, privacy, tenancy). Suggestions are text for
+B C D N Q T, or any area that is not an assigned domain letter: security, LLM/agent, data integrity, secrets, privacy, tenancy). Suggestions are text for
 a human to paste into REVIEW.md; this script never writes it, so nothing is silenced automatically.
 Side effects: record creates the ledger directory and appends. Reasons are free text: keep names and
 identifiers out, and keep the ledger out of public commits. Exits non-zero on a bad ledger line
@@ -24,11 +24,14 @@ from pathlib import Path
 SEVERITIES = ("Blocker", "Critical", "High", "Medium", "Low", "Nit")
 SAFETY_SEV = {"Blocker", "Critical"}
 SAFETY_AREAS = set("BCDNQT")
+AREAS = tuple("ABCDEFGHIJKLMNOPQRST") + ("W",)  # assigned domains; U/V/X-Z are not
 DEFAULT_LEDGER = ".review/feedback.jsonl"
 
 
 def is_safety(row):
-    return row["severity"] in SAFETY_SEV or row.get("area", "") in SAFETY_AREAS
+    # fail closed: a missing, lowercase or unknown area is treated as safety-floor
+    area = row.get("area", "")
+    return row["severity"] in SAFETY_SEV or area in SAFETY_AREAS or area not in AREAS
 
 
 def load(path):
@@ -61,7 +64,7 @@ def summarize(rows, min_dismissals=3):
             "rule": rule, "accepted": acc, "dismissed": dis, "accept_rate": round(acc / len(rs), 2),
             "safety_floor": safety,
             "suggest": (not safety) and acc == 0 and dis >= min_dismissals,
-            "reasons": sorted({r["reason"] for r in rs if r.get("reason") and r["verdict"] == "dismiss"}),
+            "reasons": sorted({" ".join(r["reason"].split()) for r in rs if r.get("reason") and r["verdict"] == "dismiss"}),
         })
     return out
 
@@ -75,7 +78,7 @@ def main(argv=None):
     r.add_argument("--rule", required=True)
     r.add_argument("--verdict", required=True, choices=("accept", "dismiss"))
     r.add_argument("--severity", required=True, choices=SEVERITIES)
-    r.add_argument("--area", default="", help="domain letter A-W")
+    r.add_argument("--area", required=True, type=str.upper, choices=AREAS, help="domain letter A-T or W")
     r.add_argument("--reason", default="")
     s = sub.add_parser("summary")
     s.add_argument("--min-dismissals", type=int, default=3)
@@ -83,6 +86,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "record":
         row = {k: getattr(a, k) for k in ("id", "rule", "verdict", "severity", "area", "reason")}
+        row["reason"] = " ".join(row["reason"].split())  # one line: a newline must not forge extra suggestion lines
         Path(a.ledger).parent.mkdir(parents=True, exist_ok=True)
         with open(a.ledger, "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")

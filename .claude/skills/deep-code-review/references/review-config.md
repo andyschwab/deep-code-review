@@ -36,7 +36,7 @@ Phase 4 verification) before it is a finding. A rule never lowers the evidence b
 
 1. **Safety floor — never relaxed by any config.** A security, secret-exposure, data-loss, privacy, or
    tenancy-isolation finding (domains B C D N Q T, or severity Blocker/Critical) is always reported, even
-   in an `exclude`d path, below `min_severity`, or over `max_nits`. A rule or `stage` may change
+   in an `exclude`d path or outside `include`, below `min_severity`, or over `max_nits`. A rule or `stage` may change
    urgency, never severity or the floor.
 2. The owner's explicit request in this session.
 3. `REVIEW.md`.
@@ -65,7 +65,7 @@ python3 scripts/review_feedback.py summary [--min-dismissals 3] [--json]
   and, for a rule dismissed at least `--min-dismissals` times and never accepted, a suggested
   `- skip: …` line for `REVIEW.md`.
 - **Never suggested, never silenced:** any rule with a safety-floor row (severity Blocker/Critical or
-  area B C D N Q T). The script only prints; a human pastes a suggestion into `REVIEW.md` or discards it.
+  area B C D N Q T, or an area that is not a domain letter). The script only prints; a human pastes a suggestion into `REVIEW.md` or discards it.
 - A suggested rule is a hypothesis from a small sample: re-read the reasons before approving, and prefer
   narrowing by path over a blanket skip.
 
