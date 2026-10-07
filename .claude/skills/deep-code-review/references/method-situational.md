@@ -4,6 +4,12 @@ Read this when `method.md` routes here: a gate verdict is disputed, a green, CI 
 
 **Phase 1 — gate disputes and target-shape preflights.**
 
+- **On a `DIFF`, run `scripts/review_checks.sh --base <base>` first.** It runs only the installed local
+  analyzers (shellcheck, `bash -n`, py_compile, ruff/pyflakes, `node --check`, tsc, `go vet`, jq) on the changed
+  files and prints findings JSON; `--tests` adds the declared `REVIEW_TEST_CMD`. Its findings are leads: verify
+  each against the code before reporting, report a `not run` line as unchecked surface, and never read an empty
+  list as clean (analyzers miss fail-open and logic defects).
+
 - **Check a firing gate against its own standard first.** A gate *stricter* than
   the spec it implements (e.g. a contrast gate flagging disabled controls, which
   WCAG 2.2 SC 1.4.3 exempts) yields a "fix" that regresses another axis
@@ -314,6 +320,24 @@ Fan-out finders over-grade and mis-flag in four repeatable ways. Before filing, 
 - **Name the revert test.** For each behaviour change in the diff, name the test that fails if the change is reverted; "none" is itself a finding (the fix-verification procedure is in `testing-and-evals.md`).
 - **Recompute every pin the diff writes.** For each number, hash, count, size or version the diff records in a config, manifest, budget or ratchet file, recompute it from the tree at `HEAD` (`wc -c`, `sha256sum`, a count) and compare for **equality**. A gate usually checks one side (`actual <= pin`), so a stale or slack pin stays green; a file that says "frozen at current" must equal current. A gate failing over a multi-release range is not proof of an artifact: recompute its rows one by one before dismissing it.
 - **A blocked finder hands its probes to the lead.** A fan-out unit without a shell files each candidate as the exact one-line command plus the expected failing output, not "read, not run"; the lead runs them before filing, and one it cannot run stays `unverified`.
+
+### DIFF depth: size bands, blast-radius trace, transition completeness (run on a `DIFF`)
+
+A diff's size sets the review mode, never its title. One small preprint (150 samples) measured LLM review F1 falling from 0.657 on diffs under 10 lines to 0.043 over 150 lines, and a 330k-PR study found each extra modified file lowered the odds of any review comment by about 8.7% (both in `docs/standards-index.md`; directional, not rates). A single short pass over a large diff is the failure this section prevents: it reports two or three surface findings and misses defects that live outside the hunks.
+
+- **Pick the band** from changed lines and files, excluding lockfiles and generated code. The numbers are unmeasured starting defaults; tune them per target and state the band in the first-response block.
+
+| Band | Changed lines or files | Mode |
+|---|---|---|
+| S | under 150 lines and 5 or fewer files | One pass with tool access; one ledger line per file |
+| M | 150 to 800 lines or 6 to 25 files | **Mandatory chunking**: cluster files by directory or feature (about 8 files or 300 lines per chunk), one pass per chunk with tool access, never the pasted diff alone; then the blast-radius and transition checks below |
+| L | over 800 lines or over 25 files | As M, with chunks fanned out under `parallel-audit.md` (the lead reads the top blast-radius files itself), plus a cross-chunk pass over every callee or shared state touched by more than one chunk |
+
+- **Budget scales with the band.** Set `BUDGET` per chunk, not per diff: an M or L diff owes at least one pass per chunk plus the trace, and a total that equals one pass over the whole diff is a finding about the review. Order chunks by blast radius (money, auth, data loss, shared state first), not alphabetically: late files get the least attention.
+- **Per-file ledger.** Extend the coverage ledger with one line per changed non-generated file: `path | kind (mechanical, behavioral, new-surface) | chunk | opened Y/N | callees traced | verdict (clean, finding id, skipped plus reason)`. Skips are allowed only for generated, vendored, lockfile, and binary files. **Do not declare done while any line says `opened N`**; Phase 5 reconciles the report against the ledger and reports `coverage: opened/changed files`, and an unopened file is `unverified`, not clean.
+- **Blast-radius trace for shared state.** For every changed call that reads or writes shared state (counter, quota, rate limit, cache, audit log, queue, auth or identity or session store), **open the callee and its other readers even when they sit outside the diff** and check, in order: (1) what **keys** the entry (tenant, user, surface or channel, role, environment) and whether the changed caller supplies every dimension; (2) whether the read or aggregate query **filters** by the same dimensions the write uses, since a caller that now writes from a new surface into a count with no surface filter drains another surface's quota; (3) `rg` the counter or key name for every other writer and reader; (4) whether the ceiling, TTL and reset still mean what the new caller assumes. Prove it with a two-principal or two-surface probe: act as A, read B's counter. The mirror case is a changed callee with unchanged callers: grep the callers.
+- **State-transition completeness.** For each transition the diff adds or edits (reopen, retry, resume, renew, restore, reactivate, reset, cancel), list the fields the matching terminal or entry transition sets and write the fields-by-transitions table: status, expiry or TTL, deadline, attempt and retry counters, `closed_at` or `resolved_at` timestamps, locks and leases, assignee, sent-notification flags, cached or derived columns. The re-entry transition must **reset or recompute every dependent field**, not only the status: a reopen that sets `status = open` but keeps a past `expires_at` is open and already expired. Test it by driving the full loop (create, close, reopen) and asserting the invariants of an open item.
+- **Literal-vs-constant drift.** When the diff adds, renames, or changes the value of an enum member, constant, status string, header or config key, `rg -nF` the old and the new literal across the whole tree (source, SQL and migrations, fixtures, tests, JSON, docs, other languages). A hand-typed copy of a constant's value, a non-exhaustive `switch` or `match` whose default swallows the new member, and a DB `CHECK` or serialized payload still holding the old value are each a finding.
 
 **High-stakes gates — seeded gap-hunting second pass.** Distinct from the Phase 3 security adversarial pass (which attacks one surface with opener payloads): this pass re-reviews the same scope for what the first pass missed, whatever the domain.
 

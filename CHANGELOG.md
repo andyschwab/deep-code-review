@@ -3,6 +3,21 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.506.0] — 2026-10-07
+
+### Added
+- `review_checks.sh` (deep-code-review `scripts/`): runs only installed, local, read-only analyzers (shellcheck, bash -n, py_compile, ruff/pyflakes, node --check, tsc, go vet, jq) on the files changed since a base ref, timeboxed per tool, and prints findings JSON (file, line, rule, message, tool, plus `text` for `score_review.py`). Missing tools print a "not run" line; an opt-in `--tests` runs `REVIEW_TEST_CMD`. `method-situational.md` (loaded on every DIFF) routes to it as leads to verify. Test: `scripts/test-review-checks.sh` (wired into CI); eval `diff-review-runs-review-checks-first`.
+
+size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 33020→33524 route DIFF review to review_checks.sh
+
+## [1.505.0] — 2026-10-07
+
+### Added
+
+- DIFF depth in `method-situational.md`, routed from `method.md`: size bands with mandatory chunking by file cluster and a per-file ledger (no "done" while a changed file is unopened), a blast-radius trace that opens shared-state callees (counters, quotas, caches, queues, auth) outside the diff and checks keying and filters across tenants and surfaces, and a state-transition completeness and literal-vs-constant drift check. Three synthetic eval cases and two verified sources in `docs/standards-index.md`.
+- size-budget-raise: .claude/skills/deep-code-review/references/method.md 42560→42649 one routing clause to the new DIFF depth, floor re-pinned +22 tokens
+- size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 28534→33020 DIFF size-band, blast-radius and transition-completeness depth, kept in the conditional ref outside the must-load floor
+
 ## [1.504.0] — 2026-10-07
 
 ### Added
