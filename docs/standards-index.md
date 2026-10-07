@@ -1377,7 +1377,6 @@ fact).
 | Claude Code — Add components to a plugin | https://code.claude.com/docs/en/plugins/components | A plugin's `skills/<dir>/SKILL.md` runs as `/<plugin>:<dir>`; `commands/<file>.md` runs as `/<plugin>:<file>`; command files take the same frontmatter as skills; commands are the older format. |
 | Claude Code — Skills | https://code.claude.com/docs/en/skills | Frontmatter `description`, `argument-hint`, `disable-model-invocation`; `$ARGUMENTS` substitution. |
 
-<<<<<<< HEAD
 ## Verified by direct fetch (2026-10-07) — agent host sandboxes and approval modes (`docs/host-safety.md`)
 
 | Standard / source | URL | What was confirmed |
@@ -1397,10 +1396,8 @@ fact).
 | Aider — Options | https://aider.chat/docs/config/options.html | `--yes-always` (default false) confirms everything; `/run` and `/test` exist; no sandbox documented. Aider is not an install target. |
 | Dev Containers | https://containers.dev/ | Open specification for containers as development environments; `devcontainer.json`; spec at the `devcontainers/spec` repository. |
 | VS Code — Dev Containers | https://code.visualstudio.com/docs/devcontainers/containers | A container as a full development environment; with isolated container volumes the workspace is not bound to the local filesystem. |
-=======
 ## Verified by direct fetch (2026-10-07) — Claude Code sandbox (operating layer `sandbox` + `permissions.deny`)
 
 | Standard / source | URL | What was confirmed |
 |---|---|---|
 | Claude Code — Configure the sandboxed Bash tool | https://code.claude.com/docs/en/sandboxing | The sandbox is off by default; `sandbox.enabled: true` in a settings file turns it on; `allowUnsandboxedCommands: false` disables the unsandboxed retry so Claude Code ignores `dangerouslyDisableSandbox`; the OS applies the boundary to Bash commands and the processes they start (writes limited to the working directory, a temp directory and added directories by default); explicit permission deny rules are always respected. |
->>>>>>> origin/main
