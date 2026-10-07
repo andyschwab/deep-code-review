@@ -3744,6 +3744,13 @@ else
   record 1 "land-release: two fragment lanes land back-to-back with no rebump"; tail -8 "$WORK/land-release.log"
 fi
 
+# PR-native review workflow template: own per-feature file (scripts/test-pr-review-workflow.sh), one case here.
+if bash "$ROOT/scripts/test-pr-review-workflow.sh" >"$WORK/pr-review-wf.log" 2>&1; then
+  record 0 "perun-review.yml: least-privilege permissions, pull_request only, opt-in"
+else
+  record 1 "perun-review.yml: least-privilege permissions, pull_request only, opt-in"; tail -8 "$WORK/pr-review-wf.log"
+fi
+
 # must-load floor cut: own per-feature file (scripts/test-mustload-split.sh), one case here.
 if bash "$ROOT/scripts/test-mustload-split.sh" >"$WORK/mustload-split.log" 2>&1; then
   record 0 "mustload split: moved sections stay present and routed; INDEX has no Headings column"
