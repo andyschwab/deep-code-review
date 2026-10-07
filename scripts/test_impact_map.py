@@ -68,8 +68,79 @@ class T(unittest.TestCase):
 
     def test_pack_bounded(self):
         t = cp.render("main", self.d, "", 8, 200)
-        self.assertLessEqual(len(t.encode()), 220)
+        self.assertLessEqual(len(t.encode()), 200)
         self.assertTrue(t.endswith("[truncated]\n"))
+
+    def test_bad_base_fails_closed(self):
+        for b in ("nosuchref", "--output=/tmp/x"):
+            with self.assertRaises(SystemExit):
+                im.build(b, self.d, 8)
+
+    def test_noprefix_config_still_parsed(self):
+        git(self.d, "config", "diff.noprefix", "true")
+        try:
+            self.assertEqual(im.build("main", self.d, 8)["changed_files"], ["core.py"])
+        finally:
+            git(self.d, "config", "--unset", "diff.noprefix")
+
+    def test_removed_dashdash_line_not_header(self):
+        diff = "diff --git a/q.sql b/q.sql\n--- a/q.sql\n+++ b/q.sql\n@@ -1,2 +1,2 @@\n--- a sql comment\n+def real_fn(x)\n"
+        files, contract = im.parse_diff(diff)
+        self.assertEqual(files, {"q.sql": {"real_fn"}})
+        self.assertTrue(contract)
+
+    def test_pack_cleans_control_chars(self):
+        self.assertNotIn("\n", cp.clean("a\nb\x1b[0m"))
+
+
+class Brace(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        d = cls.d = cls.tmp.name
+        p = Path(d)
+        (p / "lib.js").write_text("export function alpha(x) {\n  return x;\n}\nexport const beta = (y) => {\n  return y;\n};\n"
+                                  "function gamma(z) {\n  const k = 1;\n  return delta(z) + k;\n}\n")
+        (p / "dep.js").write_text("function delta(q) {\n  return q;\n}\n")
+        for i in range(3):
+            (p / f"use{i}.js").write_text("alpha(1);\n")
+        git(d, "init", "-q", "-b", "main")
+        git(d, "add", ".")
+        git(d, "commit", "-qm", "base")
+        git(d, "checkout", "-qb", "feat")
+        (p / "lib.js").write_text("export function alpha(x, w) {\n  return x;\n}\nexport const beta = (y, v) => {\n  return y;\n};\n"
+                                  "function gamma(z) {\n  const k = 2;\n  return delta(z) + k;\n}\n")
+        git(d, "commit", "-qam", "change")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_symbols_and_cap(self):
+        m = im.build("main", self.d, 2)
+        names = {s["name"] for s in m["symbols"]}
+        self.assertEqual(names, {"alpha", "beta", "gamma"})  # gamma via @@ hunk header (body-only)
+        a = next(s for s in m["symbols"] if s["name"] == "alpha")
+        self.assertEqual(len(a["callers"]), 2)
+        self.assertTrue(m["truncated"])
+        self.assertTrue(m["contract_change"])
+
+    def test_callee_body(self):
+        g = next(s for s in im.build("main", self.d, 8)["symbols"] if s["name"] == "gamma")
+        self.assertEqual([(c["name"], c["file"]) for c in g["callees"]], [("delta", "dep.js")])
+
+    def test_body_only_no_contract(self):
+        p = Path(self.d)
+        git(self.d, "checkout", "-q", "main")
+        git(self.d, "checkout", "-qb", "body")
+        (p / "lib.js").write_text((p / "lib.js").read_text().replace("const k = 1", "const k = 3"))
+        git(self.d, "commit", "-qam", "body")
+        try:
+            m = im.build("main", self.d, 8)
+        finally:
+            git(self.d, "checkout", "-q", "feat")
+        self.assertEqual([s["name"] for s in m["symbols"]], ["gamma"])
+        self.assertFalse(m["contract_change"])
 
 
 if __name__ == "__main__":

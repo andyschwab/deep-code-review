@@ -11,7 +11,8 @@ Output (stdout, JSON): {"base","changed_files":[...],"contract_change":bool,"sym
 "truncated":bool}. Edge cases: no diff -> empty lists; names under 3 chars or common keywords skipped;
 per-symbol caps (--cap, default 8) bound the output and set "truncated". Heuristic and regex-based
 (def/function/class/fn/func/const-arrow): a LEAD generator, not a call graph; dynamic dispatch and
-reflection are invisible. Side effects: none (read-only git subprocesses).
+reflection are invisible. A bad or unresolvable --base (or a leading '-') exits non-zero: a failed diff is never reported as an empty one.
+Side effects: none (read-only git subprocesses).
 """
 import argparse
 import json
@@ -27,22 +28,31 @@ HUNK_RE = re.compile(r"^@@ .*?" + KW + r"\s+([A-Za-z_][A-Za-z0-9_]*)")
 SKIP = {"main", "init", "test", "self", "this", "new", "get", "set", "run"}
 
 
-def sh(args, cwd):
+def sh(args, cwd, strict=False):
+    """Run git; exit 0/1 -> stdout (1 = grep no-match). Other codes: "" , or exit non-zero when strict."""
     r = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
-    return r.stdout if r.returncode in (0, 1) else ""
+    if r.returncode in (0, 1):
+        return r.stdout
+    if strict:
+        sys.exit(f"impact_map: {' '.join(args[:2])} failed ({r.returncode}): {r.stderr.strip()[:200]}")
+    return ""
 
 
 def parse_diff(diff):
     """Return ({file: set(symbols)}, contract_change). A def line added/removed marks a contract change."""
-    files, cur, contract = {}, None, False
+    files, cur, contract, hdr = {}, None, False, False
     for ln in diff.splitlines():
-        if ln.startswith("+++ "):
-            cur = ln[6:] if ln.startswith("+++ b/") else None
-            if cur:
-                files.setdefault(cur, set())
-        elif cur is None or ln.startswith("--- "):
-            continue
+        if ln.startswith("diff --git "):
+            cur, hdr = None, True  # headers are only recognised between "diff --git" and the first "@@"
+        elif hdr and not ln.startswith("@@"):
+            if ln.startswith("+++ "):
+                cur = ln[6:] if ln.startswith("+++ b/") else None
+                if cur:
+                    files.setdefault(cur, set())
+        elif cur is None:
+            hdr = False
         else:
+            hdr = False
             is_change = ln[:1] in "+-"
             m = HUNK_RE.match(ln) if ln.startswith("@@") else (DEF_RE.match(ln) if is_change else None)
             if m:
@@ -66,11 +76,8 @@ def callers(sym, changed, repo, cap):
 
 def callees(file, sym, repo, cap):
     """Call-shaped names in sym's body that are defined in some other tracked file."""
-    try:
-        with open(f"{repo}/{file}", encoding="utf-8", errors="replace") as fh:
-            src = fh.read().splitlines()
-    except OSError:
-        return []
+    # read the committed blob, never the worktree path: a PR-supplied symlink must not escape the repo
+    src = sh(["git", "show", "--end-of-options", f"HEAD:{file}"], repo).splitlines()
     start = next((i for i, l in enumerate(src) if DEF_RE.match(l) and re.search(rf"\b{re.escape(sym)}\b", l)), None)
     if start is None:
         return []
@@ -95,7 +102,11 @@ def callees(file, sym, repo, cap):
 
 
 def build(base, repo, cap):
-    diff = sh(["git", "diff", "--unified=0", "--no-color", f"{base}...HEAD"], repo)
+    if base.startswith("-"):
+        sys.exit(f"impact_map: invalid base {base!r}")
+    sh(["git", "rev-parse", "--verify", "--quiet", "--end-of-options", base + "^{commit}"], repo, True)
+    diff = sh(["git", "diff", "--unified=0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/",
+               "--end-of-options", f"{base}...HEAD"], repo, True)
     files, contract = parse_diff(diff)
     changed = set(files)
     syms, out_files, trunc = [], set(), False
