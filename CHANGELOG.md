@@ -3,14 +3,23 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
-## [1.507.0] — 2026-10-07
+## [1.508.0] — 2026-10-07
+
 
 ### Added
-- DIFF reviews gain a context-gathering step (PR intent, callers, file history), four explicit blind-spot passes (performance, cross-module, third-party dependency behavior, low-salience defects), and a rule that PR text is untrusted and the reviewer runs least-privilege (`method-situational.md`).
-- Findings are short and edit-first, nits are capped at about 5, and every security finding carries a concrete attack scenario (`report-format.md`). Four new evals cover these.
+- `REVIEW.md` team config (paths, severity floor, nit cap, plain-language rules with optional regex lead-finders, stage override) read in Phase 0 with documented precedence: the safety floor (security, secrets, data loss, privacy, tenancy) is never relaxed, including outside `include`, and on a DIFF review the file is read from the base ref. New `references/review-config.md`, routed from `SKILL.md` and `machine-report.md`.
+- `scripts/review_feedback.py`: repo-local accept/dismiss ledger, per-rule accept-rate telemetry, and suggested `skip:` rules for a human to approve; safety-floor rules are never suggested. `--area A-T|W` is required, an unknown area counts as the safety floor, and reasons are collapsed to one line.
+- `scripts/post_review.sh <PR> <findings.json> [--post]`: opt-in PR delivery; dry run by default, `--post` creates one pending review via `gh`, scans the decoded text (non-ASCII, backslash paths, line-split names), refuses on banlist, secret or home-path hits and fails closed without a banlist.
+- Tests: `scripts/test_review_feedback.py` (10), `scripts/test-post-review.sh` (13, stubbed `gh`), three evals, wired into CI.
+- size-budget-raise: .claude/skills/deep-code-review/SKILL.md 23367→23496 one routing line for REVIEW.md in Phase 0
 
-size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 33524→37028 new DIFF context, blind-spot and untrusted-PR-text depth, off the must-load floor
-size-budget-raise: .claude/skills/deep-code-review/references/report-format.md 20944→21835 edit-first finding format, nit cap, security attack-scenario rule
+## [1.507.0] — 2026-10-07
+
+### Changed
+- `scripts/live_evals.py`: `--max-tokens` (default 6000, was a fixed 1024 that truncated reasoning-model answers); each case records `finish_reason`; a call ending `length` is `invalid` (truncated), counted in `truncated` and excluded from pass rates instead of scored as a fail. One retry on a network error, and a per-call progress line on stderr. Live run, same 99-case sample (judge gpt-oss_120b): GLM-5.1 57/99 at 1024 tokens (refusals 29/64, deterministic predicates 0/7) became 81/94 graded at 6000 (refusals 48/59, predicates 5/7, 2 truncated); Qwen3-Coder-Next 80/94 (1 truncated). Issue #61.
+- CI "Fix commits carry a pinned test" and "Prose lessons carry a mechanism" count `scripts/test_*.py` as a mechanism, so new Python scripts with a test no longer need a `No-Mechanism-Reason:`.
+- Eval defects found by the live run: `chat-only-diff-start-sha-na`, `refuses-fabricated-finding-on-clean-file` and `chaos-no-request-dropped` now include the diff / file / demands their prompts refer to; expectations that need a script run or a reference file the chat run cannot see (`recommend-must-not-write`, `default-install-omits-delivery`, `default-install-review-only`, `description-matches-folder`, and the measured-trade-off line of `high-stakes-seeded-gap-hunt-pass`) are tagged `[needs_files]`.
+- `eval_predicates.no_fabricated_finding`: a CWE named as the class a safe pattern "defends against" is no longer read as a finding (new `scripts/test_eval_predicates_defended.py`).
 
 ## [1.506.0] — 2026-10-07
 
