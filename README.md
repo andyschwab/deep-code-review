@@ -44,6 +44,9 @@ cd deep-code-review && shasum -a 256 -c SHA256SUMS   # Linux: sha256sum -c SHA25
 
 Then ask your agent `run a deep code review DIFF origin/main`.
 
+**Whole team:** plugin marketplace, admin push, updates, pinning in
+[`docs/team-install.md`](docs/team-install.md).
+
 ---
 
 ## What problems it solves
