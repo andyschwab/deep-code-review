@@ -14,12 +14,36 @@
 #
 # size-budgets.tsv rows are rewritten to current sizes; a raise still needs the `size-budget-raise:`
 # marker in the fragment (enforced by `ci-gates.sh size-ratchet`).
+# `land-release.sh tag` (run AFTER the release commit is on origin/main): creates and pushes annotated tag vX.Y.Z
+# on the commit that introduced that VERSION on origin/main; refuses if origin/main is not at that version;
+# an existing local tag is skipped with a message. Land itself never tags.
 # Env: REMOTE (origin), BASE_BRANCH (main), RELEASE_DATE (today). Exit 0 ok, 1 failure, 2 usage.
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE=${REMOTE:-origin} BASE_BRANCH=${BASE_BRANCH:-main}
 mode=land
-case "${1:-}" in "") ;; --regen) mode=regen ;; *) echo "usage: land-release.sh [--regen]" >&2; exit 2 ;; esac
+case "${1:-}" in "") ;; --regen) mode=regen ;; tag) mode=tag ;; *) echo "usage: land-release.sh [--regen|tag]" >&2; exit 2 ;; esac
+
+if [ "$mode" = tag ]; then
+  git fetch -q "$REMOTE" "$BASE_BRANCH"
+  ver=$(git show "$REMOTE/$BASE_BRANCH:.claude/skills/deep-code-review/VERSION" | tr -d '[:space:]')
+  [ "$ver" = "$(tr -d '[:space:]' <.claude/skills/deep-code-review/VERSION)" ] \
+    || { echo "land-release tag: $REMOTE/$BASE_BRANCH is at $ver, this checkout is not; merge the release first, then run tag" >&2; exit 1; }
+  sha=$(git log -1 --format=%H "$REMOTE/$BASE_BRANCH" -S"$ver" -- .claude/skills/deep-code-review/VERSION)
+  [ -n "$sha" ] || { echo "land-release tag: release commit for $ver not found on $REMOTE/$BASE_BRANCH" >&2; exit 1; }
+  if git rev-parse -q --verify "refs/tags/v$ver" >/dev/null; then
+    echo "land-release tag: v$ver already exists locally; skipping creation"
+    [ "$(git rev-parse "v$ver^{commit}")" = "$sha" ] || { echo "land-release tag: local v$ver points elsewhere than $sha" >&2; exit 1; }
+  else
+    git tag -a "v$ver" -m "release $ver" "$sha"
+  fi
+  if git ls-remote --exit-code --tags "$REMOTE" "refs/tags/v$ver" >/dev/null 2>&1; then
+    echo "land-release tag: v$ver already on $REMOTE"
+  else
+    git push -q "$REMOTE" "refs/tags/v$ver"; echo "land-release tag: pushed v$ver"
+  fi
+  exit 0
+fi
 
 LOCK="$(git rev-parse --git-common-dir)/land-release.lock"
 mkdir "$LOCK" 2>/dev/null || { echo "land-release: lock held ($LOCK); another land is running" >&2; exit 1; }
