@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.503.0] — 2026-10-07
+
+### Added
+
+- High-stakes reviews: seeded gap-hunting second pass (default N=1, verify-merge, measured recall/cost) in `method-situational.md`, routed from `method.md`, plus an eval case. Closes #1361
+- size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 27133→28534 seeded gap-hunt second pass depth, kept out of the must-load floor
+
 ## [1.502.0] — 2026-10-07
 
 ### Added
