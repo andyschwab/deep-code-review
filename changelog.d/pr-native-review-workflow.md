@@ -1,0 +1,3 @@
+### Added
+- `deep-code-review/templates/perun-review.yml`: opt-in reusable GitHub workflow for PR-native review. Job 1 runs the review headless and read-only (`contents: read`, read-only tools, per-run spend cap) and uploads a findings artifact; job 2 (`pull-requests: write`, `checks: write`, base checkout, no model key) runs `post_review.sh --post`, replaces its prior pending review on re-push, and updates one sticky comment and one check run with severity counts. `pull_request` only; fork PRs are skipped. `install.sh` never writes it.
+- `scripts/test-pr-review-workflow.sh` (actionlint when installed, YAML and permission assertions), wired into `test-ci-gates.sh` and CI.
