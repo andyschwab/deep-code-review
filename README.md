@@ -172,6 +172,9 @@ hosts, updating and removing: [`docs/getting-started.md`](docs/getting-started.m
 The installer copies files only (no network, no sudo) and backs up any skill it
 would replace. Details: [`SECURITY.md`](SECURITY.md).
 
+**Whole team:** plugin marketplace, admin push, updates, pinning in
+[`docs/team-install.md`](docs/team-install.md).
+
 ---
 
 ## What each person gets
