@@ -40,7 +40,7 @@ every-domain-row invariant below governs the out-of-tree artifact.
   written down where a program can read them.
 
 **Delivery and feedback.** To post these findings on a PR (opt-in, dry-run default) or record
-accept/dismiss per finding, see `review-config.md` (`post_review.sh` takes the `findings` rows as JSON).
+accept/dismiss per finding, see `review-config.md` (`post_review.sh` takes the `findings` rows as JSON). Each gap row carries a quoted `snippet`; ungrounded rows are refused at posting and dropped by `merge_findings.py` (`review-config.md` section 3).
 
 **Style:** block-style YAML. Inline flow *maps* (`{a: b}`), anchors, and
 chomped block scalars break minimal readers and get dropped silently; inline
@@ -104,6 +104,8 @@ findings:
     evidence:
       - src/lib/aggregate.ts:486
       - src/lib/alert.ts:35
+    snippet: "quoted line"     # required on gap rows: text near evidence[0]; ungrounded rows are refused at posting
+    mechanism: null            # optional dedupe key for merge_findings.py (else the title)
     fix: >
       The smallest correct change; root-cause where possible. Required on every gap row.
     compounds: [F27]           # other finding ids this one combines with (Phase 4)
@@ -144,6 +146,10 @@ Field rules, beyond the comments above:
   fan-out, `finder` and `lead_read` carry the unit manifest's attribution
   (`parallel-audit.md`); a unit whose finder never completed is `unverified`
   in the note, never `scanned`.
+- **Contract change with zero out-of-diff files opened is a warning.** On a `DIFF` that changes a
+  contract (signature, return shape, error, default, exported name), `ground_truth.notes` must carry
+  `out_of_diff_opened: <N> of <M> (impact_map.py)`. `N = 0` with `M > 0`, or no such line, means callers
+  were never read: cap the `DIFF` verdict below Approve and list the unopened files as unverified surface.
 - **`polarity: strength` rows are the "Invariants verified to hold" table**
   (the units' `checked_sound` lists after lead re-verify): evidence and
   confidence, no severity. Never file a strength as a `Low`.

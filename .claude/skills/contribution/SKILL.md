@@ -39,6 +39,13 @@ So the split is fixed: the agent **minimizes and flags** residual risk; a human
 **clears** it and opens the PR. There is **no autonomous push, PR, or send** to
 the public repository, ever. The skill is default **OFF**.
 
+**Opt-in exception: issues only.** With `share_learnings: auto` in `.perun/policy.json`
+(default `ask`: a draft needs `--approve`; `off`: nothing), `scripts/share_learning.py`
+generalizes one lesson, runs `scripts/prefile_check.sh`, dedupes against open and closed
+upstream issues, and files an **issue** (default upstream: this repository; override with
+`--repo` or `$PERUN_UPSTREAM`), logging each outcome to `.perun/shared-learnings.jsonl`.
+It never opens a PR or pushes, and a privacy-gate failure refuses the share.
+
 The human gate is on the **send**, because that crossing is **irreversible** — a
 third party's confidential fact, once public, cannot be recalled, and no scanner
 catches a paraphrased one. Everything *before* the send is reversible and happens

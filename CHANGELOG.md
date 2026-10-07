@@ -3,6 +3,58 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.518.0] — 2026-10-07
+
+### Added
+- `deep-code-review/templates/perun-review.yml`: opt-in reusable GitHub workflow for PR-native review. Job 1 runs the review headless and read-only (`contents: read`, read-only tools, per-run spend cap) and uploads a findings artifact; job 2 (`pull-requests: write`, `checks: write`, base checkout, no model key) runs `post_review.sh --post`, replaces its prior pending review on re-push, and updates one sticky comment and one check run with severity counts. `pull_request` only; fork PRs are skipped. `install.sh` never writes it.
+- `scripts/test-pr-review-workflow.sh` (actionlint when installed, YAML and permission assertions), wired into `test-ci-gates.sh` and CI.
+- Hardening: the review job fetches full history, checks out the PR head and reads a prebuilt `pr.diff`; the CLI is installed in a separate secret-free step at a pinned version (job fails until `CLAUDE_CODE_VERSION` is set); `Bash`/edit/web tools are denied and project settings ignored. The post job sanitizes model output (severity enum, commit pinned to the PR head, size caps) and dry-runs `post_review.sh` before deleting the prior pending review. The dead grounding step is removed. Prerequisites now include a non-empty `.banlist.txt`.
+
+## [1.517.0] — 2026-10-07
+
+### Added
+- Noise and grounding gate for review findings: `finding_ground_check.py` marks each gap finding grounded only when its file exists, the cited line is in range, and its quoted snippet appears within +-5 lines; `merge_findings.py` drops ungrounded rows, dedupes by file and mechanism, ranks by severity and caps per review.
+- `post_review.sh` now refuses any ungrounded gap finding before posting (loose no-evidence rows are no longer posted in the review body).
+- Evals: a clean diff reports NONE, and ungrounded findings are refused at posting. Tests in `scripts/test_finding_gates.py`, wired into CI and `test-ci-gates.sh`.
+
+size-budget-raise: .claude/skills/deep-code-review/references/machine-report.md 10261→10617 documents the snippet and mechanism fields of findings rows
+size-budget-raise: .claude/skills/deep-code-review/references/review-config.md 5205→5745 documents the grounding gate and merge step beside post_review.sh
+
+## [1.516.0] — 2026-10-07
+
+### Added
+
+- `impact_map.py` maps a diff's changed symbols to out-of-diff callers and callees (capped JSON), and `context_pack.py` bundles that with `git log --follow` history and optional PR intent into a bounded markdown pack. The method's DIFF depth section now makes out-of-diff tracing mandatory for multi-file or contract-changing diffs, and the machine-report rules warn when a contract change opened zero out-of-diff files. Tests use a synthetic multi-file repo (`scripts/test_impact_map.py`); one eval covers the doctrine.
+
+
+## [1.515.0] — 2026-10-07
+
+### Changed
+- README rewritten for every reader (engineer, manager, security, finance, product, marketing): plain-numbers proof, a worked story, a sample finding, a by-role table, an honest Limits section and a glossary. Engineering detail moved to `docs/technical-overview.md`.
+- Quickstart and `docs/getting-started.md` no longer tell users to pin a release tag that does not exist for current main; they clone main, verify checksums and record the commit.
+- Removed an unsourced cross-model pass-rate claim from the README.
+
+No-Mechanism-Reason: documentation-only change to README.md and docs; no skill file touched.
+
+## [1.514.0] — 2026-10-07
+
+### Added
+- `/perun-run <goal>` plugin command that starts a self-paced loop over the task ledger, with the `/loop <goal>` one-liner as fallback.
+- `task_ledger.py next --check`: exit 3 (drained) when no non-gated item remains.
+- unattended-operating-mode.md: why sessions stop after one item and how to run autonomously (no blocking Stop hook).
+- size-budget-raise: .claude/skills/agentic-delivery/references/unattended-operating-mode.md 24057→26509 why-sessions-stop-after-one-item section
+
+## [1.513.0] — 2026-10-07
+
+### Added
+- Resource policy: one file, `.perun/policy.json`, sets `efficient` (default), `maximize`, `off` or a numeric cap per dimension (tokens, local_cpu, local_ram, github_actions, paid_api_calls, network). `scripts/perun_policy.py get <dim>` reads it; `train_land.sh`, `land_train.sh` and `host_probe.py` honor it (`github_actions: off` adds `[skip ci]` to merges and never waits on CI; `local_cpu` sets parallelism). Shipped workflows skip when repo variable `PERUN_GITHUB_ACTIONS` is `off`.
+- `contribution/scripts/share_learning.py`: policy-gated (`share_learnings: auto|ask|off`, default `ask`), generalizes a lesson, runs `prefile_check.sh`, dedupes against open and closed upstream issues, files an issue only (never a PR), logs to a local ledger.
+- Behaviour change: `host_probe.py` now caps lanes at half the cores by default when `--live-lanes` is given without `--max-lanes` (policy `efficient`); it prints a one-line notice on stderr whenever that cap applies. Pass `--max-lanes` or set `local_cpu` to change it.
+- `share_learning.py` hardening: `--approve` needs a TTY and a typed yes, non-default repos need `--allow-repo`, `auto` needs `.banlist.local.txt`, dry run unless `--send`, 3 auto-shares a day, provenance footer, paths, foreign URLs and code blocks over 20 lines stripped. A set but missing `$PERUN_POLICY` now fails closed.
+- `docs/for-fleets.md` "Efficiency by default" section with the self-improvement loop.
+
+No-Mechanism-Reason: mechanisms are the new scripts and tests (scripts/test_resource_policy.py, scripts/test-resource-policy-train.sh); the doctrine lines only point at them.
+
 ## [1.512.0] — 2026-10-07
 
 ### Added

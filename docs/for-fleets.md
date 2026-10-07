@@ -16,6 +16,15 @@ What Perun is: [the README](../README.md). Basic install:
 | `scripts/dcr-gates.sh` | Calls the gate scripts inside the installed skills; holds no copy of their logic, so re-running `install.sh` upgrades the checks. |
 | `.githooks/pre-push` | Reruns your fast lint + unit tier (`DCR_PREPUSH_CMD`) before each push. Off until you run `git config core.hooksPath .githooks`. |
 
+Separately opt-in, never written by `install.sh`: copy
+`.claude/skills/deep-code-review/templates/perun-review.yml` to
+`.github/workflows/` for PR-native review. A read-only job runs the review and
+a second job (no PR checkout, no model key) posts one pending review, one
+sticky comment and one check run with severity counts, replacing its prior
+pending review on each push. Prerequisites: the `ANTHROPIC_API_KEY` secret, a non-empty `.banlist.txt`
+(`post_review.sh` fails closed without it) and a pinned `CLAUDE_CODE_VERSION`. The file header documents the spend cap and fork
+hardening.
+
 It never overwrites an existing file at these paths; it writes `<path>.new`
 instead. Always on: `fix_class_gate.py` (every `fix:` commit touches a pinned
 test or carries a `No-Test-Reason:` trailer) and `binaries_gate.py` (no
@@ -60,6 +69,30 @@ documents itself in its header and prints usage with `--help`.
 - Load only the skills a lane needs. Each skill's `SKILL.md` routes to its
   references on explicit triggers, so a lane that doesn't hit a trigger never
   reads that depth.
+
+## Efficiency by default
+
+Every resource is spent efficiently unless you name a front to push. One file,
+`.perun/policy.json`, sets a mode per dimension: `efficient` (default), `maximize`,
+`off`, or a numeric cap. Dimensions: `tokens`, `local_cpu`, `local_ram`,
+`github_actions`, `paid_api_calls`, `network`. Example, push local CPU, stay off GitHub runners:
+
+```json
+{ "local_cpu": "maximize", "github_actions": "off", "share_learnings": "auto" }
+```
+
+- `local_cpu: maximize` fills idle cores, never past the load, free-RAM and swap
+  ceilings in `host_probe.py`. `train_land.sh` exports `PERUN_JOBS` from it.
+- `github_actions: off` means local gates only: Perun's merges carry `[skip ci]`,
+  it never polls or re-runs CI, and the shipped workflows skip when the repository
+  variable `PERUN_GITHUB_ACTIONS` is `off`.
+- `share_learnings` (`auto|ask|off`, default `ask`) governs `share_learning.py`.
+- Agents read the policy (`python3 scripts/perun_policy.py get <dim>`) before choosing
+  parallelism, CI, or model. A malformed file fails closed.
+
+Self-improvement loop: a field lesson is generalized and privacy-checked, filed as an
+upstream issue (deduped, logged to a local ledger), fixed in a release, then measured
+against the benchmark corpus before the next lesson is trusted.
 
 ## Where the doctrine lives
 
