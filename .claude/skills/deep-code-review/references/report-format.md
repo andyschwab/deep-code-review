@@ -61,9 +61,13 @@ Counts: Blocker N · Critical N · High N · Medium N · Low N · Nit N
 ### F1 — <title>  [Critical]
 - Where: <file:line>
 - What: <precise description>
-- Why it matters: <impact / exploit / wrong result>
+- Why it matters: <impact / exploit / wrong result; for a security finding, a concrete attack
+  scenario: who the attacker is and what access they start with, the entry point (`file:line`,
+  route, field), the 2-4 steps, and the resulting impact. If you cannot write the scenario, file it
+  as an `unverified` lead, not a confirmed finding>
 - Evidence: <failing case, query plan, repro, or the offending snippet>
-- Fix: <smallest correct change; root-cause where possible> — mark
+- Fix: <smallest correct change, written as the actual edit (a one-line diff or short snippet) when it
+  fits in about 10 lines; root-cause where possible> — mark
   `mechanism-unproven` when the failure was never reproduced under your control
   (CI-only, intermittent, environment-specific), and name what would prove it (the
   failing seed, the constrained repro, the assertion that fails red first).
@@ -168,6 +172,12 @@ as whether it is right.
   suggestion, reserve directive language for a real defect, and label a nit `Nit:` so it can't
   read as a gate. (This is register, not vocabulary — `communication-structure` governs shape
   and length, not tone.)
+- **Short, edit-first, nits capped.** A finding is a few sentences plus the edit, not an essay:
+  long comments with no concrete edit are the ones authors skip. Cap nits at 5 per review (a
+  starting default; a target's committed review config, such as a `max_nits` in `REVIEW.md`,
+  overrides it); fold the rest into one line naming the class and every
+  `file:line`, and keep nits below all Medium-and-up findings so they never bury a Blocker.
+  Merge same-root-cause findings first. A nit never blocks.
 - **When the author disputes a *filed* finding, run a hold-or-concede loop — neither cave nor
   dig in.** (1) Genuinely re-weigh it: if the author is right (the finding is wrong, or the fix
   would break intended behavior a base-ref test pins — the same test as `method.md`'s
