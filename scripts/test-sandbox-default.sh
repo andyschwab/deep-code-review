@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Sandbox-by-default tests. Inspect generated settings JSON only; nothing is deleted or killed
+# (the temp dir under TMPDIR is left for the OS to reap).
+set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SC="$ROOT/.claude/skills/agentic-delivery/scripts"
+command -v jq >/dev/null 2>&1 || { echo "SKIP  jq missing"; exit 0; }
+W="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-sb.XXXXXX")"
+fail=0; n=0
+ok() { n=$((n+1)); if [ "$1" -eq 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; fail=1; fi; }
+
+mkdir -p "$W/a/.claude" "$W/b/.claude"
+echo '{"permissions":{"deny":["Bash(curl *)"]}}' >"$W/a/.claude/settings.local.json"
+echo '{}' >"$W/b/.claude/settings.local.json"
+bash "$ROOT/install.sh" --with-delivery --apply-operating-layer "$W/a" >"$W/a.out" 2>&1
+bash "$ROOT/install.sh" --with-delivery --apply-operating-layer --no-sandbox "$W/b" >"$W/b.out" 2>&1
+A="$W/a/.claude/settings.local.json"; B="$W/b/.claude/settings.local.json"
+jq -e '.hooks.SubagentStop | length > 0' "$A" "$B" >/dev/null; ok $? "apply and --no-sandbox both still merge hooks"
+
+[ "$(jq -c '.sandbox' "$A")" = '{"enabled":true,"allowUnsandboxedCommands":false}' ]; ok $? "apply: sandbox on, unsandboxed retry off"
+jq -e '.permissions.deny | contains(["Bash(rm -rf *)","Bash(rm -fr *)","Bash(rm -r *)","Bash(rm -R *)","Bash(sudo *)"])' "$A" >/dev/null; ok $? "apply: rm/sudo deny rules present"
+jq -e '.permissions.deny | index("Bash(curl *)")' "$A" >/dev/null; ok $? "apply: existing deny rule kept"
+bash "$ROOT/install.sh" --with-delivery --apply-operating-layer "$W/a" >/dev/null 2>&1
+[ "$(jq '.permissions.deny | length' "$A")" = 6 ]; ok $? "apply: idempotent deny list (6 entries)"
+grep -q "sandbox.enabled=true" "$W/a.out"; ok $? "apply: What changed lists sandbox"
+jq -e 'has("sandbox") or has("permissions") | not' "$B" >/dev/null; ok $? "--no-sandbox: no sandbox or deny keys"
+grep -q "NO sandbox" "$W/b.out"; ok $? "--no-sandbox: risk warning printed"
+python3 "$SC/operating_selfcheck.py" --settings "$A" | grep -q "^sandbox-on: PRESENT"; ok $? "selfcheck: sandbox on is PRESENT"
+python3 "$SC/operating_selfcheck.py" --settings "$B" | grep -q "^sandbox-on: MISSING RED"; ok $? "selfcheck: sandbox off is MISSING RED"
+python3 "$SC/operating_selfcheck.py" --selftest >/dev/null; ok $? "selfcheck --selftest"
+echo "Tests: $n/$n passed (fail=$fail)"; exit "$fail"

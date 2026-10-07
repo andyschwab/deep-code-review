@@ -35,3 +35,5 @@ Release tags can lag the version; check `git ls-remote --tags` for what exists b
 
 **Spend and cost.** Name API keys `<tracker-project-id>-<handle>` and total an export per project
 (`agentic-delivery/scripts/spend_report.py`); see [`token-cost-tips.md`](token-cost-tips.md).
+
+**Host safety.** Which agent hosts have an OS sandbox and what to set: [`host-safety.md`](host-safety.md).

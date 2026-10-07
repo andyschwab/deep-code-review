@@ -3,6 +3,48 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.525.0] — 2026-10-08
+
+### Added
+- `token_ratchet.py` (agentic-ceo): sums session and subagent transcript usage over a window, divides by delivered PRs, writes a baseline and fails (or warns with `--warn`) when tokens per PR rise more than `--max-rise-pct` (default 20). Zero PRs or an unusable baseline exits 2 instead of passing. `operating_selfcheck.py` now reports a `token-ratchet` item. Tests: `scripts/test_token_ratchet.py` (synthetic JSONL), wired into CI. Refs #1380.
+
+## [1.524.0] — 2026-10-08
+
+### Added
+- `agentic-delivery/scripts/queue_guard.py`: single priority queue. Given `gh issue list --json` output and `PRIORITIES.md`, it prints the next issue to pull (ranked items first, then remaining P0s oldest first) and flags P0 inflation (more than N unranked P0s) instead of relabeling; tag the rest `p0:unranked`. Read-only, fails closed on bad input, `--selftest` wired into CI. Routed from `agentic-delivery/SKILL.md`.
+- size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 23424→23640 one routing bullet for queue_guard.py
+
+## [1.523.0] — 2026-10-08
+
+### Added
+- Admission control for heavy local commands: `perun_policy.py heavy-slots` adds a concurrency primitive `max(2, free cores)` and `host_probe.py --lane-type heavy` defers (`HOLD load-high`) when load1 exceeds cores; the existing free-RAM veto already defers on low RAM. Tests inject load and core values. Not yet wired into a hook or lane template; a consumer adopts it explicitly.
+
+## [1.522.0] — 2026-10-08
+
+### Added
+- `docs/host-safety.md`: per-host table (Claude Code, Cursor, Codex, Gemini CLI, Copilot, OpenCode, Windsurf, Hermes, Kiro, shared `.agents`) of OS-sandbox presence and default, the documented switch, auto-approve modes to avoid and residual risk, plus the rule that hosts without an OS sandbox run agents in a dev container or VM. Sources dated in `docs/standards-index.md`.
+- `install.sh` prints one `safety:` warning line (with the doc link) per installed host, from the single-source `templates/host-safety.tsv`.
+- `host_safety.py` and `operating_selfcheck.py` report `host-safety-<host>: ON | OFF | COULD_NOT_CHECK | NO_OS_SANDBOX` for each installed host. Tests: `scripts/test-host-safety.sh`.
+
+## [1.521.0] — 2026-10-07
+
+### Added
+- Operating layer is sandbox-on by default: `install.sh --apply-operating-layer` sets `sandbox.enabled: true` and `sandbox.allowUnsandboxedCommands: false` and denies `Bash(rm -rf *)`, `Bash(rm -fr *)`, `Bash(rm -r *)`, `Bash(rm -R *)`, `Bash(sudo *)` (existing values win; deny list is merged). `--no-sandbox` opts out with a printed risk warning. Prevents the `rm -rf "$EMPTY"/*` class of host deletion.
+- `operating_selfcheck.py` reports `sandbox-on: MISSING RED` when the sandbox is off or unsandboxed retry is allowed.
+- Doctrine (operating-discipline item 8, lane preamble): never run delete/kill experiments on a host, never `rm -rf` a variable-built path; deny rules match command text only, the sandbox is the real boundary.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 5655→6126 item 8: no delete/kill experiments on a host, sandbox is the boundary
+
+## [1.520.0] — 2026-10-07
+
+### Added
+- `scripts/perun_doctor.py` (`--fix`): reports installed-but-never-runs hooks, missing hook files, stale repo/global versions, drifted forks, missing janitor/scheduler and policy file. `--fix` prints the plan and what default-on would add, then needs a typed "yes" on a TTY (or `--yes`, which warns) and fails loudly if the reinstall fails. See `docs/perun-doctor.md`.
+- `scripts/perun_uninstall.py`: dry run by default, `--apply` to act. Driven by the install marker `.claude/.perun-install.json` (written by `install.sh` via `scripts/perun_marker.py`): removes only recorded hook entries, env values, a model pin Perun set, and skill files whose hash still matches; your added or edited files are kept and listed. Settings are validated first and written by temp file plus rename.
+- `land-release.sh tag`: creates and pushes the annotated tag `vX.Y.Z` only after the release commit is on origin/main; an existing local tag is skipped with a message. Land itself never tags (tags had stopped at v1.211.0).
+
+### Changed
+- `install.sh --with-delivery` / `--full` applies the operating layer by default and prints a what-changed and undo summary that names the model pin; `--no-operating-layer` opts out. Settings backups are now timestamped (`settings.local.json.bak.<ts>`) and never overwritten.
+
 ## [1.519.0] — 2026-10-07
 
 ### Added
