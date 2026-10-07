@@ -1,0 +1,7 @@
+### Added
+- `train_land.sh` / `land_train.sh` (#1341): `UNION_DIRS` accepts newline-separated paths (so a path with a space works) and warns when an entry is not a directory; `train_land.sh` takes a per-worktree, pid-checked lock (`<git-dir>/train-land.lock`, a dead holder's lock is reclaimed) and exits 3 when no union is GREEN, distinct from landed (0). `scripts/test-train-hardening.sh` pins all three.
+- `host_probe.py` (#1342): optional `--swap-used-pct-hold PCT` (off by default) holds with `swap-level` when swap used is at or over PCT of swap total even if flat; `--why` prints the readings and the top three processes by CPU after the verdict line. Both covered by `--selftest`.
+- `scripts/run-evals.py` (#1348): an expectation prefixed `[needs_files]` needs a file open or a script run, so chat-only runs skip it (`chat_expectations`); the dry-run report counts them (`needs_files`). The five "Loads ..." / trigger-routing expectations are tagged, and `--selftest` fails if an untagged "Loads ..." expectation appears.
+- `scripts/eval_predicates.py` (#1349): `stakeholder_update` grades the two communication-structure stakeholder-update cases without a model judge (no effort counts, no future-tense promise, a checked or unverified marker), with golden good/red fixtures. `communication-structure` gains a worked example where the unchecked claim is the lead sentence (skill 1.2.4).
+
+size-budget-raise: .claude/skills/communication-structure/SKILL.md 6923→7281 one worked example where the unchecked claim leads (#1349)

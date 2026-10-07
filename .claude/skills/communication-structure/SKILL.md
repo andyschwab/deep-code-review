@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.2.3"
+  version: "1.2.4"
 ---
 
 # Communication structure
@@ -113,6 +113,10 @@ one — looks clickable, does nothing. **Fixing now; no decision needed.**"
 **Stakeholder update.**
 Before: "12 tasks done, 3 in progress, 40 PRs merged. The new export button is live. Saved filters ship next week."
 After: "**The export button is live: you can now export your data from the dashboard.** [Unverified until checked on the live page.]" (effort counts and the next-week promise are dropped, not softened; an unchecked claim is flagged, never asserted)
+
+**Stakeholder update, unchecked claim leads.**
+Before: "Bulk import is live. 7 tickets closed, 22 PRs merged. Reports redesign arrives next sprint."
+After: "**Bulk import is not yet confirmed for customers: it works in staging only and is unverified in production.**" (the lead sentence is the unchecked claim, so the flag goes in the lead, not a footnote)
 
 **Progress status, exact vs. flattering.**
 Before: "Strong progress on the backlog this week — we've closed the vast

@@ -66,7 +66,7 @@ out=$(VERIFY_CMD='echo "GREEN base='"$B"' union='"$U"'"' UNION_DIRS="$R" LOG_DIR
   bash "$SC/train_land.sh" t1 1 2 3 2>&1); grep -q "^GREEN" <<<"$out" && grep -q "merged 1" <<<"$out"; ok $? "train_land: GREEN union is landed via land_train"
 : >"$STUB/calls.log"
 out=$(VERIFY_CMD='echo "RED union bad"; exit 1' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t2 1 2 2>&1); rc=$?
-[ $rc -eq 0 ] && grep -q "nothing landed" <<<"$out" && ! grep -q "pr merge" "$STUB/calls.log"; ok $? "train_land: RED union lands nothing"
+[ $rc -eq 3 ] && grep -q "nothing landed" <<<"$out" && ! grep -q "pr merge" "$STUB/calls.log"; ok $? "train_land: RED union lands nothing (exit 3)"
 
 # --- base check: refuse a PR targeting the wrong trunk ---
 echo wrong >"$STUB/baseRefName.1"; : >"$STUB/calls.log"

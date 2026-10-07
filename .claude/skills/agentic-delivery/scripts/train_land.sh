@@ -11,6 +11,9 @@
 # Env: VERIFY_CMD (required; run via bash -c as `$VERIFY_CMD <tag> <pr...>`, must print a final line
 # "GREEN base=<sha> union=<sha>" on success, e.g. a merge_train.py wrapper), UNION_DIRS (required, passed on
 # to land_train.sh), BASE_BRANCH (default main), REMOTE (default origin), LOG_DIR (default .).
+# Takes a per-worktree lock (<git-dir>/train-land.lock, pid-checked; a dead holder's lock is reclaimed), so two
+# trains cannot share this worktree or a log. UNION_DIRS: space-separated, or newline-separated when a path has a space.
+# Exit: 0 landed, 1 base/browser red or lock held, 2 usage/refused, 3 no GREEN union (nothing landed).
 # Optional: CLEAN_ROOT (your own worktree tree: runs reap_own.sh and clean_finished.sh on it first), BASE_AUDIT_CMD (run via bash -c on the bare fresh base before verifying; non-zero prints
 # "BASE RED" and exits 1, so a red base is never blamed on a PR), RATCHET_CMD (run via bash -c on each PR
 # merged alone onto the base, with PR=<n>; when no union is GREEN, prints "CULPRIT #n" for each PR that fails it),
@@ -23,7 +26,14 @@ set -euo pipefail
 T=$1; shift
 BASE_BRANCH=${BASE_BRANCH:-main} REMOTE=${REMOTE:-origin} LOG=${LOG_DIR:-.}/train$T.log
 HERE=$(cd "$(dirname "$0")" && pwd) GH=${GH:-gh}
-. "$HERE/_clean_union.sh"; trap clean_union_dirs EXIT
+. "$HERE/_clean_union.sh"
+LOCK=$(git rev-parse --git-dir)/train-land.lock
+if ! mkdir "$LOCK" 2>/dev/null; then
+  p=$(cat "$LOCK/pid" 2>/dev/null || true)
+  if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then echo "train_land: lock held by pid $p ($LOCK)" >&2; exit 1; fi
+  rm -rf "$LOCK"; mkdir "$LOCK" || { echo "train_land: cannot take $LOCK" >&2; exit 1; }
+fi
+echo $$ >"$LOCK/pid"; trap 'clean_union_dirs; rm -rf "$LOCK"' EXIT
 if [ -n "${CLEAN_ROOT:-}" ]; then  # start-of-train cleanup of your own finished work; never blocks the train
   ROOT=$CLEAN_ROOT bash "$HERE/reap_own.sh" || true; ROOT=$CLEAN_ROOT bash "$HERE/clean_finished.sh" || true
 fi
@@ -52,7 +62,7 @@ if [ -z "$L" ]; then
     done
     git checkout -q --detach "$base"
   fi
-  echo "no GREEN union (verify rc=$rc); nothing landed"; exit 0
+  echo "no GREEN union (verify rc=$rc); nothing landed"; exit 3
 fi
 B=$(sed -E 's/.*base=([0-9a-f]+).*/\1/' <<<"$L"); U=$(sed -E 's/.*union=([0-9a-f]+).*/\1/' <<<"$L")
 if [ -z "${BROWSER_CMD:-}" ] || [ "$BROWSER_CMD" = skip ]; then

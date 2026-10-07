@@ -63,6 +63,22 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import eval_predicates as ep  # noqa: E402  (sibling script; reuse its predicates + bindings)
 
 
+NEEDS_FILES = "[needs_files]"  # expectation prefix: needs a file open or a script run, which a chat-only run cannot do
+
+
+def chat_expectations(expectations: "list[str]") -> "list[str]":
+    """The expectations a chat-only run can be held to: everything not tagged `[needs_files]`."""
+    return [x for x in expectations if not x.startswith(NEEDS_FILES)]
+
+
+def _expectations(repo: Path, skill: str) -> "list[str]":
+    path = repo / ".claude" / "skills" / skill / "evals" / "evals.json"
+    try:
+        return [x for e in json.loads(path.read_text(encoding="utf-8"))["evals"] for x in e.get("expectations", [])]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError):
+        return []
+
+
 def _skills_with_evals(repo: Path) -> "list[str]":
     """Every skill directory that ships an evals/evals.json, sorted."""
     root = repo / ".claude" / "skills"
@@ -84,7 +100,7 @@ def build_coverage(repo: Path) -> "dict":
     """
     hard = _hard_index()
     skills = []
-    total = hard_total = soft_total = 0
+    total = hard_total = soft_total = needs_total = 0
     for skill in _skills_with_evals(repo):
         ids = ep._eval_ids(repo, skill)
         if ids is None:
@@ -92,7 +108,10 @@ def build_coverage(repo: Path) -> "dict":
             continue
         hard_ids = sorted(i for i in ids if (skill, i) in hard)
         soft_ids = sorted(i for i in ids if (skill, i) not in hard)
+        exps = _expectations(repo, skill)
+        needs_files = len(exps) - len(chat_expectations(exps))
         total += len(ids)
+        needs_total += needs_files
         hard_total += len(hard_ids)
         soft_total += len(soft_ids)
         skills.append(
@@ -101,11 +120,12 @@ def build_coverage(repo: Path) -> "dict":
                 "total": len(ids),
                 "hard": hard_ids,          # graded offline by a deterministic predicate
                 "soft_pending": soft_ids,  # need the live judge (deferred to owner dispatch)
+                "needs_files": needs_files,  # expectations a chat-only run skips (tagged NEEDS_FILES)
             }
         )
     return {
         "mode": "dry-run",
-        "totals": {"evals": total, "hard": hard_total, "soft_pending": soft_total},
+        "totals": {"evals": total, "hard": hard_total, "soft_pending": soft_total, "needs_files": needs_total},
         "skills": skills,
     }
 
@@ -249,6 +269,12 @@ def run_selftest(repo: Path) -> int:
     checks.append(("dry-run enumerates evals", cov["totals"]["evals"] > 0))
     checks.append(("at least one hard eval is bound", cov["totals"]["hard"] > 0))
     checks.append(("some evals are soft (need the live judge)", cov["totals"]["soft_pending"] > 0))
+
+    # `[needs_files]` tag: chat-only runs skip tagged expectations; no untagged "Loads ..." expectation remains.
+    checks.append(("chat_expectations drops tagged only", chat_expectations([NEEDS_FILES + " Loads x", "Names y"]) == ["Names y"]))
+    checks.append(("some expectations are tagged needs_files", cov["totals"]["needs_files"] > 0))
+    untagged_loads = [x for sk in _skills_with_evals(repo) for x in chat_expectations(_expectations(repo, sk)) if x.startswith("Loads ")]
+    checks.append(("no untagged 'Loads ...' expectation", not untagged_loads))
 
     # Decorrelation guard: equal ids, either unset/blank -> error; distinct ids -> ok.
     checks.append(("equal model ids rejected", decorrelation_error("m", "m") is not None))

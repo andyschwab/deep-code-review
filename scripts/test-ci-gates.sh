@@ -3730,6 +3730,13 @@ else
   record 1 "train scripts: land_train/train_land/reap_own tests pass"; tail -5 "$WORK/train-scripts.log"
 fi
 
+# train hardening (#1341): own per-feature file (scripts/test-train-hardening.sh), one case here.
+if bash "$ROOT/scripts/test-train-hardening.sh" >"$WORK/train-hardening.log" 2>&1; then
+  record 0 "train hardening: spaced UNION_DIRS, per-worktree lock, exit 3 on no GREEN union"
+else
+  record 1 "train hardening: spaced UNION_DIRS, per-worktree lock, exit 3 on no GREEN union"; tail -8 "$WORK/train-hardening.log"
+fi
+
 # land-release: own per-feature file (scripts/test-land-release.sh), one case here.
 if bash "$ROOT/scripts/test-land-release.sh" >"$WORK/land-release.log" 2>&1; then
   record 0 "land-release: two fragment lanes land back-to-back with no rebump"
