@@ -9,6 +9,13 @@ Read this when `method.md` routes here: a gate verdict is disputed, a green, CI 
   files and prints findings JSON; `--tests` adds the declared `REVIEW_TEST_CMD`. Its findings are leads: verify
   each against the code before reporting, report a `not run` line as unchecked surface, and never read an empty
   list as clean (analyzers miss fail-open and logic defects).
+- **Out-of-diff tracing — mandatory on a multi-file or contract-changing `DIFF`.** A changed signature,
+  return shape, error, default or exported name is read at its callers and callees, not just in the
+  hunk. Run `scripts/impact_map.py --base <base>` (changed symbols to callers and callees; JSON, capped)
+  and `scripts/context_pack.py --base <base> [--intent <file>]` (adds `git log --follow` history and the
+  PR intent), then open every file in `out_of_diff_files` that reads the changed contract. They are leads,
+  not a call graph: grep for what they miss. Zero out-of-diff files opened on a contract change is a
+  machine-report warning (`machine-report.md` §2).
 
 - **Check a firing gate against its own standard first.** A gate *stricter* than
   the spec it implements (e.g. a contrast gate flagging disabled controls, which
