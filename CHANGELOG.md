@@ -3,6 +3,15 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.521.0] — 2026-10-07
+
+### Added
+- Operating layer is sandbox-on by default: `install.sh --apply-operating-layer` sets `sandbox.enabled: true` and `sandbox.allowUnsandboxedCommands: false` and denies `Bash(rm -rf *)`, `Bash(rm -fr *)`, `Bash(rm -r *)`, `Bash(rm -R *)`, `Bash(sudo *)` (existing values win; deny list is merged). `--no-sandbox` opts out with a printed risk warning. Prevents the `rm -rf "$EMPTY"/*` class of host deletion.
+- `operating_selfcheck.py` reports `sandbox-on: MISSING RED` when the sandbox is off or unsandboxed retry is allowed.
+- Doctrine (operating-discipline item 8, lane preamble): never run delete/kill experiments on a host, never `rm -rf` a variable-built path; deny rules match command text only, the sandbox is the real boundary.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 5655→6126 item 8: no delete/kill experiments on a host, sandbox is the boundary
+
 ## [1.520.0] — 2026-10-07
 
 ### Added

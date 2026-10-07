@@ -3765,6 +3765,13 @@ else
   record 1 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"; tail -8 "$WORK/ultrareview.log"
 fi
 
+# sandbox by default: own per-feature file (scripts/test-sandbox-default.sh), one case here.
+if bash "$ROOT/scripts/test-sandbox-default.sh" >"$WORK/sandbox-default.log" 2>&1; then
+  record 0 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"
+else
+  record 1 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"; tail -8 "$WORK/sandbox-default.log"
+fi
+
 # ops-script edge cases: own per-feature file (scripts/test-ops-edge.sh), one case here.
 if bash "$ROOT/scripts/test-ops-edge.sh" >"$WORK/ops-edge.log" 2>&1; then
   record 0 "ops edge cases: clean_finished/land_train/prefile_check/pipe_mask_guard"
