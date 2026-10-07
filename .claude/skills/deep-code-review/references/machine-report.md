@@ -39,6 +39,9 @@ every-domain-row invariant below governs the out-of-tree artifact.
   not clean. This is Phase 0's `COVERAGE_LEDGER` and Phase 5's reconciliation
   written down where a program can read them.
 
+**Delivery and feedback.** To post these findings on a PR (opt-in, dry-run default) or record
+accept/dismiss per finding, see `review-config.md` (`post_review.sh` takes the `findings` rows as JSON).
+
 **Style:** block-style YAML. Inline flow *maps* (`{a: b}`), anchors, and
 chomped block scalars break minimal readers and get dropped silently; inline
 flow *sequences of scalars* (`[a, b]`) are fine. No tabs.

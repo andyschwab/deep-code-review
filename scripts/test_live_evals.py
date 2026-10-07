@@ -25,7 +25,8 @@ class Stub(http.server.BaseHTTPRequestHandler):
         sysmsg = body["messages"][0]["content"]
         # routing prompt -> NONE; judge prompt -> PASS; else a refusal-ish answer
         reply = "NONE" if "route a user task" in sysmsg else "PASS" if "grade an assistant" in sysmsg else (SCRIPTS / "eval-fixtures/positioning/refuses-fabricated-market-facts/good.txt").read_text()
-        out = json.dumps({"choices": [{"message": {"content": reply}}], "usage": {"total_tokens": 50}}).encode()
+        fin = "length" if body["max_tokens"] < 100 else "stop"
+        out = json.dumps({"choices": [{"message": {"content": reply}, "finish_reason": fin}], "usage": {"total_tokens": 50}}).encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(out)))
         self.end_headers()
@@ -76,6 +77,18 @@ class LiveEvals(unittest.TestCase):
         self.assertEqual(self.cli("--budget-tokens", "0").returncode, 2)
         self.assertEqual(self.cli("--budget-tokens", "10", LLM_API_KEY="").returncode, 2)
         self.assertEqual(self.cli("--budget-tokens", "10", LLM_JUDGE_MODEL="m1").returncode, 2)
+
+    def test_truncated_is_invalid_not_fail(self):
+        r = self.cli("--budget-tokens", "100000", "--skill", "positioning", "--per-skill", "1", "--max-tokens", "50")
+        rep = json.loads(r.stdout)
+        self.assertEqual(rep["graded"], 0)
+        self.assertEqual(rep["truncated"], rep["total"])
+        self.assertTrue(all(c["result"] == "invalid" and c["finish_reason"] == "length" for c in rep["cases"]))
+        self.assertEqual(r.returncode, 0)
+
+    def test_default_max_tokens_6000(self):
+        self.cli("--budget-tokens", "100000", "--skill", "positioning", "--per-skill", "1")
+        self.assertEqual(SEEN[-1][2]["max_tokens"], 6000)
 
     def test_trigger_grading(self):
         self.assertTrue(le.grade_trigger("idea-critic", "idea-critic", True))

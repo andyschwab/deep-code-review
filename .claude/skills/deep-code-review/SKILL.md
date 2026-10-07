@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.507.0"
+  version: "1.509.0"
 ---
 
 # Deep Code Review
@@ -101,6 +101,8 @@ ARCHETYPE: <web|api|mobile|data|agent|iac|lib|other>
 STAGE: <prototype|mvp|growth|mature | UNVERIFIED> (owner-declared, or named from evidence; unstated defaults to the stricter reading)
 COVERAGE_LEDGER: <applicable domains + must-load refs>
 ```
+
+Read a repo-root `REVIEW.md` in Phase 0 (never relaxes the safety floor): `review-config.md`, also feedback ledger, PR posting.
 
 Dirty / occupied tree → dedicated worktree; planted probes banned on the live
 tree. Skip of the planted-defect probe caps only the gate-self-test claim.
