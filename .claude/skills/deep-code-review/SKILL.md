@@ -163,11 +163,11 @@ review after the first-response block.
 | Phase | Does | Load |
 |---|---|---|
 | 0 Map | Pin `START_SHA`, worktree, history depth, trust boundaries, banned remedies, coverage ledger | `method.md`, `branch-and-merge-hygiene.md` on FULL |
-| 1 Ground truth | Documented setup, aggregate gate by name + exit code, per-subtree coverage, planted-defect probe (missing / empty / wrong / path-excluding config) | `method.md`, `testing-and-evals.md`, `language-stack-redflags.md` + `lang-*.md` per language present; `method-situational.md` when any verdict is cited or disputed |
+| 1 Ground truth | Documented setup, aggregate gate by name + exit code, per-subtree coverage, planted-defect probe (missing / empty / wrong / path-excluding config) | `method.md`, `testing-and-evals.md`, `language-stack-redflags.md` + `lang-*.md` per language present; `method-situational.md` when any verdict is cited or disputed; `redflags-situational.md` when the target has switch/case control flow, a hand-rolled delimiter scanner, a floor then a clamp on one value, or a partition/ring validity gate |
 | 2 Domain audits | Walk applicable A–W with `file:line`; fan-out under `parallel-audit.md` | `domain-checklists.md` → `domain-<letter>.md` per applicable domain + per-domain refs |
 | 3 Adversarial | Hostile user **and** hostile upstream; networked openers: anon GET, two-principal swap, dual-surface, then injection/SSRF | `security-appsec.md`, `security-ai-agents.md`, `security-agent-skills.md` |
 | 4 Synthesize | Dedup, compounds, snippet-or-drop at `START_SHA`, fail-open vs fail-closed, **anti-slop** | `method.md` |
-| 5 Report | Chat BLUF ≤30 lines + full table out-of-tree; in-repo `code-review/` only on confirmation | `report-format.md`, `example-review-report.md` |
+| 5 Report | Chat BLUF ≤30 lines + full table out-of-tree; in-repo `code-review/` only on confirmation | `method-report.md`, `report-format.md`, `example-review-report.md` |
 | 6 Imprint | Opt-in `AGENTS.md` + gates; detect-and-stop if present; pair each standard with a gate | `docs-and-dx.md` |
 
 Phase 6 imprints **this project's review bar**, never delivery (an overlay
@@ -387,18 +387,3 @@ either way.
 
 Compose with other packs; do not also run a second delivery OS on the same
 repo. This review skill always composes.
-
----
-
-## Appendix — reference standards
-
-Verified live for this repository (URLs + dates: the standards index above):
-OWASP Top 10:2025; OWASP Top 10 for LLM Applications 2026; OWASP Top 10 for
-Agentic Applications 2026; OWASP Agentic Skills Top 10 (AST01–AST10); OWASP
-API Security Top 10 (2023); CWE Top 25
-(2025); WCAG 2.2; Google Engineering Practices; Diátaxis; C4; dependency
-currency; branch/merge hygiene.
-
-By name (fetch before citing version-specific detail): OWASP WSTG; Cheat
-Sheet Series; MITRE CWE/CVE and ATLAS; NIST SSDF and AI RMF; SLSA; CIS
-Benchmarks; ISO/IEC 25010; Twelve-Factor; Conventional Commits.

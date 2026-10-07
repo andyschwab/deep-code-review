@@ -9,9 +9,8 @@ For every `.claude/skills/<name>/` that has a `SKILL.md`:
   `.claude/skills/<name>/INDEX.md` — one row per `references/*.md` and
   `scripts/*.py` in that skill: its one-line "Read this when..."/docstring
   trigger, an estimated token cost (`bytes // 4`, this repo's own
-  chars/4 convention — see mustload gate in scripts/ci-gates.sh), and
-  (for a reference) its top-level (`##`) headings, up to 6; (for a script)
-  its CLI usage line and exit codes, when its docstring documents them.
+  chars/4 convention — see mustload gate in scripts/ci-gates.sh) and, for a
+  script, its CLI usage line and exit codes, when its docstring documents them.
 
 And one repo-level table:
   `.claude/skills/INDEX.md` — every skill's purpose (from its SKILL.md
@@ -77,9 +76,10 @@ def token_est(path: Path) -> int:
 
 # ---------------------------------------------------------------------------
 # Markdown reference parsing: first paragraph after the H1 title is the
-# "Read this when..." trigger; `##` lines (up to 6) are the jump-to headings.
+# "Read this when..." trigger. (No headings column: the routed file's own
+# headings are one open away, and the column cost ~7K tokens per session.)
 # ---------------------------------------------------------------------------
-def parse_reference_md(path: Path) -> tuple[str, list[str]]:
+def parse_reference_md(path: Path) -> str:
     lines = path.read_text(encoding="utf-8").splitlines()
     i = 0
     while i < len(lines) and not lines[i].strip():
@@ -92,16 +92,7 @@ def parse_reference_md(path: Path) -> tuple[str, list[str]]:
     while i < len(lines) and lines[i].strip() and not lines[i].lstrip().startswith("#"):
         para.append(lines[i].strip())
         i += 1
-    trigger = _truncate(_strip_md(" ".join(para)), TRIGGER_MAX)
-
-    headings: list[str] = []
-    for line in lines:
-        m = re.match(r"^##\s+(.*)$", line)
-        if m:
-            headings.append(_strip_md(m.group(1).strip()))
-            if len(headings) >= 6:
-                break
-    return trigger, headings
+    return _truncate(_strip_md(" ".join(para)), TRIGGER_MAX)
 
 
 # ---------------------------------------------------------------------------
@@ -236,14 +227,11 @@ def generate_skill_index(skill_dir: Path) -> str:
     out.append("## References")
     out.append("")
     if refs:
-        out.append("| File | Read this when... | Tokens (est) | Headings |")
-        out.append("|---|---|---|---|")
+        out.append("| File | Read this when... | Tokens (est) |")
+        out.append("|---|---|---|")
         for ref in refs:
-            trigger, headings = parse_reference_md(ref)
-            heading_cell = "; ".join(headings) if headings else "—"
             out.append(
-                f"| `references/{ref.name}` | {_table_cell(trigger)} | "
-                f"{token_est(ref)} | {_table_cell(heading_cell)} |"
+                f"| `references/{ref.name}` | {_table_cell(parse_reference_md(ref))} | {token_est(ref)} |"
             )
     else:
         out.append("_No references/*.md in this skill._")
@@ -393,7 +381,7 @@ def run_selftest() -> int:
             "Read this when the fixture needs reference one." in skill_text,
             "skill index: reference trigger extracted",
         )
-        case("Alpha; Beta" in skill_text, "skill index: headings joined, in order")
+        case("Alpha" not in skill_text and "Headings" not in skill_text, "skill index: no headings column")
         case("scripts/tool.py" in skill_text, "skill index: scripts row present")
         case("python3 scripts/tool.py <path>" in skill_text, "skill index: CLI usage extracted")
         case("0 ok; 1 bad input." in skill_text, "skill index: exit codes extracted")
