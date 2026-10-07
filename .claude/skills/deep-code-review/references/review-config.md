@@ -86,3 +86,5 @@ with no `path:line` goes in the review body; strength rows are skipped. The revi
 request changes. Refuses on a banlist hit, secret-shaped token, or absolute home path, and fails closed
 when `.banlist.txt` is missing. A line outside the PR diff makes GitHub reject the whole review: nothing
 is created, fix the line and re-run.
+
+Read this when you want PR-native review in CI: `templates/perun-review.yml` is an opt-in workflow (never installed by `install.sh`); its header lists the prerequisites and hardening.

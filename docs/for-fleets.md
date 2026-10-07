@@ -21,7 +21,8 @@ Separately opt-in, never written by `install.sh`: copy
 `.github/workflows/` for PR-native review. A read-only job runs the review and
 a second job (no PR checkout, no model key) posts one pending review, one
 sticky comment and one check run with severity counts, replacing its prior
-pending review on each push. The file header documents the spend cap and fork
+pending review on each push. Prerequisites: the `ANTHROPIC_API_KEY` secret, a non-empty `.banlist.txt`
+(`post_review.sh` fails closed without it) and a pinned `CLAUDE_CODE_VERSION`. The file header documents the spend cap and fork
 hardening.
 
 It never overwrites an existing file at these paths; it writes `<path>.new`
