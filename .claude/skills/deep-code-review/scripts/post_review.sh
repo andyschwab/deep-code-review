@@ -10,6 +10,7 @@
 # or the git root, line in range, quoted `snippet` within +-5 lines of the cited line); otherwise the run
 # refuses (exit 1, ids and reasons on stderr). A row with no evidence or no snippet is ungrounded. Inline lines
 # outside the PR diff make GitHub reject the whole review (422): nothing is created, fix and retry.
+# Grounding reads start_sha's tree (git show) when set, else the working tree: then the checkout must be the PR head.
 # Refuses (exit 1) when the payload hits .banlist.txt/.banlist.local.txt (resolved from the git root or
 # $BANLIST_DIR, same semantics as the contribution skill's prefile_check.sh), a secret-shaped token or
 # an absolute home path; exit 2 on usage error or a missing/empty banlist (fail closed). Prints
@@ -27,24 +28,28 @@ dir="${BANLIST_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 groot="${GROUND_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-grounded="$(python3 "$here/finding_ground_check.py" "$FILE" --root "$groot")" || { echo "post_review: cannot read findings (need {\"findings\": [...]})" >&2; exit 2; }
+sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("start_sha") or "")' "$FILE" 2>/dev/null)"
+ref=(); [ -z "$sha" ] || ref=(--ref "$sha")  # ground against the PR head, not whatever is checked out
+grounded="$(python3 "$here/finding_ground_check.py" "$FILE" --root "$groot" ${ref[@]+"${ref[@]}"})" || { echo "post_review: cannot read findings (need {\"findings\": [...]})" >&2; exit 2; }
 bad="$(printf '%s' "$grounded" | python3 -c '
-import json, sys
+import json, re, sys
 for f in json.load(sys.stdin)["findings"]:
     if f.get("polarity", "gap") == "gap" and not f.get("grounded"):
-        print("  " + str(f.get("id", "?")) + ": " + f["ground_reason"])')"
+        print("  " + re.sub(r"[^\w.-]", "?", str(f.get("id", "?"))) + ": " + f["ground_reason"])')"
 [ -z "$bad" ] || { printf 'post_review: REFUSE: ungrounded findings (fix or drop them)\n%s\n' "$bad" >&2; exit 1; }
 
-payload="$(GROUNDED="$grounded" python3 - <<'PY'
-import json, os, re
+payload="$(HERE="$here" GROUNDED="$grounded" python3 - <<'PY'
+import json, os, sys
+sys.path.insert(0, os.environ["HERE"])
+from finding_ground_check import parse
 d = json.loads(os.environ["GROUNDED"])
 inline = []
 for f in d["findings"]:
     if f.get("polarity", "gap") != "gap":
         continue
     body = f"**{f['severity']} {f['id']}: {f['title']}**\n\n{f.get('observation', '').strip()}\n\nFix: {f.get('fix', '').strip()}"
-    m = re.match(r"^(.+?):(\d+)", f["evidence"][0])
-    inline.append({"path": m[1], "line": int(m[2]), "side": "RIGHT", "body": body})
+    path, line, _ = parse(f["evidence"][0])  # same parse as the grounding check: posted where verified
+    inline.append({"path": path, "line": line, "side": "RIGHT", "body": body})
 p = {"body": "Review findings (draft; verify before submitting).", "comments": inline}
 if d.get("start_sha"):
     p["commit_id"] = d["start_sha"]

@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""merge_findings.py [--cap N] <findings.json>... — dedupe, rank and cap findings from one or more passes.
+"""merge_findings.py [--cap N] [--root DIR] [--ref REF] <findings.json>... — dedupe, rank and cap findings from one or more passes.
 
-Purpose: cut review noise. Inputs are findings files already annotated by finding_ground_check.py.
-Steps: drop gap rows whose `grounded` is not true (fail closed: unchecked counts as ungrounded);
-dedupe by (file of first evidence, `mechanism`, falling back to the normalized title), keeping the
-highest-severity row and unioning evidence; rank Critical>High>Medium>Low>Info (stable); keep the top
+Purpose: cut review noise. Inputs are findings files; every gap row is re-checked here with finding_ground_check.check (any
+caller-supplied `grounded` flag is overwritten, so it cannot bypass the gate; --root/--ref as there).
+Steps: drop ungrounded gap rows; dedupe by (file of first evidence, `mechanism`, falling back to the
+normalized title, then the id) when first-evidence lines are within 10, keeping the highest-severity row
+(the first on a tie) and unioning evidence; rank Blocker>Critical>High>Medium>Low>Nit/Info (stable); keep the top
 --cap (default 20). Strength rows pass through uncapped. Output: {"findings": [...], "dropped":
 {"ungrounded": n, "duplicate": n, "over_cap": n}} on stdout. An empty `findings` list is a valid result:
 a clean diff yields NONE. Exit 0, or 2 on usage/unreadable input. Side effects: none.
 """
-import json, re, sys
+import json, os, re, sys
 
-SEV = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from finding_ground_check import check, parse  # noqa: E402
+
+NEAR = 10  # same file+mechanism merges only when first-evidence lines are within this many lines
+SEV = {"blocker": -1, "critical": 0, "high": 1, "medium": 2, "low": 3, "nit": 4, "info": 4}
 
 
 def _sev(f):
@@ -19,42 +24,54 @@ def _sev(f):
 
 
 def _key(f):
-    ev = (f.get("evidence") or [""])[0]
-    mech = f.get("mechanism") or re.sub(r"\W+", " ", f.get("title", "")).strip()
-    return (ev.rsplit(":", 1)[0], mech.lower())
+    p = parse((f.get("evidence") or [""])[0])
+    mech = f.get("mechanism") or re.sub(r"\W+", " ", f.get("title", "")).strip() or "id:" + str(f.get("id"))
+    return (p[0] if p else "", mech.lower()), (p[1] if p else 0)
 
 
-def merge(rows, cap=20):
+def merge(rows, cap=20, root=".", ref=None):
     drop = {"ungrounded": 0, "duplicate": 0, "over_cap": 0}
     strengths, best = [], {}
     for f in rows:
         if f.get("polarity", "gap") != "gap":
             strengths.append(f)
-        elif f.get("grounded") is not True:
+            continue
+        f["grounded"], f["ground_reason"] = check(f, root, ref)  # never trust a caller-supplied flag
+        if not f["grounded"]:
             drop["ungrounded"] += 1
-        else:
-            k = _key(f)
-            if k in best:
-                drop["duplicate"] += 1
-                keep, other = (best[k], f) if _sev(best[k]) <= _sev(f) else (f, best[k])
-                keep["evidence"] = list(dict.fromkeys((keep.get("evidence") or []) + (other.get("evidence") or [])))
-                best[k] = keep
-            else:
-                best[k] = f
-    ranked = sorted(best.values(), key=_sev)
+            continue
+        k, line = _key(f)
+        group = best.setdefault(k, [])
+        i = next((i for i, (ln, _) in enumerate(group) if abs(ln - line) <= NEAR), None)
+        if i is None:
+            group.append((line, f))
+            continue
+        drop["duplicate"] += 1
+        old = group[i][1]
+        keep, other = (old, f) if _sev(old) <= _sev(f) else (f, old)
+        keep["evidence"] = list(dict.fromkeys((keep.get("evidence") or []) + (other.get("evidence") or [])))
+        group[i] = (line if keep is f else group[i][0], keep)
+    ranked = sorted((f for g in best.values() for _, f in g), key=_sev)
     drop["over_cap"] = max(0, len(ranked) - cap)
     return {"findings": ranked[:cap] + strengths, "dropped": drop}
 
 
 def main(argv):
-    args, cap = argv[1:], 20
-    if args[:1] == ["--cap"]:
+    args, cap, root, ref = argv[1:], 20, os.getcwd(), None
+    while args[:1] in (["--cap"], ["--root"], ["--ref"]):
         try:
-            cap, args = int(args[1]), args[2:]
+            v = args[1]
+            if args[0] == "--cap":
+                cap = int(v)
+            elif args[0] == "--root":
+                root = v
+            else:
+                ref = v
+            args = args[2:]
         except (IndexError, ValueError):
             args = []
     if not args or cap < 0:
-        print("usage: merge_findings.py [--cap N] <findings.json>...", file=sys.stderr)
+        print("usage: merge_findings.py [--cap N] [--root DIR] [--ref REF] <findings.json>...", file=sys.stderr)
         return 2
     try:
         rows = []
@@ -64,7 +81,7 @@ def main(argv):
     except (OSError, ValueError, KeyError, TypeError) as e:
         print(f"merge_findings: cannot read findings: {type(e).__name__}", file=sys.stderr)
         return 2
-    print(json.dumps(merge(rows, cap), indent=2))
+    print(json.dumps(merge(rows, cap, root, ref), indent=2))
     return 0
 
 

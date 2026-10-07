@@ -87,11 +87,7 @@ request changes. Refuses on a banlist hit, secret-shaped token, or absolute home
 when `.banlist.txt` is missing. A line outside the PR diff makes GitHub reject the whole review: nothing
 is created, fix the line and re-run.
 
-**Grounding gate (noise control).** `finding_ground_check.py <findings.json> [--root DIR] [--ref REF]` marks
-each gap row `grounded` only if the `path:line` file exists, the line is in range, and the row's quoted
-`snippet` appears within +-5 lines; otherwise `ground_reason` says why (no evidence, no snippet, file not
-found, out of range, snippet not near). `post_review.sh` runs it first (root: `$GROUND_ROOT` or the git
-root) and refuses on any ungrounded gap row, listing ids and reasons. Before posting, run
-`merge_findings.py [--cap N] pass1.json pass2.json` on the annotated files: it drops ungrounded rows,
-dedupes by file plus `mechanism` (else title), ranks by severity, and caps (default 20). Zero surviving
-findings is a valid result; say NONE.
+**Grounding gate (noise control).** `post_review.sh` first runs `finding_ground_check.py <findings.json> [--root DIR] [--ref REF]`
+(root: `$GROUND_ROOT` or the git root; `start_sha` is passed as `--ref`, so rows are checked against the PR head) and refuses
+on any ungrounded gap row. Before posting, run `merge_findings.py [--cap N] [--root DIR] pass1.json pass2.json`: it re-checks
+grounding, dedupes, ranks and caps. Rules and reasons live in the two script docstrings. Zero findings is valid: say NONE.

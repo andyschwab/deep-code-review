@@ -40,9 +40,7 @@ every-domain-row invariant below governs the out-of-tree artifact.
   written down where a program can read them.
 
 **Delivery and feedback.** To post these findings on a PR (opt-in, dry-run default) or record
-accept/dismiss per finding, see `review-config.md` (`post_review.sh` takes the `findings` rows as JSON). Each gap row carries a quoted `snippet` so
-`finding_ground_check.py` can corroborate it against the file; a row it cannot ground is refused at posting and
-dropped by `merge_findings.py` (both documented in `review-config.md` section 3).
+accept/dismiss per finding, see `review-config.md` (`post_review.sh` takes the `findings` rows as JSON). Each gap row carries a quoted `snippet`; ungrounded rows are refused at posting and dropped by `merge_findings.py` (`review-config.md` section 3).
 
 **Style:** block-style YAML. Inline flow *maps* (`{a: b}`), anchors, and
 chomped block scalars break minimal readers and get dropped silently; inline
@@ -106,6 +104,8 @@ findings:
     evidence:
       - src/lib/aggregate.ts:486
       - src/lib/alert.ts:35
+    snippet: "quoted line"     # required on gap rows: text near evidence[0]; ungrounded rows are refused at posting
+    mechanism: null            # optional dedupe key for merge_findings.py (else the title)
     fix: >
       The smallest correct change; root-cause where possible. Required on every gap row.
     compounds: [F27]           # other finding ids this one combines with (Phase 4)
