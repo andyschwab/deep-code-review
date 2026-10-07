@@ -3772,6 +3772,13 @@ else
   record 1 "loop templates: scripts exist, >=20 min, installed, routed"; tail -5 "$WORK/loop-templates.log"
 fi
 
+# impact_map.py / context_pack.py: own per-feature file (scripts/test_impact_map.py), one case here.
+if python3 "$ROOT/scripts/test_impact_map.py" >"$WORK/impact-map.log" 2>&1; then
+  record 0 "impact_map/context_pack: callers, callees, caps, bounded pack on a synthetic repo"
+else
+  record 1 "impact_map/context_pack: callers, callees, caps, bounded pack on a synthetic repo"; tail -5 "$WORK/impact-map.log"
+fi
+
 # install.sh AGENTS.md blocks are compact (<= 6 lines each, markers included)
 # and a re-run replaces them in place (idempotent), so a target repo's own
 # AGENTS.md size gate is not broken by the default install (#1309).

@@ -144,6 +144,10 @@ Field rules, beyond the comments above:
   fan-out, `finder` and `lead_read` carry the unit manifest's attribution
   (`parallel-audit.md`); a unit whose finder never completed is `unverified`
   in the note, never `scanned`.
+- **Contract change with zero out-of-diff files opened is a warning.** On a `DIFF` that changes a
+  contract (signature, return shape, error, default, exported name), `ground_truth.notes` must carry
+  `out_of_diff_opened: <N> of <M> (impact_map.py)`. `N = 0` with `M > 0`, or no such line, means callers
+  were never read: cap the `DIFF` verdict below Approve and list the unopened files as unverified surface.
 - **`polarity: strength` rows are the "Invariants verified to hold" table**
   (the units' `checked_sound` lists after lead re-verify): evidence and
   confidence, no severity. Never file a strength as a `Low`.
