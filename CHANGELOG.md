@@ -3,6 +3,29 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.513.0] — 2026-10-07
+
+### Added
+- Resource policy: one file, `.perun/policy.json`, sets `efficient` (default), `maximize`, `off` or a numeric cap per dimension (tokens, local_cpu, local_ram, github_actions, paid_api_calls, network). `scripts/perun_policy.py get <dim>` reads it; `train_land.sh`, `land_train.sh` and `host_probe.py` honor it (`github_actions: off` adds `[skip ci]` to merges and never waits on CI; `local_cpu` sets parallelism). Shipped workflows skip when repo variable `PERUN_GITHUB_ACTIONS` is `off`.
+- `contribution/scripts/share_learning.py`: policy-gated (`share_learnings: auto|ask|off`, default `ask`), generalizes a lesson, runs `prefile_check.sh`, dedupes against open and closed upstream issues, files an issue only (never a PR), logs to a local ledger.
+- Behaviour change: `host_probe.py` now caps lanes at half the cores by default when `--live-lanes` is given without `--max-lanes` (policy `efficient`); it prints a one-line notice on stderr whenever that cap applies. Pass `--max-lanes` or set `local_cpu` to change it.
+- `share_learning.py` hardening: `--approve` needs a TTY and a typed yes, non-default repos need `--allow-repo`, `auto` needs `.banlist.local.txt`, dry run unless `--send`, 3 auto-shares a day, provenance footer, paths, foreign URLs and code blocks over 20 lines stripped. A set but missing `$PERUN_POLICY` now fails closed.
+- `docs/for-fleets.md` "Efficiency by default" section with the self-improvement loop.
+
+No-Mechanism-Reason: mechanisms are the new scripts and tests (scripts/test_resource_policy.py, scripts/test-resource-policy-train.sh); the doctrine lines only point at them.
+
+## [1.512.0] — 2026-10-07
+
+### Added
+- Claude Code plugin marketplace: `.claude-plugin/marketplace.json` (name `perun`) lists the plugin with source `.`; `docs/team-install.md` (linked from the README) documents add, admin managed-settings push, update propagation and pinning; `ci-gates.sh version` now fails when `plugin.json` drifts from `VERSION` or the marketplace entry sets its own version.
+- Plugin slash commands `/deep-code-review:review`, `:deliver` and `:cost-retro` (`commands/`), each pointing at existing skills and doctrine.
+- Spend attribution convention (`<tracker-project-id>-<handle>` key names, per-project keys, alerts before caps) in `operating-discipline.md`, and `agentic-delivery/scripts/spend_report.py` to total a provider usage export per project (offline, stdlib).
+- `docs/token-cost-tips.md`: short token-cost tips for teams, each with a number already measured in this repo.
+- `agentic-ceo` routing: if a kickoff skill is installed, run it first; Perun reviews and delivers.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 4875→5402 spend attribution item
+size-budget-raise: .claude/skills/agentic-ceo/SKILL.md 12616→12725 kickoff interop line
+
 ## [1.511.0] — 2026-10-07
 
 ### Changed
