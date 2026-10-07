@@ -273,7 +273,7 @@ cmd_version() {
   # must carry none, because plugin.json silently wins when both are set.
   local pj="$root/.claude-plugin/plugin.json" mj="$root/.claude-plugin/marketplace.json"
   if [ -f "$pj" ]; then
-    [ "$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' "$pj")" = "$ver" ] \
+    [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$pj" 2>/dev/null)" = "$ver" ] \
       || die "version: .claude-plugin/plugin.json version does not equal $ver"
   fi
   if [ -f "$mj" ] && grep -q '"version"' "$mj"; then

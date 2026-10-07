@@ -33,6 +33,15 @@ class Spend(unittest.TestCase):
         self.assertEqual(totals, {"web": Decimal("3.75"), "(unattributed)": Decimal("9")})
         self.assertEqual(unpriced, {"web": 1})
 
+    def test_nan_and_infinity_are_unpriced(self):
+        rows = [{"key_name": "web-a", "cost": "NaN"}, {"key_name": "web-b", "cost": "Infinity"},
+                {"key_name": "api-a", "cost": "1"}]
+        totals, unpriced = sr.aggregate(rows)
+        self.assertEqual(totals, {"web": Decimal(0), "api": Decimal(1)})
+        self.assertEqual(unpriced, {"web": 2})
+        r = self.run_cli("u.csv", "key_name,cost\nweb-a,NaN\napi-a,1\n")
+        self.assertEqual(r.returncode, 0)
+
     def test_missing_columns(self):
         with self.assertRaises(ValueError):
             sr.aggregate([{"a": 1}])
@@ -96,6 +105,10 @@ class Manifests(unittest.TestCase):
             pj.write_text('{\n  "version": "1.2.3",\n  "name": "x"\n}\n')
             self.assertEqual(gate().returncode, 0)
             pj.write_text('{\n  "version": "1.2.2",\n  "name": "x"\n}\n')
+            self.assertNotEqual(gate().returncode, 0)
+            pj.write_text('{"name":"x",\n    "version":   "1.2.3"}')  # any formatting parses
+            self.assertEqual(gate().returncode, 0)
+            pj.write_text('{"version":"1.2.2"}')  # compact drift is still caught
             self.assertNotEqual(gate().returncode, 0)
             pj.write_text('{\n  "version": "1.2.3"\n}\n')
             (root / ".claude-plugin/marketplace.json").write_text('{"plugins":[{"version":"1.2.3"}]}')

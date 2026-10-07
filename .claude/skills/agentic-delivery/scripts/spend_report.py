@@ -53,10 +53,14 @@ def aggregate(rows, key_field=None, cost_field=None):
     for r in rows:
         p = project_of(str(r.get(kf) or ""))
         try:
-            totals[p] += Decimal(str(r.get(cf)).strip().lstrip("$").replace(",", ""))
+            d = Decimal(str(r.get(cf)).strip().lstrip("$").replace(",", ""))
         except (InvalidOperation, AttributeError):
+            d = None
+        if d is None or not d.is_finite():  # NaN/Infinity would poison sums and sorting
             unpriced[p] += 1
             totals[p] += Decimal(0)
+        else:
+            totals[p] += d
     return dict(totals), dict(unpriced)
 
 
