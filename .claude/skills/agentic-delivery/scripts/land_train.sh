@@ -11,6 +11,7 @@
 # BACKFILL_FILE as a backfill list, not skipped), BACKFILL_FILE (default ./changelog_backfill.txt),
 # PR_RE (sed -E regex with one group, default 'merge-train: #([0-9]+)'), GH (default gh),
 # LAND_CMD (default: gh pr merge N --merge --match-head-commit SHA; run via bash -c with $1=N $2=SHA),
+# Policy: github_actions=off adds [skip ci] to the default merge (see perun_policy.py).
 # WAIT_TRIES/WAIT_SECS (mergeable=UNKNOWN retry, default 10 x 8s).
 # Stacked children (open PRs based on a member's head branch) are retargeted to BASE_BRANCH before each merge.
 # Refuses (skips) a PR whose base is not BASE_BRANCH. On every exit, linked worktrees in UNION_DIRS are removed
@@ -23,7 +24,14 @@ BASE=$1 U=$2
 BASE_BRANCH=${BASE_BRANCH:-main} REMOTE=${REMOTE:-origin} CHANGELOG_DIR=${CHANGELOG_DIR:-changelog.d}
 BACKFILL_FILE=${BACKFILL_FILE:-./changelog_backfill.txt} PR_RE=${PR_RE:-merge-train: #([0-9]+)} GH=${GH:-gh}
 export GH
-LAND_CMD=${LAND_CMD:-'"$GH" pr merge "$1" --merge --match-head-commit "$2"'}
+# github_actions=off (.perun/policy.json): the merge commit BODY carries [skip ci] so landing triggers no runner.
+# It goes only in that merge-commit body: it never suppresses PR-head checks (the PR's own commits are untouched)
+# or tag-triggered releases (a tag push is not a commit message).
+GHA=$(python3 "$(dirname "$0")/perun_policy.py" get github_actions) || {
+  [ -n "${LAND_CMD:-}" ] || { echo "land_train: bad .perun/policy.json" >&2; exit 2; }
+  echo "WARN: land_train: policy unreadable; LAND_CMD overridden, using efficient defaults" >&2; GHA=efficient; }
+SKIP=; [ "$GHA" = off ] && SKIP=' --body "[skip ci]"'
+LAND_CMD=${LAND_CMD:-'"$GH" pr merge "$1" --merge --match-head-commit "$2"'"$SKIP"}
 WAIT_TRIES=${WAIT_TRIES:-10} WAIT_SECS=${WAIT_SECS:-8}
 . "$(dirname "$0")/_clean_union.sh"; trap clean_union_dirs EXIT
 

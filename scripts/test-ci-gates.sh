@@ -3836,6 +3836,15 @@ else
   record 1 "escaped_defects: empty gh search term returns None"
 fi
 
+# /perun-run command: exists, has frontmatter, names the drain test it depends on.
+if head -1 "$ROOT/commands/perun-run.md" | grep -q '^---$' \
+  && grep -q 'description:' "$ROOT/commands/perun-run.md" \
+  && grep -q 'next --check' "$ROOT/commands/perun-run.md"; then
+  record 0 "perun-run command: frontmatter and next --check present"
+else
+  record 1 "perun-run command: frontmatter and next --check present"
+fi
+
 # ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a

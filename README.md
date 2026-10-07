@@ -1,288 +1,296 @@
 # Perun
 
+*A second pair of eyes for AI-written code: a free checklist that makes the
+review thorough, ranked and checkable.*
+
 [![gates](https://github.com/remigiusz-antczak/deep-code-review/actions/workflows/ci.yml/badge.svg)](https://github.com/remigiusz-antczak/deep-code-review/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Perun makes your AI coding agent review code the same careful way every
-time. Each problem it reports points to the exact file and line and comes with
-a fix. Anything it can't prove is marked `unverified` instead of guessed.**
+**Perun is a free checklist that an AI coding assistant follows to review
+software the same careful way every time. In a 30-case test it found about 3 in
+10 hidden bugs, against about 2 in 10 for the same assistant asked to "review
+this" (the gain is likely but not certain; see [Proof](#proof)). Every problem
+it reports points to the exact file and line, ranks how serious it is, and says
+how to fix it. What it cannot prove, it labels `unverified` instead of
+guessing. The trade-off: it costs about 1.75 times as much model usage as a
+plain review.**
 
-Perun is a set of skills: plain-text instruction files that an AI coding agent
-reads when a task matches. The default skill, `deep-code-review`, turns "look
-this over" into a fixed audit of correctness, security, AI/LLM safety, data
-quality, performance and cost, reliability, testing, infrastructure, docs, and
-accessibility, and ends in a report ranked by severity. It works on any
-language, on any agent that can read files, and as a one-shot prompt or a human
-checklist. Ten opt-in skills extend it to gated delivery, planning, and product
-work. Free (MIT), runs fully local; you pay only for your agent's model usage.
+*Naming: Perun is the project; `deep-code-review` is the repository and the
+main skill inside it.*
 
-**Start here:** [Quick start](#quick-start) ·
-[New to AI agents](#new-to-ai-agents) ·
-[Already using an agent](#already-using-claude-code-cursor-or-codex) ·
-[Running agent fleets](#running-agent-fleets) · [What's new](#whats-new) ·
+- **What it is:** a set of plain-text instruction files (called *skills*) that
+  an AI coding assistant (called an *agent*) reads before it reviews code. There
+  is no server and no account. Think of a pilot's pre-flight checklist: the
+  method lives in the checklist, not in anyone's memory.
+- **Who it is for:** anyone who ships software with an AI assistant, and anyone
+  who has to rely on the result: engineers, engineering managers, security,
+  finance, product and marketing. Each gets something different
+  ([by role](#what-each-person-gets)).
+- **Why trust it:** it was measured against the plain assistant on 30 real bug
+  fixes it had never seen. One pass caught about 1.5 times as many bugs; two
+  merged passes about 2 times as many, at about 3.5 times the cost. A somewhat
+  larger share of what it flagged was real
+  ([Proof](#proof), with a link to the data). It also lists what it misses
+  ([Limits](#limits)). Free (MIT licence), runs on your machine, works with many
+  agents.
+- **Not technical?** Read [the story](#the-story-one-change-five-steps), then
+  [what each person gets](#what-each-person-gets), and forward
+  [Quickstart](#quickstart) to an engineer. Unfamiliar word? See the
+  [Glossary](#glossary).
+
+**Start here:** [The story](#the-story-one-change-five-steps) ·
+[Proof](#proof) · [Quickstart](#quickstart) ·
+[By role](#what-each-person-gets) · [Limits](#limits) · [Glossary](#glossary) ·
 [FAQ](#faq)
 
-## Quick start
+---
 
-**No install (any AI chat):** copy
-[`.claude/skills/deep-code-review/SKILL.md`](.claude/skills/deep-code-review/SKILL.md)
-into the chat, paste one file you care about, and ask
-`Review this with scope FILE.`
+## The story: one change, five steps
 
-**Install into a project (three commands, from a pinned release):**
+A developer, Jane Smith at Acme Capital (a made-up company), asks her AI
+assistant to add a discount-code field to a checkout page. The change is 200
+lines. Here is the same afternoon without and with Perun. The example is
+fictional; a sample report in the same format is
+[`docs/example-review-report.md`](docs/example-review-report.md).
 
-```bash
-git clone --branch vX.Y.Z --depth 1 https://github.com/remigiusz-antczak/deep-code-review.git
-cd deep-code-review && shasum -a 256 -c SHA256SUMS   # Linux: sha256sum -c SHA256SUMS
-./install.sh /path/to/your/project                   # review only (the default)
+| Step | Without Perun | With Perun |
+|---|---|---|
+| **1. Ask** | "Review this change." The assistant reads what it feels like reading. | Same words. The assistant first loads the Perun checklist and pins the exact version of the code it is reviewing, so the report is about one fixed thing. |
+| **2. Look** | One free-form pass. Which areas get checked (security, data, cost, accessibility) depends on the day. | The assistant runs the build and tests first, then goes through every area that applies: correctness, security, data, performance and cost, reliability, tests, infrastructure, documentation, accessibility. |
+| **3. Challenge** | The assistant says "looks good". Nobody tries to break it. | A separate adversarial pass tries to break the change on purpose, for example by sending a discount code that is negative or enormous. |
+| **4. Report** | A friendly paragraph. Hard to tell what is certain and what is a hunch. | A list ranked from Blocker down to Nit. Each item has `file:line`, evidence and a fix. Anything unproven is marked `unverified`. A plain-language summary with a traffic-light score is written for non-coders. |
+| **5. Deliver** | Jane fixes what she remembers. Her manager sees "reviewed: yes" and cannot tell how deep it went. | Jane fixes the ranked list top-down. Her manager reads the traffic-light summary and sees what was checked, what was not, and what needs a decision. |
+
+The point is not that the assistant becomes smarter. It stops skipping steps,
+and a reader can tell what was and was not checked.
+
+```mermaid
+flowchart LR
+    A["You: review this change"] --> B["Agent loads the Perun checklist"]
+    B --> C["Pin the exact code version, run build and tests"]
+    C --> D["Check each area: bugs, security, data, cost, tests, docs, accessibility"]
+    D --> E["Adversarial pass: try to break it"]
+    E --> F["Ranked report: file:line, evidence, fix, unverified marked"]
+    F --> G["Fix top-down, then deliver"]
 ```
+
+What one finding looks like (fictional, from
+[`docs/example-review-report.md`](docs/example-review-report.md)):
+
+```
+### F3 - High - CONFIRMED
+Inbound webhook accepts unsigned body
+- Evidence: routes/hooks.mjs:22 parses JSON; no signature check.
+- Impact: forged events can change another customer's job queue.
+- Fix: verify the signature; bind the account to the verified sender.
+```
+
+---
+
+## Proof
+
+Only numbers from files in this repository.
+
+**In plain numbers.** Imagine 100 hidden bugs. The plain assistant finds about
+21. Perun with one pass finds about 31. Two independent passes find about 41.
+Perun also misses most bugs, which is why [Limits](#limits) matters.
+
+**Does it find more real bugs?** The benchmark below uses 30 real bug fixes
+from open-source projects. Each was held out: the checklist was never tuned on
+them. Three repeat runs per setup. "Caught" means the review named the actual
+bug. "Real" means the share of what it flagged that checked out as genuine.
+
+| Setup | Bugs caught | Flagged issues that were real | Cost per case* |
+|---|---|---|---|
+| Plain assistant, no Perun | 21% | 66% | $0.069 |
+| Perun, one pass (the default) | 31% | 77% | $0.121 |
+| Perun, two independent passes, merged | 41% | 77% | $0.239 |
+
+\* Model-usage cost on the benchmark's small change patches, from the same
+table. Not a promise for your code.
+
+Source: the "Measured" table in
+[`method-situational.md`](.claude/skills/deep-code-review/references/method-situational.md),
+recorded in [`CHANGELOG.md`](CHANGELOG.md) entry 1.511.0. The benchmark and how
+to rerun it live in [`scripts/eval-fixtures/bench/`](scripts/eval-fixtures/bench/);
+an earlier first-baseline write-up is
+[`results.md`](scripts/eval-fixtures/bench/results.md). The source table gives
+paired 95% intervals: the recall gain over the plain assistant is +0.10 with an
+interval of 0.00 to +0.21, so read it as "probably better", not "proved".
+
+**Smaller to read, cheaper to run.** The text an agent must read before every
+review was cut 19% in v1.501.0, from 28,589 to 23,173 estimated tokens (a token
+is roughly a word fragment, and you pay per token). Nothing was deleted; it
+moved to files read only when needed. Source: [`CHANGELOG.md`](CHANGELOG.md),
+entry 1.501.0.
+
+**Other models.** A smaller portability check on four other models
+(26 cases) found no significant lift, recorded in
+[`CHANGELOG.md`](CHANGELOG.md) entry 1.495.0. Do not assume the gains above
+carry over to other models.
+
+**What is not claimed.** There are no customer counts, time-saved or
+money-saved numbers here, because none have been measured. To judge value for
+your team, fill in your own numbers: (reviews per month) x (about $0.12 to $0.24
+each) against (the cost of one bug that reaches customers) x (about 1 extra bug
+caught per 10 hidden bugs). The result is an estimate from your assumptions, not
+a measured saving.
+
+---
+
+## Quickstart
+
+1. **Get the code** and check its files match the published checksums. Release
+   tags on GitHub lag the main branch, so clone the main branch and note the
+   commit you reviewed.
+
+   ```bash
+   git clone --depth 1 https://github.com/remigiusz-antczak/deep-code-review.git
+   cd deep-code-review && shasum -a 256 -c SHA256SUMS   # Linux: sha256sum -c SHA256SUMS
+   git rev-parse HEAD                                    # record this commit
+   ```
+
+2. **Install into your project** (review only, the default):
+
+   ```bash
+   ./install.sh /path/to/your/project
+   ```
+
+3. **Ask your agent:** `run a deep code review DIFF origin/main`
 
 > [!IMPORTANT]
-> Replace `vX.Y.Z` with the latest tag on the Releases page and keep the
-> checksum step. Don't `curl | bash` an unpinned `HEAD`; the review itself flags
-> that as a supply-chain risk.
+> Keep the checksum step and record the commit. The checksum file ships in the
+> same repository, so it catches a damaged copy, not a malicious one; review the
+> commit before installing. Don't `curl | bash` an unpinned `HEAD`; the review
+> itself flags that as a supply-chain risk.
 
-Then ask your agent `run a deep code review DIFF origin/main`.
+**No terminal?** Copy
+[`.claude/skills/deep-code-review/SKILL.md`](.claude/skills/deep-code-review/SKILL.md)
+into any AI chat, paste one file, and ask `Review this with scope FILE.` Other
+hosts, updating and removing: [`docs/getting-started.md`](docs/getting-started.md).
 
----
+The installer copies files only (no network, no sudo) and backs up any skill it
+would replace. Details: [`SECURITY.md`](SECURITY.md).
 
-## What problems it solves
-
-Each row is a shipped mechanism; the version is where
-[`CHANGELOG.md`](CHANGELOG.md) records it.
-
-| Problem | Without Perun | With Perun | Since |
-|---|---|---|---|
-| A design port looks right but is incomplete | A pixel or size diff passes a page with a missing button or row. | `parity_differ.py` compares each section's element inventory (headings, text, controls, images, list rows) between design and app. Sizes are never inputs; one missing element shows completeness below 100%. A structurally wrong port fails even when the pixel difference is tiny. | 1.442.0, 1.447.0 |
-| Subagents flood the chat | Every helper agent returns a long report, multiplied across a fleet. | A `SubagentStop` hook blocks a final message over 800 characters or 10 lines; the deliverable goes in a file. | 1.434.0 |
-| Lessons stay advice | A lesson is written into the instructions and an agent skips it. | Perun's CI fails a commit that edits skill instructions without also touching a test, eval, or script, unless it states a `No-Mechanism-Reason:`. | 1.436.0 |
-| "Deployed" is taken on faith | A green CI badge counts as proof the change is live. | `surface_check.py` compares the running app's build id with the commit; a missing id reports `COULD_NOT_CHECK`, never a pass. | 1.441.0 |
-| Owner requests get lost | Asks disappear when an agent's context is compacted. | `task_ledger.py` keeps every ask verbatim; "done" needs evidence (a commit, URL, issue, or test id). | 1.442.0 |
-| Tests pass until a date | A fixture built from a fixed "now" passes until the calendar crosses a threshold, then fails every branch at once. | The review flags the pattern and asks for an injected clock (or fixtures derived from the real clock) plus tests before, at, and after the threshold. | 1.446.0 |
+**Whole team:** plugin marketplace, admin push, updates, pinning in
+[`docs/team-install.md`](docs/team-install.md).
 
 ---
 
-## What you get
+## What each person gets
 
-| Outcome | What it looks like |
-|---|---|
-| A report you can act on | Findings ranked Blocker → Critical → High → Medium → Low → Nit, each with `file:line` evidence and a fix. See the [fictional example report](docs/example-review-report.md). |
-| A summary for non-coders | A traffic-light health scorecard, the top risks in plain terms, and the decisions that need an owner. |
-| Broad, fixed coverage | 21 audit domains (lettered A–W), an adversarial red-team pass, and a check for costly work that adds no value (repeated identical API/LLM/DB calls, over-fetching). |
-| Lower context cost | The method files every review must read dropped from 65,903 to 28,025 estimated tokens (a FULL repo review: 87,137 to 36,096), about 57% less. A web review's must-read set dropped from 86,820 to at most 23,349. CI blocks either number from growing. |
-| Checks that run, not just advice | 25 shipped gate scripts carry a `--selftest` that proves they catch a planted violation, run in CI on every change. `--with-gates` wires the review's own gates into your repo's CI. |
-| A bar that stays | An optional final phase writes an `AGENTS.md` and pre-commit/CI gates into your repo, so the next contributor or agent, from any vendor, is held to the same bar. |
-
-Where the numbers come from: token figures are characters ÷ 4, from
-[`CHANGELOG.md`](CHANGELOG.md) and the CI ceilings in
-[`scripts/mustload-budgets.tsv`](scripts/mustload-budgets.tsv); the domain count
-is the domain map in
-[`SKILL.md`](.claude/skills/deep-code-review/SKILL.md); the script count is the
-`.claude/skills/*/scripts/*.py` files with a `--selftest`, each invoked in
-[`ci.yml`](.github/workflows/ci.yml).
-
----
-
-## Pick your path
-
-### New to AI agents
-
-An **AI coding agent** is a program (for example Claude Code, Cursor, or Codex)
-that uses an AI model to read, edit, and run code in your project when you ask
-in plain words. A **skill** is a folder of written instructions the agent loads
-when your request matches it. Think of it as handing a new colleague the team's
-review checklist.
-
-Start with the no-install option in [Quick start](#quick-start): it needs only
-a chat window. Step-by-step, including installing into a real project:
-[`docs/getting-started.md`](docs/getting-started.md).
-
-### Already using Claude Code, Cursor, or Codex
-
-Install with the three commands in [Quick start](#quick-start). Then ask your
-agent `run a deep code review DIFF origin/main`, or use
-`/deep-code-review FULL`, `/deep-code-review FILE src/auth.ts` on hosts with
-slash commands.
-
-**What changes:** the installer copies the skill into `.claude/skills/`,
-`.cursor/skills/`, and `.agents/skills/`, and adds a version-stamped pointer to
-`AGENTS.md`. Any agent in the repo now reviews with the same phases, the same
-severity scale, and the same "no evidence, no finding" rule. Run
-`./install.sh --recommend /path/to/your/project` first to see a suggested
-overlay pack without writing anything. Codex, other hosts, updating, and
-uninstalling: [`docs/getting-started.md`](docs/getting-started.md).
-
-### Running agent fleets
-
-The delivery overlay (`--with-delivery`, included in `--full`) and the
-conductor overlay (`--with-ceo`) ship fleet rules as scripts that exit
-non-zero instead of prose an agent may skip:
-
-- **Handback cap:** an opt-in `SubagentStop` hook blocks a subagent's final
-  chat message over 800 characters or 10 lines; the deliverable goes in a file.
-- **Owner priority and ledgers:** `focus_gate.py` blocks work outside an
-  owner-committed priority until its acceptance command passes or the work is
-  blocked on someone else. `task_ledger.py` keeps every owner ask verbatim, so
-  none is lost when context compacts.
-- **Coordination:** isolation checks at lane start, claim tie-breaks, a
-  cross-lane test lock, and a typed coordination board.
-- **Merge train:** `merge_train.py` compares against freshly fetched refs and
-  fixes a red base forward only under an owner-authored grant.
-- **Proof of done:** `lane_guard.py handback` accepts a lane's claim only when
-  the cited commit is the branch head and every cited file is committed at it;
-  `surface_check.py` checks a "deployed" claim against the running build.
-
-Every mechanism, what it blocks, and how to switch it on:
-[`docs/for-fleets.md`](docs/for-fleets.md).
-
----
-
-## How it works
-
-```
- you: "review this"
-        |
-        v
- +-------------+  reads    SKILL.md: the map (max 24 KB). Scope, phases,
- | your agent  | --------> severity scale, and which file to read when.
- +-------------+                  |
-        |                         | routes on a stated trigger
-        |                         v
-        |  loads only    references/*.md: depth for security, data,
-        |  what applies  accessibility, one file per language family ...
-        |
-        |  runs          scripts/: gates that answer with an exit code
-        |                (fix has a test, no committed binaries, ...)
-        v
- severity-ranked report: file:line evidence and a fix for every finding
-```
-
-The review runs in fixed phases: pin the exact commit, gather ground truth
-(build, tests, lint), audit each applicable domain, run the adversarial pass,
-then rank, deduplicate, and report. The full method, first-response block,
-and domain map live in [`SKILL.md`](.claude/skills/deep-code-review/SKILL.md).
-
----
-
-## Skill catalog
-
-Only `deep-code-review` installs by default. Everything else is opt-in.
-
-| Skill | Use it to… | Install |
+| You are | You get | Where to look |
 |---|---|---|
-| `deep-code-review` | review, harden, or quality-gate a repo, PR, or diff | **default** |
-| `agentic-delivery` | build a feature or migration under gated, multi-role delivery | `--with-delivery` · in `--full` |
-| `idea-critic` | attack a plan or a "we should" before it reaches you | `--with-critic` · in `--full` |
-| `communication-structure` | write a short, direct PR body, status update, or report | `--with-comms` · in `--full` |
-| `agentic-ceo` | route a multi-skill session and size the effort to the project | `--with-ceo` |
-| `product-discovery` | decide if it's worth building, what comes first, and whether it's working | `--with-discovery` |
-| `growth-analytics` | pick a North Star metric, read the funnel, design events | `--with-growth` |
-| `positioning` | shape the value proposition and message, as a hypothesis to test | `--with-positioning` |
-| `business-ops` | do pricing arithmetic, or route a legal/tax question to a professional | `--with-business` |
+| **Engineer** | A repeatable review of a PR, a branch or a whole repo, with evidence per finding, in any language. | [Quickstart](#quickstart), [`SKILL.md`](.claude/skills/deep-code-review/SKILL.md) |
+| **Engineering manager** | A report ranked by severity and a traffic-light summary, so "reviewed" has a visible meaning. | [Example report](docs/example-review-report.md) |
+| **Security** | Checks against public web, AI-model and agent security guidance, with `unverified` marked rather than asserted. It complements scanners and human review; it does not replace them. | [`standards-index.md`](docs/standards-index.md), [Limits](#limits) |
+| **Finance** | No licence fee. The only spend is your assistant's model usage: about $0.12 per case for one pass in the benchmark, about $0.24 for two. Your own cost depends on size and model. | [Proof](#proof), [FAQ](#faq) |
+| **Product and marketing** | A plain-language summary of risk and the decisions that need an owner, without reading code. Optional skills help test a positioning or a metric as hypotheses to check with real users. They never invent market data. | [Optional skills](#optional-skills) |
+| **Running many agents at once** | Rules written as scripts that fail loudly: a cap on how long helpers may report back, proof that "done" means done. | [`docs/for-fleets.md`](docs/for-fleets.md) |
+
+---
+
+## Optional skills
+
+Only `deep-code-review` installs by default. The rest are opt-in flags on
+`./install.sh`; `--full` adds delivery, critic and comms.
+
+| Skill | Use it to... | Install flag |
+|---|---|---|
+| `deep-code-review` | review, harden or quality-gate a repo, PR or diff | **default** |
+| `agentic-delivery` | build a feature under gated, multi-role delivery | `--with-delivery` |
+| `idea-critic` | attack a plan before it reaches a decision maker | `--with-critic` |
+| `communication-structure` | write a short, direct PR body, status update or report | `--with-comms` |
+| `agentic-ceo` | route a multi-skill session and size the effort | `--with-ceo` |
+| `product-discovery` | decide whether something is worth building | `--with-discovery` |
+| `growth-analytics` | choose a main metric and read a funnel | `--with-growth` |
+| `positioning` | shape a value proposition as a testable hypothesis | `--with-positioning` |
+| `business-ops` | do pricing arithmetic; route legal or tax questions to a professional | `--with-business` |
 | `product-output-safety` | govern harm from your product's own AI outputs | `--with-output-safety` |
-| `contribution` | turn a reusable lesson into a privacy-safe upstream PR | `--with-contribution` |
+| `contribution` | turn a lesson into a privacy-safe upstream pull request | `--with-contribution` |
 
-The advisory skills work only on your own inputs and evidence. They never invent
-market, financial, or security facts. If you already run another delivery
-framework, keep it and install review only; don't run two delivery systems on
-the same project.
+If you already run another delivery framework, keep it and install review only.
 
 ---
 
-## Token and context efficiency
+## Limits
 
-Every token an agent reads costs money and crowds its working memory. Perun
-keeps that load small:
-
-- **Progressive disclosure.** `SKILL.md` is a map; depth sits in routed
-  reference files loaded only on a stated trigger. Large references index their
-  own sub-files, so a web review reads the accessibility basics and skips the
-  data-pipeline depth.
-- **Frozen budgets.** CI caps every skill map at 24,000 bytes, freezes each
-  reference's byte size, and pins each review type's must-read token total.
-  Raising a size budget needs an explicit `size-budget-raise:` marker.
-- **Lookup tables, not browsing.** Every skill ships a generated `INDEX.md`
-  (file → when to read it → estimated tokens → headings), so an agent opens one
-  file instead of scanning references. CI fails when an index goes stale.
-- **Short handbacks.** The handback cap and one-line reporting default stop
-  per-lane narration multiplying across a fleet.
-- **Measure and cap it.** `agentic-ceo/scripts/token_report.py --session <transcript>`
-  reports main-agent vs subagent tokens and each subagent's startup and output
-  cost. `--budget` adds per-lane caps (tool calls, tokens, startup overhead)
-  and an orchestration-share ceiling (default 20%); each breach names the fix.
-- **Host settings.** The verified Claude Code settings that cut per-turn tokens
-  are documented in
-  [`host-enforcement.md`](.claude/skills/agentic-delivery/references/host-enforcement.md).
-- **Optional companions.** For shorter assistant chat, add
-  [caveman](https://github.com/JuliusBrussee/caveman); for a minimal-code bias on
-  plumbing, bug-fix, and QA work, add
-  [ponytail](https://github.com/DietrichGebert/ponytail) (pin a reviewed release;
-  exempt design-port work, where exact fidelity and required tests beat minimal
-  code). Neither is bundled. Code, PR bodies, and docs stay in normal English.
+- **It misses most bugs.** One pass caught 31% of the benchmark's bugs, so about
+  7 in 10 were missed; two passes caught 41%. Treat a clean report as "no
+  evidence of problems found", not "no problems".
+- **It is not a replacement** for human review, tests, or a security scanner. It
+  checks what an assistant can read; it cannot see production behaviour.
+- **One corpus, one model family.** The benchmark is 30 cases measured with one
+  model family. Results are directional, and the recall gain's lower bound
+  touches zero.
+- **A review costs more than a plain prompt.** About 1.75 times for one pass and
+  3.5 times for two in the benchmark, in exchange for the gains above.
+- **Your code goes where your agent sends it.** Perun sends nothing itself. Use
+  an agent whose data handling you accept.
+- **Quality follows the agent.** Weaker models follow the checklist less well.
+- **Unverified means unverified.** Those findings are leads for a human to
+  check, not facts.
 
 ---
 
-## What's new
+## Glossary
 
-The latest five releases; full detail in [`CHANGELOG.md`](CHANGELOG.md).
+- **Agent:** an AI assistant that can read files and run commands, for example
+  Claude Code, Cursor, Codex, Copilot, Gemini or Aider.
+- **Skill:** a text file of instructions an agent loads when a task matches.
+- **Scope:** how much to review. `FILE` is one file, `DIFF` is a change since a
+  branch, `FULL` is the whole repository.
+- **Severity:** Blocker, Critical, High, Medium, Low, Nit, from most to least
+  serious.
+- **Gate:** an automatic check that passes or fails, rather than advice an
+  agent may skip.
+- **Token:** the unit an AI model reads and bills by, roughly a word fragment.
+- **Recall (bugs caught):** the share of the known hidden bugs a review found.
+- **Adversarial pass:** a step where the reviewer tries to break the change.
+- **Overlay:** an optional skill added on top of the default review.
+- **Fleet:** several agents working on one project at the same time.
 
-- **1.461.0** — Critical work only: agents spend tokens just on the objective.
-- **1.460.0** — Field-feedback wave: allowlist filters, load tests prove identity, heap slope.
-- **1.459.0** — Deferred asks reported, never silently queued; build and interaction gates; per-row N+1.
-- **1.458.0** — Renamed controls read as relabels, not removals; pre-push reuses a verified result for the same commit; stacked lanes branch from the local ref.
-- **1.457.0** — Minimum-cost CI & token profile: integration branches skip hosted CI for a local deterministic gate; cost-vs-quality guardrails (tier gate, lane cap, escaped-defect trailers).
 ---
 
 ## FAQ
 
-**What does it cost?** Perun is free (MIT). You pay only for your agent's model
-usage. The fixed method load is about 28,000 estimated tokens per review
-(36,100 for a FULL repo review), plus the references that apply and your code.
+**What does it cost?** Perun is free (MIT). You pay your agent's model usage.
 Start with `DIFF` or `FILE` scope to keep a first run small.
 
-**Is it safe to install?** `install.sh` copies skill folders and writes a
-marked block in `AGENTS.md`: no network, no sudo. An existing skill is backed up under
-`.<host>/skill-backups/`, never overwritten. `SHA256SUMS` covers the skill
-trees. It is a content hash, not a signature. See [`SECURITY.md`](SECURITY.md).
+**How is this different from a good prompt?** A prompt gives one pass shaped by
+the model's mood. Perun fixes the method (pinned commit, same areas every time,
+an evidence line per finding, an adversarial pass, a definition of done), and its
+detail files and test-covered scripts hold what one prompt cannot. The benchmark
+above compares exactly this.
 
-**Does my code leave my machine?** Perun itself sends nothing; it's text files
-your agent reads. Your code goes wherever your agent already sends it. The
-review may have the agent fetch public standards pages (such as OWASP) to
-confirm current versions. The skill bans secrets, personal data, and private identifiers from anything it writes to
-your repo, and its privacy gate reports a hit's location, never the secret.
+**Which agents work?** Any that can read files: Claude Code, Cursor, Codex,
+Copilot, Gemini, Aider, Windsurf, OpenCode, Hermes, Kiro, or a plain chat given
+the pasted `SKILL.md`.
 
-**Which agents are supported?** Any that can read files: Claude Code, Cursor,
-Codex, Copilot, Gemini, Aider, Windsurf, OpenCode, Hermes, Kiro, or a plain chat
-model given the pasted `SKILL.md`.
+**Does my code leave my machine?** Perun sends nothing. Your agent sends code
+wherever it already does. The review may fetch public standards pages to confirm
+versions.
 
-**How is this different from a good prompt?** A prompt gets you one pass that
-the model shapes itself. Perun fixes the method: a pinned commit, the same
-domains every time, a required evidence line per finding, an adversarial pass,
-and a definition of done. The routed references hold detection depth no single
-prompt carries, and CI-tested scripts check what prose alone can't.
+**When should I skip it?** For a throwaway script where a quick read is enough.
 
-**When should I not use it?** For a throwaway script where a quick read is
-enough, or alongside another delivery framework (install review only).
-
-**Where is it going?** [`docs/roadmap.md`](docs/roadmap.md). How Perun reviews
-its own changes: [`docs/self-improvement.md`](docs/self-improvement.md).
+**Why "Perun", and why `deep-code-review`?** The repository and the default
+skill are named for what it does. Perun is the project name, after the Slavic
+thunder god of order.
 
 ---
 
-## Contributing
+## Contributing and licence
 
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md); [`CLAUDE.md`](CLAUDE.md) holds the
-rules. In short: each skill has one home under `.claude/skills/`, nothing is
-duplicated, every reference is routed from its `SKILL.md`, and every cited
-standard is verified and dated in
+Engineering detail (mechanisms, token efficiency, agent fleets, recent changes)
+is in [`docs/technical-overview.md`](docs/technical-overview.md). Read
+[`CONTRIBUTING.md`](CONTRIBUTING.md); [`CLAUDE.md`](CLAUDE.md) holds the
+rules. Each skill has one home under `.claude/skills/`, nothing is duplicated,
+and every cited standard is verified and dated in
 [`docs/standards-index.md`](docs/standards-index.md). Security reports:
-[`SECURITY.md`](SECURITY.md). Conduct:
-[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-
-## License and attribution
+[`SECURITY.md`](SECURITY.md). Conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+Roadmap: [`docs/roadmap.md`](docs/roadmap.md).
 
 [MIT](LICENSE). Inspired by open coding-agent setups (including
 [`nickmaglowsch/claude-setup`](https://github.com/nickmaglowsch/claude-setup))
 and grounded in the public standards listed in
-[`docs/standards-index.md`](docs/standards-index.md). Named for the Slavic
-thunder god of order.
+[`docs/standards-index.md`](docs/standards-index.md).
