@@ -41,11 +41,14 @@ In order, first hit wins:
    missing/unreadable baseline is `COULD_NOT_CHECK canary`.
 6. **The live-lane cap** (`--live-lanes`/`--max-lanes`, only when both given):
    at or over the cap is `HOLD lane-cap`.
+   `--lane-type heavy` (a heavy local command, not a fan-out lane) adds an admission brake before this
+   step: `load1` > cores is `HOLD load-high` on its own (no idle-% pairing), and the free-RAM veto in
+   step 2 already defers it when RAM is low. Unreadable load never holds.
 7. Otherwise `SPAWN`.
 
 USAGE
 -----
-  host_probe.py --lane-type {cpu,io,light} [--canary CMD --baseline-file F]
+  host_probe.py --lane-type {cpu,io,light,heavy} [--canary CMD --baseline-file F]
                 [--live-lanes N --max-lanes N] [--per-lane-disk-bytes N]
                 [--sample-interval SECONDS] [--swap-used-pct-hold PCT] [--why]
   host_probe.py --selftest
@@ -103,6 +106,8 @@ def decide(*, swap_samples: tuple, free_ram_pct: float | None, lane_type: str,
     if lane_type == "cpu" and load1 is not None and cores:
         if load1 > cores and cpu_idle_pct is not None and cpu_idle_pct < CPU_CONTENTION_IDLE_PCT:
             return "HOLD cpu-contention"
+    if lane_type == "heavy" and load1 is not None and cores and load1 > cores:
+        return "HOLD load-high"  # admission control: defer a heavy local command, retry when load falls
     if canary_requested:
         if canary_ratio is None:
             return "COULD_NOT_CHECK canary"
@@ -271,7 +276,7 @@ def format_why(readings: dict) -> list:
 
 def main(argv: list | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compute the fan-out spawn/hold predicate once.")
-    parser.add_argument("--lane-type", choices=("cpu", "io", "light"), default="light",
+    parser.add_argument("--lane-type", choices=("cpu", "io", "light", "heavy"), default="light",
                         help="cpu enables the paired load+CPU-idle contention brake")
     parser.add_argument("--canary", help="a fixed cheap gate command timed against --baseline-file")
     parser.add_argument("--baseline-file", help="recorded idle-run elapsed seconds for --canary")
@@ -361,6 +366,14 @@ def _selftest() -> int:
     case("cpu-contention-holds-for-cpu-lane",
          decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="cpu",
                 load1=20.0, cores=8, cpu_idle_pct=2.0), "HOLD cpu-contention")
+    case("heavy-defers-when-load-over-cores",
+         decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="heavy", load1=9.0, cores=8), "HOLD load-high")
+    case("heavy-admits-when-load-under-cores",
+         decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="heavy", load1=3.0, cores=8), "SPAWN")
+    case("heavy-defers-when-ram-low",
+         decide(swap_samples=(100, 100), free_ram_pct=5, lane_type="heavy", load1=1.0, cores=8), "HOLD low-ram")
+    case("heavy-unreadable-load-never-holds",
+         decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="heavy"), "SPAWN")
     case("high-load-alone-never-holds-non-cpu-lane",
          decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="light",
                 load1=20.0, cores=8, cpu_idle_pct=2.0), "SPAWN")

@@ -12,6 +12,7 @@ Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-
 
   perun_policy.py get <dim>      print the value (a number prints as a number)
   perun_policy.py lanes          parallel-lane count from local_cpu (see lanes())
+  perun_policy.py heavy-slots    heavy-command concurrency = max(2, free cores) (see heavy_slots())
   perun_policy.py --selftest
 
 Exit 0 ok, 2 usage / malformed policy / unknown dimension.
@@ -77,6 +78,14 @@ def lanes(mode, cores: int, load1: float | None = None) -> int:
     return max(1, cores // 2)
 
 
+def heavy_slots(cores: int, load1: float | None = None) -> int:
+    """Concurrent heavy local commands (full test suite, build, browser run) a gate admits: free cores
+    (cores minus load1) but never below 2, so a busy host still makes progress. A primitive: callers opt in.
+    Pair with `host_probe.py --lane-type heavy`, which defers the job when load1 > cores or RAM is low.
+    Kill criterion: if the median pre-push time rises after adopting this, revert to the flat cap."""
+    return max(2, int(cores - (load1 or 0)))
+
+
 def main(argv: list) -> int:
     if argv[:1] == ["--selftest"]:
         return _selftest()
@@ -89,6 +98,11 @@ def main(argv: list) -> int:
             import host_probe  # lazy: host_probe imports this module
             load1, cores = host_probe.read_load1_and_cores()
             print(lanes(pol["local_cpu"], cores or os.cpu_count() or 1, load1))
+            return 0
+        if argv == ["heavy-slots"]:
+            import host_probe
+            load1, cores = host_probe.read_load1_and_cores()
+            print(heavy_slots(cores or os.cpu_count() or 1, load1))
             return 0
     except ValueError as e:
         print(f"perun_policy: {e}", file=sys.stderr)
@@ -122,6 +136,7 @@ def _selftest() -> int:
         raise AssertionError(bad)
     assert [lanes(m, 8, 3) for m in ("efficient", "maximize", "off", 3)] == [4, 5, 1, 3]
     assert lanes("maximize", 8, 99) == 1
+    assert [heavy_slots(8, 3), heavy_slots(8, 7.5), heavy_slots(8, 99), heavy_slots(1), heavy_slots(8)] == [5, 2, 2, 2, 8]
     print("perun_policy selftest ok")
     return 0
 

@@ -62,6 +62,17 @@ class PolicyCli(unittest.TestCase):
         self.assertEqual(perun_policy.lanes(3, 10), 3)
         self.assertEqual(perun_policy.lanes("off", 10), 1)
 
+    def test_heavy_slots_injected_load(self):
+        self.assertEqual(perun_policy.heavy_slots(10, 4.0), 6)
+        self.assertEqual(perun_policy.heavy_slots(10, 50.0), 2)  # floor of 2, never starves
+        self.assertEqual(perun_policy.heavy_slots(1), 2)
+
+    def test_heavy_admission_injected_load(self):
+        import host_probe
+        kw = dict(swap_samples=(1, 1), free_ram_pct=50, lane_type="heavy", cores=4)
+        self.assertEqual(host_probe.decide(load1=5.0, **kw), "HOLD load-high")
+        self.assertEqual(host_probe.decide(load1=1.0, **kw), "SPAWN")
+
     def test_host_probe_bad_policy_cannot_check(self):
         self.pol.write_text("{")
         r = run([sys.executable, str(AD / "host_probe.py")], env=self.env)
