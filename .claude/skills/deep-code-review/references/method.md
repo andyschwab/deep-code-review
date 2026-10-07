@@ -217,6 +217,9 @@ at the diff's face value. The bucket, not the PR's framing, sets the depth. A hu
 fits none cleanly — a pure deletion, a test-only or config-only change — defaults to the
 **behavioral** read (toward more scrutiny, not less). (Distinct from Phase 0's blast-radius
 *ordering*, which ranks what to review *first*; this sets what *depth* each hunk earns.)
+**Multi-file or contract-changing `DIFF`: out-of-diff tracing is mandatory** (`method-situational.md`:
+`impact_map.py`, `context_pack.py`).
+
 **Intent-conformance — a lens distinct from correctness.** Besides "is the
 code right," ask "does the change do what it *claimed*": does the diff satisfy its PR
 description, linked issue, or stated acceptance criteria? A flawless implementation that does
