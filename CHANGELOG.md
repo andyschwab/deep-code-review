@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.513.0] — 2026-10-07
+
+### Added
+- Work-tracker hygiene for delivery installs (Linear first-class, tracker-agnostic core): `agentic-delivery/references/work-tracking.md` (object mapping, three status moves, weekly project update, verified Linear gotchas: ID in a PR title auto-closes the issue on merge, `#NNN` autolinks to a guessed repo, portfolio-owned priority), `scripts/tracker_check.py` (PRs without an ID, auto-close hazards on revert/partial PRs, and with `LINEAR_API_KEY` issues missing assignee/priority/status or stale In Progress; fail-open `NOT CHECKED` lines), `scripts/tracker_weekly_update.py` (drafts the update, never posts), coordinator loop step, and `install.sh --tracker-project ID [--tracker linear|github|jira]` writing an idempotent "Work tracking" AGENTS.md block replayed by `update-installed.sh`. Tests: `scripts/test_tracker_hygiene.py`; two new `agentic-delivery` evals.
+
+size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 23261→23424 one routing line for the new work-tracking reference
+
 ## [1.512.0] — 2026-10-07
 
 ### Added
