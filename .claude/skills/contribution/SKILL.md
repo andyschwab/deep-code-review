@@ -46,6 +46,12 @@ upstream issues, and files an **issue** (default upstream: this repository; over
 `--repo` or `$PERUN_UPSTREAM`), logging each outcome to `.perun/shared-learnings.jsonl`.
 It never opens a PR or pushes, and a privacy-gate failure refuses the share.
 
+**Opt-in primitive: lesson to PR draft.** `scripts/learning_to_pr.py` (run by hand; not called by
+`share_learning.py`) turns one lesson into a local `change.patch` plus `body.md` under
+`.perun/upstream-drafts/`. It refuses on any `prefile_check.sh` hit, skips a near-duplicate of
+existing `SKILL.md` or `references/` text, honors `share_learnings=off`, and never pushes or files:
+a human applies the patch, adds a mechanism, runs the gates and opens the PR.
+
 The human gate is on the **send**, because that crossing is **irreversible** — a
 third party's confidential fact, once public, cannot be recalled, and no scanner
 catches a paraphrased one. Everything *before* the send is reversible and happens
