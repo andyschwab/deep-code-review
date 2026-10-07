@@ -116,7 +116,7 @@ USAGE
   task_ledger.py [--file PATH] unblock --id T-###
   task_ledger.py [--file PATH] drop    --id T-### --quote "<owner words>"
   task_ledger.py [--file PATH] reopen  --id T-###
-  task_ledger.py [--file PATH] next
+  task_ledger.py [--file PATH] next [--check]
   task_ledger.py [--file PATH] status
   task_ledger.py [--file PATH] reconcile --transcript-asks FILE
   task_ledger.py [--file PATH] defer   --id T-### --question "<q>" (--default "<choice taken>" | --park)
@@ -131,6 +131,9 @@ the ledger) READ-ONLY, if present — one priority per line (an id or free
 text), first line wins by id match then by normalized-text similarity —
 and otherwise falls back to the oldest open row.
 `next` also prints how many deferred owner questions are pending.
+`next --check` is the loop's drain test: same output, but exit 3 (DRAINED) when no
+non-gated row is left (only done, dropped or blocked/parked rows remain), else 0.
+A self-paced loop ends only on exit 3; a parked item never keeps it alive.
 `defer` records a question for an absent owner in `QUESTIONS.jsonl` (same
 directory as the ledger; one JSON object per line: id, item, question,
 default, ts, answer) so the run never stalls on it: `--default` names the
@@ -159,6 +162,7 @@ import tempfile
 from datetime import datetime, timezone
 
 OK, WARN, ERROR = 0, 1, 2
+DRAINED = 3  # `next --check`: no doing/open row left (every other row is done, dropped or blocked/parked)
 
 HEADER_CELLS = ("id", "status", "created", "updated", "ask", "evidence", "source")
 HEADER_LINE = "| " + " | ".join(HEADER_CELLS) + " |"
@@ -814,7 +818,8 @@ def main(argv: list = None) -> int:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--id", required=True)
 
-    sub.add_parser("next", help="print the single next row: doing first, then priority, then oldest open")
+    p_next = sub.add_parser("next", help="print the single next row: doing first, then priority, then oldest open")
+    p_next.add_argument("--check", action="store_true", help="exit 3 when drained (no doing/open row)")
     sub.add_parser("status", help="print counts + unresolved rows")
     p = sub.add_parser("defer", help="record a question for an absent owner; keep working (default) or park the item")
     p.add_argument("--id", required=True)
@@ -880,7 +885,7 @@ def main(argv: list = None) -> int:
                 print(f"created: {row['created']} source: {row['source']}")
             if pending:
                 print(f"questions pending: {len(pending)} (batch for the owner: `questions`)")
-            return OK
+            return DRAINED if args.check and row is None else OK
 
         if args.cmd == "defer":
             with _locked(path, exclusive=True):
@@ -1200,6 +1205,18 @@ def _selftest() -> int:
         with contextlib.redirect_stdout(buf):
             rc = main(["--file", bad_path, "status"])
         check("malformed-file-cli-exits-2", rc == ERROR, f"rc={rc} out={buf.getvalue()!r}")
+
+        # -- I/O: `next --check` exits 3 only when no doing/open row remains.
+        os.mkdir(os.path.join(tmpdir, "d"))  # QUESTIONS.jsonl sits beside the ledger: isolate it
+        d_path = os.path.join(tmpdir, "d", "D.md")
+        with contextlib.redirect_stdout(io.StringIO()):
+            main(["--file", d_path, "add", "--ask", "Ship the report"])
+            rc_has = main(["--file", d_path, "next", "--check"])
+            main(["--file", d_path, "defer", "--id", "T-001", "--question", "Send externally?", "--park"])
+            rc_parked = main(["--file", d_path, "next", "--check"])
+            rc_plain = main(["--file", d_path, "next"])
+        check("next-check-ok-while-open", rc_has == OK, str(rc_has))
+        check("next-check-drained-when-only-parked", rc_parked == DRAINED and rc_plain == OK, f"{rc_parked} {rc_plain}")
 
         # -- I/O: defer --park via the CLI writes both files; `next` skips the
         #    parked item and reports the pending count; `questions` exits 1.

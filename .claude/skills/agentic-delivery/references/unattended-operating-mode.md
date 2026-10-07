@@ -59,6 +59,20 @@ loop, not a single task**. Frame it as the default stance:
   not the activity** and `unattended-trackers.md` **reconcile status against the
   operator's open-issue metric**; DORA: `deep-code-review`'s `release-engineering.md`.
 
+## Why sessions stop after one item, and how to run autonomously
+
+Read this when an owner says "autonomous run" and the agent does one piece of work, then waits for input.
+
+The host ends a turn when the model returns. Nothing in prose doctrine (this file, a handback rule, a ledger) can make a finished turn continue: a doctrine that says "keep going" is advisory, and a loop template that says "run once, then stop" ends the session by design. Continuation has to come from the host:
+
+- **Self-paced `/loop`** (the owner types `/loop <goal as given>`): the model re-enters itself each tick and picks its own delay. The plugin's `commands/perun-run.md` (`/perun-run <goal>`) tells the agent to start this mode; if a command cannot start it in a given host, the command prints the exact `/loop <goal>` one-liner for the owner to run.
+- **An owner-started schedule** (a recurring job the owner creates), for work that should wake on a clock.
+- **`ScheduleWakeup`** inside a loop, as a 1200-1800 second fallback when the only thing left is waiting on an event.
+
+Each tick picks one item with `agentic-ceo/scripts/task_ledger.py next --check`, does it, and records it. Exit 3 means drained: the queue holds no non-gated item and the run may end. Gated items are parked with `task_ledger.py defer --park`, which removes them from `next`, so a run never stalls on them and never takes an irreversible action on its own.
+
+What not to do: do not add a `Stop` hook that returns `decision: block` to force another turn. It removes the owner's ability to end a run, it fights the host's own continuation cap, and it can trap a session on an item that needs a human. The owner starts the run and can stop it at any time; the mechanism above keeps that true.
+
 ## What it composes (three skills, three gates, one bounded loop)
 
 The mode is not new machinery — it is the suite's existing gates run continuously:
