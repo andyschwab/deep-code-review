@@ -63,6 +63,10 @@ PROTOCOL_ONLY = (
 )
 
 
+SANDBOX_RED = ("MISSING RED: sandbox off -- an agent's `rm -rf` can delete your files; set sandbox.enabled=true and "
+               "sandbox.allowUnsandboxedCommands=false (install.sh --apply-operating-layer)")
+
+
 def _flatten_commands(hook_entries: list) -> list:
     """Every `command` string nested under one hook-event's entry list."""
     out = []
@@ -86,14 +90,14 @@ def check_settings(settings_path: str) -> dict:
     """
     if not os.path.exists(settings_path):
         return {"subagent-start-injector": "MISSING", "handback-cap-two-tier": "MISSING",
-                "subagent-model-pin": "MISSING"}
+                "subagent-model-pin": "MISSING", "sandbox-on": SANDBOX_RED}
     try:
         with open(settings_path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, json.JSONDecodeError):
         reason = "COULD_NOT_CHECK: unreadable or malformed settings file"
         return {"subagent-start-injector": reason, "handback-cap-two-tier": reason,
-                "subagent-model-pin": reason}
+                "subagent-model-pin": reason, "sandbox-on": reason}
     hooks = data.get("hooks", {}) if isinstance(data, dict) else {}
     start_cmds = _flatten_commands(hooks.get("SubagentStart", []))
     stop_cmds = _flatten_commands(hooks.get("SubagentStop", []))
@@ -107,10 +111,14 @@ def check_settings(settings_path: str) -> dict:
     else:
         handback_status = "MISSING"
     env = data.get("env", {}) if isinstance(data, dict) else {}
+    sb = data.get("sandbox", {}) if isinstance(data, dict) else {}
+    sb = sb if isinstance(sb, dict) else {}
     return {
         "subagent-start-injector": "PRESENT" if any("subagent_start_inject.py" in c for c in start_cmds) else "MISSING",
         "handback-cap-two-tier": handback_status,
         "subagent-model-pin": "PRESENT" if "CLAUDE_CODE_SUBAGENT_MODEL" in env else "MISSING",
+        "sandbox-on": "PRESENT" if sb.get("enabled") is True and sb.get("allowUnsandboxedCommands") is False
+                      else SANDBOX_RED,
     }
 
 
@@ -191,6 +199,13 @@ def _selftest() -> int:
         one_tier = check_settings(one_tier_path)
         case("one-tier-handback-not-present", one_tier["handback-cap-two-tier"].startswith("MISSING"), True)
 
+        case("before-merge-sandbox-red", before["sandbox-on"].startswith("MISSING RED"), True)
+        half_path = os.path.join(tmp, "half.json")
+        with open(half_path, "w", encoding="utf-8") as fh:
+            json.dump({"sandbox": {"enabled": True}}, fh)
+        case("sandbox-enabled-but-unsandboxed-allowed-red",
+             check_settings(half_path)["sandbox-on"].startswith("MISSING RED"), True)
+
         after_path = os.path.join(tmp, "after.json")
         with open(after_path, "w", encoding="utf-8") as fh:
             json.dump({
@@ -204,11 +219,13 @@ def _selftest() -> int:
                     ],
                 },
                 "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"},
+                "sandbox": {"enabled": True, "allowUnsandboxedCommands": False},
             }, fh)
         after = check_settings(after_path)
         case("after-merge-start-present", after["subagent-start-injector"], "PRESENT")
         case("after-merge-handback-two-tier-present", after["handback-cap-two-tier"], "PRESENT")
         case("after-merge-pin-present", after["subagent-model-pin"], "PRESENT")
+        case("after-merge-sandbox-present", after["sandbox-on"], "PRESENT")
 
         case("no-settings-file-missing-not-could-not-check",
              check_settings(os.path.join(tmp, "does-not-exist.json"))["subagent-start-injector"], "MISSING")

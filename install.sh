@@ -110,6 +110,13 @@ on re-install). Overlay skills are opt-in.
                        fails closed if jq is missing) and write
                        .claude/agents/delivery-lane.md if absent. Implies
                        --with-operating-layer; requires --with-delivery.
+  --no-sandbox         Leave the sandbox and deny rules OUT of the operating layer.
+                       By default it sets sandbox.enabled=true,
+                       sandbox.allowUnsandboxedCommands=false and denies
+                       Bash(rm -rf *), (rm -fr *), (rm -r *), (rm -R *), (sudo *).
+                       RISK: without the OS sandbox nothing stops an agent's
+                       `rm -rf "$EMPTY"/*` from deleting your files; deny rules
+                       match command text only (bypassable via /bin/rm, bash -c).
   --recommend          Inspect TARGET and print a recommended pack; no writes
   -h, --help           Show this help
 
@@ -129,6 +136,7 @@ MINIMAL=0
 WITH_CODEX=0
 WITH_EXTRA=0
 WITH_DELIVERY=0
+NO_SANDBOX=0
 WITH_CRITIC=0
 WITH_COMMS=0
 WITH_CONTRIBUTION=0
@@ -162,6 +170,7 @@ for arg in "$@"; do
     --with-gates) WITH_GATES=1 ;;
     --with-operating-layer) WITH_OPERATING_LAYER=1 ;;
     --apply-operating-layer) WITH_OPERATING_LAYER=1; APPLY_OPLAYER=1 ;;
+    --no-sandbox) NO_SANDBOX=1 ;;
     --full) WITH_DELIVERY=1; WITH_CRITIC=1; WITH_COMMS=1 ;;
     --recommend) RECOMMEND_ONLY=1 ;;
     --with-cursor) echo "note: --with-cursor is default now; ignoring." >&2 ;;
@@ -416,6 +425,12 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
     echo "error: cannot find ${OPLAYER_SRC}" >&2
     exit 1
   fi
+  OPLAYER_JSON="$(cat "${OPLAYER_SRC}")"
+  if [[ "${NO_SANDBOX}" -eq 1 ]]; then
+    command -v jq >/dev/null || { echo "error: --no-sandbox needs jq (fail closed)" >&2; exit 1; }
+    OPLAYER_JSON="$(jq -c 'del(.sandbox, .permissions)' "${OPLAYER_SRC}")"
+    echo "warning: --no-sandbox: operating layer has NO sandbox and NO rm/sudo deny rules; an agent can delete anything you can" >&2
+  fi
   OPLAYER_DEST="${TARGET_DIR}/.claude/settings.operating-layer.json.new"
   mkdir -p "$(dirname "${OPLAYER_DEST}")"
   if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
@@ -424,12 +439,13 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
     # Append template hook entries not already present; existing env/model win.
     # Placeholder matchers (contain "<") never fire: skip them, tell the operator.
     echo "warning: skipped template hook entries with a placeholder matcher (e.g. <your-read-only-review-type>); add a SubagentStop entry with your real review agent type by hand" >&2
-    jq --slurpfile t "${OPLAYER_SRC}" '
-      ($t[0]) as $t
-      | reduce ($t.hooks | keys[]) as $e (.;
+    jq --argjson t "${OPLAYER_JSON}" '
+      reduce ($t.hooks | keys[]) as $e (.;
           (.hooks[$e] // []) as $a
           | .hooks[$e] = $a + ($t.hooks[$e] | map(select(((.matcher // "") | contains("<") | not) and (. as $x | $a | index([$x]) | not)))))
       | .env = ($t.env + (.env // {}))
+      | (if $t.sandbox then .sandbox = ($t.sandbox + (.sandbox // {})) else . end)
+      | (if $t.permissions then .permissions.deny = (((.permissions.deny // []) + $t.permissions.deny) | unique) else . end)
       | .model //= "sonnet"' "${OPLAYER_LOCAL}" > "${OPLAYER_LOCAL}.tmp"
     if cmp -s "${OPLAYER_LOCAL}" "${OPLAYER_LOCAL}.tmp"; then
       rm -f "${OPLAYER_LOCAL}.tmp"
@@ -450,6 +466,9 @@ Do the assigned bounded task with the simplest change that works. Read only the 
 AGENT
     fi
     echo "applied operating layer to ${OPLAYER_LOCAL} (backup: .bak if changed); verify with:"
+    if [[ "${NO_SANDBOX}" -eq 0 ]]; then
+      echo "  what changed (sandbox): sandbox.enabled=true, sandbox.allowUnsandboxedCommands=false (existing values win), deny Bash(rm -rf *), Bash(rm -fr *), Bash(rm -r *), Bash(rm -R *), Bash(sudo *); opt out with --no-sandbox"
+    fi
     echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py --settings .claude/settings.local.json"
   else
   if [[ -e "${OPLAYER_DEST}" ]]; then
@@ -459,7 +478,7 @@ AGENT
     done
     OPLAYER_DEST="${OPLAYER_DEST}-${OPLAYER_N}"
   fi
-  cp "${OPLAYER_SRC}" "${OPLAYER_DEST}"
+  printf '%s\n' "${OPLAYER_JSON}" > "${OPLAYER_DEST}"
   echo "wrote ${OPLAYER_DEST} -- merge its \"hooks\"/\"env\" keys into ${TARGET_DIR}/.claude/settings.json by hand, then verify with:"
   echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py"
   fi
