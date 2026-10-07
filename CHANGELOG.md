@@ -3,11 +3,6 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
-## [1.506.0] — 2026-10-07
-
-### Added
-- `scripts/bench_corpus.py` and `scripts/eval-fixtures/bench/`: a review benchmark corpus of 26 real bug-fix cases from permissive-licence public repositories plus the held-out ops-scripts fixture, with a deterministic one-third TRAIN / two-thirds TEST split. TRAIN cases are committed in full; for TEST only a manifest of URLs, licences and SHAs is committed so the split stays unseen by anyone tuning the skill. The runner reuses `score_review.py`, asks reviewers for a findings JSON, and reports strict and verifier-checked precision, recall, cost and time for Perun, Perun plus a seeded gap pass, plain Sonnet, and shellcheck/semgrep. First baseline results are in `scripts/eval-fixtures/bench/results.md`. Offline tests: `scripts/test_bench_corpus.py`, wired into CI.
-
 ## [1.505.0] — 2026-10-07
 
 ### Added
