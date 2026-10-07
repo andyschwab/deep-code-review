@@ -48,7 +48,8 @@ It never opens a PR or pushes, and a privacy-gate failure refuses the share.
 
 **Opt-in primitive: lesson to PR draft.** `scripts/learning_to_pr.py` (run by hand; not called by
 `share_learning.py`) turns one lesson into a local `change.patch` plus `body.md` under
-`.perun/upstream-drafts/`. It refuses on any `prefile_check.sh` hit, skips a near-duplicate of
+`.perun/upstream-drafts/`. It requires `--target` (an existing upstream file), refuses on any `prefile_check.sh` hit or any email, URL, IP
+or private-host match in title, lesson or target (a regex backstop, not proof of privacy), skips a near-duplicate of
 existing `SKILL.md` or `references/` text, honors `share_learnings=off`, and never pushes or files:
 a human applies the patch, adds a mechanism, runs the gates and opens the PR.
 

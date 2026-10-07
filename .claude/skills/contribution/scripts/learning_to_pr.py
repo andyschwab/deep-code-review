@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """learning_to_pr.py — turn one downstream field lesson into a LOCAL upstream-PR draft (patch + body). Never pushes or files.
 
-  learning_to_pr.py (--text T | --file F) [--title T] [--target REL] [--skills DIR] [--out DIR]
+  learning_to_pr.py (--text T | --file F) [--title T] --target REL [--skills DIR] [--out DIR]
 
 Opt-in primitive, run by hand or by an agent after a lesson is recorded; it is not called automatically.
 Pipeline, fail closed:
  1. policy: `share_learnings=off` exits 0 doing nothing (same switch as share_learning.py).
- 2. privacy: prefile_check.sh runs on the RAW title and lesson. Any hit refuses (exit 1) and nothing is written;
-    a missing banlist refuses (exit 2). The lesson is not auto-redacted: the author rewrites it generically.
+ 2. privacy: prefile_check.sh plus a regex gate (emails, URLs, IPs, *.internal/*.local/*.corp hosts) run on the RAW
+    title, lesson and --target. Any hit refuses (exit 1) and nothing is written; a missing banlist refuses (exit 2).
+    The regex gate is a backstop, not proof of privacy: names and paraphrased facts still need a human. The lesson is not auto-redacted: the author rewrites it generically.
  3. dedupe: the lesson is compared (share_learning.similar: ratio >= 0.8 or token overlap >= 0.6) with every
     line and paragraph of every `SKILL.md` and `references/*.md` under --skills; a near-duplicate exits 0 as
     `duplicate`, drafting nothing.
  4. draft: writes `<out>/<slug>/change.patch` (a `git apply`-able diff appending one bullet to --target,
-    default the deep-code-review field-lessons reference) and `<out>/<slug>/body.md` (the PR body, provenance
+    required, an existing routed upstream file) and `<out>/<slug>/body.md` (the PR body, provenance
     footer, no target path). A human reviews, applies in an upstream checkout, runs its gates and opens the PR.
 Every outcome is appended to the share_learning ledger (`$PERUN_LEDGER`, default `.perun/shared-learnings.jsonl`),
 status `pr-drafted`, `duplicate` or `refused`; the raw lesson is never logged. Side effects: files under --out and
@@ -33,7 +34,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import share_learning as sl  # noqa: E402  reuse: similar, log, perun_version, SELF_REPO
 
-DEFAULT_TARGET = ".claude/skills/deep-code-review/references/field-lessons.md"
+LEAK = re.compile(
+    r"[\w.+-]+@[\w-]+\.[\w.-]+|https?://|\bwww\.|\b\d{1,3}(?:\.\d{1,3}){3}\b"
+    r"|\b[\w-]+(?:\.[\w-]+)*\.(?:internal|local|corp|lan|intranet)\b", re.I)
 
 
 def find_duplicate(rule: str, skills: Path) -> str:
@@ -64,7 +67,7 @@ def main(argv: list | None = None) -> int:
     src.add_argument("--text")
     src.add_argument("--file")
     ap.add_argument("--title")
-    ap.add_argument("--target", default=DEFAULT_TARGET, help="upstream-relative file the bullet is appended to")
+    ap.add_argument("--target", required=True, help="upstream-relative file the bullet is appended to")
     ap.add_argument("--skills", default=".claude/skills", help="installed skills dir to dedupe against")
     ap.add_argument("--out", default=".perun/upstream-drafts")
     a = ap.parse_args(argv)
@@ -86,6 +89,10 @@ def main(argv: list | None = None) -> int:
         print("learning_to_pr: empty lesson or unsafe --target", file=sys.stderr)
         return 2
     ledger = Path(os.environ.get("PERUN_LEDGER", ".perun/shared-learnings.jsonl"))
+    if LEAK.search(f"{title}\n{rule}\n{a.target}"):
+        print("learning_to_pr: email, URL, IP or private host in title/lesson/target; rewrite generically, nothing written", file=sys.stderr)
+        sl.log(ledger, "refused", sl.SELF_REPO, "", "", rule)
+        return 1
     root = Path(os.environ.get("BANLIST_DIR") or subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or ".")
     with tempfile.TemporaryDirectory() as d:

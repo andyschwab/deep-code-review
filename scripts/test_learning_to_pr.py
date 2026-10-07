@@ -25,6 +25,7 @@ class T(unittest.TestCase):
                     "GIT_CONFIG_GLOBAL": "/dev/null"}
 
     def run_(self, text, *extra):
+        extra = extra if "--target" in extra else ("--target", "new.md", *extra)
         return subprocess.run([sys.executable, str(SCRIPT), "--text", text, "--skills", str(self.d / "skills"),
                                "--out", str(self.d / "out"), *extra], capture_output=True, text=True,
                               env=self.env, cwd=self.d)
@@ -73,6 +74,42 @@ class T(unittest.TestCase):
     def test_unsafe_target_and_empty_rejected(self):
         self.assertEqual(self.run_("   ").returncode, 2)
         self.assertEqual(self.run_(LESSON, "--target", "../x.md").returncode, 2)
+
+    def test_target_required(self):
+        r = subprocess.run([sys.executable, str(SCRIPT), "--text", LESSON], capture_output=True, text=True,
+                           env=self.env, cwd=self.d)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("--target", r.stderr)
+
+    def test_regex_gate_refuses_email_host_ip_url(self):
+        for bad in ("Mail ops@example.com when the queue stalls past the budget.",
+                    "Reach the box at build01.internal for the cache flush step.",
+                    "Seen on 10.20.30.40 during the retry storm last week.",
+                    "Docs at https://wiki.example.com/retry explain the budget."):
+            self.assertEqual(self.run_(bad).returncode, 1, bad)
+        self.assertEqual(self.run_(LESSON, "--title", "Contact ops@example.com").returncode, 1)
+        self.assertFalse((self.d / "out").exists())
+        self.assertEqual(self.status(), "refused")
+
+    def test_target_runs_through_gate(self):
+        for bad in ("notes@example.com.md", "build01.internal/x.md", "10.1.2.3/x.md"):
+            self.assertEqual(self.run_(LESSON, "--target", bad).returncode, 1, bad)
+        self.assertFalse((self.d / "out").exists())
+
+    def test_file_input(self):
+        f = self.d / "lesson.txt"
+        args = ["--target", "new.md", "--skills", str(self.d / "skills")]
+        f.write_text(LESSON + "\n")
+        r = subprocess.run([sys.executable, str(SCRIPT), "--file", str(f), *args, "--out", str(self.d / "out")],
+                           capture_output=True, text=True, env=self.env, cwd=self.d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (p,) = (self.d / "out").glob("*/change.patch")
+        self.assertIn(LESSON, p.read_text())
+        f.write_text("Mail ops@example.com about it.\n")
+        r = subprocess.run([sys.executable, str(SCRIPT), "--file", str(f), *args, "--out", str(self.d / "out2")],
+                           capture_output=True, text=True, env=self.env, cwd=self.d)
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse((self.d / "out2").exists())
 
 
 if __name__ == "__main__":
