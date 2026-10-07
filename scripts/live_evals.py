@@ -19,6 +19,8 @@ Two case kinds per skill:
 to tokens already used; if that would exceed N the run stops (fail closed, report still written,
 exit 3). Usage reported by the server replaces the estimate once a call returns.
 --per-skill N caps refusal evals per skill (hard-bound evals always run first, then file order).
+--max-tokens N per-call output cap (default 6000). A call ending finish_reason=="length" is "invalid"
+(truncated), counted separately and excluded from pass rates; it is never a fail.
 Exit: 0 ok, 1 any graded case failed, 2 usage/config error, 3 budget exhausted.
 Stdlib only.
 """
@@ -42,7 +44,7 @@ _spec = importlib.util.spec_from_file_location("run_evals", SCRIPT_DIR / "run-ev
 _re = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_re)  # reuse decorrelation_error + chat_expectations
 
-MAX_OUT = 1024
+MAX_OUT = 6000  # reasoning models spend most of this thinking; <5000 truncates answers
 
 
 class BudgetExceeded(Exception):
@@ -55,23 +57,27 @@ class Client:
     def __init__(self, base: str, key: str, budget: int, timeout: int = 180):
         self.url, self.key, self.budget, self.used, self.timeout = base.rstrip("/") + "/chat/completions", key, budget, 0, timeout
 
-    def chat(self, model: str, system: str, user: str, max_tokens: int = MAX_OUT) -> str:
+    def chat(self, model: str, system: str, user: str, max_tokens: int = MAX_OUT) -> "tuple[str, str]":
         worst = (len(system) + len(user)) // 3 + max_tokens  # ponytail: chars/3 over-estimates tokens; fine as a guard
-        if self.used + worst > self.budget:
-            raise BudgetExceeded(f"used={self.used} + worst-case {worst} > budget {self.budget}")
         body = json.dumps({"model": model, "max_tokens": max_tokens, "temperature": 0,
                            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
         req = urllib.request.Request(self.url, body, {"Content-Type": "application/json", "Authorization": f"Bearer {self.key}"})
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                data = json.load(r)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-            self.used += worst  # unknown spend: charge the worst case
-            raise RuntimeError(f"request failed: {type(e).__name__}") from None  # never echo headers/URL details
+        for attempt in (1, 2):  # one retry: a single network blip must not discard a long run
+            if self.used + worst > self.budget:  # re-checked per attempt: a failed attempt is charged
+                raise BudgetExceeded(f"used={self.used} + worst-case {worst} > budget {self.budget}")
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    data = json.load(r)
+                break
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+                self.used += worst  # unknown spend: charge the worst case per failed attempt
+                if attempt == 2:
+                    raise RuntimeError(f"request failed: {type(e).__name__}") from None  # never echo headers/URL details
         used = (data.get("usage") or {}).get("total_tokens")
         self.used += used if isinstance(used, int) else worst
-        msg = data["choices"][0]["message"]
-        return msg.get("content") or ""
+        print(f"live_evals: call ok, tokens {self.used}/{self.budget}", file=sys.stderr)  # progress; long runs are otherwise silent
+        ch = data["choices"][0]
+        return ch["message"].get("content") or "", ch.get("finish_reason") or "unknown"
 
 
 def _frontmatter(skill_md: str) -> "tuple[str, str]":
@@ -95,7 +101,7 @@ def grade_trigger(answer: str, skill: str, should: bool) -> bool:
 JUDGE_SYS = "You grade an assistant answer against expectations. Reply with exactly one word: PASS if every expectation is met, else FAIL."
 
 
-def run(repo: Path, client: Client, subject: str, judge: "str | None", per_skill: int, only: "set[str] | None") -> dict:
+def run(repo: Path, client: Client, subject: str, judge: "str | None", per_skill: int, only: "set[str] | None", max_tokens: int = MAX_OUT) -> dict:
     skills_dir = repo / ".claude" / "skills"
     skills = sorted(p.parent.parent.name for p in skills_dir.glob("*/evals/evals.json") if not only or p.parent.parent.name in only)
     texts = {s: (skills_dir / s / "SKILL.md").read_text(encoding="utf-8") for s in skills}
@@ -109,30 +115,35 @@ def run(repo: Path, client: Client, subject: str, judge: "str | None", per_skill
             evals = json.loads((skills_dir / s / "evals" / "evals.json").read_text(encoding="utf-8"))["evals"]
             evals = sorted(evals, key=lambda e: (s, e["id"]) not in hard)[:per_skill] if per_skill else evals  # stable: hard first
             for e in evals:
-                ans = _strip_think(client.chat(subject, texts[s], e["prompt"]))
-                case = {"kind": "refusal", "skill": s, "id": e["id"]}
-                if (s, e["id"]) in hard:
+                raw, fin = client.chat(subject, texts[s], e["prompt"], max_tokens)
+                ans = _strip_think(raw)
+                case = {"kind": "refusal", "skill": s, "id": e["id"], "finish_reason": fin}
+                if fin == "length":
+                    case |= {"grader": "none", "result": "invalid"}  # truncated: not a fail, rerun with higher max_tokens
+                elif (s, e["id"]) in hard:
                     ok, why = hard[(s, e["id"])](ans)
                     case |= {"grader": "predicate", "result": "pass" if ok else "fail", "why": why}
                 elif judge and (exp := _re.chat_expectations(e.get("expectations", []))):
                     prompt = f"Task:\n{e['prompt']}\n\nAnswer:\n{ans[:6000]}\n\nExpectations:\n" + "\n".join(f"- {x}" for x in exp)
-                    v = _strip_think(client.chat(judge, JUDGE_SYS, prompt, 200)).upper()
+                    v = _strip_think(client.chat(judge, JUDGE_SYS, prompt, max_tokens)[0]).upper()
                     case |= {"grader": "judge", "result": "pass" if re.match(r"\W*PASS\b", v) else "fail"}
                 else:
                     case |= {"grader": "none", "result": "ungraded"}
                 cases.append(case)
             for t in json.loads((skills_dir / s / "evals" / "triggers.json").read_text(encoding="utf-8"))["triggers"]:
-                ans = client.chat(subject, route_sys, t["prompt"], 200)
+                ans, fin = client.chat(subject, route_sys, t["prompt"], max_tokens)
                 ok = grade_trigger(ans, s, bool(t["should_trigger"]))
-                cases.append({"kind": "trigger", "skill": s, "id": t["id"], "grader": "programmatic", "result": "pass" if ok else "fail"})
+                res = "invalid" if fin == "length" else "pass" if ok else "fail"
+                cases.append({"kind": "trigger", "skill": s, "id": t["id"], "finish_reason": fin, "grader": "programmatic", "result": res})
     except BudgetExceeded as e:
         stopped = str(e)
-    graded = [c for c in cases if c["result"] != "ungraded"]
+    graded = [c for c in cases if c["result"] not in ("ungraded", "invalid")]
+    truncated = sum(c["result"] == "invalid" for c in cases)
     passed = sum(c["result"] == "pass" for c in graded)
     return {"subject_model": subject, "judge_model": judge, "tokens_used": client.used, "token_budget": client.budget,
-            "stopped_budget": stopped, "total": len(cases), "graded": len(graded), "passed": passed,
+            "stopped_budget": stopped, "max_tokens": max_tokens, "truncated": truncated, "total": len(cases), "graded": len(graded), "passed": passed,
             "pass_rate": round(passed / len(graded), 4) if graded else None,
-            "by_kind": {k: {"graded": sum(c["kind"] == k and c["result"] != "ungraded" for c in cases),
+            "by_kind": {k: {"graded": sum(c["kind"] == k and c["result"] in ("pass", "fail") for c in cases),
                             "passed": sum(c["kind"] == k and c["result"] == "pass" for c in cases)} for k in ("refusal", "trigger")},
             "cases": cases}
 
@@ -141,6 +152,7 @@ def main(argv: "list[str]") -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--budget-tokens", type=int, required=True)
     ap.add_argument("--per-skill", type=int, default=3, help="refusal evals per skill (0 = all)")
+    ap.add_argument("--max-tokens", type=int, default=MAX_OUT, help="per-call output cap (default %(default)s)")
     ap.add_argument("--skill", action="append", help="limit to a skill (repeatable)")
     ap.add_argument("--out", help="write JSON report here (default stdout)")
     ap.add_argument("--repo", default=str(SCRIPT_DIR.parent))
@@ -155,10 +167,11 @@ def main(argv: "list[str]") -> int:
         print(f"live_evals: {err}", file=sys.stderr)
         return 2
     rep = run(Path(a.repo), Client(env["LLM_BASE_URL"], env["LLM_API_KEY"], a.budget_tokens), env["LLM_MODEL"], judge,
-              a.per_skill, set(a.skill) if a.skill else None)
+              a.per_skill, set(a.skill) if a.skill else None, a.max_tokens)
     out = json.dumps(rep, indent=1)
     Path(a.out).write_text(out + "\n", encoding="utf-8") if a.out else print(out)
-    print(f"live_evals: {rep['passed']}/{rep['graded']} graded passed, {rep['total'] - rep['graded']} ungraded, "
+    print(f"live_evals: {rep['passed']}/{rep['graded']} graded passed, {rep['total'] - rep['graded'] - rep['truncated']} ungraded, "
+          f"{rep['truncated']} truncated (invalid run), "
           f"tokens {rep['tokens_used']}/{rep['token_budget']}", file=sys.stderr)
     if rep["stopped_budget"]:
         return 3
