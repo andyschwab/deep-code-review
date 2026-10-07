@@ -98,6 +98,7 @@ on re-install). Overlay skills are opt-in.
                        existing file at any of these paths (writes .new instead).
                        See --with-operating-layer for the SubagentStart/SubagentStop
                        settings snippet. Mechanism, not a skill.
+  --no-operating-layer Opt out of the default-on operating layer (applied with --with-delivery/--full).
   --with-operating-layer
                        Write .claude/settings.operating-layer.json.new: the
                        SubagentStart house-default injector, the two-tier
@@ -143,6 +144,7 @@ WITH_OUTPUT_SAFETY=0
 WITH_GATES=0
 WITH_OPERATING_LAYER=0
 APPLY_OPLAYER=0
+NO_OPLAYER=0
 RECOMMEND_ONLY=0
 POSITIONAL=()
 TRACKER_PROJECT=""
@@ -174,6 +176,7 @@ for arg in "$@"; do
     --with-gates) WITH_GATES=1 ;;
     --with-operating-layer) WITH_OPERATING_LAYER=1 ;;
     --apply-operating-layer) WITH_OPERATING_LAYER=1; APPLY_OPLAYER=1 ;;
+    --no-operating-layer) NO_OPLAYER=1 ;;
     --full) WITH_DELIVERY=1; WITH_CRITIC=1; WITH_COMMS=1 ;;
     --recommend) RECOMMEND_ONLY=1 ;;
     --with-cursor) echo "note: --with-cursor is default now; ignoring." >&2 ;;
@@ -194,6 +197,18 @@ case "${TRACKER}" in linear|github|jira) ;; *) echo "error: --tracker must be li
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
   echo "error: --with-operating-layer requires --with-delivery (writes an agentic-delivery snippet)" >&2
   exit 1
+fi
+
+if [[ "${NO_OPLAYER}" -eq 1 && "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
+  echo "error: --no-operating-layer conflicts with --with/--apply-operating-layer" >&2
+  exit 1
+fi
+
+# Default-on: delivery without its operating layer installs hooks that never run (field failure).
+if [[ "${WITH_DELIVERY}" -eq 1 && "${WITH_OPERATING_LAYER}" -eq 0 && "${NO_OPLAYER}" -eq 0 ]]; then
+  WITH_OPERATING_LAYER=1
+  if command -v jq >/dev/null 2>&1; then APPLY_OPLAYER=1
+  else echo "note: jq not found; writing the operating-layer snippet to merge by hand instead of applying it" >&2; fi
 fi
 
 if [[ "${APPLY_OPLAYER}" -eq 1 ]] && ! command -v jq >/dev/null 2>&1; then
@@ -325,8 +340,10 @@ if [[ "${WITH_OUTPUT_SAFETY}" -eq 1 ]]; then
   SKILLS+=("product-output-safety")
 fi
 
+INSTALLED_DIRS=()
 for skill in "${SKILLS[@]}"; do
   for host in "${HOSTS[@]}"; do
+    INSTALLED_DIRS+=("${host}/skills/${skill}")
     install_skill_copy \
       "${skill}" \
       "${TARGET_DIR}/${host}/skills/${skill}" \
@@ -440,6 +457,7 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
     OPLAYER_LOCAL="${TARGET_DIR}/.claude/settings.local.json"
     [[ -f "${OPLAYER_LOCAL}" ]] || echo '{}' > "${OPLAYER_LOCAL}"
+    OPLAYER_PRE="$(mktemp)"; cp "${OPLAYER_LOCAL}" "${OPLAYER_PRE}"
     # Append template hook entries not already present; existing env/model win.
     # Placeholder matchers (contain "<") never fire: skip them, tell the operator.
     echo "warning: skipped template hook entries with a placeholder matcher (e.g. <your-read-only-review-type>); add a SubagentStop entry with your real review agent type by hand" >&2
@@ -453,11 +471,14 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
     if cmp -s "${OPLAYER_LOCAL}" "${OPLAYER_LOCAL}.tmp"; then
       rm -f "${OPLAYER_LOCAL}.tmp"
     else
-      cp "${OPLAYER_LOCAL}" "${OPLAYER_LOCAL}.bak"
+      OPLAYER_BAK="${OPLAYER_LOCAL}.bak.$(date +%Y%m%d-%H%M%S)"   # timestamped: never overwrite an earlier backup
+      OPLAYER_N=1; while [[ -e "${OPLAYER_BAK}" ]]; do OPLAYER_BAK="${OPLAYER_LOCAL}.bak.$(date +%Y%m%d-%H%M%S)-${OPLAYER_N}"; OPLAYER_N=$((OPLAYER_N + 1)); done
+      cp "${OPLAYER_LOCAL}" "${OPLAYER_BAK}"
       mv "${OPLAYER_LOCAL}.tmp" "${OPLAYER_LOCAL}"
     fi
     OPLAYER_AGENT="${TARGET_DIR}/.claude/agents/delivery-lane.md"
     if [[ ! -e "${OPLAYER_AGENT}" ]]; then
+      OPLAYER_AGENT_NEW=1
       mkdir -p "$(dirname "${OPLAYER_AGENT}")"
       cat > "${OPLAYER_AGENT}" <<'AGENT'
 ---
@@ -468,7 +489,7 @@ model: sonnet
 Do the assigned bounded task with the simplest change that works. Read only the line ranges you need. Run the project's own gates before claiming done. Final message is one line: status, evidence (sha/path/test), next step.
 AGENT
     fi
-    echo "applied operating layer to ${OPLAYER_LOCAL} (backup: .bak if changed); verify with:"
+    echo "applied operating layer to ${OPLAYER_LOCAL} (backup: .bak.<timestamp> if changed); verify with:"
     echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py --settings .claude/settings.local.json"
   else
   if [[ -e "${OPLAYER_DEST}" ]]; then
@@ -483,6 +504,28 @@ AGENT
   echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py"
   fi
 fi
+
+# Marker: exactly what this install added, so perun_uninstall.py removes only that.
+python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" \
+  ${OPLAYER_PRE:+--pre "${OPLAYER_PRE}" --template "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"} \
+  ${OPLAYER_AGENT_NEW:+--agent-created}
+if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then
+  OPLAYER_MODEL_NOTE="(model: sonnet, set only if you had none)"
+  if [[ -n "${OPLAYER_PRE:-}" ]] && jq -e 'has("model")' "${OPLAYER_PRE}" >/dev/null 2>&1; then
+    OPLAYER_MODEL_NOTE="(your existing model kept)"
+  fi
+  cat <<EOF
+
+What changed in ${TARGET_DIR}:
+  1. Skills copied to .claude/skills (+ .cursor, .agents); any existing copy moved to <host>/skill-backups/.
+  2. .claude/settings.local.json: operating-layer hooks (PreToolUse, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
+  3. .claude/agents/delivery-lane.md added if absent; .claude/.perun-install.json and .dcr-install-flags record what was added.
+  4. Check it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}
+  5. Undo: python3 ${SCRIPT_DIR}/scripts/perun_uninstall.py ${TARGET_DIR}   (opt out next time: --no-operating-layer)
+EOF
+fi
+
+[[ -z "${OPLAYER_PRE:-}" ]] || rm -f "${OPLAYER_PRE}"
 
 # Record the flags so scripts/update-installed.sh can replay this install.
 mkdir -p "${TARGET_DIR}/.claude"

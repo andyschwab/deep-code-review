@@ -3677,7 +3677,7 @@ if command -v jq >/dev/null 2>&1; then
     && [ "$(jq '.hooks.SubagentStart | length' "$OPA/.claude/settings.local.json")" = 1 ] \
     && [ "$(jq '.hooks.SubagentStop | length' "$OPA/.claude/settings.local.json")" = 1 ] \
     && [ "$(jq -r .model "$OPA/.claude/settings.local.json")" = opus ] \
-    && [ -f "$OPA/.claude/settings.local.json.bak" ] \
+    && compgen -G "$OPA/.claude/settings.local.json.bak.*" >/dev/null \
     && [ -f "$OPA/.claude/agents/delivery-lane.md" ]; then
     record 0 "operating-layer: apply twice is idempotent, single hook entries"
   else
