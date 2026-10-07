@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-RECEIPT = ROOT / "scripts/weekly_receipt.py"
+RECEIPT = ROOT / ".claude/skills/agentic-ceo/scripts/weekly_receipt.py"
 SESSION = ROOT / ".claude/skills/agentic-ceo/scripts/fixtures/token/session.jsonl"
 TOKEN = ROOT / ".claude/skills/agentic-ceo/scripts/token_report.py"
 

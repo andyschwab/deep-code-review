@@ -16,9 +16,9 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-TOKEN = ROOT / ".claude/skills/agentic-ceo/scripts/token_report.py"
-SPEND = ROOT / ".claude/skills/agentic-delivery/scripts/spend_report.py"
+HERE = Path(__file__).resolve().parent
+TOKEN = HERE / "token_report.py"
+SPEND = HERE.parent.parent / "agentic-delivery/scripts/spend_report.py"  # sibling skill; absent -> "unknown"
 PR_RE = re.compile(r"^Merge pull request #(\d+)\b")
 
 
