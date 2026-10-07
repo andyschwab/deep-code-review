@@ -96,6 +96,7 @@ on re-install). Overlay skills are opt-in.
                        existing file at any of these paths (writes .new instead).
                        See --with-operating-layer for the SubagentStart/SubagentStop
                        settings snippet. Mechanism, not a skill.
+  --no-operating-layer Opt out of the default-on operating layer (applied with --with-delivery/--full).
   --with-operating-layer
                        Write .claude/settings.operating-layer.json.new: the
                        SubagentStart house-default injector, the two-tier
@@ -141,6 +142,7 @@ WITH_OUTPUT_SAFETY=0
 WITH_GATES=0
 WITH_OPERATING_LAYER=0
 APPLY_OPLAYER=0
+NO_OPLAYER=0
 RECOMMEND_ONLY=0
 POSITIONAL=()
 for arg in "$@"; do
@@ -162,6 +164,7 @@ for arg in "$@"; do
     --with-gates) WITH_GATES=1 ;;
     --with-operating-layer) WITH_OPERATING_LAYER=1 ;;
     --apply-operating-layer) WITH_OPERATING_LAYER=1; APPLY_OPLAYER=1 ;;
+    --no-operating-layer) NO_OPLAYER=1 ;;
     --full) WITH_DELIVERY=1; WITH_CRITIC=1; WITH_COMMS=1 ;;
     --recommend) RECOMMEND_ONLY=1 ;;
     --with-cursor) echo "note: --with-cursor is default now; ignoring." >&2 ;;
@@ -175,6 +178,18 @@ done
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
   echo "error: --with-operating-layer requires --with-delivery (writes an agentic-delivery snippet)" >&2
   exit 1
+fi
+
+if [[ "${NO_OPLAYER}" -eq 1 && "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
+  echo "error: --no-operating-layer conflicts with --with/--apply-operating-layer" >&2
+  exit 1
+fi
+
+# Default-on: delivery without its operating layer installs hooks that never run (field failure).
+if [[ "${WITH_DELIVERY}" -eq 1 && "${WITH_OPERATING_LAYER}" -eq 0 && "${NO_OPLAYER}" -eq 0 ]]; then
+  WITH_OPERATING_LAYER=1
+  if command -v jq >/dev/null 2>&1; then APPLY_OPLAYER=1
+  else echo "note: jq not found; writing the operating-layer snippet to merge by hand instead of applying it" >&2; fi
 fi
 
 if [[ "${APPLY_OPLAYER}" -eq 1 ]] && ! command -v jq >/dev/null 2>&1; then
@@ -463,6 +478,18 @@ AGENT
   echo "wrote ${OPLAYER_DEST} -- merge its \"hooks\"/\"env\" keys into ${TARGET_DIR}/.claude/settings.json by hand, then verify with:"
   echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py"
   fi
+fi
+
+if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then
+  cat <<EOF
+
+What changed in ${TARGET_DIR}:
+  1. Skills copied to .claude/skills (+ .cursor, .agents); any existing copy moved to <host>/skill-backups/.
+  2. .claude/settings.local.json: operating-layer hooks (PreToolUse, SubagentStart, SubagentStop) and env merged in; previous file saved as .bak.
+  3. .claude/agents/delivery-lane.md added if absent; .claude/.dcr-install-flags records these flags.
+  4. Check it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}
+  5. Undo: python3 ${SCRIPT_DIR}/scripts/perun_uninstall.py ${TARGET_DIR}   (opt out next time: --no-operating-layer)
+EOF
 fi
 
 # Record the flags so scripts/update-installed.sh can replay this install.

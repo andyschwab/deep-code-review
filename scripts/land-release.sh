@@ -14,7 +14,8 @@
 #
 # size-budgets.tsv rows are rewritten to current sizes; a raise still needs the `size-budget-raise:`
 # marker in the fragment (enforced by `ci-gates.sh size-ratchet`).
-# Env: REMOTE (origin), BASE_BRANCH (main), RELEASE_DATE (today). Exit 0 ok, 1 failure, 2 usage.
+# Land also creates and pushes annotated tag vX.Y.Z (NO_TAG=1 skips).
+# Env: REMOTE (origin), BASE_BRANCH (main), RELEASE_DATE (today), NO_TAG. Exit 0 ok, 1 failure, 2 usage.
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE=${REMOTE:-origin} BASE_BRANCH=${BASE_BRANCH:-main}
@@ -76,4 +77,9 @@ git rm -q "${frags[@]}"
 regen
 git add -A CHANGELOG.md .claude-plugin .claude/skills SHA256SUMS scripts/size-budgets.tsv
 git commit -q -m "release: $ver (stamped at land time)"
+# Annotated tag so tags track releases (release.yml cuts the GitHub Release from it); NO_TAG=1 skips.
+if [ -z "${NO_TAG:-}" ]; then
+  git tag -a "v$ver" -m "release $ver"
+  git push -q "$REMOTE" "refs/tags/v$ver"
+fi
 echo "land-release: $ver"

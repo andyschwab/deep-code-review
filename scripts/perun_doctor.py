@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""perun doctor: report whether an installed Perun actually runs in a repo.
+
+Usage: python3 scripts/perun_doctor.py [REPO] [--fix] [--home DIR]
+
+Checks, in plain language: installed version vs this checkout (and the global copy),
+hook entries whose files exist, shipped hook scripts that nothing calls, forked copies
+that drifted from the checkout (sha256), janitor/scheduler presence, policy file.
+Exit 0 = nothing to fix, 1 = at least one WARN/FAIL. `--fix` prints a plan, then
+re-runs the recorded install flags via scripts/update-installed.sh (skills are backed up
+by install.sh first), and re-checks. Stdlib only; read-only without --fix.
+"""
+import argparse, hashlib, json, os, re, subprocess, sys
+from pathlib import Path
+
+SRC = Path(__file__).resolve().parent.parent
+SKIP = {".git", "node_modules", ".venv", "__pycache__", "worktrees", "skill-backups"}
+HOOK_SCRIPTS = ("pipe_mask_guard.py", "subagent_start_inject.py", "handback_cap.py")  # operating-layer template
+
+
+def sha(p):
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+
+def ver(d):
+    f = Path(d) / ".claude/skills/deep-code-review/VERSION"
+    return f.read_text().strip() if f.is_file() else None
+
+
+def walk(root, depth=6):
+    for dp, dn, fn in os.walk(root):
+        dn[:] = [d for d in dn if d not in SKIP]
+        if len(Path(dp).relative_to(root).parts) > depth:
+            dn[:] = []
+        for f in fn:
+            yield Path(dp) / f
+
+
+def hook_commands(repo):
+    cmds = []
+    for n in ("settings.json", "settings.local.json"):
+        f = repo / ".claude" / n
+        try:
+            hooks = json.loads(f.read_text()).get("hooks", {})
+        except (OSError, ValueError):
+            continue
+        for entries in hooks.values():
+            for e in entries:
+                cmds += [h.get("command", "") for h in e.get("hooks", [])]
+    return cmds
+
+
+def check(repo, home):
+    rows = []  # (status, check, detail)
+    add = lambda s, c, d: rows.append((s, c, d))
+    flags = repo / ".claude/.dcr-install-flags"
+    flagtxt = flags.read_text().split() if flags.is_file() else []
+    latest, mine = ver(SRC), ver(repo)
+    if not mine:
+        add("FAIL", "installed version", "deep-code-review not installed in this repo")
+    elif latest and mine != latest:
+        add("WARN", "installed version", f"repo has {mine}, checkout has {latest}")
+    else:
+        add("OK", "installed version", f"{mine} (matches checkout)")
+    g = ver(home)
+    if g and latest and g != latest:
+        add("WARN", "global copy", f"~/.claude has {g}, checkout has {latest} (stale; global is not touched by --fix)")
+    else:
+        add("OK", "global copy", g or "none")
+    if not flags.is_file():
+        add("WARN", "install record", ".claude/.dcr-install-flags missing: --fix cannot replay your flags")
+    # hooks reference existing files
+    cmds = hook_commands(repo)
+    missing = sorted({m for c in cmds for m in re.findall(r"[\w./-]+\.(?:py|sh)\b", c) if not (repo / m).is_file()})
+    add("FAIL" if missing else "OK", "hook files exist", ("missing: " + ", ".join(missing)) if missing else f"{len(cmds)} hook command(s) resolve")
+    # mechanisms with no caller
+    opted_out = "--no-operating-layer" in flagtxt
+    sd = repo / ".claude/skills/agentic-delivery/scripts"
+    if sd.is_dir():
+        unwired = [s for s in HOOK_SCRIPTS if (sd / s).is_file() and not any(s in c for c in cmds)]
+        if unwired and opted_out:
+            add("OK", "hooks wired", "operating layer opted out (--no-operating-layer)")
+        elif unwired:
+            add("FAIL", "hooks wired", "installed but never runs: " + ", ".join(unwired) + " (no hook calls them)")
+        else:
+            add("OK", "hooks wired", "operating-layer hooks all call their scripts")
+        callers = "".join(cmds)
+        for w in (repo / ".github/workflows").glob("*") if (repo / ".github/workflows").is_dir() else []:
+            callers += w.read_text(errors="ignore")
+        for f in (repo / ".claude/loops").glob("*") if (repo / ".claude/loops").is_dir() else []:
+            callers += f.read_text(errors="ignore")
+        scripts = sorted(p for p in (repo / ".claude/skills").glob("*/scripts/*") if p.is_file())
+        texts = {p: p.read_text(errors="ignore") for p in scripts}
+        idle = [p.name for p in scripts if p.name not in callers and not any(p.name in t for q, t in texts.items() if q != p)]
+        if idle:
+            add("INFO", "manual-only scripts", f"{len(idle)} script(s) no hook/workflow/loop/script calls: " + ", ".join(idle[:8]) + (" ..." if len(idle) > 8 else ""))
+    # drift: skill copies and loose forks vs checkout
+    drift = []
+    srcfiles = {}
+    for p in walk(SRC / ".claude/skills"):
+        srcfiles.setdefault(p.name, []).append(sha(p))
+    for host in (".claude", ".cursor", ".agents", ".codex"):
+        base = repo / host / "skills"
+        for p in walk(base) if base.is_dir() else ():
+            rel = p.relative_to(base)
+            s = SRC / ".claude/skills" / rel
+            if rel.parts[:2] == ("deep-code-review", "references") and (SRC / "docs" / rel.name).is_file():
+                s = SRC / "docs" / rel.name  # install.sh overwrites these two from docs/
+            if s.is_file() and sha(s) != sha(p) and rel.name != "INDEX.md":
+                drift.append(str(p.relative_to(repo)))
+    for p in walk(repo):
+        rel = p.relative_to(repo).parts
+        if rel[0] in (".claude", ".cursor", ".agents", ".codex") and len(rel) > 1 and rel[1] == "skills":
+            continue
+        if p.suffix in (".py", ".sh") and p.name in srcfiles and sha(p) not in srcfiles[p.name]:
+            drift.append(str(p.relative_to(repo)) + " (forked copy)")
+    add("WARN" if drift else "OK", "drifted copies", (f"{len(drift)} differ from checkout: " + ", ".join(sorted(drift)[:6]) + (" ..." if len(drift) > 6 else "")) if drift else "none")
+    # janitor/scheduler
+    names = [p for p in walk(repo, 4) if re.search(r"janitor|scheduler", p.name, re.I)]
+    add("OK" if names else "WARN", "janitor/scheduler", f"found {names[0].relative_to(repo)}" if names else "none installed: nothing runs Perun on a schedule")
+    # policy
+    pol = [p for p in walk(repo, 3) if re.search(r"perun[-_]?policy", p.name, re.I)]
+    add("OK" if pol else "WARN", "policy file", f"found {pol[0].relative_to(repo)}" if pol else "no perun-policy file in the repo")
+    return rows
+
+
+def show(rows):
+    w = max(len(r[1]) for r in rows)
+    for s, c, d in rows:
+        print(f"{s:<5} {c:<{w}}  {d}")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("repo", nargs="?", default=".")
+    ap.add_argument("--fix", action="store_true")
+    ap.add_argument("--home", default=str(Path.home()))
+    a = ap.parse_args(argv)
+    repo, home = Path(a.repo).resolve(), Path(a.home)
+    rows = check(repo, home)
+    show(rows)
+    bad = [r for r in rows if r[0] in ("WARN", "FAIL")]
+    if a.fix and bad:
+        print(f"\nPlan: bash {SRC}/scripts/update-installed.sh {repo}  (replays .claude/.dcr-install-flags; "
+              "existing skills move to <host>/skill-backups/; loose forks and the global copy are left alone)")
+        r = subprocess.run(["bash", str(SRC / "scripts/update-installed.sh"), str(repo)], env={**os.environ, "DCR_NO_PULL": "1"})
+        print("\nAfter fix:")
+        rows = check(repo, home)
+        show(rows)
+        bad = [r for r in rows if r[0] in ("WARN", "FAIL")]
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
