@@ -20,7 +20,11 @@ ready). Never faster than 20 minutes: a tighter tick burns tokens for no new inf
 4. Cleanup: `ROOT=<repo-root> bash .claude/skills/agentic-delivery/scripts/reap_own.sh` then
    `ROOT=<repo-root> bash .claude/skills/agentic-delivery/scripts/clean_finished.sh`. Verify servers are dead
    (`reap_own.sh --report` prints orphans=0), worktrees removed, merged branches deleted.
-5. Board: post one status update (what landed, what is in flight, what is blocked, who owns each).
+5. Tracker (only if the repo has a work tracker, references/work-tracking.md): run
+   `python3 .claude/skills/agentic-delivery/scripts/tracker_check.py` and fix or board-post each finding. Once a
+   week, run `python3 .claude/skills/agentic-delivery/scripts/tracker_weekly_update.py` and hand the draft to the
+   project DRI to post; never post it unread. A `NOT CHECKED` line is a finding, not a pass.
+6. Board: post one status update (what landed, what is in flight, what is blocked, who owns each).
 Idle with nothing to act on: say so in one line and end the wake.
 ```
 
