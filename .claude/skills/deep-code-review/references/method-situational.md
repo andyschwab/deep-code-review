@@ -314,3 +314,17 @@ Fan-out finders over-grade and mis-flag in four repeatable ways. Before filing, 
 - **Name the revert test.** For each behaviour change in the diff, name the test that fails if the change is reverted; "none" is itself a finding (the fix-verification procedure is in `testing-and-evals.md`).
 - **Recompute every pin the diff writes.** For each number, hash, count, size or version the diff records in a config, manifest, budget or ratchet file, recompute it from the tree at `HEAD` (`wc -c`, `sha256sum`, a count) and compare for **equality**. A gate usually checks one side (`actual <= pin`), so a stale or slack pin stays green; a file that says "frozen at current" must equal current. A gate failing over a multi-release range is not proof of an artifact: recompute its rows one by one before dismissing it.
 - **A blocked finder hands its probes to the lead.** A fan-out unit without a shell files each candidate as the exact one-line command plus the expected failing output, not "read, not run"; the lead runs them before filing, and one it cannot run stays `unverified`.
+
+**High-stakes gates — seeded gap-hunting second pass.** Distinct from the Phase 3 security adversarial pass (which attacks one surface with opener payloads): this pass re-reviews the same scope for what the first pass missed, whatever the domain.
+
+- **Default N = 1 pass.** Add the second pass only for a release, security, or data-loss-path gate. Do not add a third: misses are correlated across passes (in the measurement below the same 2 of 6 bugs were missed every time), so more passes add cost, not recall.
+- **Seed it with the first pass's findings** and instruct it to hunt only for what was missed, not to re-derive what is already listed. Then run a **verify-merge**: check each new finding against the code at the pinned SHA, and drop any that does not reproduce. The seeded pass has lower precision, so an unverified merge imports false positives.
+- **Measured (issue #1361; one held-out diff with 6 real bugs, 6 single-pass runs, 15 pairs; n = 1 diff, directional, not a general rate):**
+
+| Mode | Mean recall | Strict precision | Cost vs one pass |
+|---|---|---|---|
+| Single pass | 5.17/6 | 0.40 | 1x |
+| Two independent passes plus verify-merge | 5.87/6 (13 of 15 pairs 6/6) | 0.38 | 2.85x |
+| One pass plus seeded gap-hunt pass | 5.83/6 | 0.28 | 1.86x |
+
+The seeded pass buys about +0.7/6 recall at about 1.9x cost, with recall comparable to two independent passes for less spend.
