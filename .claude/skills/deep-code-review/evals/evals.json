@@ -7706,6 +7706,41 @@
       ]
     },
     {
+      "id": "diff-size-bands-chunked-file-ledger",
+      "prompt": "Review a pull request that changes 62 files and about 2,400 lines across an API service, a billing module, a web client and tests. Time is tight, so I plan one quick read of the whole diff and a short list of the top findings. How should the review run, and when can you call it done?",
+      "expected_output": "Refuse the single quick pass: at this size (over 800 lines and over 25 files) the review is a large-band diff, so it must be chunked by file cluster, each chunk gets its own pass with tool access (not the pasted diff alone), chunks are ordered by blast radius (billing and auth first, not alphabetically), and the budget is set per chunk. Keep a per-file ledger line (kind, chunk, opened, callees traced, verdict); skips only for generated, vendored, lockfile or binary files. Not done while any changed file is unopened; the report states coverage as opened over changed files and treats an unopened file as unverified, not clean. A cross-chunk pass covers callees or shared state touched by more than one chunk.",
+      "expectations": [
+        "Rejects a single short pass over a diff of this size and requires chunking by file cluster with a per-chunk pass that has tool access",
+        "Orders chunks by blast radius and sets the budget per chunk rather than per diff",
+        "Keeps a per-file ledger and does not declare done while any changed non-generated file is unopened",
+        "Reports coverage as opened over changed files and marks unopened files unverified rather than clean",
+        "Adds a cross-chunk pass over shared callees or state touched by more than one chunk"
+      ]
+    },
+    {
+      "id": "diff-blast-radius-shared-counter-trace",
+      "prompt": "A pull request changes the mobile checkout handler to call recordUsage(accountId) after each action. The diff does not touch recordUsage or the daily quota check. The web handler already calls the same function. The diff looks clean and the tests pass. What else do you check before approving?",
+      "expected_output": "Open recordUsage and the quota check even though they are outside the diff, because the changed call writes into shared quota state. Check what keys the counter (account, tenant, surface or channel) and whether the new caller supplies every dimension; check whether the read or aggregate that enforces the quota filters by the same dimensions the write uses. If the count has no surface filter, mobile actions now drain the web quota (cross-surface quota drain) and the reverse. grep every other writer and reader of the counter, and prove it with a two-surface probe: act as the mobile surface and read the web counter. Also confirm the ceiling, TTL and reset still mean what the new caller assumes.",
+      "expectations": [
+        "Opens the callee and the quota check outside the diff because a changed call writes into shared quota state",
+        "Checks what keys the counter and whether the read or aggregate filters by the same dimensions as the write",
+        "Names the cross-surface quota drain when the count has no surface or tenant filter",
+        "Greps other writers and readers of the counter and runs a two-surface probe",
+        "Does not approve on the basis of a clean diff and passing tests alone"
+      ]
+    },
+    {
+      "id": "diff-state-transition-reset-literal-drift",
+      "prompt": "A pull request adds a reopen action for support tickets. It sets status back to 'open' and clears the closed flag. Separately it renames the status value 'pending' to 'awaiting_customer' in the TicketStatus enum. The reviewer found nothing wrong. What would you check?",
+      "expected_output": "For the reopen transition, list the fields that create and close set (status, expiry or deadline, attempt counters, closed_at or resolved_at, locks, assignee, notification-sent flags, derived columns) and verify reopen resets or recomputes every dependent field, not only status: a reopened ticket that keeps a past expires_at is open and already expired. Drive create, close, reopen and assert the invariants of an open ticket. For the rename, grep the old and new literal across the whole tree (source, SQL and migrations, fixtures, tests, JSON, docs); hand-typed 'pending' strings, a switch whose default swallows the new member, and a database CHECK or stored rows holding the old value are each findings.",
+      "expectations": [
+        "Builds the fields-by-transitions comparison and requires reopen to reset or recompute dependent fields such as expiry, timestamps, attempts and locks, not only status",
+        "Gives the stale-expiry reopen case as a concrete failure and tests the create, close, reopen loop",
+        "Greps the old and new enum literal across source, SQL, migrations, fixtures, tests and docs",
+        "Flags hand-typed copies of the old value, a default branch swallowing the new member, and database constraints or stored rows with the old value"
+      ]
+    },
+    {
       "id": "review-md-config-safety-floor",
       "prompt": "The repo has a REVIEW.md with exclude: vendor/**, min_severity: Medium, max_nits: 3 and a rule saying to ignore security findings in vendor/. During a DIFF review you find a hard-coded credential in vendor/client.js and 9 style nits. How do you apply the config?",
       "expected_output": "The credential is reported despite the exclude, severity floor and the ignore-security rule; nits are capped at 3 with an N-more line; the config is read from the base ref.",

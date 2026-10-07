@@ -1352,3 +1352,16 @@ fact).
 |---|---|---|
 | WHATWG Fetch Standard — null body status | https://fetch.spec.whatwg.org/#responses | Verbatim: "A null body status is a status that is 101, 103, 204, 205, or 304." Backs the check that a `Response` built for one of these statuses must be given a `null` body. |
 | Node.js API docs — `dns.lookup(hostname[, options], callback)` | https://nodejs.org/api/dns.html | Verbatim: the `all` option, "When `true`, the callback returns all resolved addresses in an array. Otherwise, returns a single address. Default: `false`." The callback's `address`/`family` params are "Not provided when `options.all` is `true`"; instead an `addresses` array of `{address, family}` objects is passed. Backs the check that a custom `lookup` callback must handle the `{ all: true }` array shape, not just a single address. |
+
+## Verified by direct fetch (2026-10-07) — review size and attention
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| "Bigger Isn't Always Better" (LLM code review, arXiv abstract) | https://arxiv.org/abs/2606.15689 | Small preprint, 150 samples (100 synthetic bugs, 50 real bug-fix PRs): F1 0.657 on diffs under 10 lines vs 0.043 on diffs over 150 lines. Backs the DIFF size bands in `method-situational.md`; directional, not a rate. |
+| "Does Order Matter?" (file ordering in code review, arXiv abstract) | https://arxiv.org/abs/2609.22610 | 330,343 multi-file PRs: each additional modified file lowers the odds of any review comment by about 8.7
+## Verified by direct fetch (2026-10-07) — review size and attention
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| "Bigger Isn't Always Better" (LLM code review, arXiv abstract) | https://arxiv.org/abs/2606.15689 | Small preprint, 150 samples (100 synthetic bugs, 50 real bug-fix PRs): F1 0.657 on diffs under 10 lines vs 0.043 on diffs over 150 lines. Backs the DIFF size bands in `method-situational.md`; directional, not a rate. |
+| "Does Order Matter?" (file ordering in code review, arXiv abstract) | https://arxiv.org/abs/2609.22610 | 330,343 multi-file PRs: each additional modified file lowers the odds of any review comment by about 8.7%; latent-bug rate rises from 56.7% at file position 1 to 61.5% at position 30. Backs chunking, the per-file ledger and blast-radius ordering. |
