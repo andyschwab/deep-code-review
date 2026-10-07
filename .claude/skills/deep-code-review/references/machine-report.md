@@ -40,7 +40,9 @@ every-domain-row invariant below governs the out-of-tree artifact.
   written down where a program can read them.
 
 **Delivery and feedback.** To post these findings on a PR (opt-in, dry-run default) or record
-accept/dismiss per finding, see `review-config.md` (`post_review.sh` takes the `findings` rows as JSON).
+accept/dismiss per finding, see `review-config.md` (`post_review.sh` takes the `findings` rows as JSON). Each gap row carries a quoted `snippet` so
+`finding_ground_check.py` can corroborate it against the file; a row it cannot ground is refused at posting and
+dropped by `merge_findings.py` (both documented in `review-config.md` section 3).
 
 **Style:** block-style YAML. Inline flow *maps* (`{a: b}`), anchors, and
 chomped block scalars break minimal readers and get dropped silently; inline

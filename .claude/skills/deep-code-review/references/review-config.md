@@ -80,9 +80,18 @@ bash scripts/post_review.sh 123 findings.json --post   # creates ONE pending rev
 
 `findings.json` is `{"start_sha": "<head sha, optional>", "findings": [...]}` with rows shaped like the
 `machine-report.md` `findings` rows (`id`, `severity`, `title`, `polarity`, `observation`, `fix`,
-`evidence: ["path:line"]`; JSON, not YAML). Gap rows become inline comments at `evidence[0]`; a gap row
-with no `path:line` goes in the review body; strength rows are skipped. The review is created pending
+`evidence: ["path:line"]`, plus a quoted `snippet`; JSON, not YAML). Gap rows become inline comments at
+`evidence[0]`; strength rows are skipped. Every gap row must be grounded (see below) or the run refuses. The review is created pending
 (no `event`): only its author sees it until they submit it in the PR UI, and it can never approve or
 request changes. Refuses on a banlist hit, secret-shaped token, or absolute home path, and fails closed
 when `.banlist.txt` is missing. A line outside the PR diff makes GitHub reject the whole review: nothing
 is created, fix the line and re-run.
+
+**Grounding gate (noise control).** `finding_ground_check.py <findings.json> [--root DIR] [--ref REF]` marks
+each gap row `grounded` only if the `path:line` file exists, the line is in range, and the row's quoted
+`snippet` appears within +-5 lines; otherwise `ground_reason` says why (no evidence, no snippet, file not
+found, out of range, snippet not near). `post_review.sh` runs it first (root: `$GROUND_ROOT` or the git
+root) and refuses on any ungrounded gap row, listing ids and reasons. Before posting, run
+`merge_findings.py [--cap N] pass1.json pass2.json` on the annotated files: it drops ungrounded rows,
+dedupes by file plus `mechanism` (else title), ranks by severity, and caps (default 20). Zero surviving
+findings is a valid result; say NONE.

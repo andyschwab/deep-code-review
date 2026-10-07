@@ -3829,6 +3829,13 @@ else
   record 1 "escaped_defects: empty gh search term returns None"
 fi
 
+# finding_ground_check.py + merge_findings.py: grounding and merge gates behave (plain-assert suite).
+if python3 "$ROOT/scripts/test_finding_gates.py" >/dev/null; then
+  record 0 "finding gates: ground check + merge/dedupe/cap tests pass"
+else
+  record 1 "finding gates: ground check + merge/dedupe/cap tests pass"
+fi
+
 # ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a

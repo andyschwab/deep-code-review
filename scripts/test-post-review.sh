@@ -16,23 +16,24 @@ cat >"$WORK/bin/gh" <<'EOF'
 echo "$*" >>"$GH_LOG"; cat >"$GH_LOG.stdin"
 EOF
 chmod +x "$WORK/bin/gh"
-export PATH="$WORK/bin:$PATH" GH_LOG="$WORK/gh.log" BANLIST_DIR="$WORK/bl"
+mkdir -p "$WORK/repo/src"
+printf 'a\nb\nredirect(request.args["next"])\nc\n' >"$WORK/repo/src/app.py"
+export PATH="$WORK/bin:$PATH" GH_LOG="$WORK/gh.log" BANLIST_DIR="$WORK/bl" GROUND_ROOT="$WORK/repo"
 printf 'AKIA[0-9A-Z]{16}\nacme-secret-name\n' >"$WORK/bl/.banlist.txt"
 
 cat >"$WORK/f.json" <<'EOF'
 {"start_sha": "0123abc", "findings": [
  {"id": "F1", "severity": "High", "title": "Unchecked redirect", "polarity": "gap",
-  "observation": "Redirect target comes from the query string.", "fix": "Allowlist hosts.", "evidence": ["src/app.py:42"]},
- {"id": "F2", "severity": "Medium", "title": "No evidence row", "polarity": "gap", "observation": "x", "fix": "y", "evidence": []},
+  "observation": "Redirect target comes from the query string.", "fix": "Allowlist hosts.", "evidence": ["src/app.py:3"], "snippet": "redirect(request.args[\"next\"])"},
  {"id": "F3", "severity": "Low", "title": "Strength row", "polarity": "strength", "observation": "z", "evidence": ["a.py:1"]}]}
 EOF
 
 out=$(bash "$PR" 7 "$WORK/f.json" 2>&1); rc=$?
 [ "$rc" -eq 0 ] && [ ! -e "$GH_LOG" ] && echo "$out" | grep -q 'DRY RUN' && echo "$out" | grep -q 'pulls/7/reviews'
 ok $? "default is a dry run: prints payload, gh never called"
-echo "$out" | grep -q '"path": "src/app.py"' && echo "$out" | grep -q '"line": 42' && echo "$out" | grep -q '"commit_id": "0123abc"' \
-  && echo "$out" | grep -q 'No evidence row' && ! echo "$out" | grep -q 'Strength row'
-ok $? "payload: inline comment for evidence row, loose row in body, strength row skipped"
+echo "$out" | grep -q '"path": "src/app.py"' && echo "$out" | grep -q '"line": 3' && echo "$out" | grep -q '"commit_id": "0123abc"' \
+  && ! echo "$out" | grep -q 'Strength row'
+ok $? "payload: inline comment for grounded row, strength row skipped"
 ! echo "$out" | grep -q '"event"'
 ok $? "payload has no event (pending review, never approve/request-changes)"
 
@@ -63,6 +64,11 @@ Capital'; bash "$PR" 7 "$WORK/p.json" >/dev/null 2>&1; [ "$?" -eq 1 ]
 ok $? "banlist name split across a line break refuses"
 probe 'path C:\Users\jdoe\x'; bash "$PR" 7 "$WORK/p.json" >/dev/null 2>&1; [ "$?" -eq 1 ]
 ok $? "Windows home path (backslashes) refuses"
+
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["findings"][0]["snippet"]="not in file"; json.dump(d,open(sys.argv[2],"w"))' "$WORK/f.json" "$WORK/ug.json"
+rm -f "$GH_LOG"; bash "$PR" 7 "$WORK/ug.json" --post >/dev/null 2>"$WORK/err"; rc=$?
+[ "$rc" -eq 1 ] && [ ! -e "$GH_LOG" ] && grep -q 'ungrounded' "$WORK/err" && grep -q 'F1' "$WORK/err"
+ok $? "ungrounded finding refuses --post, gh never called"
 
 rm "$WORK/bl/.banlist.txt"
 bash "$PR" 7 "$WORK/f.json" --post >/dev/null 2>&1; [ "$?" -eq 2 ] && [ ! -e "$GH_LOG" ]

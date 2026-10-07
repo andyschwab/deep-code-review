@@ -6,7 +6,9 @@
 # in the PR UI; never APPROVE or REQUEST_CHANGES) with an inline comment per gap finding.
 # findings.json: {"start_sha": "<optional head sha>", "findings": [rows shaped like machine-report.md
 # rows: id, severity, title, polarity, observation, fix, evidence: ["path:line", ...]]}. Strength rows
-# are skipped; a gap row with no parsable evidence goes into the review body, not inline. Inline lines
+# are skipped. Every gap row must be grounded (finding_ground_check.py: file exists under $GROUND_ROOT
+# or the git root, line in range, quoted `snippet` within +-5 lines of the cited line); otherwise the run
+# refuses (exit 1, ids and reasons on stderr). A row with no evidence or no snippet is ungrounded. Inline lines
 # outside the PR diff make GitHub reject the whole review (422): nothing is created, fix and retry.
 # Refuses (exit 1) when the payload hits .banlist.txt/.banlist.local.txt (resolved from the git root or
 # $BANLIST_DIR, same semantics as the contribution skill's prefile_check.sh), a secret-shaped token or
@@ -23,25 +25,32 @@ PR=$1 FILE=$2 POST=0
 dir="${BANLIST_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 [ -s "$dir/.banlist.txt" ] || { echo "post_review: $dir/.banlist.txt missing or empty (fail closed)" >&2; exit 2; }
 
-payload="$(python3 - "$FILE" <<'PY'
-import json, re, sys
-d = json.load(open(sys.argv[1], encoding="utf-8"))
-inline, loose = [], []
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+groot="${GROUND_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+grounded="$(python3 "$here/finding_ground_check.py" "$FILE" --root "$groot")" || { echo "post_review: cannot read findings (need {\"findings\": [...]})" >&2; exit 2; }
+bad="$(printf '%s' "$grounded" | python3 -c '
+import json, sys
+for f in json.load(sys.stdin)["findings"]:
+    if f.get("polarity", "gap") == "gap" and not f.get("grounded"):
+        print("  " + str(f.get("id", "?")) + ": " + f["ground_reason"])')"
+[ -z "$bad" ] || { printf 'post_review: REFUSE: ungrounded findings (fix or drop them)\n%s\n' "$bad" >&2; exit 1; }
+
+payload="$(GROUNDED="$grounded" python3 - <<'PY'
+import json, os, re
+d = json.loads(os.environ["GROUNDED"])
+inline = []
 for f in d["findings"]:
     if f.get("polarity", "gap") != "gap":
         continue
     body = f"**{f['severity']} {f['id']}: {f['title']}**\n\n{f.get('observation', '').strip()}\n\nFix: {f.get('fix', '').strip()}"
-    m = re.match(r"^(.+):(\d+)$", (f.get("evidence") or [""])[0])
-    if m:
-        inline.append({"path": m[1], "line": int(m[2]), "side": "RIGHT", "body": body})
-    else:
-        loose.append(body)
-p = {"body": "\n\n".join(["Review findings (draft; verify before submitting)."] + loose), "comments": inline}
+    m = re.match(r"^(.+?):(\d+)", f["evidence"][0])
+    inline.append({"path": m[1], "line": int(m[2]), "side": "RIGHT", "body": body})
+p = {"body": "Review findings (draft; verify before submitting).", "comments": inline}
 if d.get("start_sha"):
     p["commit_id"] = d["start_sha"]
 print(json.dumps(p, indent=2))
 PY
-)" || { echo "post_review: cannot read findings (need {\"findings\": [...]})" >&2; exit 2; }
+)" || { echo "post_review: cannot build payload" >&2; exit 2; }
 
 # Scan the DECODED text, not the JSON: escapes hide non-ASCII names (\u017c), backslash paths (C:\\Users)
 # and line-split names. Scan the strings as written, then again with all whitespace collapsed to one space.
