@@ -1,2 +1,0 @@
-### Added
-- `token_ratchet.py` (agentic-ceo): sums session and subagent transcript usage over a window, divides by delivered PRs, writes a baseline and fails (or warns with `--warn`) when tokens per PR rise more than `--max-rise-pct` (default 20). Zero PRs or an unusable baseline exits 2 instead of passing. `operating_selfcheck.py` now reports a `token-ratchet` item. Tests: `scripts/test_token_ratchet.py` (synthetic JSONL), wired into CI. Refs #1380.
