@@ -3,6 +3,14 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.504.0] — 2026-10-07
+
+### Added
+- `scripts/live_evals.py`: live eval harness for any OpenAI-compatible endpoint (env `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, optional `LLM_JUDGE_MODEL`), a required `--budget-tokens` cap that fails closed before a call could exceed it, a JSON report, and offline tests against a stub server (#61).
+- `scripts/score_review.py` plus a held-out paired-diff fixture (`scripts/eval-fixtures/heldout/pr1354-ops-scripts/`): recall, strict precision and an FP budget from a findings JSON, with a canary self-test (#267).
+
+size-budget-raise: .claude/skills/deep-code-review/references/testing-ai-evals.md 9721→10200 pointer to the worked scoring instrument and live runner
+
 ## [1.503.0] — 2026-10-07
 
 ### Added
