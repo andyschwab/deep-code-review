@@ -315,6 +315,16 @@ for skill in "${SKILLS[@]}"; do
   done
 done
 
+# Host safety: one warning line per installed host, from the single-source table (docs/host-safety.md).
+HS_TSV="${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/host-safety.tsv"
+if [[ -f "${HS_TSV}" ]]; then
+  for host in "${HOSTS[@]}"; do
+    while IFS=$'\t' read -r hs_dir hs_name hs_sb hs_warn hs_url; do
+      [[ "${hs_dir}" == "${host}" ]] && echo "safety: ${hs_name}: ${hs_warn} ${hs_url}" >&2
+    done < "${HS_TSV}"
+  done
+fi
+
 # write_gate_file <src> <dest> <executable:0|1> — copy a CI-gates template
 # into the target. NEVER overwrites an existing file at <dest>: if one is
 # already there, writes <dest>.new (or .new-N on a further collision) instead

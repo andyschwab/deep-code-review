@@ -3758,6 +3758,13 @@ else
   record 1 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"; tail -8 "$WORK/ultrareview.log"
 fi
 
+# host safety: own per-feature file (scripts/test-host-safety.sh), one case here.
+if bash "$ROOT/scripts/test-host-safety.sh" >"$WORK/host-safety.log" 2>&1; then
+  record 0 "host safety: install warns per host, selfcheck reports per-host sandbox status"
+else
+  record 1 "host safety: install warns per host, selfcheck reports per-host sandbox status"; tail -8 "$WORK/host-safety.log"
+fi
+
 # ops-script edge cases: own per-feature file (scripts/test-ops-edge.sh), one case here.
 if bash "$ROOT/scripts/test-ops-edge.sh" >"$WORK/ops-edge.log" 2>&1; then
   record 0 "ops edge cases: clean_finished/land_train/prefile_check/pipe_mask_guard"

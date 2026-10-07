@@ -148,10 +148,17 @@ def main(argv: list | None = None) -> int:
     parser.add_argument("--settings", default=".claude/settings.json")
     parser.add_argument("--skill-root", default=default_root)
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--project", default=".", help="project root scanned for per-host sandbox status")
     args = parser.parse_args(argv)
     if args.selftest:
         return _selftest()
-    for item, status in sorted(report(args.settings, args.skill_root).items()):
+    rep = report(args.settings, args.skill_root)
+    tsv = os.path.join(args.skill_root, "templates", "host-safety.tsv")
+    if os.path.exists(tsv):  # per-host sandbox status (host_safety.py); absent in a trimmed install
+        sys.path.insert(0, os.path.join(args.skill_root, "scripts"))
+        import host_safety
+        rep.update(host_safety.report(args.project, tsv))
+    for item, status in sorted(rep.items()):
         print(f"{item}: {status}")
     return 0
 
