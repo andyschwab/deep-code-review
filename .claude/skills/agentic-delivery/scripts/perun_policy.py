@@ -80,7 +80,7 @@ def lanes(mode, cores: int, load1: float | None = None) -> int:
 
 def heavy_slots(cores: int, load1: float | None = None) -> int:
     """Concurrent heavy local commands (full test suite, build, browser run) a gate admits: free cores
-    (cores minus load1) but never below 2, so a busy host still makes progress. Replaces a flat 2.
+    (cores minus load1) but never below 2, so a busy host still makes progress. A primitive: callers opt in.
     Pair with `host_probe.py --lane-type heavy`, which defers the job when load1 > cores or RAM is low.
     Kill criterion: if the median pre-push time rises after adopting this, revert to the flat cap."""
     return max(2, int(cores - (load1 or 0)))
