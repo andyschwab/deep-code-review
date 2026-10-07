@@ -3,6 +3,17 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.513.0] — 2026-10-07
+
+### Added
+- Resource policy: one file, `.perun/policy.json`, sets `efficient` (default), `maximize`, `off` or a numeric cap per dimension (tokens, local_cpu, local_ram, github_actions, paid_api_calls, network). `scripts/perun_policy.py get <dim>` reads it; `train_land.sh`, `land_train.sh` and `host_probe.py` honor it (`github_actions: off` adds `[skip ci]` to merges and never waits on CI; `local_cpu` sets parallelism). Shipped workflows skip when repo variable `PERUN_GITHUB_ACTIONS` is `off`.
+- `contribution/scripts/share_learning.py`: policy-gated (`share_learnings: auto|ask|off`, default `ask`), generalizes a lesson, runs `prefile_check.sh`, dedupes against open and closed upstream issues, files an issue only (never a PR), logs to a local ledger.
+- Behaviour change: `host_probe.py` now caps lanes at half the cores by default when `--live-lanes` is given without `--max-lanes` (policy `efficient`); it prints a one-line notice on stderr whenever that cap applies. Pass `--max-lanes` or set `local_cpu` to change it.
+- `share_learning.py` hardening: `--approve` needs a TTY and a typed yes, non-default repos need `--allow-repo`, `auto` needs `.banlist.local.txt`, dry run unless `--send`, 3 auto-shares a day, provenance footer, paths, foreign URLs and code blocks over 20 lines stripped. A set but missing `$PERUN_POLICY` now fails closed.
+- `docs/for-fleets.md` "Efficiency by default" section with the self-improvement loop.
+
+No-Mechanism-Reason: mechanisms are the new scripts and tests (scripts/test_resource_policy.py, scripts/test-resource-policy-train.sh); the doctrine lines only point at them.
+
 ## [1.512.0] — 2026-10-07
 
 ### Added
