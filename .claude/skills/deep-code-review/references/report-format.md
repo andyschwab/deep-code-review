@@ -174,7 +174,8 @@ as whether it is right.
   and length, not tone.)
 - **Short, edit-first, nits capped.** A finding is a few sentences plus the edit, not an essay:
   long comments with no concrete edit are the ones authors skip. Cap nits at 5 per review (a
-  starting default, tune per target); fold the rest into one line naming the class and every
+  starting default; a target's committed review config, such as a `max_nits` in `REVIEW.md`,
+  overrides it); fold the rest into one line naming the class and every
   `file:line`, and keep nits below all Medium-and-up findings so they never bury a Blocker.
   Merge same-root-cause findings first. A nit never blocks.
 - **When the author disputes a *filed* finding, run a hold-or-concede loop — neither cave nor
