@@ -6,7 +6,7 @@
 # name, so a name is not a handle). Members are read from the union's merge commits, subject
 # "merge-train: #N" (what merge_train.py writes; override the number regex with PR_RE).
 #
-# Env: UNION_DIRS (required, space-separated worktree paths), BASE_BRANCH (default main), REMOTE
+# Env: UNION_DIRS (required; space-separated worktree paths, or newline-separated when a path contains a space), BASE_BRANCH (default main), REMOTE
 # (default origin), CHANGELOG_DIR (default changelog.d: a PR touching no file under it is appended to
 # BACKFILL_FILE as a backfill list, not skipped), BACKFILL_FILE (default ./changelog_backfill.txt),
 # PR_RE (sed -E regex with one group, default 'merge-train: #([0-9]+)'), GH (default gh),
@@ -30,7 +30,10 @@ WAIT_TRIES=${WAIT_TRIES:-10} WAIT_SECS=${WAIT_SECS:-8}
 git fetch -q "$REMOTE" "$BASE_BRANCH"
 [ "$(git rev-parse "$REMOTE/$BASE_BRANCH")" = "$(git rev-parse "$BASE")" ] || echo "WARN $BASE_BRANCH moved past $BASE"
 W=""
-for d in $UNION_DIRS; do git -C "$d" cat-file -e "$U^{commit}" 2>/dev/null && W=$d; done
+while IFS= read -r d; do
+  [ -d "$d" ] || { echo "WARN UNION_DIRS entry is not a directory: '$d' (a path with a space needs newline-separated UNION_DIRS)" >&2; continue; }
+  git -C "$d" cat-file -e "$U^{commit}" 2>/dev/null && W=$d
+done < <(union_dirs)
 [ -n "$W" ] || { echo "no worktree holds $U"; exit 2; }
 
 # Each merge's 2nd parent is the member head the union proved; first-parent keeps member-internal merges out.

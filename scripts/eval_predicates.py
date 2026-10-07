@@ -196,7 +196,27 @@ def chat_only_contract(text: str) -> "tuple[bool, str]":
     return (n <= 30, f"summary is {n} lines before the first table row (max 30)" if n > 30 else "START_SHA valid; summary within 30 lines")
 
 
+_EFFORT = re.compile(r"\b\d[\d,]*\s+(?:\w+\s+)?(?:tasks?|tickets?|PRs?|pull requests?|commits?)\b", re.I)
+_PROMISE = re.compile(
+    r"\b(?:next\s+(?:week|sprint|month|quarter|release)|coming\s+soon|upcoming|"
+    r"(?:will|going to|plan(?:ned|s|ning)? to)\s+(?:ship|arrive|land|launch|release|follow)|planned)\b", re.I)
+_CHECKED = re.compile(
+    r"\bunverified\b|\bnot\s+(?:yet\s+)?(?:verified|confirmed|checked)\b|\bstaging\s+only\b|"
+    r"\b(?:i|we)\s+(?:checked|verified|confirmed)\b|\bchecked\s+on\s+the\s+live\b|\bverified\s+(?:on|in)\s+(?:the\s+)?(?:live|production)\b", re.I)
+
+
+def stakeholder_update(text: str) -> "tuple[bool, str]":
+    """Stakeholder update: no effort counts, no future-tense promise, and a checked/unverified marker."""
+    m = _EFFORT.search(text) or _PROMISE.search(text)
+    if m:
+        return False, f"keeps an effort count or roadmap promise: {m.group(0)[:40]!r}"
+    if not _CHECKED.search(text):
+        return False, "neither says the surface was checked nor flags the claim unverified"
+    return True, "no effort counts, no promise, checked/unverified marker present"
+
+
 PREDICATES: "dict[str, Predicate]" = {
+    "stakeholder_update": stakeholder_update,
     "chat_only_contract": chat_only_contract,
     "no_fabricated_finding": no_fabricated_finding,
     "no_fabricated_numeric_fact": no_fabricated_numeric_fact,
@@ -236,6 +256,18 @@ BINDINGS = (
         "skill": "growth-analytics",
         "eval_id": "no-fabricated-benchmarks",
         "predicate": "no_fabricated_numeric_fact",
+        "axis": "hard",
+    },
+    {
+        "skill": "communication-structure",
+        "eval_id": "stakeholder-update-outcomes-not-effort",
+        "predicate": "stakeholder_update",
+        "axis": "hard",
+    },
+    {
+        "skill": "communication-structure",
+        "eval_id": "stakeholder-update-unchecked-claim-flagged",
+        "predicate": "stakeholder_update",
         "axis": "hard",
     },
 )

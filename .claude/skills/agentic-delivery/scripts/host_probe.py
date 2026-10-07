@@ -47,8 +47,13 @@ USAGE
 -----
   host_probe.py --lane-type {cpu,io,light} [--canary CMD --baseline-file F]
                 [--live-lanes N --max-lanes N] [--per-lane-disk-bytes N]
-                [--sample-interval SECONDS]
+                [--sample-interval SECONDS] [--swap-used-pct-hold PCT] [--why]
   host_probe.py --selftest
+
+`--swap-used-pct-hold PCT` (off by default) adds an absolute swap ceiling after the trend check: swap used at
+or over PCT of swap total is `HOLD swap-level` even when flat; total unreadable is `COULD_NOT_CHECK swap-total`.
+`--why` prints the verdict, then the readings that fed it (free RAM %, swap MB twice and total, load1, cores, CPU
+idle %, free disk) and the top three processes by CPU, one per line; the first line is still the verdict.
 """
 from __future__ import annotations
 
@@ -71,13 +76,19 @@ def decide(*, swap_samples: tuple, free_ram_pct: float | None, lane_type: str,
            load1: float | None = None, cores: int | None = None, cpu_idle_pct: float | None = None,
            free_disk_bytes: int | None = None, per_lane_disk_bytes: int | None = None,
            live_lanes: int | None = None, max_lanes: int | None = None,
-           canary_requested: bool = False, canary_ratio: float | None = None) -> str:
+           canary_requested: bool = False, canary_ratio: float | None = None,
+           swap_used_pct_hold: float | None = None, swap_total_mb: float | None = None) -> str:
     """One verdict: `SPAWN`, `HOLD <reason,...>`, or `COULD_NOT_CHECK <what>` — see module doc."""
     s1, s2 = swap_samples
     if s1 is None or s2 is None:
         return "COULD_NOT_CHECK swap"
     if s2 > s1:
         return "HOLD swap-trend"
+    if swap_used_pct_hold is not None:
+        if swap_total_mb is None:
+            return "COULD_NOT_CHECK swap-total"
+        if swap_total_mb > 0 and 100.0 * s2 / swap_total_mb >= swap_used_pct_hold:
+            return "HOLD swap-level"
     if free_ram_pct is None:
         return "COULD_NOT_CHECK ram"
     if free_ram_pct < FREE_RAM_HOLD_PCT:
@@ -116,19 +127,29 @@ def _run(cmd: list) -> str | None:
         return None
 
 
-def read_swap_used_mb() -> float | None:
-    """Swap used, in MB; `sysctl vm.swapusage` (macOS) or `/proc/meminfo` (Linux)."""
+def read_swap_used_mb(field: str = "used") -> float | None:
+    """Swap used (or `field="total"`), in MB; `sysctl vm.swapusage` (macOS) or `/proc/meminfo` (Linux)."""
     if sys.platform == "darwin":
         out = _run(["sysctl", "vm.swapusage"])
-        m = out and re.search(r"used\s*=\s*([\d.]+)M", out)
+        m = out and re.search(field + r"\s*=\s*([\d.]+)M", out)
         return float(m.group(1)) if m else None
     try:
         with open("/proc/meminfo", encoding="utf-8") as fh:
             info = dict(re.findall(r"^(\S+):\s*(\d+)", fh.read(), re.MULTILINE))
         total, free = info.get("SwapTotal"), info.get("SwapFree")
+        if field == "total":
+            return int(total) / 1024 if total else None
         return (int(total) - int(free)) / 1024 if total and free else None
     except OSError:
         return None
+
+
+def top_cpu_procs(n: int = 3) -> list:
+    """The `n` hottest processes as `"<pcpu>% <command>"` strings; empty when `ps` is unreadable."""
+    out = _run(["ps", "-A", "-o", "pcpu=,comm="]) or ""
+    rows = [l.split(None, 1) for l in out.splitlines() if len(l.split(None, 1)) == 2]
+    rows = sorted((r for r in rows if re.fullmatch(r"[\d.]+", r[0])), key=lambda r: -float(r[0]))
+    return [f"{r[0]}% {r[1].strip()}" for r in rows[:n]]
 
 
 def read_free_ram_pct() -> float | None:
@@ -212,10 +233,11 @@ def run_canary(cmd: str, baseline_file: str) -> tuple:
 
 def probe(lane_type: str, canary_cmd: str | None = None, baseline_file: str | None = None,
           sample_interval: float = 1.0, live_lanes: int | None = None, max_lanes: int | None = None,
-          per_lane_disk_bytes: int | None = None) -> str:
+          per_lane_disk_bytes: int | None = None, swap_used_pct_hold: float | None = None,
+          readings: dict | None = None) -> str:
     """The real, host-reading invocation: samples swap twice `sample_interval` seconds
     apart, reads the rest of the predicate's inputs, runs the canary if given, and
-    returns one `decide()` verdict."""
+    returns one `decide()` verdict. A caller-given `readings` dict is filled with every value read."""
     s1 = read_swap_used_mb()
     time.sleep(sample_interval)
     s2 = read_swap_used_mb()
@@ -223,13 +245,25 @@ def probe(lane_type: str, canary_cmd: str | None = None, baseline_file: str | No
     canary_ratio = None
     if canary_cmd and baseline_file:
         _, canary_ratio = run_canary(canary_cmd, baseline_file)
-    return decide(
+    kw = dict(
         swap_samples=(s1, s2), free_ram_pct=read_free_ram_pct(), lane_type=lane_type,
         load1=load1, cores=cores, cpu_idle_pct=read_cpu_idle_pct(),
         free_disk_bytes=read_free_disk_bytes(), per_lane_disk_bytes=per_lane_disk_bytes,
         live_lanes=live_lanes, max_lanes=max_lanes,
         canary_requested=bool(canary_cmd), canary_ratio=canary_ratio,
+        swap_used_pct_hold=swap_used_pct_hold,
+        swap_total_mb=read_swap_used_mb("total") if swap_used_pct_hold is not None else None,
     )
+    if readings is not None:
+        readings.update(kw)
+    return decide(**kw)
+
+
+def format_why(readings: dict) -> list:
+    """Reading lines for `--why`: every `decide()` input that was read (None shown as `unreadable`), then top CPU."""
+    skip = ("lane_type", "canary_requested", "per_lane_disk_bytes", "live_lanes", "max_lanes", "swap_used_pct_hold")
+    lines = [f"  {k}={'unreadable' if v is None else v}" for k, v in readings.items() if k not in skip]
+    return lines + [f"  top_cpu={p}" for p in top_cpu_procs()]
 
 
 def main(argv: list | None = None) -> int:
@@ -243,15 +277,21 @@ def main(argv: list | None = None) -> int:
     parser.add_argument("--live-lanes", type=int, help="caller's own count of running heavy lanes")
     parser.add_argument("--max-lanes", type=int, help="caller's own concurrency ceiling")
     parser.add_argument("--per-lane-disk-bytes", type=int, help="measured disk footprint of one heavy lane")
+    parser.add_argument("--swap-used-pct-hold", type=float,
+                        help="optional absolute ceiling: HOLD swap-level when swap used >= PCT of swap total (off by default)")
+    parser.add_argument("--why", action="store_true", help="after the verdict line, print the readings and top 3 CPU processes")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args(argv)
     if args.selftest:
         return _selftest()
     if args.canary and not args.baseline_file:
         parser.error("--canary needs --baseline-file")
+    readings: dict = {}
     verdict = probe(args.lane_type, args.canary, args.baseline_file, args.sample_interval,
-                    args.live_lanes, args.max_lanes, args.per_lane_disk_bytes)
+                    args.live_lanes, args.max_lanes, args.per_lane_disk_bytes, args.swap_used_pct_hold, readings)
     print(verdict)
+    if args.why:
+        print("\n".join(format_why(readings)))
     return exit_code(verdict)
 
 
@@ -312,6 +352,23 @@ def _selftest() -> int:
                 live_lanes=10, max_lanes=10), "HOLD lane-cap")
     case("lane-cap-not-given-never-holds",
          decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="light", live_lanes=999), "SPAWN")
+    case("swap-level-off-by-default-flat-high-swap-spawns",
+         decide(swap_samples=(7400, 7400), free_ram_pct=50, lane_type="io", swap_total_mb=10000), "SPAWN")
+    case("swap-level-holds-at-ceiling",
+         decide(swap_samples=(7400, 7400), free_ram_pct=50, lane_type="io",
+                swap_used_pct_hold=70, swap_total_mb=10000), "HOLD swap-level")
+    case("swap-level-below-ceiling-spawns",
+         decide(swap_samples=(6900, 6900), free_ram_pct=50, lane_type="io",
+                swap_used_pct_hold=70, swap_total_mb=10000), "SPAWN")
+    case("swap-level-total-unreadable-could-not-check",
+         decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="io",
+                swap_used_pct_hold=70), "COULD_NOT_CHECK swap-total")
+    case("swap-level-no-swap-configured-spawns",
+         decide(swap_samples=(0, 0), free_ram_pct=50, lane_type="io",
+                swap_used_pct_hold=70, swap_total_mb=0), "SPAWN")
+    why = format_why({"free_ram_pct": 12.0, "load1": None, "cores": 4, "lane_type": "cpu"})
+    case("why-shows-readings-and-unreadable", why[:3], ["  free_ram_pct=12.0", "  load1=unreadable", "  cores=4"])
+    case("top-cpu-procs-at-most-three", len(top_cpu_procs()) <= 3, True)
     case("spawn-exit-zero", exit_code("SPAWN"), 0)
     case("hold-exit-nonzero", exit_code("HOLD swap-trend") != 0, True)
     case("could-not-check-exit-nonzero", exit_code("COULD_NOT_CHECK swap") != 0, True)
