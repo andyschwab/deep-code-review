@@ -1,0 +1,2 @@
+### Added
+- Skill activation eval (proxy): `scripts/trigger_coverage.py` now ranks every `evals/triggers.json` prompt against all skill descriptions by IDF-weighted word overlap and fails when a should-trigger prompt does not rank its own skill strictly first (or a should-not prompt does). It requires at least 3 should-trigger and 2 should-not prompts per skill. This is a cheap deterministic proxy, not a real model's activation; it runs in CI via `scripts/test-ci-gates.sh` with a planted-RED case. Refs #1380.
