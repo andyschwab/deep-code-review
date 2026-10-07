@@ -4,6 +4,12 @@ Read this when `method.md` routes here: a gate verdict is disputed, a green, CI 
 
 **Phase 1 — gate disputes and target-shape preflights.**
 
+- **On a `DIFF`, run `scripts/review_checks.sh --base <base>` first.** It runs only the installed local
+  analyzers (shellcheck, `bash -n`, py_compile, ruff/pyflakes, `node --check`, tsc, `go vet`, jq) on the changed
+  files and prints findings JSON; `--tests` adds the declared `REVIEW_TEST_CMD`. Its findings are leads: verify
+  each against the code before reporting, report a `not run` line as unchecked surface, and never read an empty
+  list as clean (analyzers miss fail-open and logic defects).
+
 - **Check a firing gate against its own standard first.** A gate *stricter* than
   the spec it implements (e.g. a contrast gate flagging disabled controls, which
   WCAG 2.2 SC 1.4.3 exempts) yields a "fix" that regresses another axis
