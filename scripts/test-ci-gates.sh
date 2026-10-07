@@ -3677,7 +3677,7 @@ if command -v jq >/dev/null 2>&1; then
     && [ "$(jq '.hooks.SubagentStart | length' "$OPA/.claude/settings.local.json")" = 1 ] \
     && [ "$(jq '.hooks.SubagentStop | length' "$OPA/.claude/settings.local.json")" = 1 ] \
     && [ "$(jq -r .model "$OPA/.claude/settings.local.json")" = opus ] \
-    && [ -f "$OPA/.claude/settings.local.json.bak" ] \
+    && compgen -G "$OPA/.claude/settings.local.json.bak.*" >/dev/null \
     && [ -f "$OPA/.claude/agents/delivery-lane.md" ]; then
     record 0 "operating-layer: apply twice is idempotent, single hook entries"
   else
@@ -3763,6 +3763,20 @@ if bash "$ROOT/scripts/test-ultrareview-fixes.sh" >"$WORK/ultrareview.log" 2>&1;
   record 0 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"
 else
   record 1 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"; tail -8 "$WORK/ultrareview.log"
+fi
+
+# host safety: own per-feature file (scripts/test-host-safety.sh), one case here.
+if bash "$ROOT/scripts/test-host-safety.sh" >"$WORK/host-safety.log" 2>&1; then
+  record 0 "host safety: install warns per host, selfcheck reports per-host sandbox status"
+else
+  record 1 "host safety: install warns per host, selfcheck reports per-host sandbox status"; tail -8 "$WORK/host-safety.log"
+fi
+
+# sandbox by default: own per-feature file (scripts/test-sandbox-default.sh), one case here.
+if bash "$ROOT/scripts/test-sandbox-default.sh" >"$WORK/sandbox-default.log" 2>&1; then
+  record 0 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"
+else
+  record 1 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"; tail -8 "$WORK/sandbox-default.log"
 fi
 
 # ops-script edge cases: own per-feature file (scripts/test-ops-edge.sh), one case here.
