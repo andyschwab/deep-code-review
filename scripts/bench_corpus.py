@@ -2,6 +2,7 @@
 """Review benchmark runner: real bug-fix corpus, strict train/test split, reviewer arms, strict + verified precision.
 
   bench_corpus.py split IDS...                    print the deterministic split for case ids
+  bench_corpus.py public-manifest --corpus D      manifest safe to commit (TEST ids hashed, SHAs dropped)
   bench_corpus.py run    --corpus D --arm A --out O [--split test] [--skill DIR] [--jobs N]
   bench_corpus.py verify --corpus D --arm A --out O [--split test]
   bench_corpus.py report --corpus D --out O [--split test]
@@ -19,7 +20,7 @@ Arms: perun (skill, one pass), perun-gap (the perun pass + a seeded gap-hunt pas
 read tools, no user settings, and see change.patch alone. Verifier: a separate session reads the patch and the
 pre-fix file and labels each strict-unmatched finding real | gt_same | not_a_bug | unverifiable (gt_same = same bug as
 the reference, i.e. a matcher miss). Metrics: strict recall/precision (score_review.py), adjudicated recall
-(strict hit or gt_same), verified precision ((matched + real + gt_same) / findings), cost and wall time. Stdlib only.
+(verifier says gt_same), verified precision ((real + gt_same) / findings), cost and wall time. Stdlib only.
 """
 import argparse
 import concurrent.futures as cf
@@ -45,7 +46,7 @@ Re-review the same change and hunt ONLY for defects the first pass missed; do no
 Your FINAL message must be ONLY a JSON array of the NEW findings, same shape as above: [{{"file": "<basename>", "line": <int or null>, "severity": "high|medium|low", "text": "<mechanism and failing input>"}}]. Use [] if nothing new."""
 VERIFY = """You verify code-review findings. ./change.patch is the reviewed change; ./context/ holds the pre-fix version of the changed file(s). Write no files.
 REFERENCE BUG (known real defect in this change): {bug}
-For each finding below decide, by reading the code: "gt_same" if it describes the reference bug (any wording), "real" if it is a different genuine defect you can confirm from the code, "not_a_bug" if the code does not behave as claimed or it is style/by-design, "unverifiable" if the code cannot settle it.
+For each finding below decide, by reading the code: "gt_same" ONLY if its mechanism is the reference bug (same root cause, any wording; naming the right file or a nearby symptom is not enough), "real" if it is a different genuine defect you can confirm from the code, "not_a_bug" if the code does not behave as claimed or it is style/by-design, "unverifiable" if the code cannot settle it.
 FINDINGS:
 {findings}
 Your FINAL message must be ONLY a JSON array: [{{"i": <index>, "verdict": "real|gt_same|not_a_bug|unverifiable", "reason": "<one sentence>"}}]."""
@@ -59,21 +60,41 @@ def split_ids(real, public=()):
     return {**{i: "train" for i in order[:n]}, **{i: "test" for i in order[n:]}, **{i: "train" for i in public}}
 
 
+def public_manifest(man):
+    """Manifest safe to commit: TEST entries get an opaque hashed id and lose the fix/intro SHAs (they point at the answer)."""
+    out = []
+    for m in man:
+        if m["split"] == "test":
+            real = m["id"]
+            m = {k: v for k, v in m.items() if k not in ("fix_sha", "intro_sha", "id")}
+            m["id"] = "test-" + hashlib.sha256(("test:" + real).encode()).hexdigest()[:10]
+        out.append(m)
+    return sorted(out, key=lambda m: (m["split"] == "test", m["id"]))  # hashed ids sorted: order must not leak real names
+
+
 def claude(prompt, cwd, model="sonnet"):
-    """One read-only `claude -p` session; returns (final text, cost usd, seconds, turns). No user settings, no persistence."""
+    """One read-only `claude -p` session; returns (final text, cost usd, seconds, turns, error).
+
+    No user settings, no persistence. `error` is "" on success; a timeout, spawn failure, non-zero exit, unparsable
+    JSON, an `is_error` result or empty output all set it, so the caller records the case as errored, never as a miss."""
     t = time.time()
-    p = subprocess.run(["claude", "-p", "--model", model, "--setting-sources", "project,local", "--output-format", "json",
-                        "--no-session-persistence", "--allowedTools", "Read", "Grep", "Glob"],
-                       input=prompt, capture_output=True, text=True, cwd=cwd, timeout=1500)
+    try:
+        p = subprocess.run(["claude", "-p", "--model", model, "--setting-sources", "project,local", "--output-format", "json",
+                            "--no-session-persistence", "--allowedTools", "Read", "Grep", "Glob"],
+                           input=prompt, capture_output=True, text=True, cwd=cwd, timeout=1500)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return "", 0.0, time.time() - t, 0, type(e).__name__
     try:
         j = json.loads(p.stdout)
     except ValueError:
-        return "", 0.0, time.time() - t, 0
-    return j.get("result", ""), float(j.get("total_cost_usd") or 0), time.time() - t, int(j.get("num_turns") or 0)
+        return "", 0.0, time.time() - t, 0, f"exit {p.returncode}, unparsable output"
+    txt, cost, turns = j.get("result") or "", float(j.get("total_cost_usd") or 0), int(j.get("num_turns") or 0)
+    err = "claude reported an error" if (j.get("is_error") or p.returncode) else "" if txt.strip() else "empty output"
+    return txt, cost, time.time() - t, turns, err
 
 
 def parse_array(text, key="text"):
-    """Last top-level JSON array of dicts carrying `key` in text; [] when absent or malformed."""
+    """Last top-level JSON array in text, filtered to dicts carrying `key`; None when no array parses (a valid [] is [])."""
     for m in reversed([m.start() for m in re.finditer(r"\[", text)]):
         try:
             v = json.loads(text[m:text.rindex("]") + 1])
@@ -81,7 +102,7 @@ def parse_array(text, key="text"):
             continue
         if isinstance(v, list):
             return [x for x in v if isinstance(x, dict) and key in x]
-    return []
+    return None
 
 
 def cases(corpus, split):
@@ -90,7 +111,7 @@ def cases(corpus, split):
 
 
 def workspace(corpus, cid, skill):
-    w = Path(tempfile.mkdtemp(prefix=f"bench-{cid}-"))
+    w = Path(tempfile.mkdtemp(prefix="bench-"))  # opaque name: a path must never carry the case id (it describes the bug)
     shutil.copy(corpus / cid / "change.patch", w)
     if skill:
         shutil.copytree(skill, w / ".claude/skills/deep-code-review")
@@ -114,80 +135,109 @@ def tool_findings(corpus, cid):
     return out
 
 
+def ask(prompt, w, key="text"):
+    """claude() + parse_array(): (items, cost, seconds, turns, raw, error); error also set when no JSON array came back."""
+    txt, cost, sec, turns, err = claude(prompt, w)
+    items = None if err else parse_array(txt, key)
+    return items, cost, sec, turns, txt, err or ("" if items is not None else "no JSON array in output")
+
+
 def run_case(corpus, cid, arm, out, skill):
+    """Run one arm on one case and write out/<arm>/<cid>.json. A failed case carries `error` and no findings."""
     d = out / arm; d.mkdir(parents=True, exist_ok=True)
+    bad = lambda e: dict(id=cid, arm=arm, findings=[], cost=0.0, seconds=0.0, error=e)
     if arm == "tools":
-        t = time.time(); f = tool_findings(corpus, cid)
-        rec = dict(id=cid, arm=arm, findings=f, cost=0.0, seconds=round(time.time() - t, 2))
+        t = time.time()
+        rec = dict(id=cid, arm=arm, findings=tool_findings(corpus, cid), cost=0.0, seconds=round(time.time() - t, 2), error="")
+    elif arm == "perun-gap" and not (out / "perun" / f"{cid}.json").exists():
+        rec = bad(f"missing perun output for {cid}: run --arm perun first")
     else:
         w = workspace(corpus, cid, skill if arm.startswith("perun") else None)
         try:
-            if arm == "perun-gap":  # pass 1 = the perun arm's record for this case; this adds the seeded gap pass
+            if arm == "perun-gap":  # pass 1 = the perun arm's record; this adds the seeded gap pass
                 p1 = json.loads((out / "perun" / f"{cid}.json").read_text())
-                txt, f, cost, sec, turns, raw = "", list(p1["findings"]), p1["cost"], p1["seconds"], p1["turns"], p1["raw"]
-                txt2, c2, s2, t2 = claude(GAP_SKILL + GAP.format(seed=json.dumps(f, indent=1)), w)
-                f += parse_array(txt2); cost += c2; sec += s2; turns += t2; raw += "\n=====GAP=====\n" + txt2
+                if p1.get("error"):
+                    rec = bad("perun pass errored: " + p1["error"])
+                else:
+                    new, c2, s2, t2, raw2, err = ask(GAP_SKILL + GAP.format(seed=json.dumps(p1["findings"], indent=1)), w)
+                    rec = dict(id=cid, arm=arm, findings=p1["findings"] + (new or []), cost=round(p1["cost"] + c2, 4),
+                               seconds=round(p1["seconds"] + s2, 1), turns=p1["turns"] + t2, raw=p1["raw"] + "\n=====GAP=====\n" + raw2, error=err)
             else:
-                txt, cost, sec, turns = claude(PERUN if arm == "perun" else PRODUCER, w)
-                f, raw = parse_array(txt), txt
-            rec = dict(id=cid, arm=arm, findings=f, cost=round(cost, 4), seconds=round(sec, 1), turns=turns, raw=raw)
+                f, cost, sec, turns, raw, err = ask(PERUN if arm == "perun" else PRODUCER, w)
+                rec = dict(id=cid, arm=arm, findings=f or [], cost=round(cost, 4), seconds=round(sec, 1), turns=turns, raw=raw, error=err)
         finally:
             shutil.rmtree(w, ignore_errors=True)
     (d / f"{cid}.json").write_text(json.dumps(rec, indent=1))
-    return cid, len(rec["findings"]), rec["cost"]
+    return cid, ("ERROR " + rec["error"]) if rec["error"] else len(rec["findings"]), rec["cost"]
 
 
 def verify_case(corpus, cid, arm, out):
-    p = out / arm / f"{cid}.json"; rec = json.loads(p.read_text())
+    """Label every finding of out/<arm>/<cid>.json (blind to the matcher); a verifier failure sets `verify_error` (case leaves the metrics)."""
+    p = out / arm / f"{cid}.json"
+    if not p.exists():
+        return cid, f"ERROR no {arm} output to verify"
+    rec = json.loads(p.read_text())
+    if rec.get("error"):
+        return cid, "ERROR skipped, run errored: " + rec["error"]
     truth = json.loads((corpus / cid / "ground-truth.json").read_text())
-    extras = [(i, f) for i, f in enumerate(rec["findings"]) if not sr.score(truth, [f])["hit"]]
-    rec["verdicts"] = {}
+    extras = list(enumerate(rec["findings"]))
+    rec["verdicts"] = {}; rec.pop("verify_error", None)
     if extras:
-        w = Path(tempfile.mkdtemp(prefix=f"verify-{cid}-"))
+        w = Path(tempfile.mkdtemp(prefix="verify-"))
         try:
             shutil.copy(corpus / cid / "change.patch", w)
             if (corpus / cid / "context").is_dir():
                 shutil.copytree(corpus / cid / "context", w / "context")
             bug = "; ".join(b["bug"] for b in truth["bugs"])
             listing = "\n".join(f"{i}. [{f.get('file')}:{f.get('line')}] {f.get('text')}" for i, f in extras)
-            txt, cost, _, _ = claude(VERIFY.format(bug=bug, findings=listing), w)
+            vs, cost, _, _, _, err = ask(VERIFY.format(bug=bug, findings=listing), w, "verdict")
             rec["verify_cost"] = round(cost, 4)
-            for v in parse_array(txt, "verdict"):
+            if err:
+                rec["verify_error"] = err
+            for v in vs or []:
                 rec["verdicts"][str(v.get("i"))] = {"verdict": v.get("verdict"), "reason": v.get("reason")}
         finally:
             shutil.rmtree(w, ignore_errors=True)
     p.write_text(json.dumps(rec, indent=1))
-    return cid, len(extras)
+    return cid, ("ERROR " + rec["verify_error"]) if rec.get("verify_error") else len(extras)
 
 
 def metrics(corpus, ids, arm, out):
-    n_bug = hit = adj = nf = matched = real = 0; cost = sec = vcost = 0.0; k = 0
+    """Aggregate one arm over `ids`. Errored cases (run or verifier failure) leave every denominator and count in `errors`.
+
+    recall_strict / precision_strict use the regex matcher; recall_adjudicated counts a case when the verifier labelled a
+    finding gt_same; precision_verified = findings labelled real or gt_same / findings (matcher-independent)."""
+    n_bug = hit = adj = nf = matched = good = k = err = 0; cost = sec = vcost = 0.0
     for cid in ids:
         p = out / arm / f"{cid}.json"
-        if not p.exists():
+        rec = json.loads(p.read_text()) if p.exists() else {"error": "no output"}
+        if rec.get("error") or rec.get("verify_error") or ("verdicts" not in rec and arm != "tools" and rec["findings"]):
+            err += 1
             continue
-        k += 1; rec = json.loads(p.read_text()); truth = json.loads((corpus / cid / "ground-truth.json").read_text())
+        k += 1; truth = json.loads((corpus / cid / "ground-truth.json").read_text())
         s = sr.score(truth, rec["findings"]); v = rec.get("verdicts", {}).values()
         n_bug += s["bugs"]; hit += len(s["hit"]); nf += s["findings"]
-        adj += s["bugs"] if (s["hit"] or any(x.get("verdict") == "gt_same" for x in v)) else 0
+        adj += s["bugs"] if any(x.get("verdict") == "gt_same" for x in v) else 0
         matched += sum(1 for f in rec["findings"] if sr.score(truth, [f])["hit"])
-        real += sum(1 for x in v if x.get("verdict") in ("real", "gt_same"))
+        good += sum(1 for x in v if x.get("verdict") in ("real", "gt_same"))
         cost += rec["cost"]; sec += rec["seconds"]; vcost += rec.get("verify_cost", 0)
     r = lambda a, b: round(a / b, 3) if b else None
-    return dict(arm=arm, cases=k, bugs=n_bug, findings=nf, recall_strict=r(hit, n_bug), recall_adjudicated=r(adj, n_bug),
-                precision_strict=r(matched, nf), precision_verified=r(matched + real, nf), cost_usd=round(cost, 3),
+    return dict(arm=arm, cases=k, errors=err, bugs=n_bug, findings=nf, recall_strict=r(hit, n_bug), recall_adjudicated=r(adj, n_bug),
+                precision_strict=r(matched, nf), precision_verified=r(good, nf), cost_usd=round(cost, 3),
                 verify_cost_usd=round(vcost, 3), seconds=round(sec, 1))
 
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("cmd", choices=("split", "run", "verify", "report"))
+    ap.add_argument("cmd", choices=("split", "public-manifest", "run", "verify", "report"))
     ap.add_argument("ids", nargs="*")
     ap.add_argument("--corpus", type=Path); ap.add_argument("--out", type=Path); ap.add_argument("--arm", choices=ARMS)
     ap.add_argument("--split", default="test"); ap.add_argument("--skill", type=Path); ap.add_argument("--jobs", type=int, default=4)
     a = ap.parse_args(argv)
     if a.cmd == "split":
         print(json.dumps(split_ids(a.ids), indent=1)); return 0
+    if a.cmd == "public-manifest":
+        print(json.dumps(public_manifest(json.loads((a.corpus / "manifest.json").read_text())), indent=1)); return 0
     ids = cases(a.corpus, a.split)
     if a.cmd == "report":
         print(json.dumps([metrics(a.corpus, ids, arm, a.out) for arm in ARMS if (a.out / arm).is_dir()], indent=1)); return 0
