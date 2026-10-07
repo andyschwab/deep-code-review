@@ -3779,6 +3779,13 @@ else
   record 1 "loop templates: scripts exist, >=20 min, installed, routed"; tail -5 "$WORK/loop-templates.log"
 fi
 
+# tracker hygiene (own per-feature file scripts/test_tracker_hygiene.py): stubbed gh, fake GraphQL server, install block.
+if python3 "$ROOT/scripts/test_tracker_hygiene.py" >"$WORK/tracker-hygiene.log" 2>&1; then
+  record 0 "tracker hygiene: tracker_check/weekly_update/install --tracker-project"
+else
+  record 1 "tracker hygiene: tracker_check/weekly_update/install --tracker-project"; tail -8 "$WORK/tracker-hygiene.log"
+fi
+
 # impact_map.py / context_pack.py: own per-feature file (scripts/test_impact_map.py), one case here.
 if python3 "$ROOT/scripts/test_impact_map.py" >"$WORK/impact-map.log" 2>&1; then
   record 0 "impact_map/context_pack: callers, callees, caps, bounded pack on a synthetic repo"
