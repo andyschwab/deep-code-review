@@ -6,12 +6,9 @@ follows Keep a Changelog; versioning follows Semantic Versioning.
 ## [1.506.0] — 2026-10-07
 
 ### Added
-- `REVIEW.md` team config (paths, severity floor, nit cap, plain-language rules with optional regex lead-finders, stage override) read in Phase 0 with documented precedence: the safety floor (security, secrets, data loss, privacy, tenancy) is never relaxed, and on a DIFF review the file is read from the base ref. New `references/review-config.md`, routed from `SKILL.md` and `machine-report.md`.
-- `scripts/review_feedback.py`: repo-local accept/dismiss ledger, per-rule accept-rate telemetry, and suggested `skip:` rules for a human to approve; safety-floor rules are never suggested.
-- `scripts/post_review.sh <PR> <findings.json> [--post]`: opt-in PR delivery; dry run by default, `--post` creates one pending review via `gh`, refuses on banlist, secret or home-path hits and fails closed without a banlist.
-- Tests: `scripts/test_review_feedback.py` (10), `scripts/test-post-review.sh` (13, stubbed `gh`), three evals, wired into CI. `post_review.sh` scans the decoded text (non-ASCII, backslash paths, line-split names); `review_feedback.py` requires `--area A-T|W` (unknown areas count as the safety floor) and collapses whitespace in reasons.
-- size-budget-raise: .claude/skills/deep-code-review/SKILL.md 23367→23496 one routing line for REVIEW.md in Phase 0
-- size-budget-raise: .claude/skills/deep-code-review/references/machine-report.md 10061→10261 pointer to delivery and feedback tooling
+- `review_checks.sh` (deep-code-review `scripts/`): runs only installed, local, read-only analyzers (shellcheck, bash -n, py_compile, ruff/pyflakes, node --check, tsc, go vet, jq) on the files changed since a base ref, timeboxed per tool, and prints findings JSON (file, line, rule, message, tool, plus `text` for `score_review.py`). Missing tools print a "not run" line; an opt-in `--tests` runs `REVIEW_TEST_CMD`. `method-situational.md` (loaded on every DIFF) routes to it as leads to verify. Test: `scripts/test-review-checks.sh` (wired into CI); eval `diff-review-runs-review-checks-first`.
+
+size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 33020→33524 route DIFF review to review_checks.sh
 
 ## [1.505.0] — 2026-10-07
 
