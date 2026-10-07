@@ -1,6 +1,7 @@
 ---
 description: Start an owner-authorised autonomous run that works the task ledger queue item by item until it is drained
 argument-hint: <goal>
+disable-model-invocation: true
 ---
 
 The owner started an autonomous run. Goal: $ARGUMENTS
