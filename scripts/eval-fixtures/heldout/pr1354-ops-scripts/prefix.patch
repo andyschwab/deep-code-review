@@ -1,0 +1,210 @@
+diff --git a/.claude/skills/agentic-delivery/scripts/clean_finished.sh b/.claude/skills/agentic-delivery/scripts/clean_finished.sh
+new file mode 100644
+index 0000000..e86730e
+--- /dev/null
++++ b/.claude/skills/agentic-delivery/scripts/clean_finished.sh
+@@ -0,0 +1,42 @@
++#!/usr/bin/env bash
++# clean_finished.sh — remove your own finished worktrees and scratch. Safe to run on every tick.
++# A worktree under ROOT is finished when its branch's PR is MERGED or CLOSED (gh pr view), or its branch is
++# listed in HANDED_BACK (optional file, one branch per line: lanes that handed back). It is removed unless:
++#   - a process has it open (lsof +D), or
++#   - it has unpushed commits (commits not on any remote; a MERGED PR whose head is exactly HEAD counts as
++#     pushed, since squash-and-delete-branch leaves no remote ref).
++# A dirty worktree is archived first: `git diff HEAD` plus the untracked-file list go to
++# ARCHIVE_DIR/<name>.patch (default $TMPDIR/worktree-archive), and it is removed only after the write succeeded.
++# The main worktree and the one you run from are never removed. Untracked file CONTENTS are listed, not saved.
++# Detached-HEAD worktrees have no branch to judge and are left alone.
++# SCRATCH (optional, space-separated absolute paths): deleted outright (never "/" or $HOME).
++# Env: ROOT (required, absolute dir: only worktrees under it are touched), GH (default gh).
++# Prints "removed=N skipped=M archived=K".
++set -euo pipefail
++: "${ROOT:?set ROOT to your own worktree tree}"
++ROOT=$(cd "$ROOT" && pwd -P); GH=${GH:-gh}; AR=${ARCHIVE_DIR:-${TMPDIR:-/tmp}/worktree-archive}
++top=$(git rev-parse --show-toplevel); top=$(cd "$top" && pwd -P)
++rm=0 sk=0 ar=0
++while read -r wt br; do
++  [ "$wt" != "$top" ] || continue
++  case "$wt" in "$ROOT"/*) ;; *) continue ;; esac
++  state="" head=""
++  read -r state head < <("$GH" pr view "$br" --json state,headRefOid -q '.state+" "+.headRefOid' </dev/null 2>/dev/null || true) || true
++  if [ "$state" != MERGED ] && [ "$state" != CLOSED ]; then
++    { [ -n "${HANDED_BACK:-}" ] && grep -qxF "$br" "$HANDED_BACK" 2>/dev/null; } || continue
++  fi
++  if [ -n "$(lsof -t +D "$wt" 2>/dev/null | head -1)" ]; then sk=$((sk+1)); continue; fi
++  if [ "$state" != MERGED ] || [ "$head" != "$(git -C "$wt" rev-parse HEAD)" ]; then
++    [ "$(git -C "$wt" rev-list --count HEAD --not --remotes)" = 0 ] || { sk=$((sk+1)); continue; }
++  fi
++  if [ -n "$(git -C "$wt" status --porcelain)" ]; then
++    mkdir -p "$AR"; f="$AR/$(basename "$wt").patch"
++    { git -C "$wt" diff HEAD; echo "# untracked:"; git -C "$wt" ls-files --others --exclude-standard; } >"$f" || { sk=$((sk+1)); continue; }
++    ar=$((ar+1))
++  fi
++  if git worktree remove --force "$wt" >/dev/null 2>&1; then rm=$((rm+1)); else sk=$((sk+1)); fi
++done < <(git worktree list --porcelain | awk '/^worktree /{w=$2} /^branch /{sub("refs/heads/","",$2); print w, $2}')
++for s in ${SCRATCH:-}; do
++  case "$s" in /|"$HOME"|"$HOME"/|"") continue ;; /*) rm -rf "$s" ;; esac
++done
++echo "removed=$rm skipped=$sk archived=$ar"
+diff --git a/.claude/skills/agentic-delivery/scripts/land_train.sh b/.claude/skills/agentic-delivery/scripts/land_train.sh
+new file mode 100644
+index 0000000..0ce46c1
+--- /dev/null
++++ b/.claude/skills/agentic-delivery/scripts/land_train.sh
+@@ -0,0 +1,65 @@
++#!/usr/bin/env bash
++# land_train.sh <base-sha> <union-sha> — land every PR of a GREEN merge-train union, each pinned to the
++# head SHA the union proved. A PR whose head moved since the union is skipped, never merged unproven.
++#
++# The union is found BY COMMIT among UNION_DIRS (a rerun after dropping a culprit gets a new worktree
++# name, so a name is not a handle). Members are read from the union's merge commits, subject
++# "merge-train: #N" (what merge_train.py writes; override the number regex with PR_RE).
++#
++# Env: UNION_DIRS (required, space-separated worktree paths), BASE_BRANCH (default main), REMOTE
++# (default origin), CHANGELOG_DIR (default changelog.d: a PR touching no file under it is appended to
++# BACKFILL_FILE as a backfill list, not skipped), BACKFILL_FILE (default ./changelog_backfill.txt),
++# PR_RE (sed -E regex with one group, default 'merge-train: #([0-9]+)'), GH (default gh),
++# LAND_CMD (default: gh pr merge N --merge --match-head-commit SHA; run via bash -c with $1=N $2=SHA),
++# WAIT_TRIES/WAIT_SECS (mergeable=UNKNOWN retry, default 10 x 8s).
++# Stacked children (open PRs based on a member's head branch) are retargeted to BASE_BRANCH before each merge.
++# Refuses (skips) a PR whose base is not BASE_BRANCH. On every exit, linked worktrees in UNION_DIRS are removed
++# (_clean_union.sh).
++# Exit: 0 all landed or skipped-with-notice, 2 usage/no union worktree.
++set -euo pipefail
++[ $# -eq 2 ] || { echo "usage: land_train.sh <base-sha> <union-sha>" >&2; exit 2; }
++BASE=$1 U=$2
++: "${UNION_DIRS:?set UNION_DIRS}"
++BASE_BRANCH=${BASE_BRANCH:-main} REMOTE=${REMOTE:-origin} CHANGELOG_DIR=${CHANGELOG_DIR:-changelog.d}
++BACKFILL_FILE=${BACKFILL_FILE:-./changelog_backfill.txt} PR_RE=${PR_RE:-merge-train: #([0-9]+)} GH=${GH:-gh}
++export GH
++LAND_CMD=${LAND_CMD:-'"$GH" pr merge "$1" --merge --match-head-commit "$2"'}
++WAIT_TRIES=${WAIT_TRIES:-10} WAIT_SECS=${WAIT_SECS:-8}
++. "$(dirname "$0")/_clean_union.sh"; trap clean_union_dirs EXIT
++
++git fetch -q "$REMOTE" "$BASE_BRANCH"
++[ "$(git rev-parse "$REMOTE/$BASE_BRANCH")" = "$(git rev-parse "$BASE")" ] || echo "WARN $BASE_BRANCH moved past $BASE"
++W=""
++for d in $UNION_DIRS; do git -C "$d" cat-file -e "$U^{commit}" 2>/dev/null && W=$d; done
++[ -n "$W" ] || { echo "no worktree holds $U"; exit 2; }
++
++# Each merge's 2nd parent is the member head the union proved; first-parent keeps member-internal merges out.
++members=$(git -C "$W" log --merges --first-parent --reverse --format='%s %P' "$BASE..$U" \
++  | sed -nE "s/^$PR_RE [0-9a-f]+ ([0-9a-f]+).*/\1 \2/p")
++[ -n "$members" ] || { echo "no members found in $BASE..$U"; exit 2; }
++LAST=$(printf '%s\n' "$members" | tail -1 | cut -d' ' -f1)
++
++while read -r N SHA; do
++  cur=$("$GH" pr view "$N" --json headRefOid -q .headRefOid </dev/null)
++  [ "$cur" = "$SHA" ] || { echo "SKIP #$N moved"; continue; }
++  bb=$("$GH" pr view "$N" --json baseRefName -q .baseRefName </dev/null)
++  [ "$bb" = "$BASE_BRANCH" ] || { echo "REFUSE #$N base is $bb, expected $BASE_BRANCH"; continue; }
++  files=$("$GH" pr diff "$N" --name-only </dev/null)  # not piped to grep -q: its early exit + pipefail = false miss
++  grep -q "^$CHANGELOG_DIR/" <<<"$files" \
++    ||{ echo "$N" >>"$BACKFILL_FILE"; echo "NOTE #$N needs changelog backfill"; }
++  [ "$("$GH" pr view "$N" --json isDraft -q .isDraft </dev/null)" != true ] || "$GH" pr ready "$N" </dev/null >/dev/null
++  M=UNKNOWN
++  for _ in $(seq "$WAIT_TRIES"); do
++    M=$("$GH" pr view "$N" --json mergeable -q .mergeable </dev/null)
++    [ "$M" = UNKNOWN ] || break
++    sleep "$WAIT_SECS"
++  done
++  # Landing may delete this PR's head branch, and GitHub closes (unreopenably) any open PR based on it:
++  # retarget those stacked children to the base branch first. Unconditional: harmless when nothing is stacked.
++  hb=$("$GH" pr view "$N" --json headRefName -q .headRefName </dev/null)
++  for c in $("$GH" pr list --base "$hb" --state open --json number -q '.[].number' </dev/null); do
++    "$GH" pr edit "$c" --base "$BASE_BRANCH" </dev/null >/dev/null && echo "RETARGET #$c: $hb -> $BASE_BRANCH"
++  done
++  out=$(bash -c "$LAND_CMD" _ "$N" "$SHA" </dev/null 2>&1 | tail -1) || true
++  echo "#$N($M)$([ "$N" = "$LAST" ] && echo ' last'): $out"
++done <<<"$members"
+diff --git a/.claude/skills/agentic-delivery/scripts/pipe_mask_guard.py b/.claude/skills/agentic-delivery/scripts/pipe_mask_guard.py
+new file mode 100644
+index 0000000..69e7326
+--- /dev/null
++++ b/.claude/skills/agentic-delivery/scripts/pipe_mask_guard.py
+@@ -0,0 +1,49 @@
++#!/usr/bin/env python3
++"""PreToolUse(Bash) hook: flag a gate/push/merge command piped to tail/head/grep.
++
++`gate | tail` reports the reader's exit status, so a failing gate reads as 0 and a
++failed push gets reported as pushed. Reads the hook's stdin JSON
++(`tool_input.command`) and matches `(git commit|push|merge | gh pr merge | qa | gate |
++test | ci-gates) ... | tail|head|grep` where the command has neither `pipefail` nor
++`PIPESTATUS`/`pipestatus`.
++
++Default WARN: exit 0 with PreToolUse `hookSpecificOutput.additionalContext` JSON on
++stdout. PIPE_MASK_MODE=block: exit 2 with the reason on stderr (the host blocks the
++call). Unparseable stdin, a non-Bash tool, or no command -> silent exit 0 (a guard
++must never wedge a session). Side effects: none.
++Known limits: a quoted `|` inside an argument can false-positive; a pipe built
++across separate commands is not seen. Fix for both: capture then echo the exit code.
++"""
++import json
++import os
++import re
++import sys
++
++HIT = re.compile(
++    r"\b(git\s+(commit|push|merge)|gh\s+pr\s+merge|qa|gate|test|ci-gates)\b[^|]*(?<!\|)\|(?!\|)\s*(tail|head|grep)\b"
++)
++SAFE = re.compile(r"pipefail|PIPESTATUS|pipestatus")
++MSG = (
++    "Pipe masks the gate's exit code: `cmd | tail/head/grep` returns the reader's status, so a failure reads as 0. "
++    "Capture then echo (`cmd >/tmp/g.log 2>&1; echo exit=$?; tail /tmp/g.log`), or `set -o pipefail`, "
++    "or read ${PIPESTATUS[0]} on the next command."
++)
++
++
++def main():
++    try:
++        data = json.load(sys.stdin)
++        cmd = (data.get("tool_input") or {}).get("command") or ""
++    except (ValueError, AttributeError):
++        return 0
++    if data.get("tool_name", "Bash") != "Bash" or not HIT.search(cmd) or SAFE.search(cmd):
++        return 0
++    if os.environ.get("PIPE_MASK_MODE") == "block":
++        print(MSG, file=sys.stderr)
++        return 2
++    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": MSG}}))
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/.claude/skills/contribution/scripts/prefile_check.sh b/.claude/skills/contribution/scripts/prefile_check.sh
+new file mode 100644
+index 0000000..4505d7a
+--- /dev/null
++++ b/.claude/skills/contribution/scripts/prefile_check.sh
+@@ -0,0 +1,30 @@
++#!/usr/bin/env bash
++# prefile_check.sh <title-file> <body-file> — run BEFORE `gh issue create` on the public repo.
++# Refuses (exit 1) when title or body hits the banlist (.banlist.txt + .banlist.local.txt, if
++# present, resolved from the git root or $BANLIST_DIR) or a generic pattern: an <org>/<repo>
++# reference other than this repo, a #NNNN+ cross-repo issue number, or an absolute home path.
++# Exit 2 on usage error or missing/empty banlist (fail closed). Prints pattern NAMES only, never
++# the matched text. Side effects: none. Deliberately strict: "and/or" or "src/foo" also match
++# the repo-ref pattern; rephrase. A project-only bug belongs in that project's tracker, not here.
++set -u
++SELF_REPO='remigiusz-antczak/deep-code-review'
++[ "$#" -eq 2 ] && [ -f "$1" ] && [ -f "$2" ] || { echo "usage: prefile_check.sh <title-file> <body-file>" >&2; exit 2; }
++dir="${BANLIST_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
++[ -s "$dir/.banlist.txt" ] || { echo "prefile_check: $dir/.banlist.txt missing or empty (fail closed)" >&2; exit 2; }
++text="$(cat "$1" "$2")"
++hits=0
++flag() { echo "prefile_check: REFUSE: $1" >&2; hits=1; }
++for f in "$dir/.banlist.txt" "$dir/.banlist.local.txt"; do
++  [ -f "$f" ] || continue
++  while IFS= read -r p || [ -n "$p" ]; do
++    p="${p#"${p%%[![:space:]]*}"}"
++    case "$p" in ''|'#'*) continue ;; esac
++    printf '%s' "$text" | grep -qE -e "$p" 2>/dev/null && flag "banlist pattern hit in $(basename "$f") (content withheld)"
++  done < "$f"
++done
++printf '%s\n' "$text" | grep -oE '[A-Za-z0-9-]+/[A-Za-z0-9._-]+' | grep -vxF "$SELF_REPO" | grep -q . \
++  && flag "repo-ref or path-like <org>/<repo> other than $SELF_REPO"
++printf '%s' "$text" | grep -qE '#[0-9]{4,}' && flag "#NNNN+ issue reference (likely another tracker)"
++printf '%s' "$text" | grep -qE '(/Users/|/home/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+' && flag "absolute home path"
++[ "$hits" -eq 0 ] && echo "prefile_check: clean"
++exit "$hits"
