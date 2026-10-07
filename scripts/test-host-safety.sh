@@ -8,7 +8,7 @@ W="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-hs.XXXXXX")"
 fail=0; n=0; p=0
 ok() { n=$((n+1)); if [ "$1" -eq 0 ]; then p=$((p+1)); echo "PASS  $2"; else echo "FAIL  $2"; fail=1; fi; }
 
-mkdir -p "$W/p" "$W/m" "$W/empty"
+mkdir -p "$W/p" "$W/m"
 bash "$ROOT/install.sh" --with-delivery --with-codex --with-extra-hosts "$W/p" >"$W/out" 2>&1
 for h in "Claude Code" Cursor Codex "Gemini CLI" OpenCode "GitHub Copilot" Windsurf "Hermes Agent" Kiro; do
   grep -q "^safety: $h:.* https://" "$W/out"; ok $? "install warns for $h with a doc link"
@@ -17,7 +17,8 @@ bash "$ROOT/install.sh" --minimal "$W/m" >"$W/mout" 2>&1
 grep -q '^safety: Claude Code' "$W/mout" && ! grep -q '^safety: Cursor' "$W/mout"; ok $? "minimal install warns only for installed hosts"
 python3 "$SC/host_safety.py" --selftest >/dev/null; ok $? "host_safety --selftest"
 python3 "$SC/operating_selfcheck.py" --selftest >/dev/null; ok $? "operating_selfcheck --selftest"
-python3 "$SC/operating_selfcheck.py" --project "$W/empty" --settings "$W/none.json" >"$W/sc"
+mkdir -p "$W/p/.claude"; echo '{}' >"$W/p/.claude/settings.local.json"   # install applies the sandbox when jq exists
+python3 "$SC/operating_selfcheck.py" --project "$W/p" --settings "$W/none.json" >"$W/sc"
 grep -q '^host-safety-claude: OFF' "$W/sc"; ok $? "selfcheck: claude sandbox OFF without settings"
 grep -q '^host-safety-windsurf: NO_OS_SANDBOX' "$W/sc"; ok $? "selfcheck: windsurf has no OS sandbox"
 grep -q '^host-safety-codex: COULD_NOT_CHECK' "$W/sc"; ok $? "selfcheck: codex switch is user-level"
