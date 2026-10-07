@@ -1012,7 +1012,7 @@ own page states its exact enabling config and was fetched to confirm it precisel
 ## Verified by direct fetch (2026-09-20) — switch/case fallthrough & unreachable-code linter rules
 
 Verification date for the rows below: **2026-09-20**. Added for the deep-code-review
-`language-stack-redflags.md` switch/case control-flow fold (cross-language fallthrough
+`redflags-situational.md` switch/case control-flow fold (cross-language fallthrough
 reversal, unreachable-after-return, lexical declarations leaking across case clauses,
 duplicate/mislabeled case). All fetched via `curl -sL` (raw HTML/Markdown), not a
 summarizer. Two corrections to the working brief surfaced by these fetches: (1) C# was

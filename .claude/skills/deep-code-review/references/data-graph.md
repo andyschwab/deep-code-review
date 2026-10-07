@@ -26,7 +26,7 @@ Read this when the target or diff authors or validates a graph, diagram, ring, o
   hand (`method.md` Phase 4). **Discriminators:** the named-quantity rule in `data-quality.md` §4 flags a
   *quantity* that drifted **stale** across copies (repetition is not corroboration); here a
   *start-designation* is authored **wrong from origin** and a green **topology** gate supplies
-  the false assurance. The partition / ring validity gate in `language-stack-redflags.md` is a
+  the false assurance. The partition / ring validity gate in `redflags-situational.md` is a
   partitioning *routine's* off-by-one that **falsely rejects** a valid decomposition; this is
   authored *data* whose gate **falsely accepts** by omitting a whole dimension. And `data-scoring.md`'s
   stated-precedence rule is authority **direction** — one source *outranks* another and must

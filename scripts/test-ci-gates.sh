@@ -3737,6 +3737,13 @@ else
   record 1 "land-release: two fragment lanes land back-to-back with no rebump"; tail -8 "$WORK/land-release.log"
 fi
 
+# must-load floor cut: own per-feature file (scripts/test-mustload-split.sh), one case here.
+if bash "$ROOT/scripts/test-mustload-split.sh" >"$WORK/mustload-split.log" 2>&1; then
+  record 0 "mustload split: moved sections stay present and routed; INDEX has no Headings column"
+else
+  record 1 "mustload split: moved sections stay present and routed; INDEX has no Headings column"; tail -8 "$WORK/mustload-split.log"
+fi
+
 # ultrareview fixes: own per-feature file (scripts/test-ultrareview-fixes.sh), one case here.
 if bash "$ROOT/scripts/test-ultrareview-fixes.sh" >"$WORK/ultrareview.log" 2>&1; then
   record 0 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"
