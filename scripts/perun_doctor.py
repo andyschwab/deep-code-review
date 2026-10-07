@@ -119,7 +119,7 @@ def check(repo, home):
     names = [p for p in walk(repo, 4) if re.search(r"janitor|scheduler", p.name, re.I)]
     add("OK" if names else "WARN", "janitor/scheduler", f"found {names[0].relative_to(repo)}" if names else "none installed: nothing runs Perun on a schedule")
     # policy
-    pol = [p for p in walk(repo, 3) if re.search(r"perun[-_]?policy", p.name, re.I)]
+    pol = [p for p in walk(repo, 3) if re.search(r"perun[-_]?policy.*\.(json|ya?ml|toml)$", p.name, re.I)]
     add("OK" if pol else "WARN", "policy file", f"found {pol[0].relative_to(repo)}" if pol else "no perun-policy file in the repo")
     return rows
 
