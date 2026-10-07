@@ -1365,3 +1365,14 @@ fact).
 |---|---|---|
 | "Bigger Isn't Always Better" (LLM code review, arXiv abstract) | https://arxiv.org/abs/2606.15689 | Small preprint, 150 samples (100 synthetic bugs, 50 real bug-fix PRs): F1 0.657 on diffs under 10 lines vs 0.043 on diffs over 150 lines. Backs the DIFF size bands in `method-situational.md`; directional, not a rate. |
 | "Does Order Matter?" (file ordering in code review, arXiv abstract) | https://arxiv.org/abs/2609.22610 | 330,343 multi-file PRs: each additional modified file lowers the odds of any review comment by about 8.7%; latent-bug rate rises from 56.7% at file position 1 to 61.5% at position 30. Backs chunking, the per-file ledger and blast-radius ordering. |
+
+## Verified by direct fetch (2026-10-07) — Claude Code plugin marketplace (`README.md` team-wide install, `commands/`, `.claude-plugin/marketplace.json`)
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| Claude Code — Create a marketplace | https://code.claude.com/docs/en/plugin-marketplaces | `.claude-plugin/marketplace.json` requires `name`, `owner`, `plugins`; each entry needs `name` and `source`; entry name must equal the plugin's `plugin.json` name; `claude plugin validate`; add with `claude plugin marketplace add` / `/plugin marketplace add`, install id `<plugin>@<marketplace>`. |
+| Claude Code — Marketplace reference | https://code.claude.com/docs/en/plugins/marketplace-reference | Top-level and entry fields; relative-path `source` (`"."` is the marketplace root, valid for git-hosted marketplaces); `github` source `ref`/`sha`; entry `version` loses to `plugin.json` `version` (validator warns); reserved marketplace names. |
+| Claude Code — Host and maintain a marketplace | https://code.claude.com/docs/en/plugins/host-marketplace | Auto-update is off by default and has no `marketplace.json` field; users or admins enable it; a new copy is delivered only when the computed version changes (`plugin.json` first, then entry; omit both to track commits); `#<ref>` on the add command pins a branch or tag; `/plugin marketplace update <name>`. |
+| Claude Code — Manage plugins for your organization | https://code.claude.com/docs/en/plugins/org | Managed settings (server-managed, MDM, or `managed-settings.json`) with `extraKnownMarketplaces` (per-entry `autoUpdate`) and `enabledPlugins` (`plugin@marketplace`) register and install for every machine; `strictKnownMarketplaces` allowlist. |
+| Claude Code — Add components to a plugin | https://code.claude.com/docs/en/plugins/components | A plugin's `skills/<dir>/SKILL.md` runs as `/<plugin>:<dir>`; `commands/<file>.md` runs as `/<plugin>:<file>`; command files take the same frontmatter as skills; commands are the older format. |
+| Claude Code — Skills | https://code.claude.com/docs/en/skills | Frontmatter `description`, `argument-hint`, `disable-model-invocation`; `$ARGUMENTS` substitution. |
