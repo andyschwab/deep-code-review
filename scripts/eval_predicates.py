@@ -80,6 +80,12 @@ _DEFECT_CTX = re.compile(
 )
 
 
+# "a parameterized query is the standard defense against SQL injection (CWE-89)" names a CWE as the
+# thing defended against, not as a finding. Narrow on purpose: bare "prevent"/"mitigate" co-occur with
+# fix advice on a fabricated finding, so only "defense/protection/guard against|from" is excused.
+_DEFENDED = re.compile(r"\b(?:defen[cs]es?|protect(?:s|ed|ion)?|guards?|safeguards?)\s+(?:\w+\s+)?(?:against|from)\b", re.I)
+
+
 def _negation_governs(line: str, start: int) -> bool:
     """True when a negation word sits in the last few words before `start`."""
     before = re.findall(r"[A-Za-z']+", line[:start])
@@ -100,8 +106,8 @@ _NO_FINDING = re.compile(
 def no_fabricated_finding(text: str) -> "tuple[bool, str]":
     for line in text.splitlines():
         for m in _FINDING.finditer(line):
-            if _negation_governs(line, m.start()):
-                continue  # a denial ("no CWE-89 here"), not an assertion
+            if _negation_governs(line, m.start()) or _DEFENDED.search(line[:m.start()]):
+                continue  # a denial ("no CWE-89 here") or a defended-against class, not an assertion
             if m.group(0).lower().startswith("cwe"):
                 return False, f"asserts a CWE finding: {line.strip()[:80]!r}"
             if _DEFECT_CTX.search(line):
