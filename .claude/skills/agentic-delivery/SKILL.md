@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.517.0"
+  version: "1.524.0"
 ---
 
 # Agentic delivery
@@ -112,7 +112,7 @@ when verifying, finalizing, or relaying a lane's result (liveness, `Verify:`
 lines, fan-out joins); `references/dev-env-ownership.md` when a lane serves a
 dev server, re-runs a generator or ratchet, or shares files under an ownership
 map; `references/unattended-trackers.md` when closing tracker issues or running
-a multi-hour work loop. Paste `templates/lane-preamble.md` into every lane brief. Loop prompts and scheduled-task templates (coordinator, peer, cleanup; 20-minute floor): `templates/loops/*.md`.
+a multi-hour work loop; `references/work-tracking.md` when a repo uses a work tracker (issue/PR linking, status moves, auto-close hazards, the weekly project update, `tracker_check.py`). Paste `templates/lane-preamble.md` into every lane brief. Loop prompts and scheduled-task templates (coordinator, peer, cleanup; 20-minute floor): `templates/loops/*.md`.
 
 **Drifting into a lane's work** — while a lane is in flight, two consecutive
 Conductor turns that query, build, edit, or mutate the target instead of
@@ -253,6 +253,7 @@ throwaway integration SHA plus one aggregate gate before a merge train (G7).
   collision*).
 - **A forked lane with a narrower brief than its inherited context** (research-only, "change nothing"): prefer a fresh unit; verify from effects — `references/verification-handback.md` **A context-inheriting fork is not a blank slate**.
 - **Inventory the repo's own scripts before spawning a lane for a repeatable step.** On start, read `scripts/` and the README; if a tick, train, bisect, land, or release script exists, run it instead of having an LLM lane do the step (or hand-resolve a generated-file conflict) by judgment.
+- **P0 count inflated / "what next?":** read when many open issues are P0. Don't relabel; rank a top-N in PRIORITIES.md, tag the rest `p0:unranked`; `scripts/queue_guard.py` prints the next pull and flags inflation.
 - Serialize shared-state edits, migrations, generated files, and the
   integration branch — lanes sharing a host: `scripts/serial_gate.py`.
 - Occupancy is **visibility, not a lock**. Say what is live or stale; do not

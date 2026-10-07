@@ -16,6 +16,15 @@ What Perun is: [the README](../README.md). Basic install:
 | `scripts/dcr-gates.sh` | Calls the gate scripts inside the installed skills; holds no copy of their logic, so re-running `install.sh` upgrades the checks. |
 | `.githooks/pre-push` | Reruns your fast lint + unit tier (`DCR_PREPUSH_CMD`) before each push. Off until you run `git config core.hooksPath .githooks`. |
 
+Separately opt-in, never written by `install.sh`: copy
+`.claude/skills/deep-code-review/templates/perun-review.yml` to
+`.github/workflows/` for PR-native review. A read-only job runs the review and
+a second job (no PR checkout, no model key) posts one pending review, one
+sticky comment and one check run with severity counts, replacing its prior
+pending review on each push. Prerequisites: the `ANTHROPIC_API_KEY` secret, a non-empty `.banlist.txt`
+(`post_review.sh` fails closed without it) and a pinned `CLAUDE_CODE_VERSION`. The file header documents the spend cap and fork
+hardening.
+
 It never overwrites an existing file at these paths; it writes `<path>.new`
 instead. Always on: `fix_class_gate.py` (every `fix:` commit touches a pinned
 test or carries a `No-Test-Reason:` trailer) and `binaries_gate.py` (no
@@ -35,6 +44,7 @@ skips.
 | Cost cuts that let a defect escape | `agentic-delivery/scripts/escaped_defects.py` | An escaped Blocker (`Regression-Of:` fix) traced to a `Cost-Cut:` commit (revert it), two cuts in one window, or a cut inside the 4-week baseline. | Run per measurement window |
 | Stay on the owner's priority | `agentic-delivery/scripts/focus_gate.py` | Work outside an owner-committed `.claude/PRIORITY.md` until its acceptance command passes on a clean checkout, or the priority is blocked on another party with evidence. Agent-written or over-broad records are rejected. | `DCR_FOCUS_GATE=1` |
 | No cosmetic work over an aged P0 | `agentic-delivery/scripts/priority_gate.py` | A presentation-only PR while an aged priority issue has no PR citing it. | `DCR_PRIORITY_GATE=1` |
+| One ranked queue when P0 is inflated | `agentic-delivery/scripts/queue_guard.py` | Prints the next issue to pull (ranked in `PRIORITIES.md`, then oldest P0) and flags more than N unranked P0s. Read-only. | Per lane. |
 | Stop re-fixing the same file | `agentic-delivery/scripts/refix_gate.py` | Re-touching a file a `fix:` commit touched in the last 72 hours (default) without a test or eval change or a `Refix-Reason:` trailer. | `DCR_REFIX_GATE=1` |
 | Closing keywords stay in scope | `deep-code-review/scripts/closes_lint.py` | A `closes #N` for an issue or PR the change doesn't own. | `DCR_CLOSES_LINT=1` |
 | Keep every owner ask | `agentic-ceo/scripts/task_ledger.py` | One `.claude/TASKS.md` per project: asks verbatim, `done` needs evidence (sha, URL, `#N`, or test id), `next` returns one item, `reconcile` finds asks lost to compaction. | Run by the conductor (`--with-ceo`). |

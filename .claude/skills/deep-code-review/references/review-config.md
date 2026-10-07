@@ -91,3 +91,5 @@ is created, fix the line and re-run.
 (root: `$GROUND_ROOT` or the git root; `start_sha` is passed as `--ref`, so rows are checked against the PR head) and refuses
 on any ungrounded gap row. Before posting, run `merge_findings.py [--cap N] [--root DIR] pass1.json pass2.json`: it re-checks
 grounding, dedupes, ranks and caps. Rules and reasons live in the two script docstrings. Zero findings is valid: say NONE.
+
+Read this when you want PR-native review in CI: `templates/perun-review.yml` is an opt-in workflow (never installed by `install.sh`); its header lists the prerequisites and hardening.

@@ -3677,7 +3677,7 @@ if command -v jq >/dev/null 2>&1; then
     && [ "$(jq '.hooks.SubagentStart | length' "$OPA/.claude/settings.local.json")" = 1 ] \
     && [ "$(jq '.hooks.SubagentStop | length' "$OPA/.claude/settings.local.json")" = 1 ] \
     && [ "$(jq -r .model "$OPA/.claude/settings.local.json")" = opus ] \
-    && [ -f "$OPA/.claude/settings.local.json.bak" ] \
+    && compgen -G "$OPA/.claude/settings.local.json.bak.*" >/dev/null \
     && [ -f "$OPA/.claude/agents/delivery-lane.md" ]; then
     record 0 "operating-layer: apply twice is idempotent, single hook entries"
   else
@@ -3744,6 +3744,13 @@ else
   record 1 "land-release: two fragment lanes land back-to-back with no rebump"; tail -8 "$WORK/land-release.log"
 fi
 
+# PR-native review workflow template: own per-feature file (scripts/test-pr-review-workflow.sh), one case here.
+if bash "$ROOT/scripts/test-pr-review-workflow.sh" >"$WORK/pr-review-wf.log" 2>&1; then
+  record 0 "perun-review.yml: least-privilege permissions, pull_request only, opt-in"
+else
+  record 1 "perun-review.yml: least-privilege permissions, pull_request only, opt-in"; tail -8 "$WORK/pr-review-wf.log"
+fi
+
 # must-load floor cut: own per-feature file (scripts/test-mustload-split.sh), one case here.
 if bash "$ROOT/scripts/test-mustload-split.sh" >"$WORK/mustload-split.log" 2>&1; then
   record 0 "mustload split: moved sections stay present and routed; INDEX has no Headings column"
@@ -3758,6 +3765,20 @@ else
   record 1 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"; tail -8 "$WORK/ultrareview.log"
 fi
 
+# host safety: own per-feature file (scripts/test-host-safety.sh), one case here.
+if bash "$ROOT/scripts/test-host-safety.sh" >"$WORK/host-safety.log" 2>&1; then
+  record 0 "host safety: install warns per host, selfcheck reports per-host sandbox status"
+else
+  record 1 "host safety: install warns per host, selfcheck reports per-host sandbox status"; tail -8 "$WORK/host-safety.log"
+fi
+
+# sandbox by default: own per-feature file (scripts/test-sandbox-default.sh), one case here.
+if bash "$ROOT/scripts/test-sandbox-default.sh" >"$WORK/sandbox-default.log" 2>&1; then
+  record 0 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"
+else
+  record 1 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"; tail -8 "$WORK/sandbox-default.log"
+fi
+
 # ops-script edge cases: own per-feature file (scripts/test-ops-edge.sh), one case here.
 if bash "$ROOT/scripts/test-ops-edge.sh" >"$WORK/ops-edge.log" 2>&1; then
   record 0 "ops edge cases: clean_finished/land_train/prefile_check/pipe_mask_guard"
@@ -3770,6 +3791,13 @@ if bash "$ROOT/scripts/test-loop-templates.sh" >"$WORK/loop-templates.log" 2>&1;
   record 0 "loop templates: scripts exist, >=20 min, installed, routed"
 else
   record 1 "loop templates: scripts exist, >=20 min, installed, routed"; tail -5 "$WORK/loop-templates.log"
+fi
+
+# tracker hygiene (own per-feature file scripts/test_tracker_hygiene.py): stubbed gh, fake GraphQL server, install block.
+if python3 "$ROOT/scripts/test_tracker_hygiene.py" >"$WORK/tracker-hygiene.log" 2>&1; then
+  record 0 "tracker hygiene: tracker_check/weekly_update/install --tracker-project"
+else
+  record 1 "tracker hygiene: tracker_check/weekly_update/install --tracker-project"; tail -8 "$WORK/tracker-hygiene.log"
 fi
 
 # impact_map.py / context_pack.py: own per-feature file (scripts/test_impact_map.py), one case here.
