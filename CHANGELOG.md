@@ -3,6 +3,11 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.523.0] — 2026-10-08
+
+### Added
+- Admission control for heavy local commands: `perun_policy.py heavy-slots` adds a concurrency primitive `max(2, free cores)` and `host_probe.py --lane-type heavy` defers (`HOLD load-high`) when load1 exceeds cores; the existing free-RAM veto already defers on low RAM. Tests inject load and core values. Not yet wired into a hook or lane template; a consumer adopts it explicitly.
+
 ## [1.522.0] — 2026-10-08
 
 ### Added
