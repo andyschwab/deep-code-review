@@ -54,7 +54,7 @@ git checkout -q --detach "$REMOTE/$BASE_BRANCH"
 if [ -n "${BASE_AUDIT_CMD:-}" ] && ! bash -c "$BASE_AUDIT_CMD" >"$LOG.base" 2>&1 </dev/null; then
   echo "BASE RED: audit fails on bare $REMOTE/$BASE_BRANCH (see $LOG.base); no PR to blame, nothing landed" >&2; exit 1
 fi
-rc=0; bash -c "$VERIFY_CMD" _ "$T" "$@" >"$LOG" 2>&1 </dev/null || rc=$?
+rc=0; "$(dirname "$0")/scrub_env.sh" bash -c "$VERIFY_CMD" _ "$T" "$@" >"$LOG" 2>&1 </dev/null || rc=$?
 # Filter by verdict prefix, never by position; `|| true` keeps pipefail from aborting on no match.
 grep -E '^(DEFER|DROP|GREEN|RED|STALE|CONFLICT)' "$LOG" | tail -4 || true
 L=$(grep -E '^GREEN' "$LOG" | tail -1 || true)
