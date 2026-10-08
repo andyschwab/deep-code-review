@@ -3,6 +3,11 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.531.0] — 2026-10-08
+
+### Changed
+- Wire opt-in primitives into defaults: lane preamble and coordinator gate heavy local commands with `host_probe.py --lane-type heavy` and `perun_policy.py heavy-slots`; `/perun-run` calls `queue_guard.py` when `PRIORITIES.md` exists and ends with `weekly_receipt.py` plus `token_ratchet.py --warn`; `operating_selfcheck.py` reports `weekly-receipt`; `share_learning.py` offers a local `learning_to_pr.py` draft. perun-run, selfcheck and share_learning additions are WARN-level; the heavy gate can delay a lane (HOLD, at most 3 retries) but never stops it (Refs #1380).
+
 ## [1.530.0] — 2026-10-08
 
 ### Added
