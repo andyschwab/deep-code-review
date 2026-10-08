@@ -14,20 +14,22 @@ text file of instructions the AI assistant reads before it starts work.
 
 The numbers below come from one test. The assistant (Claude Code, run by
 [`scripts/bench_corpus.py`](scripts/bench_corpus.py)) was shown the code change
-behind each of 30 real bugs that open-source projects later fixed. It did not
-see the fix. The exact test cases stay private so Perun can't be tuned to them;
-a [public list](scripts/eval-fixtures/bench/manifest.json) shows which projects
-the cases came from. A bug counts as "caught" if the review named it. Every number links to
+behind each of 30 real bugs that open-source projects later fixed, three runs
+each. It saw only the change, not the fix. These 30 cases are held out: only the
+test runner reads their answers, so Perun can't be tuned to them. The [public manifest](scripts/eval-fixtures/bench/manifest.json)
+lists 27 other cases (18 test, 9 train) to show how cases are built; it is not
+the set behind these numbers. A bug counts as "caught" if the review named it.
+Each review number links to
 [the results table](.claude/skills/deep-code-review/references/method-situational.md).
 
-- **Fewer bugs shipped.** With Perun, the assistant caught
+- **More bugs caught in review.** With Perun, the assistant caught
   [31% of the bugs](.claude/skills/deep-code-review/references/method-situational.md).
   Asked only to "review this", the same assistant caught
   [21%](.claude/skills/deep-code-review/references/method-situational.md).
   The test is small, so the true gain could be anywhere from
   [0 to 21 points](.claude/skills/deep-code-review/references/method-situational.md).
   Perun still misses most bugs, so keep people reviewing too.
-- **Fewer false alarms.**
+- **More of its flags were real.**
   [77% of what Perun flagged](.claude/skills/deep-code-review/references/method-situational.md)
   were real problems, against
   [66%](.claude/skills/deep-code-review/references/method-situational.md)
