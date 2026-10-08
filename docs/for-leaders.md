@@ -1,6 +1,6 @@
 # Perun for leaders
 
-**Bottom line:** Perun is a free checklist that makes an AI coding assistant review software the same careful way every time. It finds more real bugs than a plain "review this" request, at about twice the usage cost. The evidence is one test, so treat the gain as probable, not proved. A small pilot will tell you whether it pays off for your team.
+**Bottom line:** Perun is a free checklist that makes an AI coding assistant review software the same careful way every time. It finds more real bugs than a plain "review this" request, at about 1.75 times the usage cost for one pass and 3.5 times for the two-pass setting. Running the plain assistant twice recovers part of the gain more cheaply ([source](../.claude/skills/deep-code-review/references/method-situational.md)). The evidence is one test, so treat the gain as probable, not proved. A small pilot will tell you whether it pays off for your team.
 
 ## What Perun does
 
@@ -9,17 +9,17 @@ It is a set of plain-text instructions your engineers' AI assistant reads before
 ## What changes for a team
 
 - Reviews follow one method instead of the assistant's mood that day. Source: [README](../README.md#the-story-one-change-five-steps).
-- Each review costs more model usage: about $0.12 per case against $0.07 for a plain review, on a small test set. Source: [measured table](../.claude/skills/deep-code-review/references/method-situational.md).
+- Each review costs more model usage: one Perun pass costs about $0.121 per case against $0.069 for a plain review (about 1.75 times); two merged passes cost $0.239 (about 3.5 times). Source: [measured table](../.claude/skills/deep-code-review/references/method-situational.md).
 - Engineers still decide what to fix. Perun reports; it does not change code on its own.
 
 ## Measured numbers
 
-All numbers come from one test of [30 real bug fixes](../scripts/eval-fixtures/bench/results.md) the checklist was never tuned on. Each line below cites its source.
+All numbers come from one test of 30 held-out real bug fixes, 3 runs per setup, described in the [measured table](../.claude/skills/deep-code-review/references/method-situational.md). Each line below cites its source.
 
-- Bugs found: plain assistant 21%, Perun one pass 31%, Perun two merged passes 41%. Source: [measured table](../.claude/skills/deep-code-review/references/method-situational.md).
+- Bugs found: plain assistant 21%, Perun one pass 31%, Perun two merged passes 41%, plain assistant run twice 36% (about $0.132 per case). The 41% costs $0.239 per case. Source: [measured table](../.claude/skills/deep-code-review/references/method-situational.md).
 - Share of flagged issues that were real: plain 66%, Perun 77%. Source: [measured table](../.claude/skills/deep-code-review/references/method-situational.md).
 - Gain over plain: +0.10, but the margin of error runs from 0.00 to +0.21, so "probably better". Source: [measured table](../.claude/skills/deep-code-review/references/method-situational.md).
-- Other AI models: no significant gain in a smaller check, so do not assume it carries over. Source: [CHANGELOG](../CHANGELOG.md).
+- Other AI models: unmeasured for review recall, so do not assume the gain carries over.
 - Time saved, money saved, customer count: unmeasured. Nobody has measured these yet.
 
 ## Risks and controls
