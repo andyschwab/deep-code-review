@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for .claude/skills/deep-code-review/scripts/review_checks.sh: a throwaway git repo holds files with
 # known defects; each installed analyzer must flag them, clean files must stay silent, a missing tool must be
-# a "not run" line (not a failure), and the output must score through scripts/score_review.py.
+# a "not run" line (not a failure), and the output must score through score_review.py.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RC="$ROOT/.claude/skills/deep-code-review/scripts/review_checks.sh"
@@ -41,7 +41,7 @@ jq -e 'all(.[]; has("file") and has("line") and has("rule") and has("message") a
 # score_review.py compatibility: a shellcheck finding scores against a ground truth naming its rule.
 if command -v shellcheck >/dev/null; then
   printf '{"matcher_version":1,"bugs":[{"id":"B1","file":"bad.sh","match":"SC2045|SC2086","example":"x"}]}' >gt.json
-  python3 "$ROOT/scripts/score_review.py" gt.json "$T/out" | jq -e '.recall==1.0' >/dev/null && ok "score_review recall 1.0" || bad "score_review"
+  python3 "$ROOT/.claude/skills/deep-code-review/scripts/score_review.py" gt.json "$T/out" | jq -e '.recall==1.0' >/dev/null && ok "score_review recall 1.0" || bad "score_review"
 fi
 
 # Missing tool => "not run" line, exit 0. Hide shellcheck/ruff/jq by pruning PATH to python3+git+core only.

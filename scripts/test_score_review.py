@@ -8,10 +8,11 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPTS))
+DCR = SCRIPTS.parent / ".claude/skills/deep-code-review/scripts"
+sys.path.insert(0, str(DCR))
 import score_review as sr  # noqa: E402
 
-FIX = SCRIPTS / "eval-fixtures/heldout/pr1354-ops-scripts"
+FIX = DCR / "fixtures/heldout/pr1354-ops-scripts"
 TRUTH = json.loads((FIX / "ground-truth.json").read_text(encoding="utf-8"))
 
 
@@ -39,7 +40,7 @@ class ScoreReview(unittest.TestCase):
         fp = Path(tempfile.mkdtemp()) / "f.json"
         fp.write_text(json.dumps([{"file": "a.sh", "text": "x"}, {"file": "b.sh", "text": "y"}]))
         try:
-            run = lambda *a: subprocess.run([sys.executable, str(SCRIPTS / "score_review.py"), str(FIX / "ground-truth.json"), str(fp), *a],
+            run = lambda *a: subprocess.run([sys.executable, str(DCR / "score_review.py"), str(FIX / "ground-truth.json"), str(fp), *a],
                                             capture_output=True, text=True).returncode
             self.assertEqual((run(), run("--max-fp", "2"), run("--max-fp", "1")), (0, 0, 1))
         finally:

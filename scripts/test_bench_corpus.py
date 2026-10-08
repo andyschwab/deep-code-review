@@ -9,7 +9,8 @@ from pathlib import Path
 from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPTS))
+DCR = SCRIPTS.parent / ".claude/skills/deep-code-review/scripts"
+sys.path.insert(0, str(DCR))
 import bench_corpus as bc  # noqa: E402
 import score_review as sr  # noqa: E402
 
