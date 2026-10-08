@@ -3888,6 +3888,73 @@ else
   record 1 "perun-run command: frontmatter and next --check present"
 fi
 
+# ---------------------------------------------------------------------------
+# rules — rule-enforcement lint: planted RED, advisory/mechanism/baseline pass,
+# baseline growth needs a commit marker. Own git fixture.
+# ---------------------------------------------------------------------------
+rr="$WORK/rules-fixture"
+mkdir -p "$rr/.claude/skills/demo" "$rr/scripts"
+git -C "$rr" init -q
+git -C "$rr" config user.email "test@example.com"
+git -C "$rr" config user.name "Test"
+printf '# Demo\n\nYou MUST run scripts/check.sh before merge.\n\nThis is advisory: NEVER ship on Friday.\n\n```\nALWAYS in a fence is skipped\n```\n\nMUST-LOAD is a budget term.\n' \
+  >"$rr/.claude/skills/demo/SKILL.md"
+: >"$rr/scripts/rule-enforcement-baseline.tsv"
+git -C "$rr" add -A >/dev/null 2>&1
+git -C "$rr" commit -qm base >/dev/null 2>&1
+rbase="$(git -C "$rr" rev-parse HEAD)"
+rb="$rr/scripts/rule-enforcement-baseline.tsv"
+
+gate "$GATES" rules --baseline "$rb" --base "$rbase" "$rr"
+if [ "$GATE_RC" -eq 0 ] && grep -q '^rules: ok (0 ' "$WORK/last.log"; then
+  record 0 "rules: mechanism-named, advisory, fenced and MUST-LOAD lines are not flagged"
+else
+  record 1 "rules: mechanism-named, advisory, fenced and MUST-LOAD lines are not flagged"
+fi
+
+printf '\nYou ALWAYS keep the tone calm.\n' >>"$rr/.claude/skills/demo/SKILL.md"
+gate "$GATES" rules --baseline "$rb" "$rr"
+if [ "$GATE_RC" -ne 0 ] && grep -q 'RULE UNENFORCED (new)' "$WORK/last.log" && grep -q 'keep the tone calm' "$WORK/last.log"; then
+  record 0 "rules: FIRES on a new unenforced hard rule and names it (planted RED)"
+else
+  record 1 "rules: FIRES on a new unenforced hard rule and names it (planted RED)"
+fi
+
+gate "$GATES" rules --list "$rr"
+bash "$GATES" rules --list "$rr" >"$rb"
+git -C "$rr" add -A >/dev/null 2>&1
+git -C "$rr" commit -qm "grow baseline" >/dev/null 2>&1
+gate "$GATES" rules --baseline "$rb" "$rr"
+rc_plain=$GATE_RC
+gate "$GATES" rules --baseline "$rb" --base "$rbase" "$rr"
+if [ "$rc_plain" -eq 0 ] && [ "$GATE_RC" -ne 0 ] && grep -q 'rule-baseline-raise' "$WORK/last.log"; then
+  record 0 "rules: baselined rule passes, but baseline growth vs base FIRES without a marker (planted RED)"
+else
+  record 1 "rules: baselined rule passes, but baseline growth vs base FIRES without a marker (planted RED)"
+fi
+
+git -C "$rr" commit -q --allow-empty -m "x" -m "rule-baseline-raise: tone rule is advisory prose" >/dev/null 2>&1
+gate "$GATES" rules --baseline "$rb" --base "$rbase" "$rr"
+if [ "$GATE_RC" -eq 0 ]; then
+  record 0 "rules: baseline growth with a rule-baseline-raise marker passes"
+else
+  record 1 "rules: baseline growth with a rule-baseline-raise marker passes"
+fi
+
+gate "$GATES" rules --baseline "$WORK/nope.tsv" "$rr"
+if [ "$GATE_RC" -ne 0 ]; then
+  record 0 "rules: missing baseline fails closed"
+else
+  record 1 "rules: missing baseline fails closed"
+fi
+
+gate "$GATES" rules --baseline "$ROOT/scripts/rule-enforcement-baseline.tsv" "$ROOT"
+if [ "$GATE_RC" -eq 0 ]; then
+  record 0 "rules: the real repo has no new unenforced hard rule"
+else
+  record 1 "rules: the real repo has no new unenforced hard rule"
+fi
+
 # ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a
