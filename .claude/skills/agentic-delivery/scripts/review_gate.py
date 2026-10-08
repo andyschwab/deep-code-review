@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """review_gate.py — pre-merge gate: every PR needs an independent deep-code-review DIFF pass plus an evil-twin check.
 
-  review_gate.py check <pr> [--head SHA] [--repo R]   exit 0 ok / off / warn-only; exit 1 only in enforce mode
+  review_gate.py check <pr> --head SHA [--repo R]   exit 0 ok / off / warn-only; exit 1 only in enforce mode
   review_gate.py receipt <pr> --reviewer R --author A --head SHA   write the receipt file
 
 Evidence, either of:
   1. receipt file `$REVIEW_DIR/<pr>.json` (default `.perun/reviews/`) with reviewer, author, head, diff_pass and
      evil_twin all set; written by `receipt` after the reviewer agent finishes both passes.
   2. a PR comment holding `<!-- perun-review reviewer=R author=A head=SHA diff=pass evil-twin=pass -->`.
-The reviewer must be non-empty and differ (case-insensitive) from the author (and from the GitHub PR author when
+`reviewer`/`author` are run ids; a marker from a different GitHub login than the PR author is noted as stronger
+evidence, a same-account one logs "same-account review: run-id separation only". The gate proves an independent
+review RUN on the current head, not a different human. The reviewer must be non-empty and differ (case-insensitive) from the author (and from the GitHub PR author when
 the comment path is used), and `head` must match the PR head being merged (prefix match, 7+ chars), so a review
 of an older push never covers a newer one. This is an honest-process receipt, not a forgery-proof signature.
 
@@ -39,7 +41,7 @@ def valid(reviewer: str, author: str, head: str, want_head: str, gh_author: str 
     """Independent (reviewer != author, != GitHub PR author) and covering the head being merged."""
     r = (reviewer or "").strip().lower()
     return bool(r) and r != (author or "").strip().lower() and r != gh_author.lower() \
-        and (not want_head or _same_head(head, want_head))
+        and _same_head(head, want_head)
 
 
 def has_evidence(pr: str, head: str = "", repo: str = "", review_dir: Path | None = None) -> bool:
@@ -56,18 +58,24 @@ def has_evidence(pr: str, head: str = "", repo: str = "", review_dir: Path | Non
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
         data = json.loads(out.stdout) if out.returncode == 0 else {}
         gh_author = ((data.get("author") or {}).get("login")) or ""
-        return any(valid(m[0], m[1], m[2], head, gh_author)
-                   for c in data.get("comments") or [] for m in MARKER.findall(c.get("body") or ""))
+        for c in data.get("comments") or []:
+            for m in MARKER.findall(c.get("body") or ""):
+                if valid(m[0], m[1], m[2], head, gh_author):
+                    login = (c.get("author") or {}).get("login") or gh_author
+                    print("review_gate: marker from a different GitHub login than the PR author (stronger evidence)" if login != gh_author
+                          else "review_gate: same-account review: run-id separation only", file=sys.stderr)
+                    return True
+        return False
     except (OSError, ValueError, subprocess.SubprocessError, AttributeError):
         return False
 
 
-def main(argv: list) -> int:
+def _main(argv: list) -> int:
     ap = argparse.ArgumentParser(prog="review_gate.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check")
     c.add_argument("pr")
-    c.add_argument("--head", default="")
+    c.add_argument("--head", required=True)
     c.add_argument("--repo", default="")
     r = sub.add_parser("receipt")
     r.add_argument("pr")
@@ -97,6 +105,19 @@ def main(argv: list) -> int:
         return 1
     print(f"WARN review_gate: {msg}; warn-only this release, review_gate=enforce blocks, review_gate=off opts out", file=sys.stderr)
     return 0
+
+
+def main(argv: list) -> int:
+    """_main; an unexpected exception in warn mode prints a WARN and exits 0 (never blocks); in enforce it exits 1."""
+    try:
+        return _main(argv)
+    except Exception as e:  # noqa: BLE001 - fail soft by design
+        try:
+            enforce = perun_policy.load()["review_gate"] == "enforce"
+        except Exception:  # noqa: BLE001
+            enforce = False
+        print(f"{'REVIEW GATE' if enforce else 'WARN review_gate'}: internal error ({type(e).__name__}); review not verified", file=sys.stderr)
+        return 1 if enforce else 0
 
 
 if __name__ == "__main__":

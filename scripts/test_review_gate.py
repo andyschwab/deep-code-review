@@ -75,6 +75,25 @@ class T(unittest.TestCase):
         gh("diff=pass evil-twin=pass")  # prose without the marker
         self.assertEqual(self.run_gate("check", "9", "--head", HEAD, mode="enforce").returncode, 1)
 
+    def test_head_required_and_stale_marker_rejected(self):
+        self.assertNotEqual(self.run_gate("check", "9").returncode, 0)  # --head is mandatory
+        (self.d / "gh.json").write_text(json.dumps({"author": {"login": "octo"}, "comments": [
+            {"author": {"login": "octo"}, "body": self.marker(head="c" * 40)}]}))
+        self.assertEqual(self.run_gate("check", "9", "--head", HEAD, mode="enforce").returncode, 1)  # old SHA
+        (self.d / "gh.json").write_text(json.dumps({"author": {"login": "octo"}, "comments": [
+            {"author": {"login": "octo"}, "body": self.marker()}]}))
+        r = self.run_gate("check", "9", "--head", HEAD, mode="enforce")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("same-account review: run-id separation only", r.stderr)
+
+    def test_internal_error_never_blocks_in_warn(self):
+        code = ("import sys; sys.path.insert(0, %r); import review_gate as g\n"
+                "g._main = lambda a: 1 / 0\nsys.exit(g.main(['check', '1', '--head', 'abcdef1']))" % str(AD / "scripts"))
+        (self.d / "p.json").write_text("{}")
+        r = subprocess.run([sys.executable, "-c", code], env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("WARN review_gate: internal error", r.stderr)
+
     def test_policy_key_validated_and_wired(self):
         sys.path.insert(0, str(AD / "scripts"))
         import perun_policy

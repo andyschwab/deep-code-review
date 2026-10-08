@@ -755,7 +755,8 @@ author, recorded as a receipt for the exact head being merged. `scripts/review_g
 per member PR (so `train_land.sh` inherits it) and accepts either `.perun/reviews/<pr>.json` (write it with
 `review_gate.py receipt <pr> --reviewer R --author A --head SHA`) or a PR comment containing
 `<!-- perun-review reviewer=R author=A head=SHA diff=pass evil-twin=pass -->`. The reviewer must differ from the author
-and the head must match, so a review of an older push never covers a newer one. It is a process receipt, not a
+and the head must match, so a review of an older push never covers a newer one. It proves an independent review RUN on the current head, not a different human (agent reviewers often share the author's
+GitHub token, so the gate logs "same-account review: run-id separation only"), and is a process receipt, not a
 signature. Policy key `review_gate` in `.perun/policy.json`: `warn` (default; **warn-only for this release**, prints a
 WARN and merges anyway), `enforce` (skips the PR; `land_train.sh` prints `REFUSE #N no independent review`), `off`
 (opt out). Expect `enforce` to become the default in a later release.
