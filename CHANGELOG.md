@@ -3,6 +3,11 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.537.0] — 2026-10-08
+
+### Changed
+- `README.md` rewritten for every reader: a one-sentence summary, outcomes where each number links to the file it comes from (the 30-case benchmark table in `method-situational.md`, the 1.501.0 token entry in `CHANGELOG.md`), a quick start (clone, install, ask the agent to review a real file) with real installer output explained line by line, one line per audience, two safety lines and links to deeper docs. Plain-English definitions for skill, agent, sandbox, token, `FILE` and the severity scale; unsourced claims ("any language", "60 seconds") removed. The worked story, per-role table, limits, glossary, FAQ and pilot plan live in `docs/for-leaders.md`; the skill catalog lives in `docs/getting-started.md`.
+
 ## [1.536.0] — 2026-10-08
 
 - Resource policy is settable without hand-writing JSON: `perun_policy.py set <dim> <value>` and `install.sh --policy dim=value[,dim=value]` (the install summary shows the active policy). The `tokens` mode now reaches the lane preamble and coordinator (efficient: cheapest fitting model tier, at most 2 parallel lanes, no duplicate review passes, terse hand-backs). With `github_actions=off` lanes also add `[skip ci]` to pushed branch commits (`perun_policy.py skip-ci`); `share_learnings=auto` runs `share_learning.py` at the end of `/perun-run` after its privacy gate.
