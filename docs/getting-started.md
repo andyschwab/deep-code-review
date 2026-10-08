@@ -86,8 +86,8 @@ the next session. Turn it off with `"auto_update": "off"` in `.perun/policy.json
 or `install.sh --no-auto-update`. This runs the release's own install code, so
 install only from a remote you trust. Before running it, the updater refuses a
 local tag that moved, requires the tag's commit to be on the remote's `main`, and
-checks the tree against `SHA256SUMS`. `SHA256SUMS` comes from the same tag, so it
-proves integrity (a complete, uncorrupted checkout), not authenticity: trust rests
+checks the skill files against `SHA256SUMS` (the installer scripts are not in it). `SHA256SUMS`
+comes from the same tag, so it proves skill-file integrity, not authenticity: trust rests
 on the repository owner's tags and `main`.
 
 Without the operating layer, pull or check out a newer release tag in your clone,

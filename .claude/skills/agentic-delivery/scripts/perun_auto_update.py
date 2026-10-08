@@ -20,8 +20,8 @@ managed path or `.claude/settings*.json`. It finds the newest `vX.Y.Z` tag on th
 (`$XDG_CACHE_HOME/perun/src`) without `--force` (a local tag that moved is refused), aborts unless
 the tag's commit is an ancestor of the remote's `main` and the tree's `SHA256SUMS` verifies, then
 runs that tag's `scripts/update-installed.sh TARGET` (`DCR_NO_PULL=1`), which replays the recorded
-install flags. SHA256SUMS ships in the same tag, so it proves integrity (no corrupt or partial
-checkout), not authenticity: trust rests on the repository owner's tags and `main`. install.sh keeps existing user
+install flags. SHA256SUMS covers the skill files only (not install.sh or scripts/) and ships in the same tag, so it
+proves skill-file integrity (no corrupt or partial checkout), not authenticity: trust rests on the repository owner's tags and `main`. install.sh keeps existing user
 settings, writes a `.bak` and skill backups. Every worker run appends one line to
 `$XDG_CACHE_HOME/perun/auto-update.log`. Exit 0 always in hook mode; `--run` exits 0 on
 skip/up-to-date/updated, 1 when the update itself failed.
