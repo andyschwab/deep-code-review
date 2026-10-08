@@ -649,7 +649,7 @@ if [[ "${WRITE_AGENTS}" -eq 1 ]]; then
 <!-- deep-code-review:begin -->
 ## Code review — deep-code-review
 Installed: **${VERSION}** (@ \`${INSTALL_SHA}\`). Agent-agnostic method.
-${PRIMARY_PATH_LINE} Scope: \`FULL\` | \`DIFF <base-ref>\` | \`FILE <paths>\`; or \`/deep-code-review <scope>\`.
+${PRIMARY_PATH_LINE} Scope: \`FULL\` | \`DIFF <base-ref>\` | \`FILE <paths>\`; or say it in plain words, e.g. "run a deep code review FILE app.py" (\`/deep-code-review <scope>\` only where the host has slash commands).
 Re-run upstream \`install.sh\` to refresh.
 <!-- deep-code-review:end -->
 EOF
@@ -718,7 +718,8 @@ EOF
   echo "  works with Cursor, Claude Code, Codex, Copilot, Gemini, Aider, Windsurf, OpenCode, Hermes, Kiro, ..."
 fi
 
-echo "run it:  ask your agent for a deep code review, or /deep-code-review <scope>"
+echo "run it:  tell your agent in plain words: run a deep code review FILE <a file in your project>"
+echo "  (/deep-code-review <scope> also works on hosts with slash commands, e.g. Claude Code)"
 echo "  scopes: FULL | DIFF <base-ref> | FILE <paths>"
 echo "  read:   .claude/skills/${REVIEW_NAME}/SKILL.md (mirrors under other hosts when installed)"
 if [[ "${WITH_DELIVERY}" -eq 1 ]]; then
