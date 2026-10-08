@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install marker: what install.sh itself added to a repo, so uninstall removes only that.
 
-Usage (called by install.sh): perun_marker.py TARGET --dirs REL... [--pre FILE --template FILE] [--agent-created] [--files REL...]
+Usage (called by install.sh): perun_marker.py TARGET --dirs REL... [--pre FILE --template FILE] [--agent-created] [--files REL...] [--version V] [--remote URL]
 
 Writes TARGET/.claude/.perun-install.json, merged with any previous marker:
   skills: {<host>/skills/<name>: {<file>: sha256}}  hashes of the copy just installed
@@ -10,6 +10,7 @@ Writes TARGET/.claude/.perun-install.json, merged with any previous marker:
   model:  "sonnet" | null   set only when the settings had no "model" before
   files:  {<rel>: sha256}  slash commands install wrote fresh (never pre-existing files)
   agent:  {path, sha} | null  delivery-lane.md when install created it
+  version, remote             the installed release and where it came from (perun_auto_update.py)
 Stdlib only.
 """
 import argparse, hashlib, json, sys
@@ -31,9 +32,10 @@ def load(target):
     return json.loads(f.read_text()) if f.is_file() else None
 
 
-def record(target, dirs, pre=None, template=None, agent_created=False, files=()):
+def record(target, dirs, pre=None, template=None, agent_created=False, files=(), version=None, remote=None):
     target = Path(target)
     m = load(target) or {}
+    m.update({k: v for k, v in (("version", version), ("remote", remote)) if v})
     m.setdefault("skills", {}).update({d: hash_dir(target / d) for d in dirs if (target / d).is_dir()})
     m.setdefault("hooks", []); m.setdefault("env", {}); m.setdefault("model", None); m.setdefault("agent", None)
     cfg = target / ".claude/settings.local.json"
@@ -69,5 +71,7 @@ if __name__ == "__main__":
     ap.add_argument("--pre")
     ap.add_argument("--template")
     ap.add_argument("--agent-created", action="store_true")
+    ap.add_argument("--version")
+    ap.add_argument("--remote")
     a = ap.parse_args()
-    record(a.target, a.dirs, a.pre, a.template, a.agent_created, a.files)
+    record(a.target, a.dirs, a.pre, a.template, a.agent_created, a.files, a.version, a.remote)
