@@ -2,13 +2,15 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Perun is a set of written instructions that an AI coding assistant follows to
-check software for mistakes the same careful way every time, and to show the
+**Perun replaces a plain "review this" request to an AI coding assistant with
+written instructions it follows the same careful way every time, showing the
 evidence for each problem it reports.**
 
-Perun is the project's name (after the Slavic thunder god of order). This repository is
-called `deep-code-review`, after what it does. Its main part is a **skill**: a
-text file of instructions the AI assistant reads before it starts work.
+Its main part is a **skill**: a text file of instructions the AI assistant reads
+before it starts work.
+
+**Not a developer?** Read [Perun for leaders](docs/for-leaders.md): what it gives
+your team, a pilot plan, limits and an FAQ.
 
 ## Why it matters
 
@@ -34,16 +36,17 @@ Each review number links to
   were real problems, against
   [66%](.claude/skills/deep-code-review/references/method-situational.md)
   without it.
-- **Lower reading cost.** AI tools charge by the *token* (a piece of a word).
+- **Shorter instructions to read.** AI tools charge by the *token* (a piece of a word).
   The instructions the assistant must read before each review shrank by
   [19%](CHANGELOG.md) (release 1.501.0, counted as characters divided by 4).
-  A review with Perun still costs more than a plain one:
-  [$0.121 per code change reviewed against $0.069](.claude/skills/deep-code-review/references/method-situational.md),
-  as reported by the test runner.
 - **Safer AI agents.** An *agent* is an AI assistant that can run commands on
   your computer. The installer tells you how to switch on each agent's
   *sandbox* (a fence around what its commands can touch). No number is claimed:
   the effect has not been measured ([host safety](docs/host-safety.md)).
+
+**Cost.** A review with Perun costs more than a plain one:
+[$0.121 per code change reviewed against $0.069](.claude/skills/deep-code-review/references/method-situational.md),
+as reported by the test runner.
 
 Time saved and money saved have not been measured, so none are claimed. To
 estimate them for your team, use the worked formula and the three-step pilot in
@@ -62,21 +65,26 @@ skill into any AI chat instead: [getting started](docs/getting-started.md).
    ```
 
 2. **Install it into your project.** It copies text files only, with no
-   network and no admin rights ([`install.sh`](install.sh)):
+   admin rights, and adds files only inside your project's `.claude`, `.cursor`
+   and `.agents` folders ([`install.sh`](install.sh)):
 
    ```bash
    deep-code-review/install.sh /path/to/your/project
    ```
 
-3. **Ask your agent to review a real file you care about.** Type this, with
-   your file's path at the end. `FILE` tells Perun to review only that file:
+3. **Ask your agent to review a real file you care about.** Type
+   `run a deep code review FILE src/checkout.py`. `FILE` is a literal keyword:
+   type it as written, then put your own file's path after it.
 
-   ```
-   run a deep code review FILE src/checkout.py
+4. **Check the install.** Run the command the installer printed last (shown
+   below); it confirms Perun is installed and working:
+
+   ```bash
+   python3 deep-code-review/scripts/perun_doctor.py /path/to/your/project
    ```
 
 What step 2 prints (shortened; your version and paths will differ). The last
-line names a check you can run to confirm the install works:
+line names the check in step 4:
 
 ```
 installed: deep-code-review 1.535.0 (@ 84acfb19) -> your-project/.claude/skills/deep-code-review
@@ -103,6 +111,11 @@ Inbound webhook accepts unsigned body
 
 "CONFIRMED" means the assistant re-checked the problem against the exact code
 it reviewed, not just suspected it.
+
+## About the name
+
+Perun is the project's name (after the Slavic thunder god of order). This
+repository is called `deep-code-review`, after what it does.
 
 ## Who it's for
 
