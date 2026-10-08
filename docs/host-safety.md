@@ -23,9 +23,27 @@ Not an install target but common: Aider has no sandbox documented; avoid `--yes-
 
 Hosts without an OS sandbox (OpenCode, Windsurf, Kiro, Hermes `local`, Copilot CLI, Aider) should run agents inside a [dev container](https://containers.dev/) or VM, so the container is the filesystem boundary. See [VS Code Dev Containers](https://code.visualstudio.com/docs/devcontainers/containers): with an isolated container volume the workspace is not bound to your local filesystem. Do not mount your home directory or credentials into it.
 
+## Autonomy-ready defaults
+
+The operating layer turns the Claude Code sandbox on with defaults chosen so agents can run common dev commands with no prompts and no manual permission edits after install. `install.sh` merges them into `.claude/settings.local.json`: your existing values win and lists are unioned. Source: [Configure the sandboxed Bash tool](https://code.claude.com/docs/en/sandboxing), fetched 2026-10-08. Check a machine with `python3 .claude/skills/agentic-delivery/scripts/sandbox_probe.py` (also part of `perun_doctor.py`): it runs harmless checks and prints the exact fix for each failure.
+
+| Key | Value | Why | Tradeoff |
+| --- | --- | --- | --- |
+| `sandbox.enabled` | `true` | OS-enforced boundary around shell commands, so a stray `rm -rf` cannot reach your files | Shell only: file tools, MCP servers and hooks run outside it |
+| `sandbox.autoAllowBashIfSandboxed` | `true` (the documented default, set explicitly) | Sandboxed commands run without a prompt; this is what makes autonomous runs possible | The sandbox, not you, approves each command; `rm`/`rmdir` on critical paths still prompt |
+| `sandbox.allowUnsandboxedCommands` | `false` | No unsandboxed retry, so a blocked command cannot escape the sandbox | A command the sandbox breaks must be excluded or run by you with the `!` prefix |
+| `sandbox.excludedCommands` | `["gh *"]` | `gh` (a Go CLI) may fail TLS verification under Seatbelt; the documented fix is to exclude it | `gh` runs outside the sandbox with your GitHub credentials and no filesystem or network limits |
+| `permissions.allow` | read-only `gh` subcommands: `gh pr view`/`list`/`diff`/`checks`, `gh issue view`/`list`, `gh run view`/`list`, `gh repo view` | Excluded commands go through the regular permission flow; this removes the prompt for the common read calls | Every other `gh` call (create, merge, `gh api`, aliases, extensions) still prompts. A blanket `Bash(gh *)` is not used: `gh alias set --shell` and `gh extension install` let a later `gh <name>` run any program outside the sandbox with no prompt |
+| `permissions.deny` | `rm -rf`/`-fr`/`-r`/`-R`, `sudo`, `gh alias`, `gh extension`, `gh repo delete`, `gh release delete` | Stops these calls outright instead of prompting | Rules match command text, so other spellings or a script that runs them are not caught; the narrow `gh` allow list above is the main control |
+| `sandbox.network.allowedDomains` | `github.com`, `*.github.com`, `*.githubusercontent.com`, `registry.npmjs.org`, `*.npmjs.org`, `pypi.org`, `files.pythonhosted.org` | The list starts empty; these pre-allow git, npm and pip hosts so fetches do not prompt | Broad domains such as `github.com` can be a data-exfiltration path |
+| `sandbox.network.allowLocalBinding` | `true` | Dev servers and test harnesses can listen on localhost (macOS) | Sandboxed commands can reach every service listening on localhost |
+| `sandbox.filesystem.allowWrite` | `["~/.cache", "~/.npm"]` | Package managers write their caches outside the project | Sandboxed commands can write (and poison) those caches |
+
+Not set, because each removes isolation for a whole tool: `docker` is incompatible with the sandbox (exclude it yourself, for example `/sandbox exclude "docker compose *"`); `open`/`osascript` fail with `-600` (exclude `open *` or set `allowAppleEvents` in user settings). For jest, pass `--no-watchman`. Protected paths such as `.claude/skills` stay write-denied with no exemption, so a `git checkout` or `git merge` that touches them fails with `unable to unlink old`; run that command yourself.
+
 ## Common sandbox errors
 
-With the Claude Code sandbox on (the default Perun sets), two failures are common. Neither is a bug, and Perun does not weaken the defaults to hide them; each fix is a setting you choose and run yourself.
+With the Claude Code sandbox on (the default Perun sets), two failures are common. The [autonomy-ready defaults](#autonomy-ready-defaults) already apply both fixes; this table is for setups that skipped or overrode them.
 
 | Exact error | Cause | User-run fix | Tradeoff |
 | --- | --- | --- | --- |

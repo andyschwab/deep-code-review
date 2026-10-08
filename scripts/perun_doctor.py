@@ -5,7 +5,8 @@ Usage: python3 scripts/perun_doctor.py [REPO] [--fix [--yes]] [--home DIR]
 
 Checks, in plain language: installed version vs this checkout (and the global copy),
 hook entries whose files exist, shipped hook scripts that nothing calls, forked copies
-that drifted from the checkout (sha256), janitor/scheduler presence, policy file.
+that drifted from the checkout (sha256), janitor/scheduler presence, policy file, and the
+sandbox probe (git, ssl, network, local bind, ~/.cache write; DCR_NO_PROBE=1 skips it).
 Exit 0 = nothing to fix, 1 = at least one WARN/FAIL. `--fix` prints a plan (and what default-on would add), needs a typed yes on a TTY or --yes, then
 re-runs the recorded install flags via scripts/update-installed.sh (skills are backed up
 by install.sh first), and re-checks. Stdlib only; read-only without --fix.
@@ -121,6 +122,14 @@ def check(repo, home):
     # policy
     pol = [p for p in walk(repo, 3) if re.search(r"perun[-_]?policy.*\.(json|ya?ml|toml)$", p.name, re.I)]
     add("OK" if pol else "WARN", "policy file", f"found {pol[0].relative_to(repo)}" if pol else "no perun-policy file in the repo")
+    # sandbox probe: harmless checks; each failure names its exact fix. DCR_NO_PROBE=1 skips (tests, offline).
+    if not os.environ.get("DCR_NO_PROBE"):
+        sys.path.insert(0, str(SRC / ".claude/skills/agentic-delivery/scripts"))
+        import sandbox_probe
+        for line in sandbox_probe.probe(sandbox_probe.checks(repo))[0][:-1]:
+            st, _, rest = line.partition(" ")
+            name, _, detail = rest.strip().partition(": ")
+            add("OK" if st == "OK" else "WARN", f"sandbox {name}", detail or "works")
     return rows
 
 

@@ -482,17 +482,21 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
     OPLAYER_LOCAL="${TARGET_DIR}/.claude/settings.local.json"
     [[ -f "${OPLAYER_LOCAL}" ]] || echo '{}' > "${OPLAYER_LOCAL}"
-    OPLAYER_PRE="$(mktemp)"; cp "${OPLAYER_LOCAL}" "${OPLAYER_PRE}"
+    OPLAYER_PRE="$(mktemp "${TMPDIR:-/tmp}/perun.XXXXXX")"; cp "${OPLAYER_LOCAL}" "${OPLAYER_PRE}"
     # Append template hook entries not already present; existing env/model win.
     # Placeholder matchers (contain "<") never fire: skip them, tell the operator.
     echo "warning: skipped template hook entries with a placeholder matcher (e.g. <your-read-only-review-type>); add a SubagentStop entry with your real review agent type by hand" >&2
+    # dm: recursive merge, existing (right) values win, arrays unioned (existing order first).
     jq --argjson t "${OPLAYER_JSON}" '
+      def dm($a; $b): if ($a|type) == "object" and ($b|type) == "object"
+          then reduce ($a + $b | keys_unsorted[]) as $k ({}; .[$k] = (if ($a|has($k)) and ($b|has($k)) then dm($a[$k]; $b[$k]) elif ($b|has($k)) then $b[$k] else $a[$k] end))
+        elif ($a|type) == "array" and ($b|type) == "array" then $b + ($a - $b) else $b end;
       reduce ($t.hooks | keys[]) as $e (.;
           (.hooks[$e] // []) as $a
           | .hooks[$e] = $a + ($t.hooks[$e] | map(select(((.matcher // "") | contains("<") | not) and (. as $x | $a | index([$x]) | not)))))
       | .env = ($t.env + (.env // {}))
-      | (if $t.sandbox then .sandbox = ($t.sandbox + (.sandbox // {})) else . end)
-      | (if $t.permissions then .permissions.deny = (((.permissions.deny // []) + $t.permissions.deny) | unique) else . end)
+      | (if $t.sandbox then .sandbox = dm($t.sandbox; .sandbox // {}) else . end)
+      | (if $t.permissions then .permissions = dm($t.permissions; .permissions // {}) else . end)
       | .model //= "sonnet"' "${OPLAYER_LOCAL}" > "${OPLAYER_LOCAL}.tmp"
     if cmp -s "${OPLAYER_LOCAL}" "${OPLAYER_LOCAL}.tmp"; then
       rm -f "${OPLAYER_LOCAL}.tmp"
@@ -517,7 +521,8 @@ AGENT
     fi
     echo "applied operating layer to ${OPLAYER_LOCAL} (backup: .bak.<timestamp> if changed); verify with:"
     if [[ "${NO_SANDBOX}" -eq 0 ]]; then
-      echo "  what changed (sandbox): sandbox.enabled=true, sandbox.allowUnsandboxedCommands=false (existing values win), deny Bash(rm -rf *), Bash(rm -fr *), Bash(rm -r *), Bash(rm -R *), Bash(sudo *); opt out with --no-sandbox"
+      echo "  what changed (sandbox): sandbox.enabled=true, sandbox.allowUnsandboxedCommands=false, autonomy-ready defaults (gh excluded with read-only gh subcommands allowed, common dev hosts, local binding, ~/.cache and ~/.npm writes; existing values win, lists unioned), deny Bash(rm -rf *), Bash(rm -fr *), Bash(rm -r *), Bash(rm -R *), Bash(sudo *) and gh alias/extension/repo delete/release delete; opt out with --no-sandbox"
+      echo "  why each default: docs/host-safety.md#autonomy-ready-defaults"
       echo "  sandbox blocks gh (x509 -26276) or a dev server (EPERM)? see docs/host-safety.md#common-sandbox-errors"
     fi
     echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py --settings .claude/settings.local.json"
@@ -576,8 +581,8 @@ upsert_agents_block() {
   local block="$4"
   if [[ -f "${agents}" ]] && grep -q "${marker_begin}" "${agents}"; then
     local block_file out_file
-    block_file="$(mktemp)"
-    out_file="$(mktemp)"
+    block_file="$(mktemp "${TMPDIR:-/tmp}/perun.XXXXXX")"
+    out_file="$(mktemp "${TMPDIR:-/tmp}/perun.XXXXXX")"
     printf '%s\n' "${block}" > "${block_file}"
     awk -v begin="<!-- ${marker_begin} -->" -v end="<!-- ${marker_end} -->" \
       -v bf="${block_file}" '
@@ -710,6 +715,12 @@ if [[ "${WITH_GATES}" -eq 1 ]]; then
 fi
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   [[ "${APPLY_OPLAYER}" -eq 1 ]] && echo "  operating-layer: applied to .claude/settings.local.json" || echo "  operating-layer: settings.operating-layer.json.new written -- merge it, then run operating_selfcheck.py"
+fi
+
+# First-run sandbox probe: harmless checks, one-line verdict, never fails the install.
+PROBE="${SCRIPT_DIR}/.claude/skills/agentic-delivery/scripts/sandbox_probe.py"
+if [[ -z "${DCR_NO_PROBE:-}" && -f "${PROBE}" ]] && command -v python3 >/dev/null; then
+  python3 "${PROBE}" --verdict-only "${TARGET_DIR}" 2>/dev/null || true
 fi
 
 # Last three lines, plain English: what changed, the one next command, how to undo.
