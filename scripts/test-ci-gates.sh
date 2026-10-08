@@ -3731,6 +3731,13 @@ else
   record 1 "update-installed: infers flags and writes the marker when missing"
 fi
 
+# test-train-scripts.sh SKIPs (never hangs) when pgrep/ps are unavailable: own per-feature file.
+if bash "$ROOT/scripts/test-no-hang-without-pgrep.sh" >"$WORK/nopgrep.log" 2>&1; then
+  record 0 "train scripts: reap_own blocks SKIP and return when pgrep/ps are unavailable"
+else
+  record 1 "train scripts: reap_own blocks SKIP and return when pgrep/ps are unavailable"; tail -5 "$WORK/nopgrep.log"
+fi
+
 # merge-train scripts: own per-feature file (scripts/test-train-scripts.sh), one case here.
 if bash "$ROOT/scripts/test-train-scripts.sh" >"$WORK/train-scripts.log" 2>&1; then
   record 0 "train scripts: land_train/train_land/reap_own tests pass"
