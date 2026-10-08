@@ -71,7 +71,7 @@ def check(repo, home):
     if not flags.is_file():
         add("WARN", "install record", ".claude/.dcr-install-flags missing: --fix cannot replay your flags")
     # hooks reference existing files
-    cmds = hook_commands(repo)
+    cmds = [re.sub(r'"?\$\{?CLAUDE_PROJECT_DIR\}?/?"?', "", c) for c in hook_commands(repo)]  # project-dir anchored paths resolve against repo
     missing = sorted({m for c in cmds for m in re.findall(r"[\w./-]+\.(?:py|sh)\b", c) if not (repo / m).is_file()})
     add("FAIL" if missing else "OK", "hook files exist", ("missing: " + ", ".join(missing)) if missing else f"{len(cmds)} hook command(s) resolve")
     # mechanisms with no caller
