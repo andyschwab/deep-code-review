@@ -10,27 +10,22 @@ for you (one finding / hold per non-blank line). No network. Exit 0 always excep
 """
 import argparse
 import json
-import re
 import subprocess
 import sys
 from decimal import Decimal
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import token_report as tr  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
-TOKEN = HERE / "token_report.py"
 SPEND = HERE.parent.parent / "agentic-delivery/scripts/spend_report.py"  # sibling skill; absent -> "unknown"
-PR_RE = re.compile(r"^Merge pull request #(\d+)\b")
 
 
 def _run(cmd):
     r = subprocess.run(cmd, capture_output=True, text=True)
     return r.stdout if r.returncode == 0 else None
-
-
-def prs_landed(repo, days):
-    """Count `Merge pull request #N` first-parent subjects in the window, or None if git fails."""
-    out = _run(["git", "-C", repo, "log", "--first-parent", f"--since={days} days ago", "--format=%s"])
-    return None if out is None else len({m.group(1) for s in out.splitlines() if (m := PR_RE.match(s))})
 
 
 def count_lines(path):
@@ -40,17 +35,17 @@ def count_lines(path):
         return None
 
 
+def window_since(days):
+    return datetime.now(timezone.utc) - timedelta(days=days)
+
+
 def session_tokens(session, days):
-    """Raw tokens (main + subagents) from token_report.py --json, or None."""
+    """Input-equivalent + output tokens (main + subagents), the same measure token_ratchet uses, or None."""
     if not session:
         return None
-    from datetime import datetime, timedelta, timezone
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    out = _run([sys.executable, str(TOKEN), "--session", session, "--since", since, "--json"])
     try:
-        d = json.loads(out)
-        return int(d["main"]["raw_tokens"]) + int(d["subagents_totals"]["raw_tokens"])
-    except (TypeError, ValueError, KeyError):
+        return tr.report_weighted_tokens(tr.build_report(session, window_since(days)))
+    except (OSError, ValueError, KeyError):
         return None
 
 
@@ -67,7 +62,7 @@ def spend_total(path):
 
 
 def card(a):
-    prs = prs_landed(a.repo, a.days)
+    prs = tr.pr_count(window_since(a.days), a.repo)
     toks = session_tokens(a.session, a.days)
     spend = spend_total(a.spend)
     findings, holds = count_lines(a.findings), count_lines(a.holds)
@@ -75,7 +70,7 @@ def card(a):
     if toks is None or not prs:
         per = None
     else:
-        per = toks // prs
+        per = int(toks / prs)
     if per is None or not a.baseline:
         vs = "unknown (needs session tokens, at least 1 PR and --baseline)"
     else:

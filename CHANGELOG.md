@@ -3,6 +3,23 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.545.0] — 2026-10-08
+
+### Added
+- Merge train: new browser-gate failures are re-run alone up to 3 times (`train_flake.sh`); only failures that fail at least 2 of 3 are real, flakes are reported separately, and only PRs that fail the real ids alone on the base are dropped so the rest still land.
+- Merge train: the gate holds an exclusive machine-wide heavy lease (`perun_policy.py heavy-exclusive`); `heavy_gate.py` denies other heavy commands with "gate running: wait". Pushes go through one serial queue.
+- Merge train: waits use a `_lock.sh` mkdir lock (stale only when older than the timeout and the pid is dead; otherwise reported, never deleted), no process-name matching.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 66147→67174 documents the three train-resilience behaviors with their env contract, which no existing section holds
+
+## [1.544.0] — 2026-10-08
+
+### Fixed
+
+- `weekly_receipt.py` and `token_ratchet.py` now share one tokens-per-PR measure from `token_report.py`: weighted tokens (input-equivalent plus output, cache reads at 0.1x) and one distinct first-parent `Merge pull request #N` count. The receipt previously summed raw tokens (cache reads at full weight), which inflated its figure about 10x against the ratchet's. Test: `scripts/test_tokens_per_pr_parity.py`.
+
+**Re-baseline needed:** tokens-per-PR now counts weighted tokens (input-equivalent + output) over first-parent PR merges; baselines written earlier by `token_ratchet.py --write-baseline` or passed as `weekly_receipt.py --baseline` used the old count, so re-run `token_ratchet.py --write-baseline --force` once after updating.
+
 ## [1.543.0] — 2026-10-08
 
 ### Fixed

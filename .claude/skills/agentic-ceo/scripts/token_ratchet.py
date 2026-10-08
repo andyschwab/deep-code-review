@@ -18,7 +18,6 @@ file. Figures are logged-usage proxies, not a bill (see token_report.py honesty 
 import argparse
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -36,17 +35,9 @@ def measure(root, since):
                 continue
             turns = tr.filter_since(tr.extract_turns(list(tr.read_jsonl(os.path.join(dirpath, n)))), since)
             t = tr.sum_turns(turns)
-            total += t["input_equivalent"] + t["output_tokens"]
+            total += tr.weighted_tokens(t)
             files += 1
     return total, files
-
-
-def git_pr_count(since):
-    """Merged-PR count in the cwd repo since `since`; None if git fails."""
-    out = subprocess.run(["git", "log", "--merges", "--grep=^Merge pull request",
-                          f"--since={since.isoformat()}", "--format=%h"],
-                         capture_output=True, text=True)
-    return len(out.stdout.split()) if out.returncode == 0 else None
 
 
 def ratchet(per_pr, baseline, max_rise_pct):
@@ -75,7 +66,7 @@ def main(argv=None):
     if since is None:
         print(f"token_ratchet: bad --since: {a.since}", file=sys.stderr)
         return 2
-    prs = a.prs if a.prs is not None else git_pr_count(since)
+    prs = a.prs if a.prs is not None else tr.pr_count(since)
     if not prs or prs < 0:
         print("token_ratchet: COULD_NOT_CHECK: zero or unknown delivered PRs in window", file=sys.stderr)
         return 2
