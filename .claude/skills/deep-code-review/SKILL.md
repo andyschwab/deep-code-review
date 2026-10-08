@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.534.0"
+  version: "1.541.0"
 ---
 
 # Deep Code Review
@@ -38,6 +38,7 @@ scope `FULL` | `DIFF <base>` | `FILE <paths>`.
 **As a one-shot prompt** — paste this file, then name target and scope; for a
 non-file-capable model also paste the `references/*.md` for the archetype.
 **As a checklist** — walk the domain map, loading `domain-checklists.md`.
+**Non-Claude model** — read `references/compact-mode.md` instead.
 
 **Scope modes** (state which; if unstated, infer):
 - `FULL` — entire repository. Default when handed a repo.

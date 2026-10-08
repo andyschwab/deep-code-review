@@ -300,6 +300,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     continue
   fi
 
+  # Warn-only scope-creep report (new files/deps/single-impl types); never fails the push.
+  scope_check=".claude/skills/agentic-delivery/scripts/scope_creep_check.py"
+  if [ -f "${scope_check}" ]; then
+    python3 "${scope_check}" "${base_sha}" "${local_sha}" >&2 || true
+  fi
+
   if is_blank "${DCR_PREPUSH_CMD:-}"; then
     if [ "${DCR_PREPUSH_ALLOW_UNSET:-0}" = "1" ]; then
       printf 'pre-push-verify: DCR_PREPUSH_CMD is unset -- allowing push through (DCR_PREPUSH_ALLOW_UNSET=1)\n' >&2

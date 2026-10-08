@@ -3,7 +3,7 @@
 **You can try the review with no install by pasting one file into an AI chat.
 To make every agent in a project use it, run `install.sh` from a pinned
 release.** This page covers both, plus updating and removal. What Perun is and
-which skills exist: [the README](../README.md).
+which skills exist: [the README](../README.md) and the [skill catalog](#skill-catalog) below.
 
 ## 1. Try it without installing
 
@@ -50,9 +50,30 @@ makes no network calls and needs no `sudo`.
 | `--minimal` | only `.claude/skills/` + `AGENTS.md` |
 | `--claude-only` | only `.claude/skills/`, no `AGENTS.md` |
 
-Add overlay skills with the flags in the README's
-[skill catalog](../README.md#skill-catalog); `--full` adds delivery, critic, and
+Add overlay skills with the flags in the
+[skill catalog](#skill-catalog); `--full` adds delivery, critic, and
 comms in one go. `./install.sh --help` is the authoritative list.
+
+### Skill catalog
+
+Only `deep-code-review` installs by default. The rest are opt-in flags on
+`./install.sh`.
+
+| Skill | Use it to... | Install flag |
+|---|---|---|
+| `deep-code-review` | review, harden or quality-gate a repo, PR or diff | **default** |
+| `agentic-delivery` | build a feature under gated, multi-role delivery | `--with-delivery` |
+| `idea-critic` | attack a plan before it reaches a decision maker | `--with-critic` |
+| `communication-structure` | write a short, direct PR body, status update or report | `--with-comms` |
+| `agentic-ceo` | route a multi-skill session and size the effort | `--with-ceo` |
+| `product-discovery` | decide whether something is worth building | `--with-discovery` |
+| `growth-analytics` | choose a main metric and read a funnel | `--with-growth` |
+| `positioning` | shape a value proposition as a testable hypothesis | `--with-positioning` |
+| `business-ops` | do pricing arithmetic; route legal or tax questions to a professional | `--with-business` |
+| `product-output-safety` | govern harm from your product's own AI outputs | `--with-output-safety` |
+| `contribution` | turn a lesson into a privacy-safe upstream pull request | `--with-contribution` |
+
+If you already run another delivery framework, keep it and install review only.
 
 ## 3. Run your first review
 

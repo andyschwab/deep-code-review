@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.534.0"
+  version: "1.541.0"
 ---
 
 # Agentic delivery
@@ -276,6 +276,7 @@ procedure** (read it before sizing any fan-out); CI-offload:
 `references/merge-queue-worktrees.md`.
 
 - **Act-on predicate:** spawn another heavy lane only while free RAM >15% AND swap is not climbing (read it twice); CPU idle is secondary, `load1` never decides — commands and why: `references/fanout-host-sizing.md` **Gate on free RAM and the swap trend**. Mechanized: `scripts/host_probe.py --lane-type {cpu,io,light} [--canary CMD --baseline-file F]` prints `SPAWN`/`HOLD <reason>`/`COULD_NOT_CHECK <what>`.
+- **Auto-wired by `--apply-operating-layer`:** `scripts/heavy_gate.py` (PreToolUse Bash) denies tests/builds while `host_probe` HOLDs or heavy leases are full; fails open. `scripts/session_brief.py` (SessionStart): ≤3 report-only lines.
 
 ## Local environment (own it)
 

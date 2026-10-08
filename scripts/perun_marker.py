@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Install marker: what install.sh itself added to a repo, so uninstall removes only that.
 
-Usage (called by install.sh): perun_marker.py TARGET --dirs REL... [--pre FILE --template FILE] [--agent-created] [--version V] [--remote URL]
+Usage (called by install.sh): perun_marker.py TARGET --dirs REL... [--pre FILE --template FILE] [--agent-created] [--files REL...] [--version V] [--remote URL]
 
 Writes TARGET/.claude/.perun-install.json, merged with any previous marker:
   skills: {<host>/skills/<name>: {<file>: sha256}}  hashes of the copy just installed
   hooks:  [{event, entry}]  operating-layer entries absent before this install
   env:    {key: value}      env keys absent before this install
   model:  "sonnet" | null   set only when the settings had no "model" before
+  files:  {<rel>: sha256}  slash commands install wrote fresh (never pre-existing files)
   agent:  {path, sha} | null  delivery-lane.md when install created it
   version, remote             the installed release and where it came from (perun_auto_update.py)
 Stdlib only.
@@ -31,7 +32,7 @@ def load(target):
     return json.loads(f.read_text()) if f.is_file() else None
 
 
-def record(target, dirs, pre=None, template=None, agent_created=False, version=None, remote=None):
+def record(target, dirs, pre=None, template=None, agent_created=False, files=(), version=None, remote=None):
     target = Path(target)
     m = load(target) or {}
     m.update({k: v for k, v in (("version", version), ("remote", remote)) if v})
@@ -52,6 +53,7 @@ def record(target, dirs, pre=None, template=None, agent_created=False, version=N
                 m["env"][k] = v
         if "model" not in before and now.get("model") == "sonnet":
             m["model"] = "sonnet"
+    m.setdefault("files", {}).update({f: sha(target / f) for f in files if (target / f).is_file()})
     agent = target / ".claude/agents/delivery-lane.md"
     if agent_created and agent.is_file():
         m["agent"] = {"path": ".claude/agents/delivery-lane.md", "sha": sha(agent)}
@@ -65,10 +67,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("target")
     ap.add_argument("--dirs", nargs="*", default=[])
+    ap.add_argument("--files", nargs="*", default=[])
     ap.add_argument("--pre")
     ap.add_argument("--template")
     ap.add_argument("--agent-created", action="store_true")
     ap.add_argument("--version")
     ap.add_argument("--remote")
     a = ap.parse_args()
-    record(a.target, a.dirs, a.pre, a.template, a.agent_created, a.version, a.remote)
+    record(a.target, a.dirs, a.pre, a.template, a.agent_created, a.files, a.version, a.remote)

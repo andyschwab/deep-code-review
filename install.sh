@@ -19,6 +19,7 @@
 #   --with-extra-hosts   also .gemini .opencode .github .windsurf .hermes .kiro
 # Overlay skills (opt-in; default stays review-only):
 #   --with-delivery      also agentic-delivery
+#   --with-terse-replies with --with-delivery: write a Stop-hook snippet (terse_reply_check.py, opt-in)
 #   --with-critic        also idea-critic
 #   --with-comms         also communication-structure
 #   --with-contribution  also contribution (prepare upstream PRs; not in --full)
@@ -72,11 +73,13 @@ Default: install REVIEW ONLY into .agents/skills/, .cursor/skills/, and
 on re-install). Overlay skills are opt-in.
 
   --minimal            Only .claude/skills/ + AGENTS.md
+  --policy dim=value[,dim=value]  Write .perun/policy.json (e.g. local_cpu=maximize,github_actions=off,share_learnings=auto)
   --with-codex         Also .codex/skills/
   --with-extra-hosts   Also Gemini, OpenCode, Copilot, Windsurf, Hermes, Kiro
   --claude-only        Only .claude/skills/; skip AGENTS.md
   --with-cursor        Accepted as no-op (Cursor path is default now)
   --with-delivery      Also install agentic-delivery (gated delivery overlay)
+  --with-terse-replies With --with-delivery: write a Stop-hook snippet that asks for terser rewrites (opt-in)
   --with-critic        Also install idea-critic (pre-owner idea attack)
   --with-comms         Also install communication-structure (BLUF messages)
   --with-contribution  Also install contribution (prepare upstream PRs; default off, not in --full)
@@ -101,6 +104,7 @@ on re-install). Overlay skills are opt-in.
   --no-operating-layer Opt out of the default-on operating layer (applied with --with-delivery/--full).
   --with-operating-layer
                        Write .claude/settings.operating-layer.json.new: the
+                       heavy_gate.py PreToolUse and session_brief.py SessionStart hooks, the
                        SubagentStart house-default injector, the two-tier
                        SubagentStop handback_cap, and the subagent model pin
                        (agentic-delivery/references/operating-discipline.md).
@@ -154,6 +158,7 @@ WITH_POSITIONING=0
 WITH_BUSINESS=0
 WITH_OUTPUT_SAFETY=0
 WITH_GATES=0
+WITH_TERSE=0
 WITH_OPERATING_LAYER=0
 APPLY_OPLAYER=0
 NO_OPLAYER=0
@@ -162,6 +167,7 @@ RECOMMEND_ONLY=0
 POSITIONAL=()
 TRACKER_PROJECT=""
 TRACKER="linear"
+POLICY=""
 NEXT_OPT=""
 for arg in "$@"; do
   if [[ -n "${NEXT_OPT}" ]]; then
@@ -170,6 +176,8 @@ for arg in "$@"; do
   case "${arg}" in
     --tracker-project) NEXT_OPT=TRACKER_PROJECT ;;
     --tracker) NEXT_OPT=TRACKER ;;
+    --policy) NEXT_OPT=POLICY ;;
+    --policy=*) POLICY="${arg#*=}" ;;
     --tracker-project=*) TRACKER_PROJECT="${arg#*=}" ;;
     --tracker=*) TRACKER="${arg#*=}" ;;
     --claude-only) WRITE_AGENTS=0; MINIMAL=1 ;;
@@ -187,6 +195,7 @@ for arg in "$@"; do
     --with-business) WITH_BUSINESS=1 ;;
     --with-output-safety) WITH_OUTPUT_SAFETY=1 ;;
     --with-gates) WITH_GATES=1 ;;
+    --with-terse-replies) WITH_TERSE=1 ;;
     --with-operating-layer) WITH_OPERATING_LAYER=1 ;;
     --apply-operating-layer) WITH_OPERATING_LAYER=1; APPLY_OPLAYER=1 ;;
     --no-sandbox) NO_SANDBOX=1 ;;
@@ -214,6 +223,11 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
   exit 1
 fi
 
+if [[ "${WITH_TERSE}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
+  echo "error: --with-terse-replies requires --with-delivery (the hook script ships with agentic-delivery)" >&2
+  exit 1
+fi
+
 if [[ "${NO_OPLAYER}" -eq 1 && "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   echo "error: --no-operating-layer conflicts with --with/--apply-operating-layer" >&2
   exit 1
@@ -232,10 +246,23 @@ if [[ "${APPLY_OPLAYER}" -eq 1 ]] && ! command -v jq >/dev/null 2>&1; then
 fi
 
 TARGET_DIR="${POSITIONAL[0]:-$(pwd)}"
+POLICY_PY="${SCRIPT_DIR}/.claude/skills/agentic-delivery/scripts/perun_policy.py"
 
 if [[ ! -d "${TARGET_DIR}" ]]; then
   echo "error: target directory does not exist: ${TARGET_DIR}" >&2
   exit 1
+fi
+
+if [[ -n "${POLICY}" ]]; then  # shape-check before touching anything; values are validated when written
+  _seen=,
+  IFS=, read -ra _kv <<< "${POLICY}"
+  for kv in "${_kv[@]}"; do
+    if [[ ! "${kv}" =~ ^([A-Za-z_]+)=(.+)$ || "${_seen}" == *",${BASH_REMATCH[1]},"* ]]; then
+      echo "error: --policy wants dim=value pairs, one per dim (got '${kv}')" >&2; exit 2
+    fi
+    _seen="${_seen}${BASH_REMATCH[1]},"
+    python3 "${POLICY_PY}" check "${kv%%=*}" "${kv#*=}" || exit 2
+  done
 fi
 
 if [[ "$(cd "${TARGET_DIR}" && pwd)" == "${SCRIPT_DIR}" ]]; then
@@ -471,6 +498,13 @@ operating layer's one entry point) and its "Install and self-check" section.
 EOF
 fi
 
+if [[ "${WITH_TERSE}" -eq 1 ]]; then
+  # Opt-in Stop hook; written as a snippet to merge by hand, never applied automatically.
+  mkdir -p "${TARGET_DIR}/.claude"
+  cp "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/terse-replies.settings.json" "${TARGET_DIR}/.claude/settings.terse-replies.json.new"
+  echo "  terse-replies: .claude/settings.terse-replies.json.new written -- merge its Stop hook into settings (TERSE_MAX_RATIO tunes the 0.12 limit)"
+fi
+
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   OPLAYER_SRC="${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"
   if [[ ! -f "${OPLAYER_SRC}" ]]; then
@@ -546,8 +580,28 @@ AGENT
   fi
 fi
 
+# Slash commands: copy commands/*.md into .claude/commands/, but only those whose skill is installed.
+# review, deliver always; cost-retro, perun, perun-run need agentic-ceo/agentic-delivery.
+# Never overwrites (write_gate_file writes <dest>.new); only files written fresh go in the uninstall record.
+COMMAND_FILES=()
+if [[ -d "${SCRIPT_DIR}/commands" ]]; then
+  for cmd in "${SCRIPT_DIR}"/commands/*.md; do
+    name="$(basename "${cmd}" .md)"
+    case "${name}" in
+      review|deliver) ;;
+      cost-retro|perun|perun-run) [[ "${WITH_CEO}" -eq 1 || "${WITH_DELIVERY}" -eq 1 ]] || continue ;;
+      *) continue ;;
+    esac
+    dest="${TARGET_DIR}/.claude/commands/${name}.md"
+    [[ -e "${dest}" ]] && cmp -s "${cmd}" "${dest}" && continue  # re-install: already current
+    existed=0; [[ -e "${dest}" ]] && existed=1
+    write_gate_file "${cmd}" "${dest}" 0
+    [[ "${existed}" -eq 1 ]] || COMMAND_FILES+=(".claude/commands/${name}.md")
+  done
+fi
+
 # Marker: exactly what this install added, so perun_uninstall.py removes only that.
-python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" \
+python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" ${COMMAND_FILES[@]+--files "${COMMAND_FILES[@]}"} \
   ${OPLAYER_PRE:+--pre "${OPLAYER_PRE}" --template "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"} \
   ${OPLAYER_AGENT_NEW:+--agent-created} --version "${VERSION}" \
   --remote "${PERUN_REMOTE:-$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null | sed -E 's#://[^/@]+@#://#' || true)}"
@@ -572,7 +626,7 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then
 
 What changed in ${TARGET_DIR}:
   1. Skills copied to .claude/skills (+ .cursor, .agents); any existing copy moved to <host>/skill-backups/.
-  2. .claude/settings.local.json: operating-layer hooks (PreToolUse, SessionStart/UserPromptSubmit auto-update, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
+  2. .claude/settings.local.json: operating-layer hooks (PreToolUse incl. heavy_gate.py, SessionStart session_brief.py + auto-update, UserPromptSubmit auto-update, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
      Skills, hooks and permissions apply to open sessions without a restart; only a model change waits for the next session.
      Auto-update: that hook runs release code from the Perun remote in the background (newest vX.Y.Z tag, at most every 6h).
      Opt out: re-run install.sh with --no-auto-update, or set "auto_update": "off" in .perun/policy.json.
@@ -595,6 +649,10 @@ mkdir -p "${TARGET_DIR}/.claude"
   # tracker flags replay as single-token --opt=value lines (the marker is one arg per line)
   [[ -n "${TRACKER_PROJECT}" ]] && printf -- '--tracker-project=%s\n--tracker=%s\n' "${TRACKER_PROJECT}" "${TRACKER}"
   true; } > "${TARGET_DIR}/.claude/.dcr-install-flags"
+# session_brief.py compares the installed version to this checkout's origin/main (machine-local, never committed).
+if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
+  { mkdir -p "${XDG_CACHE_HOME:-${HOME}/.cache}/perun" && printf '%s\n' "${SCRIPT_DIR}" > "${XDG_CACHE_HOME:-${HOME}/.cache}/perun/source"; } 2>/dev/null || true
+fi
 
 upsert_agents_block() {
   local agents="$1"
@@ -746,7 +804,18 @@ if [[ -z "${DCR_NO_PROBE:-}" && -f "${PROBE}" ]] && command -v python3 >/dev/nul
   python3 "${PROBE}" --verdict-only "${TARGET_DIR}" 2>/dev/null || true
 fi
 
+# Policy file pinned to the target: never $PERUN_POLICY, never a parent dir's file.
+PERUN_POLICY_FILE="$(cd "${TARGET_DIR}" && pwd)/.perun/policy.json"
+if [[ -n "${POLICY}" ]]; then
+  for kv in "${_kv[@]}"; do
+    PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null || exit 2
+  done
+fi
+if [[ -f "${PERUN_POLICY_FILE}" ]]; then POLICY_LINE="$(PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" show)" || exit 2
+else POLICY_LINE="defaults (no .perun/policy.json)"; fi
+
 # Last three lines, plain English: what changed, the one next command, how to undo.
+echo "Policy: ${POLICY_LINE}"
 echo
 echo "Perun installed ${#SKILLS[@]} skill(s) into ${#HOSTS[@]} tool folder(s) of ${TARGET_DIR}."
 echo "Next, run this one command to confirm it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}"

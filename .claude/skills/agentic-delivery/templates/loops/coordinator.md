@@ -3,6 +3,8 @@
 Fill `<angle-bracket>` placeholders. Cadence: every 30 minutes, or on an event (a lane hand-back, a PR going
 ready). Never faster than 20 minutes: a tighter tick burns tokens for no new information.
 
+Token policy (`python3 perun_policy.py get tokens`): `efficient` (default) means: use the cheapest model tier that fits, no duplicate review passes, terse hand-backs (guidance, not enforced), and at most 2 parallel lanes (enforced: `perun_policy.py lanes` and `heavy-slots` apply the cap); `maximize` lifts the cap; a number caps lanes at that many (it is not a token budget). Apply it when dispatching lanes.
+
 ## /loop prompt (copy-paste)
 
 ```
