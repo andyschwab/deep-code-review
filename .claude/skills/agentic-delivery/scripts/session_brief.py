@@ -14,6 +14,7 @@ Lines (each skipped when its input is missing; nothing is fetched from the netwo
      command that points at clean_finished.sh / reap_own.sh. This hook removes and stops nothing.
   3. the top-ranked item in PRIORITIES.md (queue_guard.ranked_ids; claim status not checked
      offline).
+Time: all subprocess calls share a 5s budget (BUDGET); once spent, the rest are skipped.
 Output: one JSON object with `systemMessage` (shown to the user) and `additionalContext`.
 Any error ends the hook silently with exit 0.
 """
@@ -21,15 +22,28 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 
+BUDGET = 5.0  # seconds, shared by every subprocess call in one brief
+_deadline = [float("inf")]
+
+
+def _run(cmd, timeout):
+    """subprocess.run capped by the remaining shared budget; TimeoutExpired once it is spent."""
+    left = _deadline[0] - time.monotonic()
+    if left <= 0:
+        raise subprocess.TimeoutExpired(cmd, 0)
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=min(timeout, left))
+
+
 def _git(repo, *args, timeout=3):
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=timeout)
+        r = _run(["git", "-C", str(repo), *args], timeout)
         return r.stdout if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         return None
@@ -69,12 +83,11 @@ def worktrees(repo: Path):
 def dev_servers(paths):
     """Pids listening on TCP whose cwd is inside one of `paths`; None when lsof is unusable."""
     try:
-        r = subprocess.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fp"], capture_output=True, text=True, timeout=2)
+        r = _run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fp"], 2)
         pids = sorted({l[1:] for l in r.stdout.splitlines() if l.startswith("p")})
         if not pids:
             return [] if r.returncode in (0, 1) else None
-        r = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", ",".join(pids), "-Fpn"],
-                           capture_output=True, text=True, timeout=2)
+        r = _run(["lsof", "-a", "-d", "cwd", "-p", ",".join(pids), "-Fpn"], 2)
     except (OSError, subprocess.SubprocessError):
         return None
     hits, pid = [], None
@@ -122,7 +135,10 @@ def priority_line(repo: Path):
 def brief(repo: Path) -> list:
     """The ≤3 report lines for `repo`; each section is independent and fails silent."""
     lines = []
+    _deadline[0] = time.monotonic() + BUDGET
     for fn in (version_line, hygiene_line, priority_line):
+        if time.monotonic() >= _deadline[0]:
+            break  # budget spent: skip the remaining sections
         try:
             l = fn(repo)
         except Exception:

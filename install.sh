@@ -101,6 +101,7 @@ on re-install). Overlay skills are opt-in.
   --no-operating-layer Opt out of the default-on operating layer (applied with --with-delivery/--full).
   --with-operating-layer
                        Write .claude/settings.operating-layer.json.new: the
+                       heavy_gate.py PreToolUse and session_brief.py SessionStart hooks, the
                        SubagentStart house-default injector, the two-tier
                        SubagentStop handback_cap, and the subagent model pin
                        (agentic-delivery/references/operating-discipline.md).
@@ -553,7 +554,7 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then
 
 What changed in ${TARGET_DIR}:
   1. Skills copied to .claude/skills (+ .cursor, .agents); any existing copy moved to <host>/skill-backups/.
-  2. .claude/settings.local.json: operating-layer hooks (PreToolUse, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
+  2. .claude/settings.local.json: operating-layer hooks (PreToolUse incl. heavy_gate.py, SessionStart session_brief.py, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
   3. .claude/agents/delivery-lane.md added if absent; .claude/.perun-install.json and .dcr-install-flags record what was added.
   4. Check it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}
   5. Undo: python3 ${SCRIPT_DIR}/scripts/perun_uninstall.py ${TARGET_DIR}   (opt out next time: --no-operating-layer)

@@ -6,13 +6,13 @@ them, so fleets ran 10+ test runners at once (load1 > 3x cores, swap climbing, O
 hook runs on every Bash call, so the admission check happens without anyone remembering it.
 
 What it does: if the command starts a test runner or a build (DEFAULT_PATTERNS, or the
-newline-separated regexes in $PERUN_HEAVY_PATTERNS, each matched at the start of a shell segment),
-it denies the call when host_probe.decide(lane_type="heavy") says HOLD (load1 > cores, low free
-RAM, swap climbing past the policy floor) or when the machine-wide heavy leases already fill the
+newline-separated regexes in $PERUN_HEAVY_PATTERNS, each matched at the start of a shell segment, after runner wrappers are stripped),
+it denies the call when host_probe.decide(lane_type="heavy") says HOLD (load1 > cores or low free
+RAM; swap is not read, one sample shows no trend) or when the machine-wide heavy leases already fill the
 slot count (perun_policy.heavy_slots; local_cpu=maximize raises it to every core). Otherwise it
 prints nothing and the call proceeds. It never takes a lease and never stops or deletes anything.
 
-Fail open: any error inside the hook (bad stdin, unreadable host data, bad policy) allows the call.
+Fail open: any error inside the hook (bad stdin, unreadable host data, an unparsable command line, a bad policy) allows the call.
 A block is a JSON `permissionDecision: "deny"` on stdout with exit 0, never exit 2, so a crash
 cannot turn into a block. Register it as `python3 ".../heavy_gate.py" || true`.
 
@@ -23,6 +23,7 @@ PERUN_GATE_FREE_RAM_PCT override the readings; PERUN_HEAVY_DIR points the lease 
 import json
 import os
 import re
+import shlex
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,15 +33,62 @@ DEFAULT_PATTERNS = (
     r"(npm|pnpm|yarn|bun) (run )?test\b", r"cargo (test|nextest)\b", r"go test\b",
     r"(npx )?next build\b", r"(npm|pnpm|yarn|bun) run build\b", r"(npx )?tsc -b\b",
 )
-SEGMENT = re.compile(r"&&|\|\||[;|&\n]")
-PREFIX = re.compile(r"^(\s*(\w+=\S*|env|time|nice|command|exec|sudo)\s+)*")
+PUNCT = ";()<>|&\n"
+WRAP = re.compile(r"(\w+=\S*|env|time|nice|command|exec|sudo|npx|uv run|poetry run|pipx run|pnpm exec|python[\d.]* -m)$")
+LIGHT_FLAGS = {"--version", "--help", "-h", "--collect-only", "--co"}
+
+
+def _segments(command: str):
+    """Token lists, one per shell segment. Quotes and heredoc bodies never split; raises ValueError on a parse error."""
+    lines, delim = [], None
+    for line in command.split("\n"):
+        if delim is not None:
+            delim = None if line.strip() == delim else delim
+            continue
+        m = re.search(r"<<-?\s*(['\"]?)(\w+)\1", line)
+        delim = m.group(2) if m else None
+        lines.append(line)
+    lex = shlex.shlex("\n".join(lines), posix=True, punctuation_chars=PUNCT)
+    lex.whitespace = " \t\r"
+    seg, out = [], []
+    for tok in lex:
+        if set(tok) <= set(PUNCT):
+            out.append(seg)
+            seg = []
+        else:
+            seg.append(tok)
+    return out + [seg]
+
+
+def _strip_wrappers(toks):
+    """Drop leading runner wrappers (env/VAR=x/time/sudo, npx, uv|poetry|pipx run, pnpm exec, python -m) and their flags."""
+    while toks:
+        two = " ".join(toks[:2])
+        if WRAP.match(two) and len(toks) > 1:
+            toks = toks[2:]
+        elif WRAP.match(toks[0]):
+            toks = toks[1:]
+        else:
+            break
+        while toks and toks[0].startswith("-"):
+            toks = toks[1:]
+    return toks
 
 
 def is_heavy(command: str, patterns) -> bool:
-    """True when any shell segment of `command` begins with a heavy pattern.
-    Edge: `git commit -m "fix pytest"` and `grep jest` do not match; `cd x && npm test` does."""
-    for seg in SEGMENT.split(command or ""):
-        seg = PREFIX.sub("", seg.strip().lstrip("("))
+    """True when a shell segment of `command` begins, after runner wrappers, with a heavy pattern.
+    Quote- and heredoc-aware: `git commit -m "fix; pytest"` is not heavy; `cd x && uv run pytest` is.
+    Light invocations (--version, --help, --collect-only, `playwright install`) are never heavy.
+    A command that does not parse (unclosed quote) is NOT heavy: the gate fails open."""
+    try:
+        segs = _segments(command or "")
+    except ValueError:
+        return False
+    for toks in segs:
+        toks = _strip_wrappers(toks)
+        if not toks or LIGHT_FLAGS & set(toks) or (toks[0] == "playwright" and (toks[1:2] or [""])[0].startswith("install")):
+            continue
+        seg = " ".join(toks)
         if any(re.match(p, seg) for p in patterns):
             return True
     return False
