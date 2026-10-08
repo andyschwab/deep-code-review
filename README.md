@@ -33,7 +33,7 @@ main skill inside it.*
   ([Proof](#proof), with a link to the data). It also lists what it misses
   ([Limits](#limits)). Free (MIT licence), runs on your machine, works with many
   agents.
-- **Not technical?** Read [the story](#the-story-one-change-five-steps), then
+- **Not technical?** One page: [for leaders](docs/for-leaders.md). Or read [the story](#the-story-one-change-five-steps), then
   [what each person gets](#what-each-person-gets), and forward
   [Quickstart](#quickstart) to an engineer. Unfamiliar word? See the
   [Glossary](#glossary).
