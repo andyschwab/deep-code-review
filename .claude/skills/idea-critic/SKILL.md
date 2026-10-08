@@ -130,6 +130,8 @@ One skill, three hats. Default: run all three. Do not invent a fourth.
 
 **Skeptic checks for self-proposed work** (standing; each a real miss; any unresolved check means `REVISE`): (1) *user value vs replay* — a canned or replayed demo is not the action users want; offer the real action. (2) *Verify operational advice* ("restart", "reinstall", "run X first") against the host's current docs before giving it. (3) *Who is worse off?* — a new default or policy must not downgrade anyone already on a better one. (4) *Simpler safe-by-design alternative* — prefer "report and let a human clear it" over brittle auto-recovery; code that fetches and runs a release must verify it and tell the user. (5) *Restate the real constraint* ("zero CI", not "zero work") before stopping or deferring work.
 
+**Calibration:** if the proposal names its evidence, a measured kill criterion and a safe rollback, and the hats find no concrete flaw, the verdict is `PASS_TO_USER` with at most one non-blocking note. Unverifiable-but-plausible doubt is a note, not a `REVISE`.
+
 ---
 
 ## How to run
