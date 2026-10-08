@@ -47,7 +47,8 @@ class Receipt(unittest.TestCase):
         (self.d / "s.csv").write_text("api_key_name,cost_usd\nENG-1-jane,1.50\nENG-2-bob,2.00\nENG-2-bob,n/a\n")
         rep = json.loads(subprocess.run([sys.executable, str(TOKEN), "--session", str(SESSION), "--json"],
                                         capture_output=True, text=True).stdout)
-        total = rep["main"]["raw_tokens"] + rep["subagents_totals"]["raw_tokens"]
+        total = int(rep["main"]["input_equivalent"] + rep["main"]["output_tokens"]
+                    + rep["subagents_totals"]["input_equivalent"] + rep["subagents_totals"]["output_tokens"])
         out = receipt("--repo", str(self.d), "--findings", str(self.d / "f.txt"), "--holds", str(self.d / "h.txt"),
                       "--spend", str(self.d / "s.csv"), "--session", str(SESSION), "--days", "3650",
                       "--baseline", str(total))

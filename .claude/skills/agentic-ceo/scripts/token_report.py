@@ -132,6 +132,8 @@ import argparse
 import json
 import math
 import os
+import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -280,6 +282,25 @@ def sum_turns(turns: list) -> dict:
         + totals["output_tokens"]
     )
     return totals
+
+
+def weighted_tokens(totals: dict) -> float:
+    """The one token measure (input-equivalent + output) every tokens-per-PR figure uses; never raw_tokens."""
+    return totals["input_equivalent"] + totals["output_tokens"]
+
+
+def report_weighted_tokens(report: dict) -> float:
+    """weighted_tokens for a build_report() result: main session plus its subagents."""
+    return weighted_tokens(report["main"]) + weighted_tokens(report["subagents_totals"])
+
+
+def pr_count(since, repo="."):
+    """Distinct `Merge pull request #N` first-parent merges in `repo` since `since` (datetime); None if git fails."""
+    r = subprocess.run(["git", "-C", repo, "log", "--first-parent", f"--since={since.isoformat()}", "--format=%s"],
+                       capture_output=True, text=True)
+    if r.returncode:
+        return None
+    return len({m.group(1) for ln in r.stdout.splitlines() if (m := re.match(r"^Merge pull request #(\d+)\b", ln))})
 
 
 def extract_handback_chars(entries: list):
