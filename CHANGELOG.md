@@ -3,6 +3,12 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.543.0] — 2026-10-08
+
+### Fixed
+
+- `scripts/test-train-scripts.sh` no longer hangs or leaks `sleep` children when `pgrep`/`ps` are denied (restrictive sandbox): the reap_own blocks SKIP, every background child is bounded to 60s and reaped on exit via `jobs -p` (no `pkill`). New `scripts/test-no-hang-without-pgrep.sh` asserts the SKIP and prompt return.
+
 ## [1.542.0] — 2026-10-08
 
 - Installed Perun now updates itself. The operating layer adds a SessionStart and UserPromptSubmit hook (`perun_auto_update.py`) that, at most once every 6 hours per project and in a detached background process, checks the newest `vX.Y.Z` release tag on the recorded remote and re-applies the recorded install flags from it through `scripts/update-installed.sh`. Your settings still win and backups are written. It skips, and logs why, while a merge or train lock exists or a Perun-managed file was edited; every run appends one line to `~/.cache/perun/auto-update.log`. Turn it off with policy key `auto_update: "off"` in `.perun/policy.json` or `install.sh --no-auto-update`. No session restart is needed: skills and settings live-reload, and only a model change waits for the next session.

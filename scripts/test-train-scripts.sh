@@ -5,7 +5,10 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SC="$ROOT/.claude/skills/agentic-delivery/scripts"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-train.XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
+# Every background child is bounded (sleep 60) and reaped here via jobs -p (own children only, no pkill).
+trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$WORK"' EXIT
+# reap_own needs lsof AND working pgrep/ps; a sandbox that denies them would leave the child unreaped.
+have_ps() { command -v lsof >/dev/null && pgrep -f . >/dev/null 2>&1 && ps -p $$ >/dev/null 2>&1; }
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 pass=0 fail=0
 ok() { if [ "$1" -eq 0 ]; then echo "PASS  $2"; pass=$((pass + 1)); else echo "FAIL  $2"; fail=$((fail + 1)); fi; }
@@ -105,18 +108,18 @@ UNION_DIRS="$W3" bash "$SC/land_train.sh" "$B" deadbeef >/dev/null 2>&1; rc=$?
 [ $rc -ne 0 ] && [ ! -e "$W3" ]; ok $? "land_train: error exit (union not found) still removes the scratch worktree"
 
 # --- reap_own: kills only own, old, under-ROOT processes ---
-if command -v lsof >/dev/null; then
+if have_ps; then
   mkdir -p "$WORK/mine" "$WORK/other"
-  (cd "$WORK/mine" && exec sleep 31337) & P1=$!
-  (cd "$WORK/other" && exec sleep 31337) & P2=$!
+  (cd "$WORK/mine" && exec sleep 60) & P1=$!
+  (cd "$WORK/other" && exec sleep 60) & P2=$!
   sleep 1
-  o=$(ROOT="$WORK/mine" PATTERN='sleep 31337' MAX_AGE_S=-1 bash "$SC/reap_own.sh")
+  o=$(ROOT="$WORK/mine" PATTERN='sleep 60' MAX_AGE_S=-1 bash "$SC/reap_own.sh")
   sleep 0.2
   [ "$o" = "reaped=1" ] && ! kill -0 "$P1" 2>/dev/null && kill -0 "$P2" 2>/dev/null; ok $? "reap_own: kills the process under ROOT, spares one outside it"
   kill "$P2" 2>/dev/null; wait "$P1" "$P2" 2>/dev/null
-  (cd "$WORK/mine" && exec sleep 31337) & P3=$!
+  (cd "$WORK/mine" && exec sleep 60) & P3=$!
   sleep 1
-  o=$(ROOT="$WORK/mine" PATTERN='sleep 31337' bash "$SC/reap_own.sh")
+  o=$(ROOT="$WORK/mine" PATTERN='sleep 60' bash "$SC/reap_own.sh")
   [ "$o" = "reaped=0" ] && kill -0 "$P3" 2>/dev/null; ok $? "reap_own: spares a process younger than MAX_AGE_S"
   kill "$P3" 2>/dev/null; wait "$P3" 2>/dev/null
   (cd "$WORK/mine" && exec python3 -m http.server 38417 --bind 127.0.0.1) >/dev/null 2>&1 & P4=$!
@@ -126,21 +129,21 @@ if command -v lsof >/dev/null; then
   [ "$o" = "reaped=1" ] && ! kill -0 "$P4" 2>/dev/null; ok $? "reap_own: QA_PORTS reaps an own listener on the port under ROOT"
   kill "$P4" 2>/dev/null; wait "$P4" 2>/dev/null
 else
-  echo "SKIP  reap_own (no lsof)"
+  echo "SKIP  reap_own (no lsof, or pgrep/ps unavailable)"
 fi
 
 # --- reap_own: SIGKILL escalation, --report ---
-if command -v lsof >/dev/null; then
-  (cd "$WORK/mine" && trap '' TERM && exec sleep 31338) & P5=$!
+if have_ps; then
+  (cd "$WORK/mine" && trap '' TERM && exec sleep 61) & P5=$!
   sleep 1
-  o=$(ROOT="$WORK/mine" PATTERN='sleep 31338' MAX_AGE_S=-1 KILL_WAIT_S=1 bash "$SC/reap_own.sh")
+  o=$(ROOT="$WORK/mine" PATTERN='sleep 61' MAX_AGE_S=-1 KILL_WAIT_S=1 bash "$SC/reap_own.sh")
   [ "$o" = "reaped=1" ] && ! kill -0 "$P5" 2>/dev/null; ok $? "reap_own: SIGTERM-proof process is SIGKILLed after the wait and verified dead"
   wait "$P5" 2>/dev/null
-  (cd "$WORK/mine" && exec sleep 31339) & P6=$!
+  (cd "$WORK/mine" && exec sleep 62) & P6=$!
   sleep 1
-  o=$(ROOT="$WORK/mine" PATTERN='sleep 31339' bash "$SC/reap_own.sh" --report)
+  o=$(ROOT="$WORK/mine" PATTERN='sleep 62' bash "$SC/reap_own.sh" --report)
   grep -q "^$(cd "$WORK/mine" && pwd -P) pid=$P6 age=" <<<"$o" && grep -q "^orphans=1$" <<<"$o" && grep -q "^ram_free_mb=" <<<"$o" && kill -0 "$P6" 2>/dev/null; ok $? "reap_own --report: lists the orphan by worktree path, reports RAM, never kills"
-  o=$(ROOT="$WORK/other" PATTERN='sleep 31339' bash "$SC/reap_own.sh" --report)
+  o=$(ROOT="$WORK/other" PATTERN='sleep 62' bash "$SC/reap_own.sh" --report)
   grep -q "^orphans=0$" <<<"$o"; ok $? "reap_own --report: ROOT with no process under it prints orphans=0"
   kill "$P6" 2>/dev/null; wait "$P6" 2>/dev/null
 fi
@@ -155,7 +158,7 @@ chmod +x "$CF/bin/gh"
 for w in clean dirty unpushed busy; do g worktree add -q -b "cf-$w" "$CF/wts/$w" "$B"; done
 echo scratch >"$CF/wts/dirty/new.txt"; echo tracked >"$CF/wts/dirty/t.txt"; git -C "$CF/wts/dirty" add t.txt
 git -C "$CF/wts/unpushed" -c user.email=t@example.com -c user.name=T commit -q --allow-empty -m local-only
-(cd "$CF/wts/busy" && exec sleep 31340) & PB=$!
+(cd "$CF/wts/busy" && exec sleep 63) & PB=$!
 mkdir -p "$CF/scratch/x"; sleep 1
 o=$(cd "$R" && GH="$CF/bin/gh" ROOT="$CF/wts" ARCHIVE_DIR="$CF/ar" SCRATCH="$CF/scratch" bash "$SC/clean_finished.sh")
 [ ! -e "$CF/wts/clean" ] && [ ! -e "$CF/wts/dirty" ]; ok $? "clean_finished: removes finished worktrees (clean and dirty)"
