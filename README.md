@@ -1,45 +1,57 @@
 # Perun
 
-[![gates](https://github.com/remigiusz-antczak/deep-code-review/actions/workflows/ci.yml/badge.svg)](https://github.com/remigiusz-antczak/deep-code-review/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Perun is a free, plain-text checklist that makes an AI coding assistant review
-software the same careful way every time, and show exactly what it checked.**
+**Perun is a set of written instructions that an AI coding assistant follows to
+check software for mistakes the same careful way every time, and to show the
+evidence for each problem it reports.**
 
-Perun is the project; `deep-code-review` is this repository and its main
-**skill** (a text file of instructions the AI assistant reads before it starts).
+Perun is the project's name (after the Slavic thunder god of order). This repository is
+called `deep-code-review`, after what it does. Its main part is a **skill**: a
+text file of instructions the AI assistant reads before it starts work.
 
 ## Why it matters
 
-- **Fewer bugs shipped.** In a test on 30 real bug fixes from open-source
-  projects, one Perun review caught 31% of the hidden bugs. The same assistant
-  asked to "review this" caught 21%. Two Perun reviews merged caught 41%
-  ([measured table](.claude/skills/deep-code-review/references/method-situational.md)).
-  The gain is probable, not proved: +10 points, with a 95% interval of 0 to +21
-  (same table). It still misses most bugs, so keep human review.
-- **Fewer false alarms.** 77% of the problems Perun flagged were real, against
-  66% for the plain assistant
-  ([same table](.claude/skills/deep-code-review/references/method-situational.md)).
-- **Safer AI agents.** An *agent* is an AI assistant that can run commands on a
-  computer. When you install Perun, it prints, for each agent tool, the
-  *sandbox* setting to turn on (a sandbox is a fence that limits what the
-  agent's commands can touch) and runs a quick sandbox check
-  ([host safety](docs/host-safety.md)). The effect on incidents has not been
-  measured.
-- **Its own reading cost, cut 19%.** AI tools bill by the *token*, roughly a word
-  fragment. The text an agent must read before every review fell from 28,589 to
-  23,173 tokens ([`CHANGELOG.md`](CHANGELOG.md), entry 1.501.0). A Perun review
-  still costs more than a plain one: $0.121 per test case against $0.069. The
-  plain assistant asked twice cost $0.132 and caught 36%
-  ([same table](.claude/skills/deep-code-review/references/method-situational.md)).
+The numbers below come from one test. The assistant (Claude Code, run by
+[`scripts/bench_corpus.py`](scripts/bench_corpus.py)) was shown the code change
+behind each of 30 real bugs that open-source projects later fixed. It did not
+see the fix. The exact test cases stay private so Perun can't be tuned to them;
+a [public list](scripts/eval-fixtures/bench/manifest.json) shows which projects
+the cases came from. A bug counts as "caught" if the review named it. Every number links to
+[the results table](.claude/skills/deep-code-review/references/method-situational.md).
 
-Time saved, money saved and customer counts have not been measured, so none are
-claimed.
+- **Fewer bugs shipped.** With Perun, the assistant caught
+  [31% of the bugs](.claude/skills/deep-code-review/references/method-situational.md).
+  Asked only to "review this", the same assistant caught
+  [21%](.claude/skills/deep-code-review/references/method-situational.md).
+  The test is small, so the true gain could be anywhere from
+  [0 to 21 points](.claude/skills/deep-code-review/references/method-situational.md).
+  Perun still misses most bugs, so keep people reviewing too.
+- **Fewer false alarms.**
+  [77% of what Perun flagged](.claude/skills/deep-code-review/references/method-situational.md)
+  were real problems, against
+  [66%](.claude/skills/deep-code-review/references/method-situational.md)
+  without it.
+- **Lower reading cost.** AI tools charge by the *token* (a piece of a word).
+  The instructions the assistant must read before each review shrank by
+  [19%](CHANGELOG.md) (release 1.501.0, counted as characters divided by 4).
+  A review with Perun still costs more than a plain one:
+  [$0.121 per code change reviewed against $0.069](.claude/skills/deep-code-review/references/method-situational.md),
+  as reported by the test runner.
+- **Safer AI agents.** An *agent* is an AI assistant that can run commands on
+  your computer. The installer tells you how to switch on each agent's
+  *sandbox* (a fence around what its commands can touch). No number is claimed:
+  the effect has not been measured ([host safety](docs/host-safety.md)).
 
-## Start in 60 seconds
+Time saved and money saved have not been measured, so none are claimed. To
+estimate them for your team, use the worked formula and the three-step pilot in
+[Perun for leaders](docs/for-leaders.md).
 
-You need `git`, a terminal, and an AI coding agent such as Claude Code, Cursor,
-Codex, Copilot, Gemini or Aider.
+## Quick start
+
+You need `git`, a terminal, and an AI coding agent such as Claude Code or
+Cursor (the installer lists the others it supports). No terminal? Paste the
+skill into any AI chat instead: [getting started](docs/getting-started.md).
 
 1. **Download Perun:**
 
@@ -47,29 +59,38 @@ Codex, Copilot, Gemini or Aider.
    git clone --depth 1 https://github.com/remigiusz-antczak/deep-code-review.git
    ```
 
-2. **Install it into your project** (copies text files and needs no admin
-   rights):
+2. **Install it into your project.** It copies text files only, with no
+   network and no admin rights ([`install.sh`](install.sh)):
 
    ```bash
    deep-code-review/install.sh /path/to/your/project
    ```
 
-3. **Ask your agent** in plain words: `run a deep code review FILE <a file in your project>`.
-   Pick a real file you care about.
+3. **Ask your agent to review a real file you care about.** Type this, with
+   your file's path at the end. `FILE` tells Perun to review only that file:
 
-What step 2 prints (trimmed; your version, commit and paths will differ):
+   ```
+   run a deep code review FILE src/checkout.py
+   ```
+
+What step 2 prints (shortened; your version and paths will differ). The last
+line names a check you can run to confirm the install works:
 
 ```
 installed: deep-code-review 1.535.0 (@ 84acfb19) -> your-project/.claude/skills/deep-code-review
 safety: Claude Code: OS sandbox is off by default; set sandbox.enabled=true (or run /sandbox) and keep allowUnsandboxedCommands=false. https://code.claude.com/docs/en/sandboxing
-run it:  tell your agent in plain words: run a deep code review FILE <a file in your project>
 Perun installed 1 skill(s) into 3 tool folder(s) of your-project.
 Next, run this one command to confirm it works: python3 deep-code-review/scripts/perun_doctor.py your-project
 ```
 
-What step 3 gives you: a list ranked from Blocker down to Nit, where each
-problem names the file and line, the evidence and a fix. One finding looks like
-this (a fictional sample from the [example report](docs/example-review-report.md)):
+The "safety" line is the sandbox setting to switch on for that agent. The "3
+tool folders" are where different agents look for skills, so one install works
+for several of them.
+
+What step 3 gives you: a list of problems, worst first, on a six-step scale
+from Blocker (stops the software working) to Nit (style only). Each problem
+names the file and line, the evidence and a fix. A made-up example from the
+[example report](docs/example-review-report.md):
 
 ```
 ### F3 - High - CONFIRMED
@@ -78,43 +99,41 @@ Inbound webhook accepts unsigned body
 - Fix: verify the signature; bind the account to the verified sender.
 ```
 
-Checksums, pinning a release, other agents, no-terminal use, optional skills,
-updating and removing: [getting started](docs/getting-started.md). Whole team on
-Claude Code: [team install](docs/team-install.md).
+"CONFIRMED" means the assistant re-checked the problem against the exact code
+it reviewed, not just suspected it.
 
 ## Who it's for
 
-- **Engineers:** a repeatable review of a file, a branch or a whole repository,
-  with evidence for every problem, in any language.
-- **Team leads:** a severity-ranked report plus a traffic-light summary, so
-  "reviewed" has a meaning you can check ([example report](docs/example-review-report.md)).
-- **Non-technical teams (finance, marketing, product, leadership):** no licence
-  fee, only AI usage cost, and a plain-English summary of risks and the
-  decisions that need an owner ([Perun for leaders](docs/for-leaders.md)).
+- **Engineers:** a repeatable review of a file, a branch or a whole project,
+  with evidence for every problem.
+- **Team leads:** a ranked report you can check, plus a pilot plan
+  ([Perun for leaders](docs/for-leaders.md), [team install](docs/team-install.md)).
+- **Non-technical teams:** no licence fee ([MIT](LICENSE)), only your AI usage
+  cost, and a plain-English summary of risks and decisions
+  ([Perun for leaders](docs/for-leaders.md)).
 
 ## Safety
 
-Perun is text files: it sends nothing itself, and your code goes only where your
-agent already sends it. Turn on your agent's sandbox and keep human review,
-because Perun misses most bugs ([host safety](docs/host-safety.md), [`SECURITY.md`](SECURITY.md)).
+Perun is instructions, not a service: your code goes only where your agent
+already sends it. Switch on your agent's sandbox and keep human review
+([host safety](docs/host-safety.md), [`SECURITY.md`](SECURITY.md)).
 
 ## Learn more
 
-- [Perun for leaders](docs/for-leaders.md): for decision makers, with a
-  worked story, what each role gets, limits, a glossary and an FAQ.
-- [Getting started](docs/getting-started.md): every install option, the
-  optional skills, updating and removing.
-- [Example report](docs/example-review-report.md) and the
-  [benchmark](scripts/eval-fixtures/bench/) behind the numbers above.
+- [Perun for leaders](docs/for-leaders.md): a worked story, what each role
+  gets, a pilot plan, limits, a glossary and an FAQ.
+- [Getting started](docs/getting-started.md): every install option, optional
+  skills, updating and removing.
+- [Example report](docs/example-review-report.md); the
+  [test method](scripts/bench_corpus.py) and
+  [cases](scripts/eval-fixtures/bench/) behind the numbers.
 - [Technical overview](docs/technical-overview.md),
-  [token cost tips](docs/token-cost-tips.md), [running many agents](docs/for-fleets.md),
-  [roadmap](docs/roadmap.md).
+  [token cost tips](docs/token-cost-tips.md),
+  [running many agents](docs/for-fleets.md), [roadmap](docs/roadmap.md).
 - Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md), rules in
   [`CLAUDE.md`](CLAUDE.md), verified standards in
   [`docs/standards-index.md`](docs/standards-index.md),
-  [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+  [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md),
+  [CI status](https://github.com/remigiusz-antczak/deep-code-review/actions/workflows/ci.yml).
 
-[MIT](LICENSE). Inspired by open coding-agent setups (including
-[`nickmaglowsch/claude-setup`](https://github.com/nickmaglowsch/claude-setup))
-and grounded in the public standards listed in
-[`docs/standards-index.md`](docs/standards-index.md).
+[MIT](LICENSE). Credits and sources: [`docs/standards-index.md`](docs/standards-index.md).
