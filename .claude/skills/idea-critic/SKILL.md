@@ -11,7 +11,7 @@ metadata:
   version: "1.543.0"
 ---
 
-# Idea critic
+# Veles: the evil twin (idea-critic)
 
 Independent attack on the *claim that something should be done*, before
 the owner sees it. Dynamic hat, not a standing bot and not a profile.
@@ -127,6 +127,8 @@ One skill, three hats. Default: run all three. Do not invent a fourth.
 | `kill-criteria` | When not to do it, reversibility, what reverses the rec; run a **premortem** — assume this has already failed badly, write why, then extract kill criteria from it (Klein, 2007) | No stop condition |
 
 **Skeptic checks for product specs** (standing; each caught by a critic after synthesis missed it): overlap with an already-shipped feature (two implementations); the owner's #1 ask deferred past the first pilot; a core mechanism left unnamed (e.g. how comments anchor); an infrastructure limit (e.g. a pub/sub payload cap); a vacuous metric (always 0 during the first pilot). Any unresolved check means `REVISE`, never `PASS_TO_USER`.
+
+**Skeptic checks for self-proposed work** (standing; each a real miss; any unresolved check means `REVISE`): (1) *user value vs replay* — a canned or replayed demo is not the action users want; offer the real action. (2) *Verify operational advice* ("restart", "reinstall", "run X first") against the host's current docs before giving it. (3) *Who is worse off?* — a new default or policy must not downgrade anyone already on a better one. (4) *Simpler safe-by-design alternative* — prefer "report and let a human clear it" over brittle auto-recovery; code that fetches and runs a release must verify it and tell the user. (5) *Restate the real constraint* ("zero CI", not "zero work") before stopping or deferring work.
 
 ---
 
