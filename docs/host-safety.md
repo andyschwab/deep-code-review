@@ -23,6 +23,17 @@ Not an install target but common: Aider has no sandbox documented; avoid `--yes-
 
 Hosts without an OS sandbox (OpenCode, Windsurf, Kiro, Hermes `local`, Copilot CLI, Aider) should run agents inside a [dev container](https://containers.dev/) or VM, so the container is the filesystem boundary. See [VS Code Dev Containers](https://code.visualstudio.com/docs/devcontainers/containers): with an isolated container volume the workspace is not bound to your local filesystem. Do not mount your home directory or credentials into it.
 
+## Common sandbox errors
+
+With the Claude Code sandbox on (the default Perun sets), two failures are common. Neither is a bug, and Perun does not weaken the defaults to hide them; each fix is a setting you choose and run yourself.
+
+| Exact error | Cause | User-run fix | Tradeoff |
+| --- | --- | --- | --- |
+| `gh` fails with `x509: OSStatus -26276` | The sandbox blocks the macOS keychain/trust service `gh` uses to verify TLS certificates | `/sandbox exclude "gh *"` | Every `gh` call runs outside the sandbox, so a confused agent's `gh` command has your GitHub credentials and no filesystem or network limits. Keep the pattern narrow (`gh *`, not `*`) |
+| A dev server fails to bind with `EPERM` / "Operation not permitted" | Local port binding is off in the sandbox | `sandbox.network.allowLocalBinding: true` in settings (applies without restart) | Sandboxed commands can open listening ports on localhost, reachable by other local processes |
+
+`operating_selfcheck.py` prints a `WARN` when the sandbox is on and `gh` is not in `sandbox.excludedCommands`.
+
 ## Where this is enforced
 
 - `install.sh` reads [`host-safety.tsv`](../.claude/skills/agentic-delivery/templates/host-safety.tsv) and prints one `safety:` line per installed host.
