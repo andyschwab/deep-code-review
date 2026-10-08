@@ -3,6 +3,10 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.536.0] — 2026-10-08
+
+- Resource policy is settable without hand-writing JSON: `perun_policy.py set <dim> <value>` and `install.sh --policy dim=value[,dim=value]` (the install summary shows the active policy). The `tokens` mode now reaches the lane preamble and coordinator (efficient: cheapest fitting model tier, at most 2 parallel lanes, no duplicate review passes, terse hand-backs). With `github_actions=off` lanes also add `[skip ci]` to pushed branch commits (`perun_policy.py skip-ci`); `share_learnings=auto` runs `share_learning.py` at the end of `/perun-run` after its privacy gate.
+
 ## [1.535.0] — 2026-10-08
 
 ### Removed
