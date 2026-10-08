@@ -168,6 +168,16 @@ audit gate in every train; run the audit on the bare base first and report `BASE
 `scripts/train_land.sh` implements (1) and (3) behind optional `RATCHET_CMD` and `BASE_AUDIT_CMD` (tested in
 `scripts/test-train-scripts.sh`); (2) is the same measurement taken on the merged result.
 
+**Load flakes must not sink a train.** A train that is all-or-nothing under load can merge nothing for hours: failures that
+looked new all passed when re-run alone. With `RERUN_CMD` (and optionally `BASELINE_FAILS`), `train_land.sh` re-runs each
+new `FAIL <id>` from the browser gate alone up to 3 times (`train_flake.sh`); an id is real only when it fails at least 2
+of 3, flakes are reported separately and never block, and only PRs that fail the real ids merged alone onto the base are
+dropped before the rest re-verify and land. While the gate runs it holds the exclusive machine-wide heavy lease
+(`perun_policy.py heavy-exclusive`), so `heavy_gate.py` denies other heavy commands with "gate running: wait" and lanes stop
+adding load; pushes go through one serial queue (`train-push.lock`). Waits use the `_lock.sh` mkdir lock, never a
+process-name match; a lock is reclaimed only when older than `LOCK_TIMEOUT_MIN` and its pid is dead, and is otherwise
+reported, never deleted. Tests: `scripts/test-train-resilience.sh`.
+
 ## An independent-PR-queue cascade is a cadence choice, not a new authority
 
 Gate epistemology principle 6 (union proof before a train) runs as `scripts/merge_train.py`. A related but
