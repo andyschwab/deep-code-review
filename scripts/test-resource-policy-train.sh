@@ -46,7 +46,7 @@ out=$(UNION_DIRS="$R" bash "$SC/land_train.sh" "$B" "$U" 2>&1); rc=$?
 
 out=$(LAND_CMD='echo ran "$1"' UNION_DIRS="$R" WAIT_SECS=0 BACKFILL_FILE="$WORK/bf2.txt" bash "$SC/land_train.sh" "$B" "$U" 2>&1)
 grep -q "^WARN: land_train: policy unreadable" <<<"$out" && grep -q "ran 1" <<<"$out"; ok $? "land_train: LAND_CMD override with bad policy warns and continues"
-echo '{"local_cpu": 3, "github_actions": "off"}' >"$PERUN_POLICY"
+echo '{"local_cpu": 3, "tokens": "maximize", "github_actions": "off"}' >"$PERUN_POLICY"
 out=$(VERIFY_CMD='echo "jobs=$PERUN_JOBS gha=$PERUN_GITHUB_ACTIONS"; echo "RED x"; exit 1' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t1 1 2 2>&1 >/dev/null; cat "$WORK/traint1.log")
 grep -q "jobs=3 gha=off" <<<"$out"; ok $? "train_land: VERIFY_CMD sees PERUN_JOBS from local_cpu and PERUN_GITHUB_ACTIONS"
 echo '{"local_cpu": "fast"}' >"$PERUN_POLICY"
