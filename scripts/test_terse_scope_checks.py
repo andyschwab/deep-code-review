@@ -39,6 +39,16 @@ class Terse(unittest.TestCase):
         msg = TERSE + "\n" + code + "\n`the a an just really` and\n> the a an just really the\nError: the a an the file"
         self.assertIsNone(hook(msg))
 
+    def test_table_and_indented_code_ignored(self):
+        filler = "the a an just really the a an just really " * 5
+        table = "\n".join(f"| {filler} | {filler} |" for _ in range(6))
+        indented = "\n".join("    " + filler for _ in range(6)) + "\n" + "\t" + filler
+        self.assertIsNone(hook(TERSE + "\n" + table))
+        self.assertIsNone(hook(TERSE + "\n" + indented))
+
+    def test_bullet_markers_not_counted(self):
+        self.assertIsNone(hook("\n".join(f"- item{i} fails: config key missing" for i in range(10))))
+
     def test_loop_guard(self):
         self.assertIsNone(hook(PROSE, active=True))
 

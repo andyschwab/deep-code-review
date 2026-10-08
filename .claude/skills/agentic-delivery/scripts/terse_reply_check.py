@@ -42,9 +42,9 @@ def strip(text):
     text = re.sub(r"`[^`\n]*`", " ", text)
     keep = [
         ln for ln in text.splitlines()
-        if not re.match(r"\s*>", ln) and not re.search(r"\b(Error|Exception|Traceback|FAILED)\b|\berror:", ln)
+        if not re.match(r"\s*>|\s*\||(    |\t)", ln) and not re.search(r"\b(Error|Exception|Traceback|FAILED)\b|\berror:", ln)
     ]
-    return "\n".join(keep)
+    return re.sub(r"(?m)^\s*(?:[-*+]|\d+[.)])\s+", "", "\n".join(keep))
 
 
 def ratio(text):
