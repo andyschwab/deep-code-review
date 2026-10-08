@@ -1,0 +1,1 @@
+- Quickstart and installer now lead with a portable plain-words first prompt (`run a deep code review FILE <path>`) that works with or without a git remote or slash commands; `/deep-code-review` is labelled as host-dependent.

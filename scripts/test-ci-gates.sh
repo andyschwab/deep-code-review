@@ -3787,6 +3787,14 @@ else
   record 1 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"; tail -8 "$WORK/sandbox-default.log"
 fi
 
+# first-run prompt: installer output and AGENTS.md block give a portable plain-words prompt (no remote/slash needed).
+FR="$WORK/firstrun"; mkdir -p "$FR"
+if bash "$ROOT/install.sh" "$FR" >"$FR.out" 2>&1 && grep -q "run a deep code review FILE" "$FR.out" && grep -q "run a deep code review FILE" "$FR/AGENTS.md" && sed -n '/^3\. \*\*Ask your agent/,/^>/p' "$ROOT/README.md" | head -2 | grep -q 'review FILE'; then
+  record 0 "first-run prompt: installer + AGENTS.md show plain-words FILE prompt, README step 3 leads with FILE"
+else
+  record 1 "first-run prompt: installer + AGENTS.md show plain-words FILE prompt, README step 3 leads with FILE"; tail -5 "$FR.out"
+fi
+
 # ops-script edge cases: own per-feature file (scripts/test-ops-edge.sh), one case here.
 if bash "$ROOT/scripts/test-ops-edge.sh" >"$WORK/ops-edge.log" 2>&1; then
   record 0 "ops edge cases: clean_finished/land_train/prefile_check/pipe_mask_guard"
