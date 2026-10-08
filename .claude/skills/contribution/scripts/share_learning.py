@@ -112,6 +112,10 @@ def log(ledger: Path, status: str, repo: str, title: str, url: str, body: str) -
                             "body_sha256": hashlib.sha256(body.encode()).hexdigest()}) + "\n")
 
 
+OFFER_PR = ("share_learning: to propose it as a skill edit instead, draft a LOCAL PR (never pushed): "
+            "learning_to_pr.py --file <lesson> --target <skill-file>")
+
+
 def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     src = ap.add_mutually_exclusive_group(required=True)
@@ -165,12 +169,14 @@ def main(argv: list | None = None) -> int:
     if mode == "ask":
         print(f"share_learning: policy ask; draft below, re-run with --approve to file\n{draft}")
         if not a.approve:
+            print(OFFER_PR, file=sys.stderr)
             return 3
         if not sys.stdin.isatty() or input("Type yes to file this issue: ").strip() != "yes":
             print("share_learning: --approve needs an interactive terminal and a typed yes; not filed", file=sys.stderr)
             return 3
     elif not a.send:
         print(f"share_learning: dry run (pass --send to file); draft:\n{draft}")
+        print(OFFER_PR, file=sys.stderr)
         return 0
     rate = Path(os.environ.get("PERUN_RATE_FILE", str(Path.home() / ".perun" / "share-rate.jsonl")))
     if mode == "auto" and auto_shares_today(rate) >= MAX_AUTO_PER_DAY:
@@ -204,6 +210,7 @@ def main(argv: list | None = None) -> int:
         with rate.open("a") as f:
             f.write(f"{int(time.time())}\n")
     print(f"share_learning: filed {url}")
+    print(OFFER_PR, file=sys.stderr)
     return 0
 
 

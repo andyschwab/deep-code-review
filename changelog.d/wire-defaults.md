@@ -1,0 +1,2 @@
+### Changed
+- Wire opt-in primitives into defaults: lane preamble and coordinator gate heavy local commands with `host_probe.py --lane-type heavy` and `perun_policy.py heavy-slots`; `/perun-run` calls `queue_guard.py` when `PRIORITIES.md` exists and ends with `weekly_receipt.py` plus `token_ratchet.py --warn`; `operating_selfcheck.py` reports `weekly-receipt`; `share_learning.py` offers a local `learning_to_pr.py` draft. All WARN-level, none blocks (Refs #1380).
