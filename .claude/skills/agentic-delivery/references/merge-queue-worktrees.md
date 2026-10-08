@@ -736,3 +736,14 @@ agents, one branch. State it explicitly, one line per brief:
   above), never a bare `stash push`, rather than left to be silently overwritten.
 
 **An OOM-killed train moves, it does not retry in place.** A train killed with SIGKILL during the unit-test step will be killed again on the same loaded machine. Move the train runner to the least-loaded machine and re-run the union there.
+
+**Every PR gets an independent review before it merges.** Field data: 2 of the last 40 merged PRs in a fleet had any
+non-author review. The default is now a deep-code-review DIFF pass plus an evil-twin check by a reviewer other than the
+author, recorded as a receipt for the exact head being merged. `scripts/review_gate.py` runs inside `land_train.sh`
+per member PR (so `train_land.sh` inherits it) and accepts either `.perun/reviews/<pr>.json` (write it with
+`review_gate.py receipt <pr> --reviewer R --author A --head SHA`) or a PR comment containing
+`<!-- perun-review reviewer=R author=A head=SHA diff=pass evil-twin=pass -->`. The reviewer must differ from the author
+and the head must match, so a review of an older push never covers a newer one. It is a process receipt, not a
+signature. Policy key `review_gate` in `.perun/policy.json`: `warn` (default; **warn-only for this release**, prints a
+WARN and merges anyway), `enforce` (skips the PR; `land_train.sh` prints `REFUSE #N no independent review`), `off`
+(opt out). Expect `enforce` to become the default in a later release.

@@ -106,6 +106,8 @@ stronger tier): `references/fanout-host-sizing.md` **Escalate a lane**.
 **Sweeping the whole ready queue on every trigger** — a completeness fix to
 this event-driven model, not a change to it: `references/merge-queue-worktrees.md`.
 
+**Independent review before merge** (warn-first): `scripts/review_gate.py`; see `references/merge-queue-worktrees.md`.
+
 **Worked-lesson ledger** — five themed files, indexed one line each in
 `references/fast-agentic-delivery.md`. Read `references/verification-handback.md`
 when verifying, finalizing, or relaying a lane's result (liveness, `Verify:`

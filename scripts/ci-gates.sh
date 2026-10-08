@@ -66,6 +66,24 @@ Usage:
 EOF
 }
 
+# scan_files <path> — NUL-separated list of the files a repo scan may read.
+# When <path> is a git work-tree root: `git ls-files -co --exclude-standard`
+# (tracked + untracked-not-ignored), so nested worktrees and gitignored build
+# dirs are never walked. Only outside a git root (a bare fixture dir, a tarball)
+# does it fall back to `find`. A plain file argument is returned as-is.
+scan_files() {
+  local p="$1" top f
+  if [ ! -d "$p" ]; then printf '%s\0' "$p"; return 0; fi
+  if top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)" \
+    && [ "$(cd "$top" && pwd -P)" = "$(cd "$p" && pwd -P)" ]; then
+    git -C "$p" ls-files -z -co --exclude-standard | while IFS= read -r -d '' f; do
+      if [ -f "$p/$f" ] && [ ! -L "$p/$f" ]; then printf '%s\0' "$p/$f"; fi
+    done
+  else
+    find "$p" -name .git -prune -o -type f -print0
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # privacy — banned-term hygiene + secret detection.
 #
@@ -100,7 +118,7 @@ cmd_privacy() {
 
   local banlist_base
   banlist_base="$(basename "$banlist")"
-  local -a exclude_args=( --exclude="$banlist_base" )
+  local -a skip_bases=( "$banlist_base" )
 
   # Optional sibling local override: insert '.local' before the primary's
   # extension (.banlist.txt -> .banlist.local.txt). Missing is normal; a present
@@ -114,7 +132,7 @@ cmd_privacy() {
   if [ -f "$banlist_local" ]; then
     collect_patterns "$banlist_local"
     banlist_local_base="$(basename "$banlist_local")"
-    exclude_args+=( --exclude="$banlist_local_base" )
+    skip_bases+=( "$banlist_local_base" )
   fi
 
   # Fail closed on a malformed policy: every actionable pattern must be a valid
@@ -127,14 +145,26 @@ cmd_privacy() {
       || die "privacy: a banlist pattern is not a valid ERE (content withheld); failing closed"
   done
 
+  # Enumerate once (git ls-files in a repo root, see scan_files); the banlists
+  # are skipped by basename so they can never match themselves.
+  local -a scan=()
+  local t f b skip
+  for t in "${targets[@]}"; do
+    while IFS= read -r -d '' f; do
+      skip=0
+      for b in "${skip_bases[@]}"; do [ "$(basename "$f")" = "$b" ] && skip=1; done
+      [ "$skip" -eq 1 ] || scan+=("$f")
+    done < <(scan_files "$t")
+  done
+
   local hit=0 files status
-  for pat in "${patterns[@]}"; do
+  [ "${#scan[@]}" -eq 0 ] || for pat in "${patterns[@]}"; do
     # -l: report file names only. -I: skip binaries. -D skip: never open a
     # FIFO/device (a stray named pipe blocks the scan forever). `--` guards dash-leading
     # target paths from being read as options. Capture grep's exit status
     # explicitly: 0 = matches, 1 = clean, anything else = gate error (no
     # always-success fallback, so a broken scan fails closed).
-    files="$(grep -rIlE -D skip --exclude-dir=.git "${exclude_args[@]}" -e "$pat" -- "${targets[@]}" 2>/dev/null)" \
+    files="$(grep -IlE -D skip -e "$pat" -- "${scan[@]}" 2>/dev/null)" \
       && status=0 || status=$?
     case "$status" in
       0)
@@ -605,7 +635,7 @@ cmd_size() {
       printf 'SIZE MISSING BUDGET: %s has no row in %s (fail closed)\n' "$rel" "$config" >&2
       fail=1
     fi
-  done < <(find "$root/.claude/skills" \( -name 'SKILL.md' -o -path '*/references/*.md' \) -type f 2>/dev/null | LC_ALL=C sort)
+  done < <(scan_files "$root" | tr '\0' '\n' | grep -E '/\.claude/skills/(.*/)?(SKILL\.md|references/[^/]*\.md)$' | LC_ALL=C sort)
 
   # 2) Every budget row must resolve to a real file and stay within budget.
   for i in "${!cfg_paths[@]}"; do
