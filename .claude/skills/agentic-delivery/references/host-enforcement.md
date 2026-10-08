@@ -500,6 +500,13 @@ can post any commit status for any SHA). Full verification detail in
 digest pinning, and Docker Desktop's organization-licensing terms — confirm
 current behavior/terms before treating any of the three as a fetched fact.
 
+## Opt-in: terse-reply Stop hook and scope-creep warning
+
+Two deterministic, generic checks, both off by default. Neither vendors any chat-voice text; for a compressed chat style see the public caveman repository (https://github.com/JuliusBrussee/caveman).
+
+- `scripts/terse_reply_check.py` is a `Stop` hook. It scores `last_assistant_message` (code blocks, inline code, quoted and error lines ignored) by the share of filler, article and hedge words plus pleasantry phrases. Above `TERSE_MAX_RATIO` (default 0.12; replies under `TERSE_MIN_WORDS`, default 25, are skipped) it returns `{"decision": "block", "reason": ...}` asking for a terser rewrite. `stop_hook_active` allows at most one rewrite per turn, and any error fails open. Enable with `install.sh --with-delivery --with-terse-replies`, which writes `.claude/settings.terse-replies.json.new` to merge by hand. Stop-hook input and output fields: https://code.claude.com/docs/en/hooks (checked 2026-10-08).
+- `scripts/scope_creep_check.py BASE HEAD` is warn-only (always exits 0). It lists new files, new dependencies (`package.json`, `requirements*.txt`, `pyproject.toml`, `go.mod`, `Cargo.toml`) and new classes or interfaces with exactly one implementation, against the touched-file count. The regexes are heuristics: a lead for the reviewer, not a verdict. `pre-push-verify.sh` runs it when the script is installed.
+
 ## Deferred-question hooks (optional, advisory)
 
 **Advisory, not Host-enforced:** they never block and never continue a turn.

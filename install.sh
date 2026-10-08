@@ -19,6 +19,7 @@
 #   --with-extra-hosts   also .gemini .opencode .github .windsurf .hermes .kiro
 # Overlay skills (opt-in; default stays review-only):
 #   --with-delivery      also agentic-delivery
+#   --with-terse-replies with --with-delivery: write a Stop-hook snippet (terse_reply_check.py, opt-in)
 #   --with-critic        also idea-critic
 #   --with-comms         also communication-structure
 #   --with-contribution  also contribution (prepare upstream PRs; not in --full)
@@ -78,6 +79,7 @@ on re-install). Overlay skills are opt-in.
   --claude-only        Only .claude/skills/; skip AGENTS.md
   --with-cursor        Accepted as no-op (Cursor path is default now)
   --with-delivery      Also install agentic-delivery (gated delivery overlay)
+  --with-terse-replies With --with-delivery: write a Stop-hook snippet that asks for terser rewrites (opt-in)
   --with-critic        Also install idea-critic (pre-owner idea attack)
   --with-comms         Also install communication-structure (BLUF messages)
   --with-contribution  Also install contribution (prepare upstream PRs; default off, not in --full)
@@ -152,6 +154,7 @@ WITH_POSITIONING=0
 WITH_BUSINESS=0
 WITH_OUTPUT_SAFETY=0
 WITH_GATES=0
+WITH_TERSE=0
 WITH_OPERATING_LAYER=0
 APPLY_OPLAYER=0
 NO_OPLAYER=0
@@ -187,6 +190,7 @@ for arg in "$@"; do
     --with-business) WITH_BUSINESS=1 ;;
     --with-output-safety) WITH_OUTPUT_SAFETY=1 ;;
     --with-gates) WITH_GATES=1 ;;
+    --with-terse-replies) WITH_TERSE=1 ;;
     --with-operating-layer) WITH_OPERATING_LAYER=1 ;;
     --apply-operating-layer) WITH_OPERATING_LAYER=1; APPLY_OPLAYER=1 ;;
     --no-sandbox) NO_SANDBOX=1 ;;
@@ -210,6 +214,11 @@ case "${TRACKER}" in linear|github|jira) ;; *) echo "error: --tracker must be li
 
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
   echo "error: --with-operating-layer requires --with-delivery (writes an agentic-delivery snippet)" >&2
+  exit 1
+fi
+
+if [[ "${WITH_TERSE}" -eq 1 && "${WITH_DELIVERY}" -eq 0 ]]; then
+  echo "error: --with-terse-replies requires --with-delivery (the hook script ships with agentic-delivery)" >&2
   exit 1
 fi
 
@@ -481,6 +490,13 @@ the subagent model pin as a settings.operating-layer.json.new snippet to merge b
 hand -- see agentic-delivery/references/operating-discipline.md (the always-on
 operating layer's one entry point) and its "Install and self-check" section.
 EOF
+fi
+
+if [[ "${WITH_TERSE}" -eq 1 ]]; then
+  # Opt-in Stop hook; written as a snippet to merge by hand, never applied automatically.
+  mkdir -p "${TARGET_DIR}/.claude"
+  cp "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/terse-replies.settings.json" "${TARGET_DIR}/.claude/settings.terse-replies.json.new"
+  echo "  terse-replies: .claude/settings.terse-replies.json.new written -- merge its Stop hook into settings (TERSE_MAX_RATIO tunes the 0.12 limit)"
 fi
 
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then

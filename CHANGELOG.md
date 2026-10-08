@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.541.0] — 2026-10-08
+
+### Added
+- Opt-in `terse_reply_check.py` Stop hook (`install.sh --with-delivery --with-terse-replies`): blocks a filler-heavy final reply once and asks for a terser rewrite; fails open, honors `stop_hook_active`.
+- Warn-only `scope_creep_check.py`: new files, new dependencies and single-implementation classes or interfaces for a git range; run by `pre-push-verify.sh` when installed.
+- size-budget-raise: .claude/skills/agentic-delivery/references/host-enforcement.md 36672→38051 documents the two opt-in checks
+
 ## [1.540.0] — 2026-10-08
 
 ### Added
