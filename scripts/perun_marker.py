@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Install marker: what install.sh itself added to a repo, so uninstall removes only that.
 
-Usage (called by install.sh): perun_marker.py TARGET --dirs REL... [--pre FILE --template FILE] [--agent-created]
+Usage (called by install.sh): perun_marker.py TARGET --dirs REL... [--pre FILE --template FILE] [--agent-created] [--files REL...]
 
 Writes TARGET/.claude/.perun-install.json, merged with any previous marker:
   skills: {<host>/skills/<name>: {<file>: sha256}}  hashes of the copy just installed
   hooks:  [{event, entry}]  operating-layer entries absent before this install
   env:    {key: value}      env keys absent before this install
   model:  "sonnet" | null   set only when the settings had no "model" before
+  files:  {<rel>: sha256}  slash commands install wrote fresh (never pre-existing files)
   agent:  {path, sha} | null  delivery-lane.md when install created it
 Stdlib only.
 """
@@ -30,7 +31,7 @@ def load(target):
     return json.loads(f.read_text()) if f.is_file() else None
 
 
-def record(target, dirs, pre=None, template=None, agent_created=False):
+def record(target, dirs, pre=None, template=None, agent_created=False, files=()):
     target = Path(target)
     m = load(target) or {}
     m.setdefault("skills", {}).update({d: hash_dir(target / d) for d in dirs if (target / d).is_dir()})
@@ -50,6 +51,7 @@ def record(target, dirs, pre=None, template=None, agent_created=False):
                 m["env"][k] = v
         if "model" not in before and now.get("model") == "sonnet":
             m["model"] = "sonnet"
+    m.setdefault("files", {}).update({f: sha(target / f) for f in files if (target / f).is_file()})
     agent = target / ".claude/agents/delivery-lane.md"
     if agent_created and agent.is_file():
         m["agent"] = {"path": ".claude/agents/delivery-lane.md", "sha": sha(agent)}
@@ -63,8 +65,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("target")
     ap.add_argument("--dirs", nargs="*", default=[])
+    ap.add_argument("--files", nargs="*", default=[])
     ap.add_argument("--pre")
     ap.add_argument("--template")
     ap.add_argument("--agent-created", action="store_true")
     a = ap.parse_args()
-    record(a.target, a.dirs, a.pre, a.template, a.agent_created)
+    record(a.target, a.dirs, a.pre, a.template, a.agent_created, a.files)

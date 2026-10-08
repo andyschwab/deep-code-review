@@ -14,6 +14,7 @@ Plan, built and validated before anything is touched:
   * Skill dirs: only files whose sha256 still equals the recorded install hash are removed.
     Files you added or edited are kept and listed; the dir stays if any are kept. When a
     dir is fully removed, the oldest pre-install backup (no VERSION file) is restored.
+  * Slash commands in .claude/commands are removed only if install wrote them and they are unchanged.
   * delivery-lane.md is removed only if Perun created it and it is unchanged.
 Leaves .bak.<ts> files and AGENTS.md blocks alone. Stdlib only.
 """
@@ -84,6 +85,9 @@ def plan(repo):
             ops.append((f"{d}: restore {orig[0].relative_to(repo)}", lambda b=orig[0], dest=dest: shutil.copytree(b, dest)))
         elif keep:
             notes.append(f"{d}: kept files, so the pre-install backup was not restored (see {host}/skill-backups)")
+    for f, h in sorted(m.get("files", {}).items()):
+        if (repo / f).is_file() and perun_marker.sha(repo / f) == h:
+            ops.append((f"remove {f}", (repo / f).unlink))
     a = m.get("agent")
     if a and (repo / a["path"]).is_file() and perun_marker.sha(repo / a["path"]) == a["sha"]:
         ops.append((f"remove {a['path']}", (repo / a["path"]).unlink))
