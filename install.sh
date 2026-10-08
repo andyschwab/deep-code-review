@@ -518,6 +518,7 @@ AGENT
     echo "applied operating layer to ${OPLAYER_LOCAL} (backup: .bak.<timestamp> if changed); verify with:"
     if [[ "${NO_SANDBOX}" -eq 0 ]]; then
       echo "  what changed (sandbox): sandbox.enabled=true, sandbox.allowUnsandboxedCommands=false (existing values win), deny Bash(rm -rf *), Bash(rm -fr *), Bash(rm -r *), Bash(rm -R *), Bash(sudo *); opt out with --no-sandbox"
+      echo "  sandbox blocks gh (x509 -26276) or a dev server (EPERM)? see docs/host-safety.md#common-sandbox-errors"
     fi
     echo "  python3 .claude/skills/agentic-delivery/scripts/operating_selfcheck.py --settings .claude/settings.local.json"
   else
