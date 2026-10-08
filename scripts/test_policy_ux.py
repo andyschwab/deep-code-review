@@ -38,10 +38,66 @@ class PolicyUx(unittest.TestCase):
 
     def test_preamble_agrees_with_tokens_and_ci_policy(self):
         self.assertEqual(self.pp("get", "tokens").stdout.strip(), "efficient")
-        self.assertIn("`efficient` (default) means the cheapest model tier that fits, at most 2 parallel lanes, "
-                      "no duplicate review passes, terse hand-backs", PRE)
+        self.assertIn("`efficient` (default) means: use the cheapest model tier that fits, no duplicate review passes, "
+                      "terse hand-backs (guidance, not enforced), and at most 2 parallel lanes (enforced:", PRE)
         self.assertIn("perun_policy.py get tokens", PRE)
         self.assertRegex(PRE, r"`off`, end every commit message you push with `\[skip ci\]`")
+
+    def test_tokens_dim_caps_lanes(self):
+        for tok, want in (("efficient", "2"), ("maximize", None), ("off", "1"), ("3", "3")):
+            self.pp("set", "local_cpu", "maximize")
+            self.pp("set", "tokens", tok)
+            for cmd in ("lanes", "heavy-slots"):
+                got = int(self.pp(cmd).stdout)
+                if want:
+                    self.assertLessEqual(got, int(want), (tok, cmd))
+                else:
+                    self.assertGreaterEqual(got, 1)
+        self.pp("set", "tokens", "maximize")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("pp", PP)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        self.assertEqual([m.lanes("maximize", 16, 0, t) for t in ("efficient", "maximize", "off", 3)], [2, 16, 1, 3])
+        self.assertEqual([m.heavy_slots(16, 0, t) for t in ("efficient", "maximize", "off", 5)], [2, 16, 1, 5])
+
+    def test_set_repairs_bad_key_and_rejects_nonascii_digits(self):
+        (Path(self.d) / ".perun").mkdir()
+        (Path(self.d) / ".perun/policy.json").write_text('{"tokens": "lots"}')
+        self.assertEqual(self.pp("get", "tokens").returncode, 2)
+        self.assertEqual(self.pp("set", "tokens", "5").returncode, 0)
+        self.assertEqual(self.pp("get", "tokens").stdout.strip(), "5")
+        r = self.pp("set", "tokens", "\u0663\u00b2")
+        self.assertEqual((r.returncode, "Traceback" in r.stderr), (2, False))
+
+    def test_skip_ci_honors_env(self):
+        self.assertEqual(run([sys.executable, str(PP), "skip-ci"], self.d).stdout.strip(), "")
+        r = subprocess.run([sys.executable, str(PP), "skip-ci"], cwd=self.d, capture_output=True, text=True,
+                           env={**ENV, "PERUN_GITHUB_ACTIONS": "off"})
+        self.assertEqual(r.stdout.strip(), "[skip ci]")
+
+    def test_install_policy_pinned_to_target_and_malformed_pairs(self):
+        outer = tempfile.mkdtemp()
+        (Path(outer) / ".perun").mkdir()
+        (Path(outer) / ".perun/policy.json").write_text('{"network": "off"}')
+        t = Path(outer) / "proj"
+        t.mkdir()
+        r = subprocess.run(["bash", str(ROOT / "install.sh"), "--policy", "tokens=7", str(t)], cwd=ROOT,
+                           capture_output=True, text=True, env={**ENV, "PERUN_POLICY": str(Path(outer) / "x.json")})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads((t / ".perun/policy.json").read_text()), {"tokens": 7})
+        self.assertEqual(json.loads((Path(outer) / ".perun/policy.json").read_text()), {"network": "off"})
+        self.assertFalse((Path(outer) / "x.json").exists())
+        for bad in ("tokens", "tokens=", "tokens=1,tokens=2", "=1", "nope=1"):
+            t2 = tempfile.mkdtemp()
+            b = run(["bash", str(ROOT / "install.sh"), "--policy", bad, t2], ROOT)
+            self.assertEqual(b.returncode, 2, bad)
+        self.assertFalse((Path(t2) / ".perun").exists())
+
+    def test_self_target_refusal_leaves_no_policy(self):
+        r = run(["bash", str(ROOT / "install.sh"), "--policy", "tokens=7", str(ROOT)], ROOT)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse((ROOT / ".perun/policy.json").exists())
 
     def test_install_policy_flag(self):
         t = tempfile.mkdtemp()

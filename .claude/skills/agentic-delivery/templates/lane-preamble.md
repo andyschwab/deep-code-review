@@ -15,8 +15,8 @@ default for this lane, not a suggestion.
 
 ## Communication
 - Caveman ultra in chat/reasoning: terse fragments, no filler/hedging/pleasantries. Code, commits, and docs stay normal prose.
-- Token policy (`python3 .claude/skills/agentic-delivery/scripts/perun_policy.py get tokens`): `efficient` (default) means the cheapest model tier that fits, at most 2 parallel lanes, no duplicate review passes, terse hand-backs; `maximize` lifts those limits; a number is a token cap.
-- CI policy: when `perun_policy.py get github_actions` prints `off`, end every commit message you push with `[skip ci]` (`perun_policy.py skip-ci` prints it); required checks are then satisfied by local gates.
+- Token policy (`python3 .claude/skills/agentic-delivery/scripts/perun_policy.py get tokens`): `efficient` (default) means: use the cheapest model tier that fits, no duplicate review passes, terse hand-backs (guidance, not enforced), and at most 2 parallel lanes (enforced: `perun_policy.py lanes` and `heavy-slots` apply the cap); `maximize` lifts the cap; a number caps lanes at that many (it is not a token budget).
+- CI policy: when `perun_policy.py get github_actions` prints `off`, end every commit message you push with `[skip ci]` (`perun_policy.py skip-ci` prints it); required checks are then satisfied by local gates. This is a lane rule, not enforced by code.
 - NO POLLING. Never hand-roll a sleep/loop waiting on background work; use the bounded wait below.
 - Never run delete/kill experiments on the host (container/VM or skip) and never `rm -rf` a variable-built path; deny rules are text-only, the sandbox is the boundary (`operating-discipline.md` item 8).
 - Never end your turn with background jobs running (browser tests, builds; kill your own dev servers): `python3 .claude/skills/agentic-delivery/scripts/lane_guard.py wait --pid <pid> --port <port> --file <output> --timeout <s> && lane_guard.py handback …`. `COULD_NOT_CHECK` → hand back what is still running, not "waiting".

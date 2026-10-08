@@ -237,9 +237,16 @@ if [[ ! -d "${TARGET_DIR}" ]]; then
   exit 1
 fi
 
-if [[ -n "${POLICY}" ]]; then  # validate + write before installing anything
+if [[ -n "${POLICY}" ]]; then  # shape-check before touching anything; values are validated when written
+  _seen=,
   IFS=, read -ra _kv <<< "${POLICY}"
-  for kv in "${_kv[@]}"; do (cd "${TARGET_DIR}" && python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null) || exit 2; done
+  for kv in "${_kv[@]}"; do
+    if [[ ! "${kv}" =~ ^([A-Za-z_]+)=(.+)$ || "${_seen}" == *",${BASH_REMATCH[1]},"* ]]; then
+      echo "error: --policy wants dim=value pairs, one per dim (got '${kv}')" >&2; exit 2
+    fi
+    _seen="${_seen}${BASH_REMATCH[1]},"
+    python3 "${POLICY_PY}" check "${kv%%=*}" "${kv#*=}" || exit 2
+  done
 fi
 
 if [[ "$(cd "${TARGET_DIR}" && pwd)" == "${SCRIPT_DIR}" ]]; then
@@ -734,8 +741,18 @@ if [[ -z "${DCR_NO_PROBE:-}" && -f "${PROBE}" ]] && command -v python3 >/dev/nul
   python3 "${PROBE}" --verdict-only "${TARGET_DIR}" 2>/dev/null || true
 fi
 
+# Policy file pinned to the target: never $PERUN_POLICY, never a parent dir's file.
+PERUN_POLICY_FILE="$(cd "${TARGET_DIR}" && pwd)/.perun/policy.json"
+if [[ -n "${POLICY}" ]]; then
+  for kv in "${_kv[@]}"; do
+    PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null || exit 2
+  done
+fi
+if [[ -f "${PERUN_POLICY_FILE}" ]]; then POLICY_LINE="$(PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" show)" || exit 2
+else POLICY_LINE="defaults (no .perun/policy.json)"; fi
+
 # Last three lines, plain English: what changed, the one next command, how to undo.
-echo "Policy: $(cd "${TARGET_DIR}" && python3 "${POLICY_PY}" show)"
+echo "Policy: ${POLICY_LINE}"
 echo
 echo "Perun installed ${#SKILLS[@]} skill(s) into ${#HOSTS[@]} tool folder(s) of ${TARGET_DIR}."
 echo "Next, run this one command to confirm it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}"
