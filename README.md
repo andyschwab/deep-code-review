@@ -158,7 +158,9 @@ a measured saving.
    ./install.sh /path/to/your/project
    ```
 
-3. **Ask your agent:** `run a deep code review DIFF origin/main`
+3. **Ask your agent** (works in any agent, no slash command needed):
+   `run a deep code review FILE <a file in your project>`. (`DIFF origin/main`
+   reviews just your branch's changes, but needs a git remote called origin.)
 
 > [!IMPORTANT]
 > Keep the checksum step and record the commit. The checksum file ships in the
