@@ -11,6 +11,10 @@ Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-
 `share_learnings` takes `auto|ask|off` (default `ask`).
 
   perun_policy.py get <dim>      print the value (a number prints as a number)
+  perun_policy.py show           print the whole effective policy as JSON
+  perun_policy.py set <dim> <value>  validate, write `.perun/policy.json` (created if absent), print the policy
+  perun_policy.py check <dim> <value>  validate one pair, write nothing
+  perun_policy.py skip-ci        print `[skip ci]` when github_actions is off, else nothing
   perun_policy.py lanes          parallel-lane count from local_cpu (see lanes())
   perun_policy.py heavy-slots    heavy-command concurrency = max(2, free cores) (see heavy_slots())
   perun_policy.py heavy-acquire  take a machine-wide heavy lease (exit 0 + prints pid) or exit 1 when full
@@ -21,6 +25,7 @@ Exit 0 ok, 2 usage / malformed policy / unknown dimension.
 """
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -54,6 +59,11 @@ def load(path: Path | None = None) -> dict:
             raise ValueError(f"unreadable policy {path}: {e}") from e
         if not isinstance(raw, dict):
             raise ValueError(f"policy {path} must be a JSON object")
+    return validate(raw)
+
+
+def validate(raw: dict) -> dict:
+    """Defaults overlaid with `raw`; ValueError on an unknown key or a bad value."""
     pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask"}
     for k, v in raw.items():
         if k == "share_learnings":
@@ -68,25 +78,65 @@ def load(path: Path | None = None) -> dict:
     return pol
 
 
-def lanes(mode, cores: int, load1: float | None = None) -> int:
+def parse_value(value: str):
+    """ASCII-digit strings become numbers; everything else stays a string (validate() then rejects it)."""
+    return float(value) if re.fullmatch(r"[0-9]+\.[0-9]+", value) else int(value) if re.fullmatch(r"[0-9]+", value) else value
+
+
+def set_value(dim: str, value: str) -> dict:
+    """Set one dimension (a number string becomes a number) in the policy file: `$PERUN_POLICY`, the nearest
+    `.perun/policy.json`, else `./.perun/policy.json` (created). Validated through load() before the atomic
+    replace, so a bad dim/value raises (an existing bad key is overwritten, so `set` repairs it) and an unparseable file raises ValueError and leaves the file untouched."""
+    path = find_policy() or Path(".perun/policy.json")
+    try:
+        raw = json.loads(path.read_text()) if path.is_file() else {}
+    except (OSError, json.JSONDecodeError) as e:
+        raise ValueError(f"unreadable policy {path}: {e}") from e
+    v = parse_value(value)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps({**raw, dim: v}, indent=2) + "\n")
+    try:
+        pol = load(tmp)
+    except ValueError:
+        tmp.unlink()
+        raise
+    os.replace(tmp, path)
+    return pol
+
+
+def token_cap(n: int, tokens) -> int:
+    """Cap a lane/slot count `n` by the `tokens` dim: efficient -> at most 2; off -> 1; a number -> at most
+    that many (never below 1; it is a lane cap only, not a token budget); maximize -> no cap."""
+    if tokens == "maximize":
+        return n
+    cap = 1 if tokens == "off" else max(1, int(tokens)) if isinstance(tokens, (int, float)) else 2
+    return min(n, cap)
+
+
+def lanes(mode, cores: int, load1: float | None = None, tokens="maximize") -> int:
     """Parallel heavy-lane count for a `local_cpu` value. efficient: half the cores; maximize: every idle
     core (cores minus current load1), never below 1 and never past the host's own load ceiling; off: 1
-    (serial); a number: that many. host_probe.py's RAM/swap/load vetoes still apply on top."""
+    (serial); a number: that many; then capped by `tokens` (token_cap). `tokens` defaults to `maximize`
+    (no cap) for direct callers; the CLI and host_probe pass the policy's value. host_probe.py's
+    RAM/swap/load vetoes still apply on top."""
     if isinstance(mode, (int, float)):
-        return max(1, int(mode))
-    if mode == "maximize":
-        return max(1, int(cores - (load1 or 0)))
-    if mode == "off":
-        return 1
-    return max(1, cores // 2)
+        n = max(1, int(mode))
+    elif mode == "maximize":
+        n = max(1, int(cores - (load1 or 0)))
+    elif mode == "off":
+        n = 1
+    else:
+        n = max(1, cores // 2)
+    return token_cap(n, tokens)
 
 
-def heavy_slots(cores: int, load1: float | None = None) -> int:
+def heavy_slots(cores: int, load1: float | None = None, tokens="maximize") -> int:
     """Concurrent heavy local commands (full test suite, build, browser run) a gate admits: free cores
     (cores minus load1) but never below 2, so a busy host still makes progress. A primitive: callers opt in.
     Pair with `host_probe.py --lane-type heavy`, which defers the job when load1 > cores or RAM is low.
-    Kill criterion: if the median pre-push time rises after adopting this, revert to the flat cap."""
-    return max(2, int(cores - (load1 or 0)))
+    `tokens` caps the result (token_cap). Kill criterion: if the median pre-push time rises after adopting this, revert to the flat cap."""
+    return token_cap(max(2, int(cores - (load1 or 0))), tokens)
 
 
 LEASE_TTL = 2 * 3600
@@ -143,19 +193,31 @@ def main(argv: list) -> int:
     if argv[:1] == ["--selftest"]:
         return _selftest()
     try:
+        if argv[:1] == ["check"] and len(argv) == 3:  # validate one pair, write nothing
+            validate({argv[1]: parse_value(argv[2])})
+            return 0
+        if argv[:1] == ["set"] and len(argv) == 3:
+            print(json.dumps(set_value(argv[1], argv[2])))
+            return 0
         pol = load()
         if argv[:1] == ["get"] and len(argv) == 2 and argv[1] in pol:
             print(pol[argv[1]])
             return 0
+        if argv == ["show"]:
+            print(json.dumps(pol))
+            return 0
+        if argv == ["skip-ci"]:
+            print("[skip ci]" if os.environ.get("PERUN_GITHUB_ACTIONS", pol["github_actions"]) == "off" else "")
+            return 0
         if argv == ["lanes"]:
             import host_probe  # lazy: host_probe imports this module
             load1, cores = host_probe.read_load1_and_cores()
-            print(lanes(pol["local_cpu"], cores or os.cpu_count() or 1, load1))
+            print(lanes(pol["local_cpu"], cores or os.cpu_count() or 1, load1, pol["tokens"]))
             return 0
         if argv == ["heavy-slots"]:
             import host_probe
             load1, cores = host_probe.read_load1_and_cores()
-            print(heavy_slots(cores or os.cpu_count() or 1, load1))
+            print(heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"]))
             return 0
         if argv in (["heavy-acquire"], ["heavy-release"]):
             pid = os.getppid()  # the calling shell outlives this CLI; its death frees the lease
@@ -164,7 +226,7 @@ def main(argv: list) -> int:
                 return 0
             import host_probe
             load1, cores = host_probe.read_load1_and_cores()
-            ok = heavy_acquire(lease_dir(), heavy_slots(cores or os.cpu_count() or 1, load1), pid)
+            ok = heavy_acquire(lease_dir(), heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"]), pid)
             print(pid if ok else "FULL")
             return 0 if ok else 1
     except ValueError as e:
@@ -197,8 +259,20 @@ def _selftest() -> int:
         except ValueError:
             continue
         raise AssertionError(bad)
+    os.environ["PERUN_POLICY"] = str(d / "set" / "p.json")
+    assert set_value("tokens", "3000")["tokens"] == 3000 and set_value("local_cpu", "maximize")["local_cpu"] == "maximize"
+    assert json.loads((d / "set" / "p.json").read_text()) == {"tokens": 3000, "local_cpu": "maximize"}
+    for bad in (("tokens", "lots"), ("nope", "1"), ("share_learnings", "yes")):
+        try:
+            set_value(*bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    del os.environ["PERUN_POLICY"]
     assert [lanes(m, 8, 3) for m in ("efficient", "maximize", "off", 3)] == [4, 5, 1, 3]
     assert lanes("maximize", 8, 99) == 1
+    assert [lanes("maximize", 16, 0, t) for t in ("efficient", "maximize", "off", 3, 0)] == [2, 16, 1, 3, 1]
+    assert [heavy_slots(16, 0, t) for t in ("efficient", "maximize", "off", 5)] == [2, 16, 1, 5]
     assert [heavy_slots(8, 3), heavy_slots(8, 7.5), heavy_slots(8, 99), heavy_slots(1), heavy_slots(8)] == [5, 2, 2, 2, 8]
     ld = d / "leases"
     assert heavy_acquire(ld, 1, os.getpid()) and active_leases(ld) == [os.getpid()]
