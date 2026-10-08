@@ -35,6 +35,28 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("subagent_start_inject.py", (self.repo / ".claude/settings.local.json").read_text())
         self.assertEqual(rows(self.repo, self.home)["hooks wired"][0], "OK")
 
+    def test_install_ends_with_three_plain_lines(self):
+        p = install(self.repo, "--with-delivery")
+        last = p.stdout.rstrip("\n").split("\n")[-3:]
+        self.assertRegex(last[0], r"^Perun installed \d+ skill\(s\) into \d+ tool folder\(s\)")
+        self.assertIn("Next, run this one command", last[1])
+        self.assertIn("perun_doctor.py", last[1])
+        self.assertIn("To undo everything", last[2])
+        self.assertIn("perun_uninstall.py", last[2])
+
+    def test_doctor_leads_with_verdict(self):
+        install(self.repo, "--with-delivery")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            perun_doctor.main([str(self.repo), "--home", str(self.home)])
+        first = out.getvalue().splitlines()[0]
+        self.assertRegex(first, r"^(Healthy|\d+ things? needs? attention: )")
+        (self.repo / ".claude/skills/agentic-delivery/scripts/handback_cap.py").unlink()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            perun_doctor.main([str(self.repo), "--home", str(self.home)])
+        self.assertRegex(out.getvalue().splitlines()[0], r"^\d+ things? needs? attention: run python3 .*--fix")
+
     def test_opt_out_leaves_no_settings(self):
         install(self.repo, "--with-delivery", "--no-operating-layer")
         self.assertFalse((self.repo / ".claude/settings.local.json").exists())

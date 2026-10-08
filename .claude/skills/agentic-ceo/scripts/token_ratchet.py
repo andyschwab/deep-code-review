@@ -65,6 +65,7 @@ def main(argv=None):
     ap.add_argument("--prs", type=int, help="delivered PRs in the window (default: git merge count)")
     ap.add_argument("--max-rise-pct", type=float, default=20.0)
     ap.add_argument("--write-baseline", action="store_true")
+    ap.add_argument("--force", action="store_true", help="allow --write-baseline to overwrite an existing baseline")
     ap.add_argument("--warn", action="store_true", help="report a breach but exit 0")
     a = ap.parse_args(argv)
     if not os.path.isdir(a.dir):
@@ -83,6 +84,9 @@ def main(argv=None):
     cur = {"tokens_per_pr": round(per_pr, 2), "prs": prs, "weighted_tokens": round(tokens, 2),
            "sessions": files, "since": since.isoformat()}
     if a.write_baseline:
+        if os.path.exists(a.baseline) and not a.force:
+            print(f"token_ratchet: baseline exists: {a.baseline} (use --force to overwrite)", file=sys.stderr)
+            return 2
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(a.baseline)), suffix=".tmp")
         with os.fdopen(fd, "w") as fh:
             json.dump(cur, fh, indent=2)

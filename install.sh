@@ -711,3 +711,9 @@ fi
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   [[ "${APPLY_OPLAYER}" -eq 1 ]] && echo "  operating-layer: applied to .claude/settings.local.json" || echo "  operating-layer: settings.operating-layer.json.new written -- merge it, then run operating_selfcheck.py"
 fi
+
+# Last three lines, plain English: what changed, the one next command, how to undo.
+echo
+echo "Perun installed ${#SKILLS[@]} skill(s) into ${#HOSTS[@]} tool folder(s) of ${TARGET_DIR}."
+echo "Next, run this one command to confirm it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}"
+echo "To undo everything this install added: python3 ${SCRIPT_DIR}/scripts/perun_uninstall.py ${TARGET_DIR}"
