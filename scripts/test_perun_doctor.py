@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import perun_doctor  # noqa: E402
 
 HAS_JQ = shutil.which("jq") is not None
+os.environ["DCR_NO_PROBE"] = "1"  # no network/probe in temp-repo tests; probe has its own tests
 
 
 def install(repo, *flags):
@@ -238,6 +239,47 @@ class NoJqTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             r = rows(t, t)
             self.assertEqual(r["installed version"][0], "FAIL")
+
+
+class SandboxProbeTests(unittest.TestCase):
+    """Probe output shape with injected failures, and the doctor rows it produces."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / ".claude/skills/agentic-delivery/scripts"))
+        import sandbox_probe
+        self.sp = sandbox_probe
+
+    def boom(self):
+        raise OSError("blocked")
+
+    def test_injected_failures_print_cause_fix_and_verdict(self):
+        items = [(n, (self.boom if n in ("network", "local-bind") else (lambda: None)), c, f) for n, _, c, f in self.sp.checks(".")]
+        lines, bad = self.sp.probe(items)
+        self.assertEqual(bad, 2)
+        self.assertEqual(len(lines), len(items) + 1)
+        self.assertIn('FAIL  network: HTTPS to github.com is blocked. Fix: add "github.com" to sandbox.network.allowedDomains', lines)
+        self.assertIn("FAIL  local-bind: dev servers cannot listen on localhost. Fix: set sandbox.network.allowLocalBinding: true", lines)
+        self.assertIn("OK    git", lines)
+        self.assertRegex(lines[-1], r"^sandbox probe: 2 of 5 checks failed; run python3 .*sandbox_probe\.py")
+
+    def test_all_ok_verdict(self):
+        lines, bad = self.sp.probe([(n, lambda: None, c, f) for n, _, c, f in self.sp.checks(".")])
+        self.assertEqual(bad, 0)
+        self.assertTrue(lines[-1].startswith("sandbox probe: 5/5 checks passed in this shell"))
+
+    def test_checks_are_harmless(self):
+        src = (ROOT / ".claude/skills/agentic-delivery/scripts/sandbox_probe.py").read_text()
+        for bad in ('"rm"', '"kill"', "unlink(", "rmtree", "os.remove", "os.kill", "worktree"):
+            self.assertNotIn(bad, src)
+
+    def test_doctor_turns_probe_failures_into_warn_rows(self):
+        items = [(n, self.boom if n == "cache-write" else (lambda: None), c, f) for n, _, c, f in self.sp.checks(".")]
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"DCR_NO_PROBE": ""}), \
+                mock.patch.object(self.sp, "checks", lambda repo: items):
+            r = rows(d, d)
+        self.assertEqual(r["sandbox git"], ("OK", "works"))
+        self.assertEqual(r["sandbox cache-write"][0], "WARN")
+        self.assertIn('Fix: add "~/.cache" to sandbox.filesystem.allowWrite', r["sandbox cache-write"][1])
 
 
 if __name__ == "__main__":

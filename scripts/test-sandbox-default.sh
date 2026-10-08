@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SC="$ROOT/.claude/skills/agentic-delivery/scripts"
 command -v jq >/dev/null 2>&1 || { echo "SKIP  jq missing"; exit 0; }
 W="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-sb.XXXXXX")"
+export DCR_NO_PROBE=1  # no network probe on test installs; the probe has its own tests
 fail=0; n=0
 ok() { n=$((n+1)); if [ "$1" -eq 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; fail=1; fi; }
 
@@ -17,11 +18,24 @@ bash "$ROOT/install.sh" --with-delivery --apply-operating-layer --no-sandbox "$W
 A="$W/a/.claude/settings.local.json"; B="$W/b/.claude/settings.local.json"
 jq -e '.hooks.SubagentStop | length > 0' "$A" "$B" >/dev/null; ok $? "apply and --no-sandbox both still merge hooks"
 
-[ "$(jq -c '.sandbox' "$A")" = '{"enabled":true,"allowUnsandboxedCommands":false}' ]; ok $? "apply: sandbox on, unsandboxed retry off"
+jq -e '.sandbox.enabled == true and .sandbox.allowUnsandboxedCommands == false and .sandbox.autoAllowBashIfSandboxed == true' "$A" >/dev/null; ok $? "apply: sandbox on, unsandboxed retry off, sandboxed commands auto-allowed"
+jq -e '.sandbox.excludedCommands == ["gh *"] and (.permissions.allow | index("Bash(gh *)")) and .sandbox.network.allowLocalBinding == true
+  and (.sandbox.network.allowedDomains | contains(["github.com","*.github.com","*.githubusercontent.com","registry.npmjs.org","*.npmjs.org","pypi.org","files.pythonhosted.org"]))
+  and (.sandbox.filesystem.allowWrite | contains(["~/.cache","~/.npm"]))' "$A" >/dev/null; ok $? "apply: autonomy-ready keys present"
 jq -e '.permissions.deny | contains(["Bash(rm -rf *)","Bash(rm -fr *)","Bash(rm -r *)","Bash(rm -R *)","Bash(sudo *)"])' "$A" >/dev/null; ok $? "apply: rm/sudo deny rules present"
 jq -e '.permissions.deny | index("Bash(curl *)")' "$A" >/dev/null; ok $? "apply: existing deny rule kept"
 bash "$ROOT/install.sh" --with-delivery --apply-operating-layer "$W/a" >/dev/null 2>&1
-[ "$(jq '.permissions.deny | length' "$A")" = 6 ]; ok $? "apply: idempotent deny list (6 entries)"
+[ "$(jq '.permissions.deny | length' "$A")" = 12 ]; ok $? "apply: idempotent deny list (12 entries)"
+for c in "gh repo delete *" "gh release delete *" "gh api -X DELETE *" "gh api --method DELETE *" "gh api * -X DELETE*" "gh api * --method DELETE*"; do
+  jq -e --arg r "Bash($c)" '.permissions.deny | index($r)' "$A" >/dev/null; ok $? "apply: destructive gh denied: $c"
+done
+mkdir -p "$W/d/.claude"
+echo '{"sandbox":{"enabled":false,"excludedCommands":["docker compose *"],"network":{"allowedDomains":["example.com"]}},"permissions":{"allow":["Bash(make *)"]}}' >"$W/d/.claude/settings.local.json"
+bash "$ROOT/install.sh" --with-delivery --apply-operating-layer "$W/d" >/dev/null 2>&1
+D="$W/d/.claude/settings.local.json"
+jq -e '.sandbox.enabled == false and .sandbox.excludedCommands == ["docker compose *","gh *"] and .sandbox.network.allowedDomains[0] == "example.com"
+  and (.sandbox.network.allowedDomains | index("pypi.org")) and .sandbox.network.allowLocalBinding == true and .permissions.allow == ["Bash(make *)","Bash(gh *)"]' "$D" >/dev/null
+ok $? "merge: existing values win, nested keys kept, lists unioned"
 grep -q "sandbox.enabled=true" "$W/a.out"; ok $? "apply: What changed lists sandbox"
 jq -e 'has("sandbox") or has("permissions") | not' "$B" >/dev/null; ok $? "--no-sandbox: no sandbox or deny keys"
 grep -q "NO sandbox" "$W/b.out"; ok $? "--no-sandbox: risk warning printed"
@@ -29,8 +43,9 @@ python3 "$SC/operating_selfcheck.py" --settings "$A" | grep -q "^sandbox-on: PRE
 python3 "$SC/operating_selfcheck.py" --settings "$B" | grep -q "^sandbox-on: MISSING RED"; ok $? "selfcheck: sandbox off is MISSING RED"
 grep -q "host-safety.md#common-sandbox-errors" "$W/a.out"; ok $? "install: notice points at Common sandbox errors"
 grep -q "^## Common sandbox errors" "$ROOT/docs/host-safety.md"; ok $? "docs: Common sandbox errors section exists"
-python3 "$SC/operating_selfcheck.py" --settings "$A" | grep -q "^WARN: sandbox on and gh not excluded"; ok $? "selfcheck: WARN when gh not excluded"
-jq '.sandbox.excludedCommands=["gh *"]' "$A" >"$W/c.json"
-python3 "$SC/operating_selfcheck.py" --settings "$W/c.json" | grep -q "^WARN"; [ $? -ne 0 ]; ok $? "selfcheck: no WARN when gh excluded"
+python3 "$SC/operating_selfcheck.py" --settings "$A" | grep -q "^WARN"; [ $? -ne 0 ]; ok $? "selfcheck: no WARN, template excludes gh"
+jq 'del(.sandbox.excludedCommands)' "$A" >"$W/c.json"
+python3 "$SC/operating_selfcheck.py" --settings "$W/c.json" | grep -q "^WARN: sandbox on and gh not excluded"; ok $? "selfcheck: WARN when gh not excluded"
+grep -q "^## Autonomy-ready defaults" "$ROOT/docs/host-safety.md"; ok $? "docs: Autonomy-ready defaults section exists"
 python3 "$SC/operating_selfcheck.py" --selftest >/dev/null; ok $? "selfcheck --selftest"
 echo "Tests: $n/$n passed (fail=$fail)"; exit "$fail"
