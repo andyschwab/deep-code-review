@@ -489,7 +489,7 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
     # dm: recursive merge, existing (right) values win, arrays unioned (existing order first).
     jq --argjson t "${OPLAYER_JSON}" '
       def dm($a; $b): if ($a|type) == "object" and ($b|type) == "object"
-          then reduce ($a + $b | keys[]) as $k ({}; .[$k] = (if ($a|has($k)) and ($b|has($k)) then dm($a[$k]; $b[$k]) elif ($b|has($k)) then $b[$k] else $a[$k] end))
+          then reduce ($a + $b | keys_unsorted[]) as $k ({}; .[$k] = (if ($a|has($k)) and ($b|has($k)) then dm($a[$k]; $b[$k]) elif ($b|has($k)) then $b[$k] else $a[$k] end))
         elif ($a|type) == "array" and ($b|type) == "array" then $b + ($a - $b) else $b end;
       reduce ($t.hooks | keys[]) as $e (.;
           (.hooks[$e] // []) as $a
