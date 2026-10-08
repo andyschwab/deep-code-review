@@ -3,7 +3,7 @@
 
   learning_to_pr.py (--text T | --file F) [--title T] --target REL [--skills DIR] [--out DIR]
 
-Opt-in primitive, run by hand or by an agent after a lesson is recorded; it is not called automatically.
+Run by hand or by an agent after a lesson is recorded; share_learning.py prints an offer to run it (draft only, it never runs this itself).
 Pipeline, fail closed:
  1. policy: `share_learnings=off` exits 0 doing nothing (same switch as share_learning.py).
  2. privacy: prefile_check.sh plus a regex gate (emails, URLs, IPs, *.internal/*.local/*.corp hosts) run on the RAW

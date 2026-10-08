@@ -22,6 +22,7 @@ default for this lane, not a suggestion.
 - Board posts only through `python3 .claude/skills/agentic-delivery/scripts/board_post.py --repo <owner/name> --issue <issue> --type <CLAIM|RELEASE|HANDOFF|BLOCKER> ...` — typed posts, never free-form chat to a shared board.
 
 ## Verification
+- Before a heavy local command (full test suite, build, browser run): `python3 .claude/skills/agentic-delivery/scripts/host_probe.py --lane-type heavy`; `HOLD` means wait a minute and retry, at most 3 times, then proceed and say so; `COULD_NOT_CHECK` means proceed and say so. Run at most `python3 .claude/skills/agentic-delivery/scripts/perun_policy.py heavy-slots` such commands at once.
 - No "done" without evidence: a test id, an exact sha, or a file path — never a bare assertion.
 - Parked/handback claim: `python3 .claude/skills/agentic-delivery/scripts/lane_guard.py handback --sha <sha> --base <dispatch-base> --branch <branch> --cite <path> --artifact-root <dir>` (one `--cite` per committed evidence file; absolute artifacts must sit under `--artifact-root`). A refusal means not parked.
 - Deployed/served claim: `python3 .claude/skills/agentic-delivery/scripts/surface_check.py served --url <url> --expect-sha <sha> ...`.

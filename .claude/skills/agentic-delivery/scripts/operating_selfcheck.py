@@ -140,6 +140,9 @@ def check_scripts(skill_root: str) -> dict:
         # token_ratchet.py = tokens per delivered PR vs a baseline; same N/A rule as the pacer
         "token-ratchet": ("PRESENT" if os.path.isfile(ratchet) else "MISSING")
         if os.path.isdir(pacer_sibling_dir) else pacer_status,
+        # weekly_receipt.py = one-screen value card; presence only, WARN-level (never blocks)
+        "weekly-receipt": ("PRESENT" if os.path.isfile(os.path.join(pacer_sibling_dir, "scripts", "weekly_receipt.py"))
+                           else "MISSING") if os.path.isdir(pacer_sibling_dir) else pacer_status,
     }
 
 
@@ -259,6 +262,8 @@ def _selftest() -> int:
              fake["usage-window-pacer"].startswith("N/A") and "--with-ceo" in fake["usage-window-pacer"], True)
 
         case("fake-skill-root-ratchet-na", fake["token-ratchet"].startswith("N/A"), True)
+        case("fake-skill-root-receipt-na", fake["weekly-receipt"].startswith("N/A"), True)
+        case("real-skill-root-receipt-present", real["weekly-receipt"], "PRESENT")
         full = report(after_path, real_root)
         for item in PROTOCOL_ONLY:
             case(f"protocol-only-{item}-could-not-check", full[item].startswith("COULD_NOT_CHECK"), True)
