@@ -72,6 +72,7 @@ Default: install REVIEW ONLY into .agents/skills/, .cursor/skills/, and
 on re-install). Overlay skills are opt-in.
 
   --minimal            Only .claude/skills/ + AGENTS.md
+  --policy dim=value[,dim=value]  Write .perun/policy.json (e.g. local_cpu=maximize,github_actions=off,share_learnings=auto)
   --with-codex         Also .codex/skills/
   --with-extra-hosts   Also Gemini, OpenCode, Copilot, Windsurf, Hermes, Kiro
   --claude-only        Only .claude/skills/; skip AGENTS.md
@@ -157,6 +158,7 @@ RECOMMEND_ONLY=0
 POSITIONAL=()
 TRACKER_PROJECT=""
 TRACKER="linear"
+POLICY=""
 NEXT_OPT=""
 for arg in "$@"; do
   if [[ -n "${NEXT_OPT}" ]]; then
@@ -165,6 +167,8 @@ for arg in "$@"; do
   case "${arg}" in
     --tracker-project) NEXT_OPT=TRACKER_PROJECT ;;
     --tracker) NEXT_OPT=TRACKER ;;
+    --policy) NEXT_OPT=POLICY ;;
+    --policy=*) POLICY="${arg#*=}" ;;
     --tracker-project=*) TRACKER_PROJECT="${arg#*=}" ;;
     --tracker=*) TRACKER="${arg#*=}" ;;
     --claude-only) WRITE_AGENTS=0; MINIMAL=1 ;;
@@ -226,10 +230,16 @@ if [[ "${APPLY_OPLAYER}" -eq 1 ]] && ! command -v jq >/dev/null 2>&1; then
 fi
 
 TARGET_DIR="${POSITIONAL[0]:-$(pwd)}"
+POLICY_PY="${SCRIPT_DIR}/.claude/skills/agentic-delivery/scripts/perun_policy.py"
 
 if [[ ! -d "${TARGET_DIR}" ]]; then
   echo "error: target directory does not exist: ${TARGET_DIR}" >&2
   exit 1
+fi
+
+if [[ -n "${POLICY}" ]]; then  # validate + write before installing anything
+  IFS=, read -ra _kv <<< "${POLICY}"
+  for kv in "${_kv[@]}"; do (cd "${TARGET_DIR}" && python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null) || exit 2; done
 fi
 
 if [[ "$(cd "${TARGET_DIR}" && pwd)" == "${SCRIPT_DIR}" ]]; then
@@ -725,6 +735,7 @@ if [[ -z "${DCR_NO_PROBE:-}" && -f "${PROBE}" ]] && command -v python3 >/dev/nul
 fi
 
 # Last three lines, plain English: what changed, the one next command, how to undo.
+echo "Policy: $(cd "${TARGET_DIR}" && python3 "${POLICY_PY}" show)"
 echo
 echo "Perun installed ${#SKILLS[@]} skill(s) into ${#HOSTS[@]} tool folder(s) of ${TARGET_DIR}."
 echo "Next, run this one command to confirm it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}"

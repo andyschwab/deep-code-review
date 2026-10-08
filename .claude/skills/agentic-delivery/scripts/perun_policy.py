@@ -11,6 +11,9 @@ Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-
 `share_learnings` takes `auto|ask|off` (default `ask`).
 
   perun_policy.py get <dim>      print the value (a number prints as a number)
+  perun_policy.py show           print the whole effective policy as JSON
+  perun_policy.py set <dim> <value>  validate, write `.perun/policy.json` (created if absent), print the policy
+  perun_policy.py skip-ci        print `[skip ci]` when github_actions is off, else nothing
   perun_policy.py lanes          parallel-lane count from local_cpu (see lanes())
   perun_policy.py heavy-slots    heavy-command concurrency = max(2, free cores) (see heavy_slots())
   perun_policy.py heavy-acquire  take a machine-wide heavy lease (exit 0 + prints pid) or exit 1 when full
@@ -65,6 +68,28 @@ def load(path: Path | None = None) -> dict:
         if not ok:
             raise ValueError(f"bad value for {k}: {v!r}")
         pol[k] = v
+    return pol
+
+
+def set_value(dim: str, value: str) -> dict:
+    """Set one dimension (a number string becomes a number) in the policy file: `$PERUN_POLICY`, the nearest
+    `.perun/policy.json`, else `./.perun/policy.json` (created). Validated through load() before the atomic
+    replace, so a bad dim/value or malformed existing file raises ValueError and leaves the file untouched."""
+    path = find_policy() or Path(".perun/policy.json")
+    try:
+        raw = json.loads(path.read_text()) if path.is_file() else {}
+    except (OSError, json.JSONDecodeError) as e:
+        raise ValueError(f"unreadable policy {path}: {e}") from e
+    v = (int(value) if value.isdigit() else float(value)) if value.replace(".", "", 1).isdigit() else value
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps({**raw, dim: v}, indent=2) + "\n")
+    try:
+        pol = load(tmp)
+    except ValueError:
+        tmp.unlink()
+        raise
+    os.replace(tmp, path)
     return pol
 
 
@@ -147,6 +172,15 @@ def main(argv: list) -> int:
         if argv[:1] == ["get"] and len(argv) == 2 and argv[1] in pol:
             print(pol[argv[1]])
             return 0
+        if argv == ["show"]:
+            print(json.dumps(pol))
+            return 0
+        if argv == ["skip-ci"]:
+            print("[skip ci]" if pol["github_actions"] == "off" else "")
+            return 0
+        if argv[:1] == ["set"] and len(argv) == 3:
+            print(json.dumps(set_value(argv[1], argv[2])))
+            return 0
         if argv == ["lanes"]:
             import host_probe  # lazy: host_probe imports this module
             load1, cores = host_probe.read_load1_and_cores()
@@ -197,6 +231,16 @@ def _selftest() -> int:
         except ValueError:
             continue
         raise AssertionError(bad)
+    os.environ["PERUN_POLICY"] = str(d / "set" / "p.json")
+    assert set_value("tokens", "3000")["tokens"] == 3000 and set_value("local_cpu", "maximize")["local_cpu"] == "maximize"
+    assert json.loads((d / "set" / "p.json").read_text()) == {"tokens": 3000, "local_cpu": "maximize"}
+    for bad in (("tokens", "lots"), ("nope", "1"), ("share_learnings", "yes")):
+        try:
+            set_value(*bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    del os.environ["PERUN_POLICY"]
     assert [lanes(m, 8, 3) for m in ("efficient", "maximize", "off", 3)] == [4, 5, 1, 3]
     assert lanes("maximize", 8, 99) == 1
     assert [heavy_slots(8, 3), heavy_slots(8, 7.5), heavy_slots(8, 99), heavy_slots(1), heavy_slots(8)] == [5, 2, 2, 2, 8]

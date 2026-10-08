@@ -86,8 +86,16 @@ Every resource is spent efficiently unless you name a front to push. One file,
   ceilings in `host_probe.py`. `train_land.sh` exports `PERUN_JOBS` from it.
 - `github_actions: off` means local gates only: Perun's merges carry `[skip ci]`,
   it never polls or re-runs CI, and the shipped workflows skip when the repository
-  variable `PERUN_GITHUB_ACTIONS` is `off`.
-- `share_learnings` (`auto|ask|off`, default `ask`) governs `share_learning.py`.
+  variable `PERUN_GITHUB_ACTIONS` is `off`. Lanes also end every pushed branch commit
+  with `[skip ci]` (lane preamble; `perun_policy.py skip-ci` prints the token), so opening a PR or
+  pushing a branch starts no runner either. Limitation: a required status check never reports on a
+  `[skip ci]` commit, so branch protection that requires checks blocks the merge; satisfy them with
+  local gates (or an owner-approved admin merge). Perun's own scripts create no pushed commits.
+- Set it without hand-writing JSON: `perun_policy.py set local_cpu maximize`, or at install
+  `./install.sh --policy local_cpu=maximize,github_actions=off,share_learnings=auto`.
+- `tokens: efficient` means the cheapest fitting model tier, at most 2 parallel lanes, no duplicate
+  review passes and terse hand-backs; `maximize` lifts those limits.
+- `share_learnings` (`auto|ask|off`, default `ask`) governs `share_learning.py`; `auto` also runs it at the end of `/perun-run`, after its privacy gate.
 - Agents read the policy (`python3 scripts/perun_policy.py get <dim>`) before choosing
   parallelism, CI, or model. A malformed file fails closed.
 
