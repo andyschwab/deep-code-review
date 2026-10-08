@@ -36,7 +36,7 @@ def _cache_write():
 def checks(repo):
     """(name, callable that raises on failure, plain-English cause, exact fix) for each probe."""
     return [
-        ("git", lambda: _run(["git", "status", "--porcelain"], cwd=repo), "git cannot run in this repo",
+        ("git", lambda: _run(["git", "--no-optional-locks", "status", "--porcelain"], cwd=repo), "git cannot run in this repo",
          "run the failing git command yourself with the ! prefix (protected paths such as .claude/skills stay write-denied)"),
         ("python-ssl", lambda: _run([sys.executable, "-c", "import ssl"]), "python3 has no working ssl module",
          "reinstall python3 with OpenSSL support (not a sandbox setting)"),
@@ -59,7 +59,7 @@ def probe(items):
             bad += 1
             lines.append(f"FAIL  {name}: {cause}. Fix: {fix}")
     n = len(items)
-    lines.append(f"sandbox probe: {n}/{n} checks passed in this shell; agents can work without manual permission edits" if not bad
+    lines.append(f"sandbox probe: {n}/{n} checks passed in this shell (run it from an agent session to test the agent sandbox)" if not bad
                  else f"sandbox probe: {bad} of {n} checks failed; run python3 {Path(__file__).resolve()} for the fixes")
     return lines, bad
 
