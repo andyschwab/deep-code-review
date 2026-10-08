@@ -1,0 +1,2 @@
+### Added
+- Fleet enforcement that runs after install: a PreToolUse(Bash) hook (`heavy_gate.py`) that defers test runners and builds while the host is overloaded or the machine-wide heavy leases are full, and a SessionStart hook (`session_brief.py`) that reports a stale Perun version, merged worktrees, dev servers left listening and the top-ranked priority in at most three lines. Both are report-only, fail open, and are wired by `--apply-operating-layer`.

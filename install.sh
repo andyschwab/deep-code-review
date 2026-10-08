@@ -573,6 +573,10 @@ mkdir -p "${TARGET_DIR}/.claude"
   # tracker flags replay as single-token --opt=value lines (the marker is one arg per line)
   [[ -n "${TRACKER_PROJECT}" ]] && printf -- '--tracker-project=%s\n--tracker=%s\n' "${TRACKER_PROJECT}" "${TRACKER}"
   true; } > "${TARGET_DIR}/.claude/.dcr-install-flags"
+# session_brief.py compares the installed version to this checkout's origin/main (machine-local, never committed).
+if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
+  { mkdir -p "${XDG_CACHE_HOME:-${HOME}/.cache}/perun" && printf '%s\n' "${SCRIPT_DIR}" > "${XDG_CACHE_HOME:-${HOME}/.cache}/perun/source"; } 2>/dev/null || true
+fi
 
 upsert_agents_block() {
   local agents="$1"

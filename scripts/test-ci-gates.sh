@@ -3872,6 +3872,54 @@ else
   record 1 "pipe_mask_guard: gate|tail warns/blocks; pipefail, PIPESTATUS, unrelated pipe, || pass"
 fi
 
+# heavy_gate + session_brief (fleet enforcement): injected load/RAM/leases and git fixtures; report-only hooks.
+hg="$ROOT/.claude/skills/agentic-delivery/scripts/heavy_gate.py"
+sbr="$ROOT/.claude/skills/agentic-delivery/scripts/session_brief.py"
+hg_dir="$(mktemp -d "${TMPDIR:-/tmp}/hg.XXXXXX")"
+hg_run() { printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" \
+  | PERUN_POLICY="$hg_dir/pol.json" PERUN_HEAVY_DIR="$hg_dir/leases" PERUN_GATE_CORES=8 "${@:2}" python3 "$hg"; }
+echo '{}' >"$hg_dir/pol.json"; mkdir -p "$hg_dir/leases" "$hg_dir/busy"
+printf '%s %s\n' "$$" "$(date +%s)" >"$hg_dir/busy/$$"; printf '%s %s\n' "$PPID" "$(date +%s)" >"$hg_dir/busy/$PPID"
+hg_t0=$(python3 -c 'import time;print(time.time())')
+hg_ok=1
+hg_run 'cd x && npm test' env PERUN_GATE_LOAD1=20 PERUN_GATE_FREE_RAM_PCT=60 | grep -q '"deny".*machine busy (load 20.0/8' || { hg_ok=0; echo "hg: load-high not blocked"; }
+hg_run 'pytest -q' env PERUN_GATE_LOAD1=1 PERUN_GATE_FREE_RAM_PCT=5 | grep -q 'low-ram' || { hg_ok=0; echo "hg: low-ram not blocked"; }
+hg_run 'pytest -q' env PERUN_GATE_LOAD1=7 PERUN_GATE_FREE_RAM_PCT=60 PERUN_HEAVY_DIR="$hg_dir/busy" | grep -q 'heavy-lease-full 2/2' || { hg_ok=0; echo "hg: full lease not blocked"; }
+echo '{"local_cpu": "maximize"}' >"$hg_dir/max.json"
+[ -z "$(hg_run 'pytest -q' env PERUN_GATE_LOAD1=7 PERUN_GATE_FREE_RAM_PCT=60 PERUN_HEAVY_DIR="$hg_dir/busy" PERUN_POLICY="$hg_dir/max.json")" ] || { hg_ok=0; echo "hg: maximize did not raise slots"; }
+[ -z "$(hg_run 'npm run build' env PERUN_GATE_LOAD1=1 PERUN_GATE_FREE_RAM_PCT=60)" ] || { hg_ok=0; echo "hg: idle host blocked"; }
+[ -z "$(hg_run 'git commit -m fix-pytest-flake && grep jest x' env PERUN_GATE_LOAD1=99 PERUN_GATE_FREE_RAM_PCT=1)" ] || { hg_ok=0; echo "hg: non-heavy command blocked"; }
+[ -z "$(hg_run 'make check' env PERUN_GATE_LOAD1=99 PERUN_HEAVY_PATTERNS='make check\b' PERUN_GATE_FREE_RAM_PCT=60 | grep -v deny)" ] \
+  && hg_run 'make check' env PERUN_GATE_LOAD1=99 PERUN_HEAVY_PATTERNS='make check\b' PERUN_GATE_FREE_RAM_PCT=60 | grep -q deny || { hg_ok=0; echo "hg: custom pattern ignored"; }
+[ -z "$(printf 'not json' | python3 "$hg")" ] || { hg_ok=0; echo "hg: garbage stdin not allowed"; }
+[ -z "$(hg_run 'pytest' env PERUN_GATE_LOAD1=99 PERUN_GATE_FREE_RAM_PCT=60 PERUN_POLICY="$hg_dir/absent.json" | grep -v deny)" ] || { hg_ok=0; echo "hg: bad policy crashed"; }
+printf '{"tool_input":{"command":"pytest"}}' | bash -c 'python3 "$1" || true' _ "$hg_dir/missing.py" 2>/dev/null; [ $? -eq 0 ] || { hg_ok=0; echo "hg: missing hook file did not fail open"; }
+hg_ms=$(python3 -c "import time,subprocess;t=time.time();subprocess.run(['python3','$hg'],input=b'{\"tool_input\":{\"command\":\"pytest\"}}',capture_output=True);print(int((time.time()-t)*1000))")
+[ "$hg_ms" -lt 200 ] || { hg_ok=0; echo "hg: slow (${hg_ms}ms)"; }
+# session_brief: git fixture with one merged worktree, a PRIORITIES.md, a stale installed version.
+sb_src="$hg_dir/src"; sb_repo="$hg_dir/repo"; mkdir -p "$sb_src/.claude/skills/deep-code-review"
+git -C "$sb_src" init -q -b main && echo 9.9.9 >"$sb_src/.claude/skills/deep-code-review/VERSION" \
+  && git -C "$sb_src" add -A && git -C "$sb_src" -c user.name=t -c user.email=t@example.com commit -qm v \
+  && git -C "$sb_src" update-ref refs/remotes/origin/main HEAD
+git clone -q "$sb_src" "$sb_repo" && echo 1.0.0 >"$sb_repo/.claude/skills/deep-code-review/VERSION" \
+  && git -C "$sb_repo" worktree add -q -b done-lane "$hg_dir/wt/done" origin/main 2>/dev/null \
+  && printf '# P\n1. #42 Fix the importer\n2. #7 Other\n' >"$sb_repo/PRIORITIES.md"
+sb_out=$(cd "$sb_repo" && echo '{}' | PERUN_SOURCE="$sb_src" CLAUDE_PROJECT_DIR="$sb_repo" python3 "$sbr" | python3 -c 'import json,sys;print(json.load(sys.stdin)["systemMessage"])')
+[ "$(printf '%s\n' "$sb_out" | wc -l)" -le 3 ] \
+  && printf '%s' "$sb_out" | grep -q "perun 1.0.0 < 9.9.9.*update-installed.sh" \
+  && printf '%s' "$sb_out" | grep -q "1 worktree(s) merged into origin/main.*clean_finished.sh" \
+  && printf '%s' "$sb_out" | grep -q "#42 Fix the importer" || { hg_ok=0; echo "sb: brief wrong: $sb_out"; }
+[ -z "$(cd "$hg_dir" && echo x | PERUN_SOURCE=/nonexistent CLAUDE_PROJECT_DIR="$hg_dir/none" python3 "$sbr")" ] || { hg_ok=0; echo "sb: noisy outside a repo"; }
+# report-only: no hook file may delete or stop anything.
+if grep -nE '\brm[[:space:]]|\bkill\b|pkill|worktree[[:space:]",]+remove|rmtree|os\.(remove|unlink|kill)|find .*-delete|\.unlink\(' "$hg" "$sbr"; then
+  hg_ok=0; echo "hooks contain a delete/kill call"
+fi
+if [ "$hg_ok" = 1 ]; then
+  record 0 "heavy_gate/session_brief: load/RAM/lease blocks, maximize, fail-open, <200ms (${hg_ms}ms), <=3-line brief, no delete/kill"
+else
+  record 1 "heavy_gate/session_brief: load/RAM/lease blocks, maximize, fail-open, <200ms, <=3-line brief, no delete/kill"
+fi
+
 # escaped_defects --gh (#1331): an empty --since is an empty search term; must not query gh.
 ed="$ROOT/.claude/skills/agentic-delivery/scripts/escaped_defects.py"
 if python3 -c "import sys; sys.path.insert(0,'$(dirname "$ed")'); import escaped_defects as e; assert e.gh_escaped('', None) is None and e.gh_escaped('  ', None) is None"; then
