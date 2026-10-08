@@ -174,9 +174,11 @@ new `FAIL <id>` from the browser gate alone up to 3 times (`train_flake.sh`); an
 of 3, flakes are reported separately and never block, and only PRs that fail the real ids merged alone onto the base are
 dropped before the rest re-verify and land. While the gate runs it holds the exclusive machine-wide heavy lease
 (`perun_policy.py heavy-exclusive`), so `heavy_gate.py` denies other heavy commands with "gate running: wait" and lanes stop
-adding load; pushes go through one serial queue (`train-push.lock`). Waits use the `_lock.sh` mkdir lock, never a
-process-name match; a lock is reclaimed only when older than `LOCK_TIMEOUT_MIN` and its pid is dead, and is otherwise
-reported, never deleted. Tests: `scripts/test-train-resilience.sh`.
+adding load; pushes go through one serial queue (`train-push.lock`). The lease is valid while its pid is alive and its mtime is
+fresh; the train renews it at each step. Waits use the `_lock.sh` mkdir lock, never a process-name match; a lock that looks
+stale is reported with the command to clear it by hand and is never moved or deleted automatically. A red browser run lands
+only when every new listed failure re-ran as a flake and the runner's own `FAILURES <n>` count is not above the listed `FAIL`
+lines. Tests: `scripts/test-train-resilience.sh`.
 
 ## An independent-PR-queue cascade is a cadence choice, not a new authority
 

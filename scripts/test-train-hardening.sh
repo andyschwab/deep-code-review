@@ -48,6 +48,9 @@ out=$(VERIFY_CMD="$RED" UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh"
 kill "$P" 2>/dev/null; wait "$P" 2>/dev/null
 echo 1 >"$LOCK/ts"  # old record: a pid-only lock counts as young (owner may be mid-write)
 out=$(VERIFY_CMD="$RED" UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t3 1 2 2>&1); rc=$?
-[ $rc -eq 3 ] && [ ! -e "$LOCK" ]; ok $? "train_land: a dead holder's lock is reclaimed and released on exit"
+[ $rc -eq 1 ] && grep -q "STALE-LOCK" <<<"$out" && [ -d "$LOCK" ]; ok $? "train_land: a dead holder's lock is reported with a clear command, never auto-reclaimed"
+rm -f "$LOCK/pid" "$LOCK/ts"; rmdir "$LOCK"
+out=$(VERIFY_CMD="$RED" UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t4 1 2 2>&1); rc=$?
+[ $rc -eq 3 ] && [ ! -e "$LOCK" ]; ok $? "train_land: after the hand clear the lock is taken and released on exit"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
