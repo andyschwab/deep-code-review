@@ -1,0 +1,1 @@
+- Sandbox friction: docs/host-safety.md gains a "Common sandbox errors" section (gh `x509 OSStatus -26276`, dev-server `EPERM`) with the user-run fix and its tradeoff; install.sh points at it; `operating_selfcheck.py` warns when the sandbox is on and gh is not excluded. Defaults unchanged.

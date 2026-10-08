@@ -156,6 +156,29 @@ def report(settings_path: str, skill_root: str) -> dict:
     return out
 
 
+GH_WARN = ("WARN: sandbox on and gh not excluded -- gh may fail with `x509 ... OSStatus -26276`; run "
+           "`/sandbox exclude \"gh *\"` (gh then runs unsandboxed; see docs/host-safety.md#common-sandbox-errors)")
+
+
+def sandbox_gh_warn(settings_path: str) -> str | None:
+    """`GH_WARN` when settings turn the sandbox on and no `sandbox.excludedCommands` entry covers `gh`.
+
+    Reads settings only; None when the file is missing/unreadable, the sandbox is off, or gh is excluded.
+    """
+    try:
+        with open(settings_path, encoding="utf-8") as fh:
+            sb = json.load(fh).get("sandbox")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(sb, dict) or sb.get("enabled") is not True:
+        return None
+    ex = sb.get("excludedCommands")
+    ex = ex if isinstance(ex, list) else []
+    if any(isinstance(e, str) and (e.strip() == "gh" or e.strip().startswith(("gh ", "gh:"))) for e in ex):
+        return None
+    return GH_WARN
+
+
 def main(argv: list | None = None) -> int:
     parser = argparse.ArgumentParser(description="Per-item present/missing/could-not-check report "
                                                   "for the always-on operating layer.")
@@ -175,6 +198,9 @@ def main(argv: list | None = None) -> int:
         rep.update(host_safety.report(args.project, tsv))
     for item, status in sorted(rep.items()):
         print(f"{item}: {status}")
+    warn = sandbox_gh_warn(args.settings)
+    if warn:
+        print(warn)
     return 0
 
 
@@ -248,6 +274,15 @@ def _selftest() -> int:
             fh.write("{not json")
         case("malformed-settings-could-not-check",
              check_settings(malformed_path)["handback-cap-two-tier"].startswith("COULD_NOT_CHECK"), True)
+
+        gh_path = os.path.join(tmp, "gh.json")
+        for name, sb, want in (("off", {"enabled": False}, False), ("on-no-exclude", {"enabled": True}, True),
+                               ("on-excluded", {"enabled": True, "excludedCommands": ["gh *"]}, False),
+                               ("on-other-exclude", {"enabled": True, "excludedCommands": ["ghost"]}, True)):
+            with open(gh_path, "w", encoding="utf-8") as fh:
+                json.dump({"sandbox": sb}, fh)
+            case(f"gh-warn-{name}", sandbox_gh_warn(gh_path) is not None, want)
+        case("gh-warn-no-file", sandbox_gh_warn(os.path.join(tmp, "nope.json")), None)
 
         # script-file presence against this repo's own real, installed skill root
         real_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
