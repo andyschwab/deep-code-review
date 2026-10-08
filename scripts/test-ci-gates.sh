@@ -1825,7 +1825,15 @@ fi
 # Trigger coverage (#1333): every description <= 300 chars, every should_trigger
 # moment named in it, every ceo_route phrase present in agentic-ceo.
 if python3 "$ROOT/scripts/trigger_coverage.py" "$ROOT" >"$WORK/last.log" 2>&1; then GATE_RC=0; else GATE_RC=$?; fi
-record "$GATE_RC" "trigger-coverage: descriptions <=300, moments and ceo routes covered"
+record "$GATE_RC" "trigger-coverage: descriptions <=300, moments and ceo routes covered, rank proxy"
+# Planted RED for the rank proxy: skill "aa" owns a prompt that only skill "bb"'s
+# description matches, so the gate must go non-zero and name RANK aa:wrong.
+tc="$WORK/trigger-rank"; mkdir -p "$tc/.claude/skills/aa/evals" "$tc/.claude/skills/bb"
+printf -- '---\ndescription: >-\n  alpha apples\n---\n' >"$tc/.claude/skills/aa/SKILL.md"
+printf -- '---\ndescription: >-\n  zebra stripes\n---\n' >"$tc/.claude/skills/bb/SKILL.md"
+printf '{"triggers":[{"id":"wrong","prompt":"zebra stripes","should_trigger":true,"moments":["alpha"]}]}' >"$tc/.claude/skills/aa/evals/triggers.json"
+if python3 "$ROOT/scripts/trigger_coverage.py" "$tc" >"$WORK/last.log" 2>&1; then GATE_RC=0; else GATE_RC=$?; fi
+if [ "$GATE_RC" -ne 0 ] && grep -q 'RANK aa:wrong' "$WORK/last.log"; then record 0 "trigger-coverage: planted rank miss fails and is named"; else record 1 "trigger-coverage: planted rank miss fails and is named"; fi
 
 PRED="$ROOT/scripts/eval_predicates.py"
 if [ ! -f "$PRED" ]; then
@@ -3763,6 +3771,13 @@ if bash "$ROOT/scripts/test-ultrareview-fixes.sh" >"$WORK/ultrareview.log" 2>&1;
   record 0 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"
 else
   record 1 "ultrareview fixes: operating-layer placeholder, reap_own, update-installed, inject guards"; tail -8 "$WORK/ultrareview.log"
+fi
+
+# host safety: own per-feature file (scripts/test-host-safety.sh), one case here.
+if bash "$ROOT/scripts/test-host-safety.sh" >"$WORK/host-safety.log" 2>&1; then
+  record 0 "host safety: install warns per host, selfcheck reports per-host sandbox status"
+else
+  record 1 "host safety: install warns per host, selfcheck reports per-host sandbox status"; tail -8 "$WORK/host-safety.log"
 fi
 
 # sandbox by default: own per-feature file (scripts/test-sandbox-default.sh), one case here.

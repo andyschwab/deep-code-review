@@ -3,6 +3,53 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.529.0] — 2026-10-08
+
+### Added
+- Skill activation eval (proxy): `scripts/trigger_coverage.py` now ranks every `evals/triggers.json` prompt against all skill descriptions by IDF-weighted word overlap and fails when a should-trigger prompt does not rank its own skill strictly first (or a should-not prompt does). It requires at least 3 should-trigger and 2 should-not prompts per skill. This is a cheap deterministic proxy, not a real model's activation; it runs in CI via `scripts/test-ci-gates.sh` with a planted-RED case. Refs #1380.
+
+## [1.528.0] — 2026-10-08
+
+### Added
+
+- size-budget-raise: .claude/skills/contribution/SKILL.md 12100→12720 routing for learning_to_pr.py
+- `learning_to_pr.py` (contribution skill, opt-in primitive): turns a recorded lesson into a local upstream-PR draft (`change.patch` and `body.md`). Requires `--target`; refuses on any `prefile_check.sh` hit or any email, URL, IP or private-host match in title, lesson or target (regex backstop), skips near-duplicates of existing doctrine, honors `share_learnings=off`, never pushes or files. Not called automatically. Refs #1380.
+
+## [1.527.0] — 2026-10-08
+
+### Added
+- idea-critic pushback gate: a request that conflicts with stated goals, constraints or evidence gets a conflict/evidence/recommendation note of at most 3 lines before acting, then the owner's decision is followed; destructive conflicts keep the human gate. Opt-in primitive (nothing calls it automatically), enforced by four new idea-critic evals (Refs #1380).
+
+size-budget-raise: .claude/skills/idea-critic/SKILL.md 13090→13997 pushback gate section
+
+## [1.526.0] — 2026-10-08
+
+### Added
+- Weekly value receipt (opt-in primitive, refs #1380): `agentic-ceo/scripts/weekly_receipt.py` and `/perun` print a one-screen card of PRs landed (git), tokens per PR vs a baseline (`token_report.py`), spend (`spend_report.py`), and optional findings and heavy-job-hold counts from files you supply. Every line names its source; missing data prints "unknown". Nothing calls it automatically. Tests: `scripts/test_weekly_receipt.py`.
+
+## [1.525.0] — 2026-10-08
+
+### Added
+- `token_ratchet.py` (agentic-ceo): sums session and subagent transcript usage over a window, divides by delivered PRs, writes a baseline and fails (or warns with `--warn`) when tokens per PR rise more than `--max-rise-pct` (default 20). Zero PRs or an unusable baseline exits 2 instead of passing. `operating_selfcheck.py` now reports a `token-ratchet` item. Tests: `scripts/test_token_ratchet.py` (synthetic JSONL), wired into CI. Refs #1380.
+
+## [1.524.0] — 2026-10-08
+
+### Added
+- `agentic-delivery/scripts/queue_guard.py`: single priority queue. Given `gh issue list --json` output and `PRIORITIES.md`, it prints the next issue to pull (ranked items first, then remaining P0s oldest first) and flags P0 inflation (more than N unranked P0s) instead of relabeling; tag the rest `p0:unranked`. Read-only, fails closed on bad input, `--selftest` wired into CI. Routed from `agentic-delivery/SKILL.md`.
+- size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 23424→23640 one routing bullet for queue_guard.py
+
+## [1.523.0] — 2026-10-08
+
+### Added
+- Admission control for heavy local commands: `perun_policy.py heavy-slots` adds a concurrency primitive `max(2, free cores)` and `host_probe.py --lane-type heavy` defers (`HOLD load-high`) when load1 exceeds cores; the existing free-RAM veto already defers on low RAM. Tests inject load and core values. Not yet wired into a hook or lane template; a consumer adopts it explicitly.
+
+## [1.522.0] — 2026-10-08
+
+### Added
+- `docs/host-safety.md`: per-host table (Claude Code, Cursor, Codex, Gemini CLI, Copilot, OpenCode, Windsurf, Hermes, Kiro, shared `.agents`) of OS-sandbox presence and default, the documented switch, auto-approve modes to avoid and residual risk, plus the rule that hosts without an OS sandbox run agents in a dev container or VM. Sources dated in `docs/standards-index.md`.
+- `install.sh` prints one `safety:` warning line (with the doc link) per installed host, from the single-source `templates/host-safety.tsv`.
+- `host_safety.py` and `operating_selfcheck.py` report `host-safety-<host>: ON | OFF | COULD_NOT_CHECK | NO_OS_SANDBOX` for each installed host. Tests: `scripts/test-host-safety.sh`.
+
 ## [1.521.0] — 2026-10-07
 
 ### Added

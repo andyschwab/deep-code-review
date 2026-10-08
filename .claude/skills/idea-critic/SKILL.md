@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.521.0"
+  version: "1.529.0"
 ---
 
 # Idea critic
@@ -83,6 +83,22 @@ exact-revision code review; a one-file owner-requested edit.
 Direct owner requests are never silently killed. Attack them, then
 deliver the work **and** the dissent. Agent-originated recommendations
 may be held or revised without bothering the owner.
+
+---
+
+## Pushback gate — a request that conflicts with stated goals
+
+Applies to `owner-request` work, which can be attacked but never held. When a
+request conflicts with a stated goal, constraint, or verified evidence, say so
+**before acting**, in at most 3 lines: the conflict, the evidence (a file,
+number, or prior statement you checked, not a recollection), and your
+recommendation. Then follow the owner's decision: if they confirm, comply and
+carry the dissent in the hand-off. No conflict means no pushback; do not
+manufacture one, and do not repeat a pushback the owner already overruled.
+A destructive or irreversible conflict (data loss, force-push, deleting shared
+state) keeps its human gate: do not run it until the owner confirms that
+specific action, even if they asked generally. Opt-in primitive: nothing calls
+it automatically; it is enforced only by the fixtures in `evals/evals.json`.
 
 ---
 
