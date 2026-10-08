@@ -50,6 +50,13 @@ class Ratchet(unittest.TestCase):
         self.assertEqual(w.returncode, 0)
         self.assertIn("WARN", w.stdout)
 
+    def test_write_baseline_needs_force_to_overwrite(self):
+        self.assertEqual(run(*self.common, "--prs", "2", "--write-baseline").returncode, 0)
+        self.assertEqual(run(*self.common, "--prs", "1", "--write-baseline").returncode, 2)
+        self.assertEqual(json.loads(Path(self.base).read_text())["tokens_per_pr"], 150.0)
+        self.assertEqual(run(*self.common, "--prs", "1", "--write-baseline", "--force").returncode, 0)
+        self.assertEqual(json.loads(Path(self.base).read_text())["tokens_per_pr"], 300.0)
+
     def test_zero_prs_and_bad_baseline_cannot_check(self):
         self.assertEqual(run(*self.common, "--prs", "0").returncode, 2)
         self.assertEqual(run(*self.common, "--prs", "2").returncode, 2)  # no baseline yet

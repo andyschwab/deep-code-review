@@ -13,6 +13,8 @@ Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-
   perun_policy.py get <dim>      print the value (a number prints as a number)
   perun_policy.py lanes          parallel-lane count from local_cpu (see lanes())
   perun_policy.py heavy-slots    heavy-command concurrency = max(2, free cores) (see heavy_slots())
+  perun_policy.py heavy-acquire  take a machine-wide heavy lease (exit 0 + prints pid) or exit 1 when full
+  perun_policy.py heavy-release  drop this shell's lease (idempotent)
   perun_policy.py --selftest
 
 Exit 0 ok, 2 usage / malformed policy / unknown dimension.
@@ -20,6 +22,7 @@ Exit 0 ok, 2 usage / malformed policy / unknown dimension.
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 DIMS = ("tokens", "local_cpu", "local_ram", "github_actions", "paid_api_calls", "network")
@@ -86,6 +89,56 @@ def heavy_slots(cores: int, load1: float | None = None) -> int:
     return max(2, int(cores - (load1 or 0)))
 
 
+LEASE_TTL = 2 * 3600
+
+
+def lease_dir() -> Path:
+    """Machine-wide lease dir: `$PERUN_HEAVY_DIR` (tests), else `$XDG_CACHE_HOME` or `~/.cache`, /perun/heavy."""
+    d = os.environ.get("PERUN_HEAVY_DIR")
+    return Path(d) if d else Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "perun" / "heavy"
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)  # signal 0 only probes existence; nothing is signalled
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass  # exists, owned by another user
+    return True
+
+
+def active_leases(d: Path, now: float | None = None) -> list:
+    """Pids holding a live lease. One file per heavy job named `<pid>`, content `<pid> <start epoch>`.
+    A lease with a dead pid, a start older than LEASE_TTL (2h) or unreadable content is ignored, never deleted."""
+    now = time.time() if now is None else now
+    out = []
+    for f in d.glob("*") if d.is_dir() else []:
+        try:
+            pid, start = (int(x) for x in f.read_text().split())
+        except (OSError, ValueError):
+            continue
+        if now - start < LEASE_TTL and _alive(pid):
+            out.append(pid)
+    return out
+
+
+def heavy_acquire(d: Path, slots: int, pid: int) -> bool:
+    """Take a lease for `pid` unless other active leases already fill `slots`. Re-acquire by the same pid
+    refreshes it. Side effect: creates `d`. ponytail: check-then-write is racy across simultaneous starts;
+    the host_probe HOLD retry absorbs it, add O_EXCL slot files if overshoot is measured."""
+    if len([p for p in active_leases(d) if p != pid]) >= slots:
+        return False
+    d.mkdir(parents=True, exist_ok=True)
+    (d / str(pid)).write_text(f"{pid} {int(time.time())}")
+    return True
+
+
+def heavy_release(d: Path, pid: int) -> None:
+    """Drop `pid`'s lease; a missing lease is fine."""
+    (d / str(pid)).unlink(missing_ok=True)
+
+
 def main(argv: list) -> int:
     if argv[:1] == ["--selftest"]:
         return _selftest()
@@ -104,6 +157,16 @@ def main(argv: list) -> int:
             load1, cores = host_probe.read_load1_and_cores()
             print(heavy_slots(cores or os.cpu_count() or 1, load1))
             return 0
+        if argv in (["heavy-acquire"], ["heavy-release"]):
+            pid = os.getppid()  # the calling shell outlives this CLI; its death frees the lease
+            if argv == ["heavy-release"]:
+                heavy_release(lease_dir(), pid)
+                return 0
+            import host_probe
+            load1, cores = host_probe.read_load1_and_cores()
+            ok = heavy_acquire(lease_dir(), heavy_slots(cores or os.cpu_count() or 1, load1), pid)
+            print(pid if ok else "FULL")
+            return 0 if ok else 1
     except ValueError as e:
         print(f"perun_policy: {e}", file=sys.stderr)
         return 2
@@ -137,6 +200,12 @@ def _selftest() -> int:
     assert [lanes(m, 8, 3) for m in ("efficient", "maximize", "off", 3)] == [4, 5, 1, 3]
     assert lanes("maximize", 8, 99) == 1
     assert [heavy_slots(8, 3), heavy_slots(8, 7.5), heavy_slots(8, 99), heavy_slots(1), heavy_slots(8)] == [5, 2, 2, 2, 8]
+    ld = d / "leases"
+    assert heavy_acquire(ld, 1, os.getpid()) and active_leases(ld) == [os.getpid()]
+    assert not heavy_acquire(ld, 1, 4194301) and heavy_acquire(ld, 1, os.getpid())
+    heavy_release(ld, os.getpid())
+    heavy_release(ld, os.getpid())
+    assert active_leases(ld) == []
     print("perun_policy selftest ok")
     return 0
 

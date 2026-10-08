@@ -3897,7 +3897,7 @@ mkdir -p "$rr/.claude/skills/demo" "$rr/scripts"
 git -C "$rr" init -q
 git -C "$rr" config user.email "test@example.com"
 git -C "$rr" config user.name "Test"
-printf '# Demo\n\nYou MUST run scripts/check.sh before merge.\n\nThis is advisory: NEVER ship on Friday.\n\n```\nALWAYS in a fence is skipped\n```\n\nMUST-LOAD is a budget term.\n' \
+printf '# Demo\n\nYou MUST run scripts/check.sh before merge.\n\nThis is advisory: NEVER ship on Friday.\n\n```\nALWAYS in a fence is skipped\n```\n\n  ```\n  NEVER in an indented fence is skipped\n  ```\n\nMUST-LOAD is a budget term.\n' \
   >"$rr/.claude/skills/demo/SKILL.md"
 : >"$rr/scripts/rule-enforcement-baseline.tsv"
 git -C "$rr" add -A >/dev/null 2>&1

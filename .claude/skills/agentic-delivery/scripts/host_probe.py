@@ -33,7 +33,7 @@ In order, first hit wins:
 4. **The paired load+CPU-idle brake, `--lane-type cpu` only.** `load1` past
    core count *together with* CPU idle collapsing toward zero is a
    CPU-contention signature disk-I/O-wait cannot fake; `load1` alone never
-   holds, and never for a non-`cpu` lane type (I/O-bound and light lanes tax
+   holds (except `--lane-type heavy`, see step 6), and never for a non-`cpu` lane type (I/O-bound and light lanes tax
    neither).
 5. **The gate-latency canary, regardless of what memory says.** Times a
    fixed cheap gate (`--canary CMD`) against its recorded idle baseline

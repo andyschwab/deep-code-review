@@ -3,6 +3,17 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.532.0] — 2026-10-08
+
+### Added
+- install.sh now ends with three plain lines (what changed, the one next command, how to undo); perun_doctor.py opens with a one-line verdict ("Healthy" or "N things need attention: run X") ahead of its table.
+
+### Fixed
+- `queue_guard.py` fails closed (exit 2) on a null issue `state`; `weekly_receipt.py` rejects `--days <= 0` (exit 2); `token_ratchet.py --write-baseline` refuses to overwrite an existing baseline without `--force`; the `ci-gates.sh rules` lint skips indented code fences; the `host_probe.py` docstring notes the `--lane-type heavy` load1 carve-out.
+
+### Added
+- `perun_policy.py heavy-acquire` / `heavy-release`: machine-wide heavy-job lease (one pid file per job under the user cache dir, stale leases ignored) so several sessions on one host stop each taking the full heavy-slots count; wired into the lane-preamble heavy gate.
+
 ## [1.531.0] — 2026-10-08
 
 ### Changed

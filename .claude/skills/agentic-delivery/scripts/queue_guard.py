@@ -85,6 +85,8 @@ def selftest():
         open(pp, "w").write("- #1 first\n")
         assert main(["--issues", ip, "--priorities", pp, "--max-unranked", "2"]) == 0
         assert main(["--issues", ip, "--priorities", pp, "--max-unranked", "1"]) == 1
+        json.dump([dict(mk(1, "2026-01-01", "p0"), state=None)], open(ip, "w"))  # null state fails closed
+        assert main(["--issues", ip, "--priorities", pp]) == 2
         assert main(["--issues", os.path.join(d, "none.json"), "--priorities", pp]) == 2
     print("queue_guard selftest ok")
 
@@ -101,7 +103,7 @@ def main(argv):
         with open(a["--priorities"]) as f:
             ranked = ranked_ids(f.read())
         r = plan(issues, ranked, mx)
-    except (KeyError, OSError, ValueError, TypeError) as e:
+    except (KeyError, OSError, ValueError, TypeError, AttributeError) as e:
         print("queue_guard: bad input (%s: %s)" % (type(e).__name__, e), file=sys.stderr)
         return 2
     print(render(r, mx))

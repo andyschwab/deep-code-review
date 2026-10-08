@@ -23,6 +23,10 @@ def git(repo, *a):
 
 
 class Receipt(unittest.TestCase):
+    def test_nonpositive_days_rejected(self):
+        for n in ("0", "-3"):
+            self.assertEqual(subprocess.run([sys.executable, str(RECEIPT), "--days", n], capture_output=True).returncode, 2)
+
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
 

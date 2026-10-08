@@ -217,5 +217,41 @@ class ShareLearning(unittest.TestCase):
         self.assertFalse(self.created())
 
 
+class HeavyLease(unittest.TestCase):
+    DEAD = 4194301  # fake pid, no such process
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp()) / "heavy"
+
+    def put(self, pid, age=0):
+        self.d.mkdir(parents=True, exist_ok=True)
+        (self.d / str(pid)).write_text(f"{pid} {int(__import__('time').time()) - age}")
+
+    def test_full_blocks_and_stale_ignored_not_deleted(self):
+        self.put(os.getpid())
+        self.put(self.DEAD)
+        self.put(os.getppid(), age=3 * 3600)
+        self.assertEqual(perun_policy.active_leases(self.d), [os.getpid()])
+        self.assertFalse(perun_policy.heavy_acquire(self.d, 1, 999999))
+        self.assertTrue(perun_policy.heavy_acquire(self.d, 2, 999999))
+        self.assertTrue((self.d / str(self.DEAD)).exists())
+
+    def test_release_idempotent(self):
+        self.assertTrue(perun_policy.heavy_acquire(self.d, 1, os.getpid()))
+        perun_policy.heavy_release(self.d, os.getpid())
+        perun_policy.heavy_release(self.d, os.getpid())
+        self.assertEqual(perun_policy.active_leases(self.d), [])
+
+    def test_cli_acquire_release(self):
+        (self.d.parent / "p.json").write_text("{}")
+        env = {**os.environ, "PERUN_HEAVY_DIR": str(self.d), "PERUN_POLICY": str(self.d.parent / "p.json")}
+        for _ in range(2):  # two CLI calls from this process share one parent pid: same lease
+            r = run([sys.executable, str(AD / "perun_policy.py"), "heavy-acquire"], env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(list(self.d.iterdir())), 1)
+        self.assertEqual(run([sys.executable, str(AD / "perun_policy.py"), "heavy-release"], env=env).returncode, 0)
+        self.assertEqual(list(self.d.iterdir()), [])
+
+
 if __name__ == "__main__":
     unittest.main()

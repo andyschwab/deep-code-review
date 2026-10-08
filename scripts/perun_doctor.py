@@ -133,6 +133,17 @@ def show(rows):
 FIXABLE = {"installed version", "install record", "hook files exist", "hooks wired", "drifted copies"}
 
 
+def verdict(rows, repo):
+    """One plain-English line: 'Healthy' or 'N things need attention: run X' (X is the fix command when one exists)."""
+    bad = [r for r in rows if r[0] in ("WARN", "FAIL")]
+    if not bad:
+        return "Healthy: nothing needs attention."
+    n = len(bad)
+    todo = (f"run python3 {SRC}/scripts/perun_doctor.py {repo} --fix" if any(r[1] in FIXABLE for r in bad)
+            else "see the WARN/FAIL rows below and add what is missing")
+    return f"{n} thing{'s' if n != 1 else ''} need{'' if n != 1 else 's'} attention: {todo}"
+
+
 def default_on_preview(repo):
     """Lines describing what the default-on operating layer would add when old flags are replayed."""
     f = repo / ".claude/.dcr-install-flags"
@@ -171,6 +182,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     repo, home = Path(a.repo).resolve(), Path(a.home)
     rows = check(repo, home)
+    print(verdict(rows, repo), "\n", sep="")
     show(rows)
     bad = [r for r in rows if r[0] in ("WARN", "FAIL")]
     if a.fix and bad:
@@ -188,6 +200,7 @@ def main(argv=None):
             return 2
         print("\nAfter fix:")
         rows = check(repo, home)
+        print(verdict(rows, repo), "\n", sep="")
         show(rows)
         bad = [r for r in rows if r[0] in ("WARN", "FAIL")]
     return 1 if bad else 0
