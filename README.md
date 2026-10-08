@@ -15,8 +15,6 @@ how to fix it. What it cannot prove, it labels `unverified` instead of
 guessing. The trade-off: it costs about 1.75 times as much model usage as a
 plain review.**
 
-**See it in 60 seconds, offline, no API key:** run `/perun-demo`.
-
 *Naming: Perun is the project; `deep-code-review` is the repository and the
 main skill inside it.*
 

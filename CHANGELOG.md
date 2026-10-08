@@ -5,11 +5,14 @@ follows Keep a Changelog; versioning follows Semantic Versioning.
 
 ## [1.535.0] — 2026-10-08
 
+### Removed
+- `/perun-demo` and `perun_demo.py`: a canned offline replay added no value over running a real review.
+
 - Quickstart and installer now lead with a portable plain-words first prompt (`run a deep code review FILE <path>`) that works with or without a git remote or slash commands; `/deep-code-review` is labelled as host-dependent.
 
 ### Fixed
-- `install.sh` now copies the slash commands into `<repo>/.claude/commands/`: `review`, `perun-demo` and `deliver` always; `cost-retro`, `perun` and `perun-run` only with `--with-ceo` or `--with-delivery`. Existing files are never overwritten (a `.new` is written); fresh copies are recorded in the install marker and removed by `perun_uninstall.py` when unchanged.
-- `/perun-demo` works in any repo: `perun_demo.py`, `score_review.py` and their fixtures moved into the `deep-code-review` skill (`scripts/` and `scripts/fixtures/`), so they ship with the skill. Tests, CI and docs use the new paths.
+- `install.sh` now copies the slash commands into `<repo>/.claude/commands/`: `review` and `deliver` always; `cost-retro`, `perun` and `perun-run` only with `--with-ceo` or `--with-delivery`. Existing files are never overwritten (a `.new` is written); fresh copies are recorded in the install marker and removed by `perun_uninstall.py` when unchanged.
+- `score_review.py` and its fixtures moved into the `deep-code-review` skill (`scripts/` and `scripts/fixtures/`), so they ship with the skill. Tests, CI and docs use the new paths.
 
 ## [1.534.0] — 2026-10-08
 
