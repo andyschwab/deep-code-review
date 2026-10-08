@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
-DEMO = SCRIPTS / "perun_demo.py"
+DEMO = SCRIPTS.parent / ".claude/skills/deep-code-review/scripts/perun_demo.py"
 
 
 def run(*args):
@@ -20,7 +20,7 @@ class PerunDemo(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("Planted bugs: 6", r.stdout)
         self.assertIn("catches 6 of 6", r.stdout)
-        self.assertIn("benchmark (copied from scripts/eval-fixtures/bench/results.md): ", r.stdout)
+        self.assertIn("benchmark (copied from fixtures/bench-results.md): ", r.stdout)
 
     def test_missing_results_prints_see_docs(self):
         r = run("--results", "/nonexistent/results.md")

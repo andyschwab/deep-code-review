@@ -18,8 +18,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import score_review as sr  # noqa: E402
 
-TRUTH = HERE / "eval-fixtures/heldout/pr1354-ops-scripts/ground-truth.json"
-RESULTS = HERE / "eval-fixtures/bench/results.md"
+TRUTH = HERE / "fixtures/heldout/pr1354-ops-scripts/ground-truth.json"
+RESULTS = HERE / "fixtures/bench-results.md"
 
 
 def benchmark(path: Path) -> str:
@@ -27,16 +27,16 @@ def benchmark(path: Path) -> str:
         m = re.search(r"^BLUF:\s*(.+)$", path.read_text(encoding="utf-8"), re.M)
     except OSError:
         m = None
-    return f"benchmark (copied from scripts/eval-fixtures/bench/results.md): {m.group(1)}" if m else "benchmark: see docs"
+    return f"benchmark (copied from fixtures/bench-results.md): {m.group(1)}" if m else "benchmark: see docs"
 
 
 def render(truth: dict, results: Path) -> str:
     bugs = truth["bugs"]
     rep = sr.score(truth, [{"file": b["file"], "text": b["example"]} for b in bugs])
-    out = [f"Planted bugs: {len(bugs)} (fixture: scripts/eval-fixtures/heldout/pr1354-ops-scripts)"]
+    out = [f"Planted bugs: {len(bugs)} (fixture: fixtures/heldout/pr1354-ops-scripts)"]
     out += [f"  {b['id']} {b['file']}: {b['bug']}" for b in bugs]
     out.append(f"A Perun-style review, per the shipped expected findings, catches {len(rep['hit'])} of {len(bugs)}: {', '.join(rep['hit'])}.")
-    out.append("(Scored offline by scripts/score_review.py against the shipped example findings; no model was run, so this shows the method, not a live result.)")
+    out.append("(Scored offline by score_review.py against the shipped example findings; no model was run, so this shows the method, not a live result.)")
     out.append(benchmark(results))
     return "\n".join(out)
 

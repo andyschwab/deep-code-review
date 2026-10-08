@@ -1,0 +1,3 @@
+### Fixed
+- `install.sh` now copies the slash commands into `<repo>/.claude/commands/`: `review`, `perun-demo` and `deliver` always; `cost-retro`, `perun` and `perun-run` only with `--with-ceo` or `--with-delivery`. Existing files are never overwritten (a `.new` is written); fresh copies are recorded in the install marker and removed by `perun_uninstall.py` when unchanged.
+- `/perun-demo` works in any repo: `perun_demo.py`, `score_review.py` and their fixtures moved into the `deep-code-review` skill (`scripts/` and `scripts/fixtures/`), so they ship with the skill. Tests, CI and docs use the new paths.

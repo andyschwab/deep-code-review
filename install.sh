@@ -540,8 +540,28 @@ AGENT
   fi
 fi
 
+# Slash commands: copy commands/*.md into .claude/commands/, but only those whose skill is installed.
+# review, perun-demo, deliver always; cost-retro, perun, perun-run need agentic-ceo/agentic-delivery.
+# Never overwrites (write_gate_file writes <dest>.new); only files written fresh go in the uninstall record.
+COMMAND_FILES=()
+if [[ -d "${SCRIPT_DIR}/commands" ]]; then
+  for cmd in "${SCRIPT_DIR}"/commands/*.md; do
+    name="$(basename "${cmd}" .md)"
+    case "${name}" in
+      review|perun-demo|deliver) ;;
+      cost-retro|perun|perun-run) [[ "${WITH_CEO}" -eq 1 || "${WITH_DELIVERY}" -eq 1 ]] || continue ;;
+      *) continue ;;
+    esac
+    dest="${TARGET_DIR}/.claude/commands/${name}.md"
+    [[ -e "${dest}" ]] && cmp -s "${cmd}" "${dest}" && continue  # re-install: already current
+    existed=0; [[ -e "${dest}" ]] && existed=1
+    write_gate_file "${cmd}" "${dest}" 0
+    [[ "${existed}" -eq 1 ]] || COMMAND_FILES+=(".claude/commands/${name}.md")
+  done
+fi
+
 # Marker: exactly what this install added, so perun_uninstall.py removes only that.
-python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" \
+python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" ${COMMAND_FILES[@]+--files "${COMMAND_FILES[@]}"} \
   ${OPLAYER_PRE:+--pre "${OPLAYER_PRE}" --template "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"} \
   ${OPLAYER_AGENT_NEW:+--agent-created}
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then

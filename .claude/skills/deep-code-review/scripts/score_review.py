@@ -56,7 +56,7 @@ def main(argv: list) -> int:
     ap.add_argument("--max-fp", type=int)
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
-    default = Path(__file__).resolve().parent / "eval-fixtures/heldout/pr1354-ops-scripts/ground-truth.json"
+    default = Path(__file__).resolve().parent / "fixtures/heldout/pr1354-ops-scripts/ground-truth.json"
     if a.selftest:
         ok = selftest(json.loads(default.read_text(encoding="utf-8")))
         print("score_review selftest:", "ok" if ok else "FAIL")

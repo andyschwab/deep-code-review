@@ -15,7 +15,7 @@ how to fix it. What it cannot prove, it labels `unverified` instead of
 guessing. The trade-off: it costs about 1.75 times as much model usage as a
 plain review.**
 
-**See it in 60 seconds, offline, no API key:** run `/perun-demo` (or `python3 scripts/perun_demo.py`).
+**See it in 60 seconds, offline, no API key:** run `/perun-demo`.
 
 *Naming: Perun is the project; `deep-code-review` is the repository and the
 main skill inside it.*
@@ -116,7 +116,7 @@ Source: the "Measured" table in
 recorded in [`CHANGELOG.md`](CHANGELOG.md) entry 1.511.0. The benchmark and how
 to rerun it live in [`scripts/eval-fixtures/bench/`](scripts/eval-fixtures/bench/);
 an earlier first-baseline write-up is
-[`results.md`](scripts/eval-fixtures/bench/results.md). The source table gives
+[`results.md`](.claude/skills/deep-code-review/scripts/fixtures/bench-results.md). The source table gives
 paired 95% intervals: the recall gain over the plain assistant is +0.10 with an
 interval of 0.00 to +0.21, so read it as "probably better", not "proved".
 

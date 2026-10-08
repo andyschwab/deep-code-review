@@ -34,7 +34,7 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / ".claude/skills/deep-code-review/scripts"))
 import score_review as sr  # noqa: E402
 
 PRODUCER = """Review the change in ./change.patch (a diff of one or more source files; no git history exists, do not search outside this directory). Find real defects the change introduces: wrong behavior, unhandled edge cases, fail-open checks, injection, resource or data-loss bugs. Skip style nits. Write no files.
