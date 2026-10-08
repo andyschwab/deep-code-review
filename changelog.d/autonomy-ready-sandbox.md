@@ -1,5 +1,5 @@
 ### Added
-- Autonomy-ready sandbox profile in the operating layer: `autoAllowBashIfSandboxed`, `gh *` excluded and allowed with destructive `gh` calls denied, common dev hosts pre-allowed, local binding on, `~/.cache` and `~/.npm` writable, so agents run without manual permission edits after install. `install.sh` now deep-merges sandbox and permission keys (existing values win, lists unioned).
+- Autonomy-ready sandbox profile in the operating layer: `autoAllowBashIfSandboxed`, `gh *` excluded with only read-only `gh` subcommands allowed and `gh alias`/`gh extension` denied (a blanket `gh` allow would let an alias or extension run any program unsandboxed), common dev hosts pre-allowed, local binding on, `~/.cache` and `~/.npm` writable, so agents run without manual permission edits after install. `install.sh` now deep-merges sandbox and permission keys (existing values win, lists unioned).
 - `sandbox_probe.py`: a first-run probe (git, ssl, network, local bind, cache write) that prints the exact fix for each failure; `install.sh` prints its one-line verdict and `perun_doctor.py` shows one row per check.
 - `docs/host-safety.md#autonomy-ready-defaults`: each key, why, and its tradeoff.
 

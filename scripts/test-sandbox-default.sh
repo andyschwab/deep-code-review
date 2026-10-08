@@ -19,14 +19,14 @@ A="$W/a/.claude/settings.local.json"; B="$W/b/.claude/settings.local.json"
 jq -e '.hooks.SubagentStop | length > 0' "$A" "$B" >/dev/null; ok $? "apply and --no-sandbox both still merge hooks"
 
 jq -e '.sandbox.enabled == true and .sandbox.allowUnsandboxedCommands == false and .sandbox.autoAllowBashIfSandboxed == true' "$A" >/dev/null; ok $? "apply: sandbox on, unsandboxed retry off, sandboxed commands auto-allowed"
-jq -e '.sandbox.excludedCommands == ["gh *"] and (.permissions.allow | index("Bash(gh *)")) and .sandbox.network.allowLocalBinding == true
+jq -e '.sandbox.excludedCommands == ["gh *"] and (.permissions.allow | index("Bash(gh pr view *)")) and (.permissions.allow | index("Bash(gh *)") | not) and .sandbox.network.allowLocalBinding == true
   and (.sandbox.network.allowedDomains | contains(["github.com","*.github.com","*.githubusercontent.com","registry.npmjs.org","*.npmjs.org","pypi.org","files.pythonhosted.org"]))
   and (.sandbox.filesystem.allowWrite | contains(["~/.cache","~/.npm"]))' "$A" >/dev/null; ok $? "apply: autonomy-ready keys present"
 jq -e '.permissions.deny | contains(["Bash(rm -rf *)","Bash(rm -fr *)","Bash(rm -r *)","Bash(rm -R *)","Bash(sudo *)"])' "$A" >/dev/null; ok $? "apply: rm/sudo deny rules present"
 jq -e '.permissions.deny | index("Bash(curl *)")' "$A" >/dev/null; ok $? "apply: existing deny rule kept"
 bash "$ROOT/install.sh" --with-delivery --apply-operating-layer "$W/a" >/dev/null 2>&1
-[ "$(jq '.permissions.deny | length' "$A")" = 12 ]; ok $? "apply: idempotent deny list (12 entries)"
-for c in "gh repo delete *" "gh release delete *" "gh api -X DELETE *" "gh api --method DELETE *" "gh api * -X DELETE*" "gh api * --method DELETE*"; do
+[ "$(jq '.permissions.deny | length' "$A")" = 10 ]; ok $? "apply: idempotent deny list (10 entries)"
+for c in "gh alias *" "gh extension *" "gh repo delete *" "gh release delete *"; do
   jq -e --arg r "Bash($c)" '.permissions.deny | index($r)' "$A" >/dev/null; ok $? "apply: destructive gh denied: $c"
 done
 mkdir -p "$W/d/.claude"
@@ -34,7 +34,7 @@ echo '{"sandbox":{"enabled":false,"excludedCommands":["docker compose *"],"netwo
 bash "$ROOT/install.sh" --with-delivery --apply-operating-layer "$W/d" >/dev/null 2>&1
 D="$W/d/.claude/settings.local.json"
 jq -e '.sandbox.enabled == false and .sandbox.excludedCommands == ["docker compose *","gh *"] and .sandbox.network.allowedDomains[0] == "example.com"
-  and (.sandbox.network.allowedDomains | index("pypi.org")) and .sandbox.network.allowLocalBinding == true and .permissions.allow == ["Bash(make *)","Bash(gh *)"]' "$D" >/dev/null
+  and (.sandbox.network.allowedDomains | index("pypi.org")) and .sandbox.network.allowLocalBinding == true and .permissions.allow[0] == "Bash(make *)" and (.permissions.allow | index("Bash(gh run list *)"))' "$D" >/dev/null
 ok $? "merge: existing values win, nested keys kept, lists unioned"
 grep -q "sandbox.enabled=true" "$W/a.out"; ok $? "apply: What changed lists sandbox"
 jq -e 'has("sandbox") or has("permissions") | not' "$B" >/dev/null; ok $? "--no-sandbox: no sandbox or deny keys"

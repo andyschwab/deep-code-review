@@ -521,7 +521,7 @@ AGENT
     fi
     echo "applied operating layer to ${OPLAYER_LOCAL} (backup: .bak.<timestamp> if changed); verify with:"
     if [[ "${NO_SANDBOX}" -eq 0 ]]; then
-      echo "  what changed (sandbox): sandbox.enabled=true, sandbox.allowUnsandboxedCommands=false, autonomy-ready defaults (gh excluded + allowed, common dev hosts, local binding, ~/.cache and ~/.npm writes; existing values win, lists unioned), deny Bash(rm -rf *), Bash(rm -fr *), Bash(rm -r *), Bash(rm -R *), Bash(sudo *) and destructive gh calls; opt out with --no-sandbox"
+      echo "  what changed (sandbox): sandbox.enabled=true, sandbox.allowUnsandboxedCommands=false, autonomy-ready defaults (gh excluded with read-only gh subcommands allowed, common dev hosts, local binding, ~/.cache and ~/.npm writes; existing values win, lists unioned), deny Bash(rm -rf *), Bash(rm -fr *), Bash(rm -r *), Bash(rm -R *), Bash(sudo *) and gh alias/extension/repo delete/release delete; opt out with --no-sandbox"
       echo "  why each default: docs/host-safety.md#autonomy-ready-defaults"
       echo "  sandbox blocks gh (x509 -26276) or a dev server (EPERM)? see docs/host-safety.md#common-sandbox-errors"
     fi
