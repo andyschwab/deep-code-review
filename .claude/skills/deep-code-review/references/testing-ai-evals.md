@@ -114,6 +114,6 @@ Re-run the canaries on every matcher change.
 intervals, never bare point estimates.
 - **Split CI by cost and determinism.** Every PR runs the offline part — corpus integrity, matcher unit tests, canaries, metric recomputation from
 committed finding artifacts; the paid live harness runs on a schedule, append-only, with metric diffs surfacing as PR checks.
-- **Worked instrument:** `scripts/score_review.py` takes a findings JSON (`file`, `text`) and reports recall, strict precision and unmatched count, failing on `--max-fp`;
-`--selftest` runs the canaries. Its held-out fixture, `scripts/eval-fixtures/heldout/pr1354-ops-scripts/`, is a pre-fix patch plus ground truth with mechanism regexes
+- **Worked instrument:** `.claude/skills/deep-code-review/scripts/score_review.py` takes a findings JSON (`file`, `text`) and reports recall, strict precision and unmatched count, failing on `--max-fp`;
+`--selftest` runs the canaries. Its held-out fixture, `.claude/skills/deep-code-review/scripts/fixtures/heldout/pr1354-ops-scripts/`, is a pre-fix patch plus ground truth with mechanism regexes
 (`matcher_version` is pinned there). `scripts/live_evals.py` is the paid runner for the refusal and trigger evals, with a hard token budget.

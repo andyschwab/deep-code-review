@@ -3,6 +3,39 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.539.0] — 2026-10-08
+
+size-budget-raise: .claude/skills/deep-code-review/SKILL.md 23473→23541 one routing line to references/compact-mode.md for non-Claude models
+
+### Added
+- Compact mode (`references/compact-mode.md`, under 2.5KB) for non-Claude or small-context models, routed from SKILL.md, with the measured cross-model bench in `docs/bench/`. On Qwen3-Coder-Next it beat a plain prompt by +0.167 recall (CI +0.033 to +0.300); gpt-oss and DeepSeek differences were within noise.
+
+size-budget-raise: .claude/skills/deep-code-review/SKILL.md 23473→23590 one routing line to compact-mode.md
+
+## [1.538.0] — 2026-10-08
+
+- Operating layer allows the standard autonomous dev loop without prompts in every permission mode: in-project edits, common test runners and git add/commit/status/diff/log. It still denies `--no-verify`, force-push and edits to `.claude/settings*.json`. No `defaultMode` is set, so interactive auto mode is kept. Measured before: 5 of 6 standard headless tasks were blocked after a fresh install (Refs #1380).
+
+## [1.537.0] — 2026-10-08
+
+### Changed
+- `README.md` rewritten for every reader: a one-sentence summary, outcomes where each number links to the file it comes from (the 30-case benchmark table in `method-situational.md`, the 1.501.0 token entry in `CHANGELOG.md`), a quick start (clone, install, ask the agent to review a real file) with real installer output explained line by line, one line per audience, two safety lines and links to deeper docs. Plain-English definitions for skill, agent, sandbox, token, `FILE` and the severity scale; unsourced claims ("any language", "60 seconds") removed. The worked story, per-role table, limits, glossary, FAQ and pilot plan live in `docs/for-leaders.md`; the skill catalog lives in `docs/getting-started.md`.
+
+## [1.536.0] — 2026-10-08
+
+- Resource policy is settable without hand-writing JSON: `perun_policy.py set <dim> <value>` and `install.sh --policy dim=value[,dim=value]` (the install summary shows the active policy). The `tokens` mode now reaches the lane preamble and coordinator (efficient: cheapest fitting model tier, at most 2 parallel lanes, no duplicate review passes, terse hand-backs). With `github_actions=off` lanes also add `[skip ci]` to pushed branch commits (`perun_policy.py skip-ci`); `share_learnings=auto` runs `share_learning.py` at the end of `/perun-run` after its privacy gate.
+
+## [1.535.0] — 2026-10-08
+
+### Removed
+- `/perun-demo` and `perun_demo.py`: a canned offline replay added no value over running a real review.
+
+- Quickstart and installer now lead with a portable plain-words first prompt (`run a deep code review FILE <path>`) that works with or without a git remote or slash commands; `/deep-code-review` is labelled as host-dependent.
+
+### Fixed
+- `install.sh` now copies the slash commands into `<repo>/.claude/commands/`: `review` and `deliver` always; `cost-retro`, `perun` and `perun-run` only with `--with-ceo` or `--with-delivery`. Existing files are never overwritten (a `.new` is written); fresh copies are recorded in the install marker and removed by `perun_uninstall.py` when unchanged.
+- `score_review.py` and its fixtures moved into the `deep-code-review` skill (`scripts/` and `scripts/fixtures/`), so they ship with the skill. Tests, CI and docs use the new paths.
+
 ## [1.534.0] — 2026-10-08
 
 ### Added

@@ -72,6 +72,7 @@ Default: install REVIEW ONLY into .agents/skills/, .cursor/skills/, and
 on re-install). Overlay skills are opt-in.
 
   --minimal            Only .claude/skills/ + AGENTS.md
+  --policy dim=value[,dim=value]  Write .perun/policy.json (e.g. local_cpu=maximize,github_actions=off,share_learnings=auto)
   --with-codex         Also .codex/skills/
   --with-extra-hosts   Also Gemini, OpenCode, Copilot, Windsurf, Hermes, Kiro
   --claude-only        Only .claude/skills/; skip AGENTS.md
@@ -158,6 +159,7 @@ RECOMMEND_ONLY=0
 POSITIONAL=()
 TRACKER_PROJECT=""
 TRACKER="linear"
+POLICY=""
 NEXT_OPT=""
 for arg in "$@"; do
   if [[ -n "${NEXT_OPT}" ]]; then
@@ -166,6 +168,8 @@ for arg in "$@"; do
   case "${arg}" in
     --tracker-project) NEXT_OPT=TRACKER_PROJECT ;;
     --tracker) NEXT_OPT=TRACKER ;;
+    --policy) NEXT_OPT=POLICY ;;
+    --policy=*) POLICY="${arg#*=}" ;;
     --tracker-project=*) TRACKER_PROJECT="${arg#*=}" ;;
     --tracker=*) TRACKER="${arg#*=}" ;;
     --claude-only) WRITE_AGENTS=0; MINIMAL=1 ;;
@@ -227,10 +231,23 @@ if [[ "${APPLY_OPLAYER}" -eq 1 ]] && ! command -v jq >/dev/null 2>&1; then
 fi
 
 TARGET_DIR="${POSITIONAL[0]:-$(pwd)}"
+POLICY_PY="${SCRIPT_DIR}/.claude/skills/agentic-delivery/scripts/perun_policy.py"
 
 if [[ ! -d "${TARGET_DIR}" ]]; then
   echo "error: target directory does not exist: ${TARGET_DIR}" >&2
   exit 1
+fi
+
+if [[ -n "${POLICY}" ]]; then  # shape-check before touching anything; values are validated when written
+  _seen=,
+  IFS=, read -ra _kv <<< "${POLICY}"
+  for kv in "${_kv[@]}"; do
+    if [[ ! "${kv}" =~ ^([A-Za-z_]+)=(.+)$ || "${_seen}" == *",${BASH_REMATCH[1]},"* ]]; then
+      echo "error: --policy wants dim=value pairs, one per dim (got '${kv}')" >&2; exit 2
+    fi
+    _seen="${_seen}${BASH_REMATCH[1]},"
+    python3 "${POLICY_PY}" check "${kv%%=*}" "${kv#*=}" || exit 2
+  done
 fi
 
 if [[ "$(cd "${TARGET_DIR}" && pwd)" == "${SCRIPT_DIR}" ]]; then
@@ -541,8 +558,28 @@ AGENT
   fi
 fi
 
+# Slash commands: copy commands/*.md into .claude/commands/, but only those whose skill is installed.
+# review, deliver always; cost-retro, perun, perun-run need agentic-ceo/agentic-delivery.
+# Never overwrites (write_gate_file writes <dest>.new); only files written fresh go in the uninstall record.
+COMMAND_FILES=()
+if [[ -d "${SCRIPT_DIR}/commands" ]]; then
+  for cmd in "${SCRIPT_DIR}"/commands/*.md; do
+    name="$(basename "${cmd}" .md)"
+    case "${name}" in
+      review|deliver) ;;
+      cost-retro|perun|perun-run) [[ "${WITH_CEO}" -eq 1 || "${WITH_DELIVERY}" -eq 1 ]] || continue ;;
+      *) continue ;;
+    esac
+    dest="${TARGET_DIR}/.claude/commands/${name}.md"
+    [[ -e "${dest}" ]] && cmp -s "${cmd}" "${dest}" && continue  # re-install: already current
+    existed=0; [[ -e "${dest}" ]] && existed=1
+    write_gate_file "${cmd}" "${dest}" 0
+    [[ "${existed}" -eq 1 ]] || COMMAND_FILES+=(".claude/commands/${name}.md")
+  done
+fi
+
 # Marker: exactly what this install added, so perun_uninstall.py removes only that.
-python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" \
+python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" ${COMMAND_FILES[@]+--files "${COMMAND_FILES[@]}"} \
   ${OPLAYER_PRE:+--pre "${OPLAYER_PRE}" --template "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"} \
   ${OPLAYER_AGENT_NEW:+--agent-created}
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then
@@ -729,7 +766,18 @@ if [[ -z "${DCR_NO_PROBE:-}" && -f "${PROBE}" ]] && command -v python3 >/dev/nul
   python3 "${PROBE}" --verdict-only "${TARGET_DIR}" 2>/dev/null || true
 fi
 
+# Policy file pinned to the target: never $PERUN_POLICY, never a parent dir's file.
+PERUN_POLICY_FILE="$(cd "${TARGET_DIR}" && pwd)/.perun/policy.json"
+if [[ -n "${POLICY}" ]]; then
+  for kv in "${_kv[@]}"; do
+    PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null || exit 2
+  done
+fi
+if [[ -f "${PERUN_POLICY_FILE}" ]]; then POLICY_LINE="$(PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" show)" || exit 2
+else POLICY_LINE="defaults (no .perun/policy.json)"; fi
+
 # Last three lines, plain English: what changed, the one next command, how to undo.
+echo "Policy: ${POLICY_LINE}"
 echo
 echo "Perun installed ${#SKILLS[@]} skill(s) into ${#HOSTS[@]} tool folder(s) of ${TARGET_DIR}."
 echo "Next, run this one command to confirm it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}"
