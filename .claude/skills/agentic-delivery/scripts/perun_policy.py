@@ -194,27 +194,36 @@ def heavy_release(d: Path, pid: int) -> None:
     (d / str(pid)).unlink(missing_ok=True)
 
 
-def exclusive_holder(d: Path, now: float | None = None):
+def exclusive_holder(d: Path):
     """Pid of the live EXCLUSIVE lease (a train gate running), else None. Stored beside the lease dir
-    (`heavy.exclusive`, content `<pid> <start epoch>`) so it never fills a slot; a dead pid, a start older than
-    LEASE_TTL or unreadable content is ignored, never deleted."""
-    now = time.time() if now is None else now
+    (`heavy.exclusive`, content `<pid> <start epoch>`) so it never fills a slot. Liveness is the PID alone, with no
+    TTL: a gate longer than LEASE_TTL must not lose its lease. A dead pid or unreadable/malformed content is ignored
+    (None, so heavy_gate stays fail-open), never deleted."""
     try:
-        pid, start = (int(x) for x in (d.parent / "heavy.exclusive").read_text().split())
+        pid, _ = (int(x) for x in (d.parent / "heavy.exclusive").read_text().split())
     except (OSError, ValueError):
         return None
-    return pid if now - start < LEASE_TTL and _alive(pid) else None
+    return pid if _alive(pid) else None
 
 
 def exclusive_acquire(d: Path, pid: int) -> bool:
-    """Take the machine-wide exclusive lease for `pid`; False while another live pid holds it. While held,
+    """Take the machine-wide exclusive lease for `pid`; False while another live pid holds it. Atomic: the file is
+    created O_CREAT|O_EXCL, so two gates cannot both win; a stale or malformed file is unlinked first. While held,
     heavy_gate.py denies every heavy command ("gate running: wait"). Side effect: creates `d.parent`."""
-    h = exclusive_holder(d)
-    if h not in (None, pid):
-        return False
+    f = d.parent / "heavy.exclusive"
     d.parent.mkdir(parents=True, exist_ok=True)
-    (d.parent / "heavy.exclusive").write_text(f"{pid} {int(time.time())}")
-    return True
+    for _ in range(2):
+        try:
+            fd = os.open(f, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if exclusive_holder(d) not in (None, pid):
+                return False
+            f.unlink(missing_ok=True)  # stale, malformed or our own: retry the exclusive create once
+            continue
+        with os.fdopen(fd, "w") as fh:
+            fh.write(f"{pid} {int(time.time())}")
+        return True
+    return False
 
 
 def exclusive_release(d: Path, pid: int) -> None:

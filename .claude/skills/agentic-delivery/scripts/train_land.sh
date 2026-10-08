@@ -42,7 +42,8 @@ lock_take "$LOCK" "${LOCK_TIMEOUT_MIN:-30}" || exit 1
 xrc=0; python3 "$HERE/perun_policy.py" heavy-exclusive >/dev/null 2>&1 || xrc=$?
 [ "$xrc" -ne 1 ] || { echo "train_land: another gate holds the exclusive heavy lease" >&2; lock_drop "$LOCK"; exit 1; }
 [ "$xrc" -eq 0 ] || echo "WARN: exclusive heavy lease unavailable (rc=$xrc); gate runs without it" >&2
-trap 'clean_union_dirs; python3 "$HERE/perun_policy.py" heavy-exclusive-release >/dev/null 2>&1 || true; lock_drop "$LOCK"' EXIT
+PQ=$(git rev-parse --git-common-dir)/train-push.lock
+trap 'clean_union_dirs; lock_drop "$PQ"; python3 "$HERE/perun_policy.py" heavy-exclusive-release >/dev/null 2>&1 || true; lock_drop "$LOCK"' EXIT
 if [ -n "${CLEAN_ROOT:-}" ]; then  # start-of-train cleanup of your own finished work; never blocks the train
   ROOT=$CLEAN_ROOT bash "$HERE/reap_own.sh" || true; ROOT=$CLEAN_ROOT bash "$HERE/clean_finished.sh" || true
 fi
@@ -91,7 +92,11 @@ sed -nE 's/^FAIL +//p' "$LOG.browser" >"$LOG.fails"
 t=0; RERUN_CMD=$RERUN_CMD bash "$HERE/train_flake.sh" "$LOG.fails" "${BASELINE_FAILS:-/dev/null}" >"$LOG.flake" || t=$?
 git checkout -q --detach "$REMOTE/$BASE_BRANCH"  # isolated re-runs above ran at the union; bisect below starts from the base
 cat "$LOG.flake"
-if [ "$t" -eq 0 ] && [ -s "$LOG.fails" ]; then echo "browser failures were flakes only; landing" >&2; break; fi
+# Landable only when at least one NEW failure was listed and every new one re-ran and classified FLAKE: a red run with no
+# attributable new failure (empty list, baseline-only, crash before any FAIL line) never lands.
+newn=$(grep -vxFf "${BASELINE_FAILS:-/dev/null}" "$LOG.fails" 2>/dev/null | grep -c . || true)
+flk=$(grep -c '^FLAKE ' "$LOG.flake" || true)
+if [ "$t" -eq 0 ] && [ "$newn" -ge 1 ] && [ "$flk" -eq "$newn" ]; then echo "browser failures were flakes only; landing" >&2; break; fi
 [ "$t" -eq 1 ] || { echo "$BR" >&2; exit 1; }
 keep=() ; base=$(git rev-parse HEAD)
 for n in "${PRS[@]}"; do  # per-PR bisect: merge alone onto the base, re-run each REAL id
@@ -109,7 +114,6 @@ if [ "${#keep[@]}" -eq "${#PRS[@]}" ] || [ "${#keep[@]}" -lt 2 ]; then echo "$BR
 PRS=("${keep[@]}")
 done
 # Pushes go through one serial queue across worktrees (mkdir lock under the git common dir).
-PQ=$(git rev-parse --git-common-dir)/train-push.lock
 lock_take "$PQ" "${LOCK_TIMEOUT_MIN:-30}" "${PUSH_WAIT_SECS:-600}" || exit 1
 bash "$HERE/land_train.sh" "$B" "$U"; lrc=$?  # not exec: the EXIT trap must still fire
 lock_drop "$PQ"; exit $lrc

@@ -95,6 +95,54 @@ out=$(lock_take "$L" 30 0 2>&1); rc=$?
 lock_drop "$L"; mkdir "$L"; echo $$ >"$L/pid"; echo $(( $(date +%s) - 3600 )) >"$L/ts"
 out=$(lock_take "$L" 30 0 2>&1); rc=$?
 [ $rc -eq 1 ] && grep -q "pid $$ is alive; not deleted" <<<"$out" && [ -d "$L" ]; ok $? "lock: old lock with a live pid is reported, never deleted"
+# a record mid-write (missing/empty pid or ts) is YOUNG even when the other half is old: never reclaimed
+rm -f "$L/pid" "$L/ts"; rmdir "$L" 2>/dev/null
+for rec in "pid-empty" "ts-empty" "both-missing" "garbage"; do
+  mkdir "$L"; rm -f "$L/pid" "$L/ts"
+  case $rec in pid-empty) : >"$L/pid"; echo 1 >"$L/ts" ;; ts-empty) echo "$DEAD" >"$L/pid"; : >"$L/ts" ;;
+    garbage) echo "x y" >"$L/pid"; echo 1 >"$L/ts" ;; esac
+  lock_take "$L" 30 0 2>/dev/null; r=$?
+  [ $r -eq 1 ] && [ -d "$L" ]; ok $? "lock: $rec record is young, never reclaimed (simulated owner mid-write)"
+  rm -f "$L/pid" "$L/ts"; rmdir "$L"
+done
+
+# --- exclusive lease: atomic, pid-liveness (no TTL), malformed/dead file keeps heavy_gate fail-open ---
+HX="$WORK/hx/heavy"; mkdir -p "$WORK/hx"; GATE='{"tool_input":{"command":"pytest tests"}}'
+gate() { echo "$GATE" | PERUN_HEAVY_DIR="$HX" PERUN_GATE_LOAD1=0 PERUN_GATE_CORES=8 PERUN_GATE_FREE_RAM_PCT=80 python3 "$SC/heavy_gate.py"; }
+echo "garbage" >"$WORK/hx/heavy.exclusive"; [ -z "$(gate)" ]; ok $? "heavy_gate: malformed exclusive file stays fail-open"
+echo "$DEAD 1" >"$WORK/hx/heavy.exclusive"; [ -z "$(gate)" ]; ok $? "heavy_gate: exclusive file of a dead pid stays fail-open"
+: >"$WORK/hx/heavy.exclusive"; [ -z "$(gate)" ]; ok $? "heavy_gate: empty exclusive file stays fail-open"
+echo "$$ 1" >"$WORK/hx/heavy.exclusive"; grep -q 'gate running: wait' <<<"$(gate)"; ok $? "exclusive lease: live pid still holds it with an ancient start (no TTL)"
+PERUN_HEAVY_DIR="$HX" python3 -c "
+import sys; sys.path.insert(0, '$SC'); import os, perun_policy as p; from pathlib import Path
+d = Path('$HX'); assert not p.exclusive_acquire(d, os.getpid())
+" ; ok $? "exclusive lease: second acquirer is refused while a live pid holds it"
+rm -f "$WORK/hx/heavy.exclusive"
+PERUN_HEAVY_DIR="$HX" python3 -c "
+import sys, os; sys.path.insert(0, '$SC'); import perun_policy as p; from pathlib import Path
+d = Path('$HX'); f = d.parent / 'heavy.exclusive'
+assert p.exclusive_acquire(d, os.getpid()) and f.exists()
+try: os.open(f, os.O_CREAT | os.O_EXCL | os.O_WRONLY); raise SystemExit('EXCL create must fail while the file exists')
+except FileExistsError: pass
+f.write_text('garbage'); assert p.exclusive_acquire(d, os.getpid())  # malformed file is replaced
+"; ok $? "exclusive lease: created O_EXCL; a malformed file is replaced"
+
+# --- flake bounds fail closed; baseline-only red never lands ---
+for bad in "FLAKE_RUNS=0" "FLAKE_RUNS=3 FLAKE_REAL_AT=4" "FLAKE_REAL_AT=0" "FLAKE_RUNS=x"; do
+  env $bad RERUN_CMD=true bash "$SC/train_flake.sh" "$WORK/fails1" >/dev/null 2>&1; [ $? -eq 2 ]; ok $? "train_flake: $bad fails closed (exit 2)"
+done
+cat >"$WORK/browser-base.sh" <<'STUB'
+echo "FAIL tb"; exit 1
+STUB
+echo tb >"$WORK/baseline2"; : >"$WORK/merged.log"
+out=$(RERUN_CMD=true BASELINE_FAILS="$WORK/baseline2" VERIFY_CMD="bash $WORK/verify.sh \"\$@\"" UNION_DIRS="$R" LOG_DIR="$WORK" BROWSER_CMD="bash $WORK/browser-base.sh" bash "$SC/train_land.sh" tb 1 3 2>&1); rc=$?
+[ $rc -eq 1 ] && grep -q 'BROWSER RED' <<<"$out" && [ ! -s "$WORK/merged.log" ]; ok $? "train_land: a baseline-only browser red lands nothing"
+echo 'echo crash; exit 1' >"$WORK/browser-crash.sh"
+out=$(RERUN_CMD=true VERIFY_CMD="bash $WORK/verify.sh \"\$@\"" UNION_DIRS="$R" LOG_DIR="$WORK" BROWSER_CMD="bash $WORK/browser-crash.sh" bash "$SC/train_land.sh" tc 1 3 2>&1); rc=$?
+[ $rc -eq 1 ] && [ ! -s "$WORK/merged.log" ]; ok $? "train_land: a red run with no listed failure (crash) lands nothing"
+# the push lock is released by the EXIT trap even when the gate fails
+[ ! -e "$R/.git/train-push.lock" ]; ok $? "train_land: push lock not left behind"
+
 ! grep -nE '\b(pgrep|pkill)\b|\bps +-' "$SC/_lock.sh" "$SC/train_land.sh" "$SC/land_train.sh" "$SC/train_flake.sh"; ok $? "train scripts: no pgrep/ps-based waiting"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

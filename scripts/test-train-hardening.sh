@@ -46,6 +46,7 @@ mkdir "$LOCK"; echo "$P" >"$LOCK/pid"
 out=$(VERIFY_CMD="$RED" UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t2 1 2 2>&1); rc=$?
 [ $rc -eq 1 ] && grep -q "lock held by pid $P" <<<"$out" && [ -d "$LOCK" ]; ok $? "train_land: a live lock holder refuses a second train and keeps the lock"
 kill "$P" 2>/dev/null; wait "$P" 2>/dev/null
+echo 1 >"$LOCK/ts"  # old record: a pid-only lock counts as young (owner may be mid-write)
 out=$(VERIFY_CMD="$RED" UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t3 1 2 2>&1); rc=$?
 [ $rc -eq 3 ] && [ ! -e "$LOCK" ]; ok $? "train_land: a dead holder's lock is reclaimed and released on exit"
 
