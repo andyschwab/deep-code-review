@@ -95,9 +95,25 @@ a `code-review/` folder. A worked example:
 
 ## 4. Update or remove
 
-**Update:** pull or check out a newer release tag in your clone, verify the
-checksums, and run `install.sh` again with the same flags. It copies files; it
-never symlinks, so nothing changes until you re-run it.
+**Update:** with the operating layer (the default for `--with-delivery` and
+`--full`), updates are automatic. A SessionStart/UserPromptSubmit hook checks the
+newest `vX.Y.Z` tag on the remote you installed from, at most once every 6 hours,
+in the background, and re-applies your recorded install flags from it with
+`scripts/update-installed.sh`. Your existing settings win and backups are written.
+It skips while a merge or train lock exists or you edited a Perun-managed file,
+and appends one line per run to `~/.cache/perun/auto-update.log`. Open sessions
+pick up the new skills and hooks without a restart; only a model change waits for
+the next session. Turn it off with `"auto_update": "off"` in `.perun/policy.json`
+or `install.sh --no-auto-update`. This runs the release's own install code, so
+install only from a remote you trust. Before running it, the updater refuses a
+local tag that moved, requires the tag's commit to be on the remote's `main`, and
+checks the skill files against `SHA256SUMS` (the installer scripts are not in it). `SHA256SUMS`
+comes from the same tag, so it proves skill-file integrity, not authenticity: trust rests
+on the repository owner's tags and `main`.
+
+Without the operating layer, pull or check out a newer release tag in your clone,
+verify the checksums, and run `install.sh` again with the same flags. It copies
+files; it never symlinks, so nothing changes until you re-run it.
 
 To compare an installed copy's version with upstream `main`, run
 `scripts/skill-drift-check.sh` from the clone. It reads

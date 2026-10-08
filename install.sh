@@ -124,6 +124,10 @@ on re-install). Overlay skills are opt-in.
                        RISK: without the OS sandbox nothing stops an agent's
                        `rm -rf "$EMPTY"/*` from deleting your files; deny rules
                        match command text only (bypassable via /bin/rm, bash -c).
+  --no-auto-update     Write auto_update: "off" to TARGET/.perun/policy.json. By default the
+                       operating layer's SessionStart/UserPromptSubmit hook checks the newest
+                       vX.Y.Z tag at most every 6h in the background and re-applies this
+                       install from it (scripts/update-installed.sh; your settings win).
   --recommend          Inspect TARGET and print a recommended pack; no writes
   -h, --help           Show this help
 
@@ -158,6 +162,7 @@ WITH_TERSE=0
 WITH_OPERATING_LAYER=0
 APPLY_OPLAYER=0
 NO_OPLAYER=0
+NO_AUTO_UPDATE=0
 RECOMMEND_ONLY=0
 POSITIONAL=()
 TRACKER_PROJECT=""
@@ -195,6 +200,7 @@ for arg in "$@"; do
     --apply-operating-layer) WITH_OPERATING_LAYER=1; APPLY_OPLAYER=1 ;;
     --no-sandbox) NO_SANDBOX=1 ;;
     --no-operating-layer) NO_OPLAYER=1 ;;
+    --no-auto-update) NO_AUTO_UPDATE=1 ;;
     --full) WITH_DELIVERY=1; WITH_CRITIC=1; WITH_COMMS=1 ;;
     --recommend) RECOMMEND_ONLY=1 ;;
     --with-cursor) echo "note: --with-cursor is default now; ignoring." >&2 ;;
@@ -597,7 +603,20 @@ fi
 # Marker: exactly what this install added, so perun_uninstall.py removes only that.
 python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" ${COMMAND_FILES[@]+--files "${COMMAND_FILES[@]}"} \
   ${OPLAYER_PRE:+--pre "${OPLAYER_PRE}" --template "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"} \
-  ${OPLAYER_AGENT_NEW:+--agent-created}
+  ${OPLAYER_AGENT_NEW:+--agent-created} --version "${VERSION}" \
+  --remote "${PERUN_REMOTE:-$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null | sed -E 's#://[^/@]+@#://#' || true)}"
+if [[ "${NO_AUTO_UPDATE}" -eq 1 ]]; then
+  python3 - "${TARGET_DIR}/.perun/policy.json" <<'PY'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+pol = json.loads(p.read_text()) if p.is_file() else {}
+pol["auto_update"] = "off"
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(pol, indent=2) + "\n")
+PY
+  echo "auto-update: off (${TARGET_DIR}/.perun/policy.json)"
+fi
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then
   OPLAYER_MODEL_NOTE="(model: sonnet, set only if you had none)"
   if [[ -n "${OPLAYER_PRE:-}" ]] && jq -e 'has("model")' "${OPLAYER_PRE}" >/dev/null 2>&1; then
@@ -607,7 +626,10 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then
 
 What changed in ${TARGET_DIR}:
   1. Skills copied to .claude/skills (+ .cursor, .agents); any existing copy moved to <host>/skill-backups/.
-  2. .claude/settings.local.json: operating-layer hooks (PreToolUse incl. heavy_gate.py, SessionStart session_brief.py, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
+  2. .claude/settings.local.json: operating-layer hooks (PreToolUse incl. heavy_gate.py, SessionStart session_brief.py + auto-update, UserPromptSubmit auto-update, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
+     Skills, hooks and permissions apply to open sessions without a restart; only a model change waits for the next session.
+     Auto-update: that hook runs release code from the Perun remote in the background (newest vX.Y.Z tag, at most every 6h).
+     Opt out: re-run install.sh with --no-auto-update, or set "auto_update": "off" in .perun/policy.json.
   3. .claude/agents/delivery-lane.md added if absent; .claude/.perun-install.json and .dcr-install-flags record what was added.
   4. Check it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}
   5. Undo: python3 ${SCRIPT_DIR}/scripts/perun_uninstall.py ${TARGET_DIR}   (opt out next time: --no-operating-layer)

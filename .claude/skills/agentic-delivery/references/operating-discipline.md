@@ -33,7 +33,11 @@ yields an identical file), writes `settings.local.json.bak` first when the file 
 `.claude/agents/delivery-lane.md` (Sonnet, terse, one-line hand-back) only if absent, and fails
 closed when `jq` is missing. Every install records its flags in `TARGET/.claude/.dcr-install-flags`;
 `scripts/update-installed.sh TARGET...` replays them from this checkout so installed skills pull the
-latest main (update this checkout first).
+latest main (update this checkout first). The applied layer also wires `scripts/perun_auto_update.py`
+on SessionStart and UserPromptSubmit: at most every 6h, detached, it replays the same flags from the
+newest release tag, skipping (and logging why) on a merge/train lock or an edited managed file; policy
+`auto_update: off` or `install.sh --no-auto-update` disables it. Skills and settings live-reload, so no
+session restart is needed.
 
 `scripts/operating_selfcheck.py [--settings F] [--skill-root D]` reports, per item above,
 `PRESENT`, `MISSING`, or `COULD_NOT_CHECK <why>` — the three settings-backed items (1's injector,

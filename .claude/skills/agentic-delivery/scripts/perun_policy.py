@@ -8,7 +8,8 @@ No file found by the walk means every default; a malformed file or bad value
 fails closed (exit 2), never silently falls back.
 
 Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-negative number (a cap).
-`share_learnings` takes `auto|ask|off` (default `ask`).
+`share_learnings` takes `auto|ask|off` (default `ask`). `auto_update` takes `on|off` (default `on`):
+whether perun_auto_update.py may re-apply a newer release tag in the background.
 
   perun_policy.py get <dim>      print the value (a number prints as a number)
   perun_policy.py show           print the whole effective policy as JSON
@@ -33,6 +34,7 @@ from pathlib import Path
 DIMS = ("tokens", "local_cpu", "local_ram", "github_actions", "paid_api_calls", "network")
 MODES = ("efficient", "maximize", "off")
 SHARE = ("auto", "ask", "off")
+ON_OFF = ("on", "off")
 
 
 def find_policy(start: str = ".") -> Path | None:
@@ -64,10 +66,12 @@ def load(path: Path | None = None) -> dict:
 
 def validate(raw: dict) -> dict:
     """Defaults overlaid with `raw`; ValueError on an unknown key or a bad value."""
-    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask"}
+    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on"}
     for k, v in raw.items():
         if k == "share_learnings":
             ok = v in SHARE
+        elif k == "auto_update":
+            ok = v in ON_OFF
         elif k in DIMS:
             ok = v in MODES or (isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0)
         else:
@@ -251,8 +255,10 @@ def _selftest() -> int:
     p.write_text('{"local_cpu": "maximize", "github_actions": "off", "tokens": 5000, "share_learnings": "auto"}')
     pol = load(p)
     assert (pol["local_cpu"], pol["github_actions"], pol["tokens"], pol["share_learnings"]) == ("maximize", "off", 5000, "auto")
-    assert pol["network"] == "efficient"
-    for bad in ('{"tokens": "lots"}', '{"nope": 1}', '{"tokens": -1}', '{"share_learnings": "yes"}', "[1]", "{"):
+    assert pol["network"] == "efficient" and pol["auto_update"] == "on"
+    p.write_text('{"auto_update": "off"}')
+    assert load(p)["auto_update"] == "off"
+    for bad in ('{"tokens": "lots"}', '{"nope": 1}', '{"tokens": -1}', '{"share_learnings": "yes"}', '{"auto_update": true}', "[1]", "{"):
         p.write_text(bad)
         try:
             load(p)
