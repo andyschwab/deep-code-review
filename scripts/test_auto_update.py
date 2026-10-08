@@ -20,16 +20,24 @@ def sh(*a, cwd=None):
     subprocess.run(a, cwd=cwd, check=True, capture_output=True)
 
 
+def commit_tag(r: Path, t: str, sums_ok=True, force=False):
+    """Commit TAGNAME=t with a SHA256SUMS over the tree (corrupted when not sums_ok), then tag it."""
+    (r / "TAGNAME").write_text(t)
+    rows = [f"{hashlib.sha256((r / f).read_bytes()).hexdigest() if sums_ok else '0' * 64}  {f}"
+            for f in ("TAGNAME", "scripts/update-installed.sh")]
+    (r / "SHA256SUMS").write_text("\n".join(rows) + "\n")
+    sh("git", "add", "-A", cwd=r)
+    sh("git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", t, cwd=r)
+    sh("git", "tag", *(["-f"] if force else []), t, cwd=r)
+
+
 def fake_remote(base: Path, tags=("v1.2.0", "v1.9.0", "v1.10.0")) -> Path:
     r = base / "remote"
     (r / "scripts").mkdir(parents=True)
     (r / "scripts/update-installed.sh").write_text(STUB)
-    sh("git", "init", "-q", str(r))
+    sh("git", "init", "-q", "-b", "main", str(r))
     for t in tags:
-        (r / "TAGNAME").write_text(t)
-        sh("git", "add", "-A", cwd=r)
-        sh("git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", t, cwd=r)
-        sh("git", "tag", t, cwd=r)
+        commit_tag(r, t)
     sh("git", "tag", "not-a-release", cwd=r)
     return r
 
@@ -69,13 +77,46 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertFalse((proj / ".claude/ran").exists())
         self.assertIn("up to date at 1.10.0", self.log())
 
-    def test_merge_and_train_locks_skip_and_log(self):
-        for lock in ("MERGE_HEAD", "train-land.lock"):
-            proj = fake_installed(self.tmp / lock, self.remote)
-            (proj / ".git" / lock).mkdir()
+    def test_merge_rebase_cherry_pick_and_train_locks_skip_and_log(self):
+        for lock in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply", "train-land.lock",
+                     "worktrees/lane1/train-land.lock"):
+            proj = fake_installed(self.tmp / lock.replace("/", "_"), self.remote)
+            (proj / ".git" / lock).mkdir(parents=True)
             self.assertEqual(au.run(proj), 0)
-            self.assertFalse((proj / ".claude/ran").exists())
-            self.assertIn(f"skip: {lock} present", self.log())
+            self.assertFalse((proj / ".claude/ran").exists(), lock)
+            self.assertIn(f"skip: {Path(lock).name} present", self.log())
+
+    def test_uncommitted_settings_change_skips_but_untracked_files_do_not(self):
+        s = self.proj / ".claude/settings.local.json"
+        s.write_text("{}\n")
+        sh("git", "add", "-f", ".claude/settings.local.json", cwd=self.proj)
+        sh("git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "s", cwd=self.proj)
+        s.write_text('{"model": "opus"}\n')
+        self.assertEqual(au.run(self.proj), 0)
+        self.assertFalse((self.proj / ".claude/ran").exists())
+        self.assertIn("skip: uncommitted changes: M .claude/settings.local.json", self.log())
+
+    def test_moved_local_tag_is_refused(self):
+        self.assertEqual(au.run(self.proj), 0)
+        (self.proj / ".claude/ran").unlink()
+        commit_tag(self.remote, "v1.10.0", force=True)  # the remote re-points an existing tag
+        self.assertEqual(au.run(self.proj), 1)
+        self.assertFalse((self.proj / ".claude/ran").exists())
+        self.assertIn("failed 1.2.0 -> v1.10.0: git fetch", self.log())
+
+    def test_tag_not_on_main_is_refused(self):
+        sh("git", "checkout", "-q", "-b", "side", cwd=self.remote)
+        commit_tag(self.remote, "v9.0.0")
+        sh("git", "checkout", "-q", "main", cwd=self.remote)
+        self.assertEqual(au.run(self.proj), 1)
+        self.assertFalse((self.proj / ".claude/ran").exists())
+        self.assertIn("aborted, v9.0.0 is not an ancestor of main", self.log())
+
+    def test_bad_sha256sums_is_refused(self):
+        commit_tag(self.remote, "v9.0.0", sums_ok=False)
+        self.assertEqual(au.run(self.proj), 1)
+        self.assertFalse((self.proj / ".claude/ran").exists())
+        self.assertIn("aborted, SHA256SUMS mismatch: TAGNAME", self.log())
 
     def test_dirty_managed_file_skips_and_logs(self):
         (self.proj / ".claude/skills/deep-code-review/SKILL.md").write_text("edited by the user\n")
@@ -146,6 +187,9 @@ class InstallWiringTests(unittest.TestCase):
         self.assertEqual(m["version"], (ROOT / ".claude/skills/deep-code-review/VERSION").read_text().strip())
         self.assertNotIn("restart your", p.stdout.lower())
         self.assertIn("without a restart", p.stdout)
+        self.assertIn("runs release code from the Perun remote in the background", p.stdout)
+        self.assertIn("--no-auto-update", p.stdout)
+        self.assertIn('"auto_update": "off"', p.stdout)
         self.assertFalse((repo / ".perun/policy.json").exists())
 
     def test_no_auto_update_turns_policy_off_and_keeps_other_keys(self):

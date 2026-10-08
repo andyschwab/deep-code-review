@@ -11,12 +11,17 @@ otherwise touches the stamp and spawns `--run` detached (new session, stdio to /
 network wait ever lands on the session start path. Prints nothing (hook stdout would enter context).
 
 `--run [--target DIR]` (the background worker, also runnable by hand): under one machine-wide
-flock, it reads `.claude/.perun-install.json` (`version`, `remote`), skips when a merge or train
-lock exists in the target (`MERGE_HEAD`, `train-land.lock` in its git dir) or a Perun-managed file
-differs from the hash install recorded, finds the newest `vX.Y.Z` tag on the remote
-(`git ls-remote`), and when it is newer checks it out in a cache clone
-(`$XDG_CACHE_HOME/perun/src`) and runs that tag's `scripts/update-installed.sh TARGET`
-(`DCR_NO_PULL=1`), which replays the recorded install flags. install.sh keeps existing user
+flock, it reads `.claude/.perun-install.json` (`version`, `remote`), skips when the target has a
+merge, rebase, cherry-pick or train lock (`MERGE_HEAD`, `CHERRY_PICK_HEAD`, `rebase-merge/`,
+`rebase-apply/`, `train-land.lock` in its git dir or any `worktrees/*/` dir), when a Perun-managed
+file differs from the hash install recorded, or when `git status` shows uncommitted changes to a
+managed path or `.claude/settings*.json`. It finds the newest `vX.Y.Z` tag on the remote
+(`git ls-remote`); when it is newer it fetches the tag into a cache clone
+(`$XDG_CACHE_HOME/perun/src`) without `--force` (a local tag that moved is refused), aborts unless
+the tag's commit is an ancestor of the remote's `main` and the tree's `SHA256SUMS` verifies, then
+runs that tag's `scripts/update-installed.sh TARGET` (`DCR_NO_PULL=1`), which replays the recorded
+install flags. SHA256SUMS ships in the same tag, so it proves integrity (no corrupt or partial
+checkout), not authenticity: trust rests on the repository owner's tags and `main`. install.sh keeps existing user
 settings, writes a `.bak` and skill backups. Every worker run appends one line to
 `$XDG_CACHE_HOME/perun/auto-update.log`. Exit 0 always in hook mode; `--run` exits 0 on
 skip/up-to-date/updated, 1 when the update itself failed.
@@ -89,13 +94,21 @@ def git(*args: str, timeout: int = 120) -> subprocess.CompletedProcess:
                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
 
 
+LOCKS = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply", "train-land.lock")
+
+
 def blocker(target: Path, marker: dict) -> str:
-    """Why an update must wait ('' when clear): a merge/train lock, or a managed file edited since install."""
-    gd = git("-C", str(target), "rev-parse", "--absolute-git-dir")
+    """Why an update must wait ('' when clear): a merge/rebase/cherry-pick/train lock in this or any
+    linked worktree, a managed file edited since install, or uncommitted git changes to a managed path
+    or `.claude/settings*.json` (untracked files do not count)."""
+    gd = git("-C", str(target), "rev-parse", "--absolute-git-dir", "--git-common-dir")
     if gd.returncode == 0:
-        for lock in ("MERGE_HEAD", "train-land.lock"):
-            if (Path(gd.stdout.strip()) / lock).exists():
-                return f"{lock} present"
+        own, common = gd.stdout.split("\n")[:2]
+        common = target / common  # relative to the -C dir when not absolute; an absolute path wins in `/`
+        for d in [Path(own), common, *(common / "worktrees").glob("*")]:
+            for lock in LOCKS:
+                if (d / lock).exists():
+                    return f"{lock} present in {d}"
     files = [(Path(d) / f, h) for d, fs in marker.get("skills", {}).items() for f, h in fs.items()]
     if marker.get("agent"):
         files.append((Path(marker["agent"]["path"]), marker["agent"]["sha"]))
@@ -103,6 +116,24 @@ def blocker(target: Path, marker: dict) -> str:
         p = target / rel
         if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest() != h:
             return f"dirty Perun-managed file {rel}"
+    paths = [*marker.get("skills", {}), *([marker["agent"]["path"]] if marker.get("agent") else []),
+             ":(glob).claude/settings*.json"]
+    st = git("-C", str(target), "status", "--porcelain", "--untracked-files=no", "--", *paths)
+    if st.returncode == 0 and st.stdout.strip():
+        return f"uncommitted changes: {st.stdout.strip().splitlines()[0].strip()}"
+    return ""
+
+
+def verify_sums(src: Path) -> str:
+    """'' when every `SHA256SUMS` line in the checkout matches; else the first mismatch. Missing file fails."""
+    sums = src / "SHA256SUMS"
+    if not sums.is_file():
+        return "no SHA256SUMS"
+    for line in sums.read_text().splitlines():
+        h, _, rel = line.partition("  ")
+        p = src / rel
+        if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest() != h:
+            return f"SHA256SUMS mismatch: {rel}"
     return ""
 
 
@@ -137,7 +168,8 @@ def run(target: Path) -> int:
             return 0
         src = cache() / "src"
         steps = ([] if (src / ".git").is_dir() else [["clone", "-q", "--no-checkout", remote, str(src)]]) + [
-            ["-C", str(src), "fetch", "-q", "--force", remote, f"refs/tags/{newest}:refs/tags/{newest}"],
+            ["-C", str(src), "fetch", "-q", remote, f"refs/tags/{newest}:refs/tags/{newest}",
+             "+refs/heads/main:refs/remotes/origin/main"],  # no --force on tags: a moved tag is refused
             ["-C", str(src), "-c", "advice.detachedHead=false", "checkout", "-q", "-f", "--detach", newest]]
         for step in steps:
             r = git(*step, timeout=600)
@@ -145,6 +177,12 @@ def run(target: Path) -> int:
                 log(target, f"failed {marker['version']} -> {newest}: git {next(x for x in step if x in ('clone', 'fetch', 'checkout'))}: "
                     f"{(r.stderr.strip().splitlines() or ['?'])[-1]}")
                 return 1
+        why = ("" if git("-C", str(src), "merge-base", "--is-ancestor", f"refs/tags/{newest}",
+                         "refs/remotes/origin/main").returncode == 0 else f"{newest} is not an ancestor of main")
+        why = why or verify_sums(src)
+        if why:
+            log(target, f"failed {marker['version']} -> {newest}: aborted, {why}")
+            return 1
         r = subprocess.run(["bash", str(src / "scripts/update-installed.sh"), str(target)], capture_output=True,
                            text=True, timeout=600, env={**os.environ, "DCR_NO_PULL": "1"})
         if r.returncode != 0:

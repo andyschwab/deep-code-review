@@ -574,6 +574,8 @@ What changed in ${TARGET_DIR}:
   1. Skills copied to .claude/skills (+ .cursor, .agents); any existing copy moved to <host>/skill-backups/.
   2. .claude/settings.local.json: operating-layer hooks (PreToolUse, SessionStart/UserPromptSubmit auto-update, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
      Skills, hooks and permissions apply to open sessions without a restart; only a model change waits for the next session.
+     Auto-update: that hook runs release code from the Perun remote in the background (newest vX.Y.Z tag, at most every 6h).
+     Opt out: re-run install.sh with --no-auto-update, or set "auto_update": "off" in .perun/policy.json.
   3. .claude/agents/delivery-lane.md added if absent; .claude/.perun-install.json and .dcr-install-flags record what was added.
   4. Check it works: python3 ${SCRIPT_DIR}/scripts/perun_doctor.py ${TARGET_DIR}
   5. Undo: python3 ${SCRIPT_DIR}/scripts/perun_uninstall.py ${TARGET_DIR}   (opt out next time: --no-operating-layer)

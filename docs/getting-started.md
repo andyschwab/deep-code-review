@@ -84,7 +84,11 @@ and appends one line per run to `~/.cache/perun/auto-update.log`. Open sessions
 pick up the new skills and hooks without a restart; only a model change waits for
 the next session. Turn it off with `"auto_update": "off"` in `.perun/policy.json`
 or `install.sh --no-auto-update`. This runs the release's own install code, so
-install only from a remote you trust.
+install only from a remote you trust. Before running it, the updater refuses a
+local tag that moved, requires the tag's commit to be on the remote's `main`, and
+checks the tree against `SHA256SUMS`. `SHA256SUMS` comes from the same tag, so it
+proves integrity (a complete, uncorrupted checkout), not authenticity: trust rests
+on the repository owner's tags and `main`.
 
 Without the operating layer, pull or check out a newer release tag in your clone,
 verify the checksums, and run `install.sh` again with the same flags. It copies
