@@ -9,6 +9,8 @@ follows Keep a Changelog; versioning follows Semantic Versioning.
 
 - `weekly_receipt.py` and `token_ratchet.py` now share one tokens-per-PR measure from `token_report.py`: weighted tokens (input-equivalent plus output, cache reads at 0.1x) and one distinct first-parent `Merge pull request #N` count. The receipt previously summed raw tokens (cache reads at full weight), which inflated its figure about 10x against the ratchet's. Test: `scripts/test_tokens_per_pr_parity.py`.
 
+**Re-baseline needed:** tokens-per-PR now counts weighted tokens (input-equivalent + output) over first-parent PR merges; baselines written earlier by `token_ratchet.py --write-baseline` or passed as `weekly_receipt.py --baseline` used the old count, so re-run `token_ratchet.py --write-baseline --force` once after updating.
+
 ## [1.543.0] — 2026-10-08
 
 ### Fixed
