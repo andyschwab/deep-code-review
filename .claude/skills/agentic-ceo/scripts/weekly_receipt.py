@@ -101,7 +101,11 @@ def main(argv=None):
     ap.add_argument("--spend")
     ap.add_argument("--findings")
     ap.add_argument("--holds")
-    print(card(ap.parse_args(argv)))
+    a = ap.parse_args(argv)
+    if a.days <= 0:
+        print("weekly_receipt: --days must be > 0", file=sys.stderr)
+        return 2
+    print(card(a))
     return 0
 
 

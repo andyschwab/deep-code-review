@@ -1335,7 +1335,7 @@ rules_scan() {
           for (i = 1; i <= n; i++) print P "\t" rl[i]
         para = ""; n = 0
       }
-      /^```/ { fence = !fence; next }
+      /^[[:space:]]*```/ { fence = !fence; next }
       fence { next }
       /^[[:space:]]*$/ { flush(); next }
       { para = para "\n" $0; t = $0; gsub(/MUST-LOAD/, "", t)
