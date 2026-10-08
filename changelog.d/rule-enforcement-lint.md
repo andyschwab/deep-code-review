@@ -1,2 +1,0 @@
-### Added
-- `ci-gates.sh rules`: rule-enforcement lint. A MUST/NEVER/ALWAYS (or bold "Never") rule line in a SKILL.md must sit in a paragraph that names a mechanism (scripts/, ci-gates, evals, hook) or says advisory. Existing debt is frozen in `scripts/rule-enforcement-baseline.tsv`; only new unenforced rules fail, and baseline growth vs the PR base needs a `rule-baseline-raise:` commit line. Wired in ci.yml; planted-RED fixtures in `scripts/test-ci-gates.sh`. Heuristic prose lint: it checks a mechanism is named, not that it works.
