@@ -41,7 +41,7 @@ class Split(unittest.TestCase):
     def test_committed_manifest_shape(self):
         train = [m for m in MAN if m["split"] == "train"]
         test = [m for m in MAN if m["split"] == "test"]
-        self.assertEqual((len(train), len(test)), (9, 18))
+        self.assertEqual((len(train), len(test)), (44, 90))
         self.assertTrue(all(m["id"].startswith("test-") for m in test))
         self.assertFalse(any({"fix_sha", "intro_sha"} & set(m) for m in test), "TEST SHAs point at the answer")
 

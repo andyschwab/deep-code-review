@@ -1,0 +1,169 @@
+diff --git a/lib/ipc/incoming.js b/lib/ipc/incoming.js
+new file mode 100644
+index 0000000..d9ab0ca
+--- /dev/null
++++ b/lib/ipc/incoming.js
+@@ -0,0 +1,41 @@
++import {once} from 'node:events';
++import {scheduler} from 'node:timers/promises';
++import {waitForOutgoingMessages} from './outgoing.js';
++
++// Debounce the `message` event so it is emitted at most once per macrotask.
++// This allows users to call `await getOneMessage()`/`getEachMessage()` multiple times in a row.
++export const onMessage = async (anyProcess, ipcEmitter, message) => {
++	if (!INCOMING_MESSAGES.has(anyProcess)) {
++		INCOMING_MESSAGES.set(anyProcess, []);
++	}
++
++	const incomingMessages = INCOMING_MESSAGES.get(anyProcess);
++	incomingMessages.push(message);
++
++	if (incomingMessages.length > 1) {
++		return;
++	}
++
++	while (incomingMessages.length > 0) {
++		// eslint-disable-next-line no-await-in-loop
++		await waitForOutgoingMessages(anyProcess);
++		// eslint-disable-next-line no-await-in-loop
++		await scheduler.yield();
++		ipcEmitter.emit('message', incomingMessages.shift());
++	}
++};
++
++const INCOMING_MESSAGES = new WeakMap();
++
++// If the `message` event is currently debounced, the `disconnect` event must wait for it
++export const onDisconnect = async ({anyProcess, ipcEmitter, boundOnMessage}) => {
++	const incomingMessages = INCOMING_MESSAGES.get(anyProcess);
++	while (incomingMessages?.length > 0) {
++		// eslint-disable-next-line no-await-in-loop
++		await once(ipcEmitter, 'message');
++	}
++
++	anyProcess.removeListener('message', boundOnMessage);
++	ipcEmitter.connected = false;
++	ipcEmitter.emit('disconnect');
++};
+diff --git a/lib/ipc/outgoing.js b/lib/ipc/outgoing.js
+new file mode 100644
+index 0000000..d8d168b
+--- /dev/null
++++ b/lib/ipc/outgoing.js
+@@ -0,0 +1,30 @@
++import {createDeferred} from '../utils/deferred.js';
++
++// When `sendMessage()` is ongoing, any `message` being received waits before being emitted.
++// This allows calling one or multiple `await sendMessage()` followed by `await getOneMessage()`/`await getEachMessage()`.
++// Without running into a race condition when the other process sends a response too fast, before the current process set up a listener.
++export const startSendMessage = anyProcess => {
++	if (!OUTGOING_MESSAGES.has(anyProcess)) {
++		OUTGOING_MESSAGES.set(anyProcess, new Set());
++	}
++
++	const outgoingMessages = OUTGOING_MESSAGES.get(anyProcess);
++	const onMessageSent = createDeferred();
++	outgoingMessages.add(onMessageSent);
++	return {outgoingMessages, onMessageSent};
++};
++
++export const endSendMessage = ({outgoingMessages, onMessageSent}) => {
++	outgoingMessages.delete(onMessageSent);
++	onMessageSent.resolve();
++};
++
++// Await while `sendMessage()` is ongoing
++export const waitForOutgoingMessages = async anyProcess => {
++	while (OUTGOING_MESSAGES.get(anyProcess)?.size > 0) {
++		// eslint-disable-next-line no-await-in-loop
++		await Promise.all(OUTGOING_MESSAGES.get(anyProcess));
++	}
++};
++
++const OUTGOING_MESSAGES = new WeakMap();
+diff --git a/lib/ipc/send.js b/lib/ipc/send.js
+index cbf2a0e..0ac79ea 100644
+--- a/lib/ipc/send.js
++++ b/lib/ipc/send.js
+@@ -3,45 +3,40 @@ import {
+ 	handleSerializationError,
+ 	disconnect,
+ } from './validation.js';
+-import {addReference, removeReference} from './forward.js';
++import {startSendMessage, endSendMessage} from './outgoing.js';
++import {addReference, removeReference} from './reference.js';
+ 
+ // Like `[sub]process.send()` but promise-based.
+-// We do not `await subprocess` during `.sendMessage()`, `.getOneMessage()` nor `.exchangeMessage()` since those methods are transient.
++// We do not `await subprocess` during `.sendMessage()` nor `.getOneMessage()` since those methods are transient.
+ // Users would still need to `await subprocess` after the method is done.
+ // Also, this would prevent `unhandledRejection` event from being emitted, making it silent.
+ export const sendMessage = ({anyProcess, anyProcessSend, isSubprocess, ipc}, message) => {
+-	const methodName = 'sendMessage';
+ 	validateIpcMethod({
+-		methodName,
++		methodName: 'sendMessage',
+ 		isSubprocess,
+ 		ipc,
+ 		isConnected: anyProcess.connected,
+ 	});
+ 
+-	return sendOneMessage({
++	return sendMessageAsync({
+ 		anyProcess,
+ 		anyProcessSend,
+ 		isSubprocess,
+-		methodName,
+ 		message,
+ 	});
+ };
+ 
+-// Same but used internally
+-export const sendOneMessage = async ({anyProcess, anyProcessSend, isSubprocess, methodName, message}) => {
++const sendMessageAsync = async ({anyProcess, anyProcessSend, isSubprocess, message}) => {
+ 	addReference(anyProcess);
++	const outgoingMessagesState = startSendMessage(anyProcess);
+ 	try {
+ 		await anyProcessSend(message);
+ 	} catch (error) {
+ 		disconnect(anyProcess);
+-		handleSerializationError({
+-			error,
+-			isSubprocess,
+-			methodName,
+-			message,
+-		});
++		handleSerializationError(error, isSubprocess, message);
+ 		throw error;
+ 	} finally {
++		endSendMessage(outgoingMessagesState);
+ 		removeReference(anyProcess);
+ 	}
+ };
+diff --git a/lib/ipc/validation.js b/lib/ipc/validation.js
+index 2872399..f514ec6 100644
+--- a/lib/ipc/validation.js
++++ b/lib/ipc/validation.js
+@@ -20,8 +20,8 @@ const validateConnection = (methodName, isSubprocess, isConnected) => {
+ };
+ 
+ // When `getOneMessage()` could not complete due to an early disconnection
+-export const throwOnEarlyDisconnect = (methodName, isSubprocess) => {
+-	throw new Error(`${getNamespaceName(isSubprocess)}${methodName}() could not complete: the ${getOtherProcessName(isSubprocess)} exited or disconnected.`);
++export const throwOnEarlyDisconnect = isSubprocess => {
++	throw new Error(`${getNamespaceName(isSubprocess)}getOneMessage() could not complete: the ${getOtherProcessName(isSubprocess)} exited or disconnected.`);
+ };
+ 
+ const getNamespaceName = isSubprocess => isSubprocess ? '' : 'subprocess.';
+@@ -30,9 +30,9 @@ const getOtherProcessName = isSubprocess => isSubprocess ? 'parent process' : 's
+ 
+ // Better error message when sending messages which cannot be serialized.
+ // Works with both `serialization: 'advanced'` and `serialization: 'json'`.
+-export const handleSerializationError = ({error, isSubprocess, methodName, message}) => {
++export const handleSerializationError = (error, isSubprocess, message) => {
+ 	if (isSerializationError(error)) {
+-		error.message = `${getNamespaceName(isSubprocess)}${methodName}()'s argument type is invalid: the message cannot be serialized: ${String(message)}.\n${error.message}`;
++		error.message = `${getNamespaceName(isSubprocess)}sendMessage()'s argument type is invalid: the message cannot be serialized: ${String(message)}.\n${error.message}`;
+ 	}
+ };
+ 
