@@ -10,7 +10,7 @@ newline-separated regexes in $PERUN_HEAVY_PATTERNS, each matched at the start of
 it denies the call when host_probe.decide(lane_type="heavy") says HOLD (load1 > cores or low free
 RAM; swap is not read, one sample shows no trend) or when the machine-wide heavy leases already fill the
 slot count (perun_policy.heavy_slots; local_cpu=maximize raises it to every core). Otherwise it
-prints nothing and the call proceeds. It never takes a lease and never stops or deletes anything.
+prints nothing and the call proceeds. While a train gate holds the EXCLUSIVE lease (perun_policy.py heavy-exclusive) every heavy command is denied with "gate running: wait". It never takes a lease and never stops or deletes anything.
 
 Fail open: any error inside the hook (bad stdin, unreadable host data, an unparsable command line, a bad policy) allows the call.
 A block is a JSON `permissionDecision: "deny"` on stdout with exit 0, never exit 2, so a crash
@@ -110,6 +110,8 @@ def verdict(policy_cpu="efficient") -> tuple:
     ram = _float_env("PERUN_GATE_FREE_RAM_PCT")
     if ram is None:
         ram = host_probe.read_free_ram_pct()
+    if perun_policy.exclusive_holder(perun_policy.lease_dir()):
+        return "HOLD gate running: wait", load1, cores, ram
     swap = 0.0  # one sample cannot show a trend; (0, 0) keeps decide() reading load and RAM
     v = host_probe.decide(swap_samples=(swap, swap), free_ram_pct=ram, lane_type="heavy",
                           load1=load1, cores=cores)
