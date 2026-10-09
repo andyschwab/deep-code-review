@@ -55,7 +55,7 @@ SKILLS="deep-code-review agentic-delivery idea-critic"
 regen() {
   # Rewrite size rows in place (comments, order and the hand-kept README.md row survive): existing skill
   # rows take the current size, rows of deleted files drop, new files append.
-  find .claude/skills \( -name SKILL.md -o -path '*/references/*.md' \) -type f | LC_ALL=C sort |
+  git ls-files -co --exclude-standard .claude/skills | grep -E '(^|/)(SKILL\.md|references/[^/]*\.md)$' | LC_ALL=C sort |
     while IFS= read -r f; do printf '%s\t%s\n' "$f" "$(LC_ALL=C wc -c <"$f" | tr -d '[:space:]')"; done >sizes.new
   awk -F'\t' -v OFS='\t' 'NR==FNR{sz[$1]=$2; next}
     /^#/||/^$/{print; next}

@@ -3,15 +3,37 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.547.0] — 2026-10-09
+
+### Changed
+
+- Repo-scanning gates now enumerate git files instead of walking the filesystem: `ci-gates.sh privacy` and `size`, the `land-release.sh` size-row regen and `perun_doctor.py` read `git ls-files -co --exclude-standard` at a git work-tree root, so nested worktrees and gitignored build directories are never scanned (a planted violation there no longer fails every push). `find`/full walk remains only outside a git root. Pinned by `scripts/test_scan_tracked_only.py`. The other `os.walk` users (lint/test scanners over caller-named paths, transcript walks) take explicit paths and are unchanged.
+
+### Added
+
+- Per-PR independent review gate (warn-first). `agentic-delivery/scripts/review_gate.py`, called per member PR by `land_train.sh` (so `train_land.sh` inherits it), looks for a review receipt (`.perun/reviews/<pr>.json`, written by `review_gate.py receipt`) or a `perun-review` PR comment marker from a reviewer other than the author, for the exact head being merged. New policy key `review_gate`: `warn` (default), `enforce`, `off`. **Warn-only for this release**: a PR with no receipt prints a WARN and still lands; `enforce` skips it; `review_gate=off` opts out. The gate proves an independent review run on the current head (reviewer run id differs from the author's), not a different human; an unexpected error in warn mode warns and never blocks. Expect `enforce` to become the default in a later release. Routed from `agentic-delivery/SKILL.md`; tested by `scripts/test_review_gate.py`.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 67426→68717 review-gate section (policy, receipt format, warn-first)
+
+## [1.546.0] — 2026-10-09
+
+### Added
+- `wired_check.py` (agentic-delivery): warns for each new script under `scripts/` that no hook, settings template, CI workflow, command, package.json, Makefile, other script or SKILL.md/reference run line calls (a script referenced only by its own test counts as unwired). Warn-only; wired into the pre-push template and CI.
+- `scrub_env.sh` (agentic-delivery): runs a command with every `GIT_*` var plus DB env unset; `train_land.sh` uses it for verify runs, and the lane preamble gains the matching testing rule.
+
+### Fixed
+- `ci-gates.sh privacy` now fails closed inside a linked git worktree that lacks `.banlist.local.txt` while the main checkout has it, and prints the exact `cp` command to fix it.
+
+size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 23879→23996 one routing line for wired_check.py
+
 ## [1.545.0] — 2026-10-08
 
 ### Added
-- idea-critic: standing skeptic checks for self-proposed work (user value vs replay, verify operational advice against host docs, who is worse off by a new default, simpler safe-by-design alternative, restate the real constraint), plus six eval fixtures for real decision misses and two PASS controls. Refs #1380.
+- Merge train: new browser-gate failures are re-run alone up to 3 times (`train_flake.sh`); only failures that fail at least 2 of 3 are real, flakes are reported separately, and only PRs that fail the real ids alone on the base are dropped so the rest still land.
+- Merge train: the gate holds an exclusive machine-wide heavy lease (`perun_policy.py heavy-exclusive`); `heavy_gate.py` denies other heavy commands with "gate running: wait". Pushes go through one serial queue.
+- Merge train: waits use a `_lock.sh` mkdir lock (stale only when older than the timeout and the pid is dead; otherwise reported, never deleted), no process-name matching.
 
-- idea-critic: calibration rule (named evidence + measured kill criterion + safe rollback + no concrete flaw = PASS_TO_USER with at most one note) and four PASS controls.
-- Live A/B (claude -p, sonnet, no tools, 3 replicates, 11 cases, keyword predicates because idea-critic binds no eval_predicates; 95% bootstrap CI): plain vs skill verdict accuracy 0.70 [0.55-0.85] vs 0.85 [0.73-0.97]; miss-case accuracy 0.90 vs 0.95; PASS-control accuracy 0.33 [0.08-0.58] vs 0.67 [0.42-0.92]; objection recall 0.57 [0.38-0.76] vs 0.86 [0.71-1.00]. Point estimates favor the skill on every metric; CIs overlap on accuracy, so the accuracy gain is not statistically established. Skill still returns REVISE on 4 of 12 PASS-control runs.
-
-size-budget-raise: .claude/skills/idea-critic/SKILL.md 13997→15011 five standing skeptic checks, calibration rule and Veles title
+size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 66147→67174 documents the three train-resilience behaviors with their env contract, which no existing section holds
 
 ## [1.544.0] — 2026-10-08
 

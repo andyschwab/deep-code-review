@@ -168,6 +168,18 @@ audit gate in every train; run the audit on the bare base first and report `BASE
 `scripts/train_land.sh` implements (1) and (3) behind optional `RATCHET_CMD` and `BASE_AUDIT_CMD` (tested in
 `scripts/test-train-scripts.sh`); (2) is the same measurement taken on the merged result.
 
+**Load flakes must not sink a train.** A train that is all-or-nothing under load can merge nothing for hours: failures that
+looked new all passed when re-run alone. With `RERUN_CMD` (and optionally `BASELINE_FAILS`), `train_land.sh` re-runs each
+new `FAIL <id>` from the browser gate alone up to 3 times (`train_flake.sh`); an id is real only when it fails at least 2
+of 3, flakes are reported separately and never block, and only PRs that fail the real ids merged alone onto the base are
+dropped before the rest re-verify and land. While the gate runs it holds the exclusive machine-wide heavy lease
+(`perun_policy.py heavy-exclusive`), so `heavy_gate.py` denies other heavy commands with "gate running: wait" and lanes stop
+adding load; pushes go through one serial queue (`train-push.lock`). The lease is valid while its pid is alive and its mtime is
+fresh; the train renews it at each step. Waits use the `_lock.sh` mkdir lock, never a process-name match; a lock that looks
+stale is reported with the command to clear it by hand and is never moved or deleted automatically. A red browser run lands
+only when every new listed failure re-ran as a flake and the runner's own `FAILURES <n>` count is not above the listed `FAIL`
+lines. Tests: `scripts/test-train-resilience.sh`.
+
 ## An independent-PR-queue cascade is a cadence choice, not a new authority
 
 Gate epistemology principle 6 (union proof before a train) runs as `scripts/merge_train.py`. A related but
@@ -736,3 +748,15 @@ agents, one branch. State it explicitly, one line per brief:
   above), never a bare `stash push`, rather than left to be silently overwritten.
 
 **An OOM-killed train moves, it does not retry in place.** A train killed with SIGKILL during the unit-test step will be killed again on the same loaded machine. Move the train runner to the least-loaded machine and re-run the union there.
+
+**Every PR gets an independent review before it merges.** Field data: 2 of the last 40 merged PRs in a fleet had any
+non-author review. The default is now a deep-code-review DIFF pass plus an evil-twin check by a reviewer other than the
+author, recorded as a receipt for the exact head being merged. `scripts/review_gate.py` runs inside `land_train.sh`
+per member PR (so `train_land.sh` inherits it) and accepts either `.perun/reviews/<pr>.json` (write it with
+`review_gate.py receipt <pr> --reviewer R --author A --head SHA`) or a PR comment containing
+`<!-- perun-review reviewer=R author=A head=SHA diff=pass evil-twin=pass -->`. The reviewer must differ from the author
+and the head must match, so a review of an older push never covers a newer one. It proves an independent review RUN on the current head, not a different human (agent reviewers often share the author's
+GitHub token, so the gate logs "same-account review: run-id separation only"), and is a process receipt, not a
+signature. Policy key `review_gate` in `.perun/policy.json`: `warn` (default; **warn-only for this release**, prints a
+WARN and merges anyway), `enforce` (skips the PR; `land_train.sh` prints `REFUSE #N no independent review`), `off`
+(opt out). Expect `enforce` to become the default in a later release.

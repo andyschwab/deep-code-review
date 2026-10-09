@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.545.0"
+  version: "1.547.0"
 ---
 
 # Agentic delivery
@@ -106,6 +106,8 @@ stronger tier): `references/fanout-host-sizing.md` **Escalate a lane**.
 **Sweeping the whole ready queue on every trigger** — a completeness fix to
 this event-driven model, not a change to it: `references/merge-queue-worktrees.md`.
 
+**Review gate:** `scripts/review_gate.py`, `references/merge-queue-worktrees.md`.
+
 **Worked-lesson ledger** — five themed files, indexed one line each in
 `references/fast-agentic-delivery.md`. Read `references/verification-handback.md`
 when verifying, finalizing, or relaying a lane's result (liveness, `Verify:`
@@ -133,12 +135,12 @@ independent verification or a human approval that actually applies.
 | G2 Plan | Spec | Acyclic work graph | Role triggers, one writer per worktree; **every lane with a paid model call names a per-lane token/dollar budget before G4 starts — no budget set is blocked, not unlimited** (a cap that defaults to off is not a cap); in a multi-repo plan, classify each item provider vs consumer before cutting lanes (`references/roles.md` *No scope creep*) |
 | G3 Design | Graph | ADRs / contracts | Interfaces, NFR budgets, data/security decisions explicit. Shape: `references/template-adr.md` |
 | G4 Implement | Work packets | Patch/commit per lane | Tests before or with the change; packet names review skill + immutable base SHA |
-| G5 Verify | Exact revision | Test receipts | **Local stack up** (project's one-command / compose / devcontainer) then build, lint, type, unit, and applicable integration/E2E **green at that SHA**. A gate that never started the app is `UNVERIFIED`, not pass. **UI change (domain P):** headed-browser evidence on the exact route after the action (screenshot or equivalent). Unit tests alone are not a UI gate |
+| G5 Verify | Exact revision | Test receipts | **Local stack up** (project's one-command / compose / devcontainer) then build, lint, type, unit, and applicable integration/E2E **green at that SHA**. A gate that never started the app is `UNVERIFIED`, not pass. **UI change (domain P):** headed-browser evidence on the exact route after the action. Unit tests alone are not a UI gate |
 | G6 Review | Exact revision + receipts | `deep-code-review` + QA + security verdicts | Independent of the builder; applies the `deep-code-review` severity rubric — Blocker/Critical block, High needs a named owner's acceptance, Medium is tracked and non-blocking |
 | G7 Integrate | Accepted lanes | Integration receipt + `deep-code-review DIFF` | One integration owner; rerun affected gates on the exact final SHA |
 | G8 Release | Exact integrated SHA | Release manifest | Rollback proven; **owner approves** outward/production action |
 | G9 Production verify | Deployed SHA | Verification receipt | Served behaviour and SLOs; rollback on breach |
-| G10 Learn | Receipts | Retrospective | Escaped gap → regression test in this repo. Reusable lessons are generalized and stripped of third-party identifiers before leaving the project (the `contribution` overlay, if installed, is the mechanism to propose them upstream). Mandatory-trigger criteria, blameless shape, action-item-closure gate: `references/retrospective.md` + `references/template-postmortem.md` |
+| G10 Learn | Receipts | Retrospective | Escaped gap → regression test in this repo. Reusable lessons are generalized, third-party identifiers stripped, before leaving the project (`contribution` overlay proposes them upstream). Mandatory-trigger criteria, blameless shape, action-item-closure gate: `references/retrospective.md` + `references/template-postmortem.md` |
 
 **Missing evidence is `UNVERIFIED`, never pass. Missing price is `UNPRICED`,
 never zero. Missing spend cap is `BLOCKED`, never unlimited** — `UNPRICED` is a
@@ -253,6 +255,7 @@ throwaway integration SHA plus one aggregate gate before a merge train (G7).
   collision*).
 - **A forked lane with a narrower brief than its inherited context** (research-only, "change nothing"): prefer a fresh unit; verify from effects — `references/verification-handback.md` **A context-inheriting fork is not a blank slate**.
 - **Inventory the repo's own scripts before spawning a lane for a repeatable step.** On start, read `scripts/` and the README; if a tick, train, bisect, land, or release script exists, run it instead of having an LLM lane do the step (or hand-resolve a generated-file conflict) by judgment.
+- **New script?** `python3 scripts/wired_check.py <base> HEAD`: a WARN means no caller (own test excluded); wire it.
 - **P0 count inflated / "what next?":** read when many open issues are P0. Don't relabel; rank a top-N in PRIORITIES.md, tag the rest `p0:unranked`; `scripts/queue_guard.py` prints the next pull and flags inflation.
 - Serialize shared-state edits, migrations, generated files, and the
   integration branch — lanes sharing a host: `scripts/serial_gate.py`.
@@ -275,7 +278,7 @@ decide-from-probe rules: `references/fanout-host-sizing.md` **Environment probe
 procedure** (read it before sizing any fan-out); CI-offload:
 `references/merge-queue-worktrees.md`.
 
-- **Act-on predicate:** spawn another heavy lane only while free RAM >15% AND swap is not climbing (read it twice); CPU idle is secondary, `load1` never decides — commands and why: `references/fanout-host-sizing.md` **Gate on free RAM and the swap trend**. Mechanized: `scripts/host_probe.py --lane-type {cpu,io,light} [--canary CMD --baseline-file F]` prints `SPAWN`/`HOLD <reason>`/`COULD_NOT_CHECK <what>`.
+- **Act-on predicate:** spawn another heavy lane only while free RAM >15% AND swap is not climbing; CPU idle is secondary, `load1` never decides — commands and why: `references/fanout-host-sizing.md` **Gate on free RAM and the swap trend**. Mechanized: `scripts/host_probe.py --lane-type {cpu,io,light} [--canary CMD --baseline-file F]` prints `SPAWN`/`HOLD <reason>`/`COULD_NOT_CHECK <what>`.
 - **Auto-wired by `--apply-operating-layer`:** `scripts/heavy_gate.py` (PreToolUse Bash) denies tests/builds while `host_probe` HOLDs or heavy leases are full; fails open. `scripts/session_brief.py` (SessionStart): ≤3 report-only lines.
 
 ## Local environment (own it)

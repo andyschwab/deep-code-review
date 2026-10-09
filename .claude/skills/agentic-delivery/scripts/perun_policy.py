@@ -9,7 +9,8 @@ fails closed (exit 2), never silently falls back.
 
 Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-negative number (a cap).
 `share_learnings` takes `auto|ask|off` (default `ask`). `auto_update` takes `on|off` (default `on`):
-whether perun_auto_update.py may re-apply a newer release tag in the background.
+whether perun_auto_update.py may re-apply a newer release tag in the background. `review_gate` takes
+`warn|enforce|off` (default `warn`): whether review_gate.py blocks a merge with no independent review receipt.
 
   perun_policy.py get <dim>      print the value (a number prints as a number)
   perun_policy.py show           print the whole effective policy as JSON
@@ -19,6 +20,7 @@ whether perun_auto_update.py may re-apply a newer release tag in the background.
   perun_policy.py lanes          parallel-lane count from local_cpu (see lanes())
   perun_policy.py heavy-slots    heavy-command concurrency = max(2, free cores) (see heavy_slots())
   perun_policy.py heavy-acquire  take a machine-wide heavy lease (exit 0 + prints pid) or exit 1 when full
+  perun_policy.py heavy-exclusive[-release|-renew]  take/drop/renew the EXCLUSIVE lease (train gate); heavy_gate denies heavy commands while held
   perun_policy.py heavy-release  drop this shell's lease (idempotent)
   perun_policy.py --selftest
 
@@ -35,6 +37,7 @@ DIMS = ("tokens", "local_cpu", "local_ram", "github_actions", "paid_api_calls", 
 MODES = ("efficient", "maximize", "off")
 SHARE = ("auto", "ask", "off")
 ON_OFF = ("on", "off")
+REVIEW = ("warn", "enforce", "off")
 
 
 def find_policy(start: str = ".") -> Path | None:
@@ -66,10 +69,12 @@ def load(path: Path | None = None) -> dict:
 
 def validate(raw: dict) -> dict:
     """Defaults overlaid with `raw`; ValueError on an unknown key or a bad value."""
-    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on"}
+    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on", "review_gate": "warn"}
     for k, v in raw.items():
         if k == "share_learnings":
             ok = v in SHARE
+        elif k == "review_gate":
+            ok = v in REVIEW
         elif k == "auto_update":
             ok = v in ON_OFF
         elif k in DIMS:
@@ -193,6 +198,61 @@ def heavy_release(d: Path, pid: int) -> None:
     (d / str(pid)).unlink(missing_ok=True)
 
 
+def exclusive_holder(d: Path):
+    """Pid of the live EXCLUSIVE lease (a train gate running), else None. Stored beside the lease dir
+    (`heavy.exclusive`, content `<pid> <start epoch>`) so it never fills a slot. Valid only while the pid is alive AND the
+    file's mtime is younger than LEASE_TTL: the holder renews it (exclusive_renew) at each step, so a long gate keeps it
+    and a pid reused after a reboot (live pid, old mtime) expires. Dead pid, expired, unreadable or malformed = None
+    (heavy_gate stays fail-open); nothing is deleted here."""
+    f = d.parent / "heavy.exclusive"
+    try:
+        pid, _ = (int(x) for x in f.read_text().split())
+        fresh = time.time() - f.stat().st_mtime < LEASE_TTL
+    except (OSError, ValueError):
+        return None
+    return pid if fresh and _alive(pid) else None
+
+
+def exclusive_acquire(d: Path, pid: int) -> bool:
+    """Take the machine-wide exclusive lease for `pid`; False while another valid holder has it. The content (`pid ts`)
+    is written whole to a temp file and hard-linked into place (atomic and exclusive: nobody sees an empty file, two
+    gates cannot both win). A lease is unlinked only after two expiry checks; our own is replaced by rename. While held,
+    heavy_gate.py denies every heavy command ("gate running: wait"). Side effect: creates `d.parent`."""
+    f = d.parent / "heavy.exclusive"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    tmp = d.parent / f"heavy.exclusive.{pid}.tmp"
+    tmp.write_text(f"{pid} {int(time.time())}")
+    try:
+        for _ in range(2):
+            try:
+                os.link(tmp, f)
+                return True
+            except FileExistsError:
+                h = exclusive_holder(d)
+                if h == pid:
+                    os.replace(tmp, f)
+                    return True
+                if h is not None:
+                    return False
+                if exclusive_holder(d) is None:  # re-check right before unlink
+                    f.unlink(missing_ok=True)
+        return False
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def exclusive_renew(d: Path, pid: int) -> None:
+    """Refresh the lease mtime while `pid` still holds it (called by the train at each step); no-op otherwise."""
+    if exclusive_holder(d) == pid:
+        os.utime(d.parent / "heavy.exclusive")
+
+
+def exclusive_release(d: Path, pid: int) -> None:
+    """Drop the exclusive lease only if `pid` holds it; a missing one is fine."""
+    if exclusive_holder(d) == pid:
+        (d.parent / "heavy.exclusive").unlink(missing_ok=True)
+
+
 def main(argv: list) -> int:
     if argv[:1] == ["--selftest"]:
         return _selftest()
@@ -223,6 +283,13 @@ def main(argv: list) -> int:
             load1, cores = host_probe.read_load1_and_cores()
             print(heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"]))
             return 0
+        if argv in (["heavy-exclusive"], ["heavy-exclusive-release"], ["heavy-exclusive-renew"]):  # caller shell = holder
+            if argv != ["heavy-exclusive"]:
+                (exclusive_release if argv[0].endswith("release") else exclusive_renew)(lease_dir(), os.getppid())
+                return 0
+            ok = exclusive_acquire(lease_dir(), os.getppid())
+            print(os.getppid() if ok else "HELD")
+            return 0 if ok else 1
         if argv in (["heavy-acquire"], ["heavy-release"]):
             pid = os.getppid()  # the calling shell outlives this CLI; its death frees the lease
             if argv == ["heavy-release"]:
@@ -233,7 +300,7 @@ def main(argv: list) -> int:
             ok = heavy_acquire(lease_dir(), heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"]), pid)
             print(pid if ok else "FULL")
             return 0 if ok else 1
-    except ValueError as e:
+    except (ValueError, OSError) as e:
         print(f"perun_policy: {e}", file=sys.stderr)
         return 2
     print(__doc__, file=sys.stderr)
@@ -286,6 +353,11 @@ def _selftest() -> int:
     heavy_release(ld, os.getpid())
     heavy_release(ld, os.getpid())
     assert active_leases(ld) == []
+    assert exclusive_holder(ld) is None and exclusive_acquire(ld, os.getpid()) and exclusive_holder(ld) == os.getpid()
+    assert not exclusive_acquire(ld, os.getppid()) and exclusive_acquire(ld, os.getpid())
+    exclusive_release(ld, os.getpid())
+    assert exclusive_holder(ld) is None and exclusive_acquire(ld, os.getppid())
+    exclusive_release(ld, os.getppid())
     print("perun_policy selftest ok")
     return 0
 

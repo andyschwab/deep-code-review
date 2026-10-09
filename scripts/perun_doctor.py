@@ -28,7 +28,24 @@ def ver(d):
     return f.read_text().strip() if f.is_file() else None
 
 
+def _git_files(root):
+    """Tracked + untracked-not-ignored files when root is a git work-tree root, else None."""
+    g = ["git", "-C", str(root)]
+    r = subprocess.run(g + ["rev-parse", "--show-prefix"], capture_output=True, text=True)
+    if r.returncode or r.stdout.strip():
+        return None
+    out = subprocess.run(g + ["ls-files", "-z", "-co", "--exclude-standard"], capture_output=True, text=True).stdout
+    return [f for f in out.split("\0") if f]
+
+
 def walk(root, depth=6):
+    files = _git_files(root)
+    if files is not None:  # never descend into nested worktrees or ignored build dirs
+        for f in files:
+            parts = Path(f).parts
+            if len(parts) - 1 <= depth and not SKIP.intersection(parts) and (Path(root) / f).is_file():
+                yield Path(root) / f
+        return
     for dp, dn, fn in os.walk(root):
         dn[:] = [d for d in dn if d not in SKIP]
         if len(Path(dp).relative_to(root).parts) > depth:

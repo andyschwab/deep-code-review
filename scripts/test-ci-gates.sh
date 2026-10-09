@@ -3752,6 +3752,13 @@ else
   record 1 "train hardening: spaced UNION_DIRS, per-worktree lock, exit 3 on no GREEN union"; tail -8 "$WORK/train-hardening.log"
 fi
 
+# train resilience: own per-feature file (scripts/test-train-resilience.sh), one case here.
+if bash "$ROOT/scripts/test-train-resilience.sh" >"$WORK/train-resilience.log" 2>&1; then
+  record 0 "train resilience: flake re-run triage, exclusive gate lease, mkdir locks"
+else
+  record 1 "train resilience: flake re-run triage, exclusive gate lease, mkdir locks"; tail -8 "$WORK/train-resilience.log"
+fi
+
 # land-release: own per-feature file (scripts/test-land-release.sh), one case here.
 if bash "$ROOT/scripts/test-land-release.sh" >"$WORK/land-release.log" 2>&1; then
   record 0 "land-release: two fragment lanes land back-to-back with no rebump"

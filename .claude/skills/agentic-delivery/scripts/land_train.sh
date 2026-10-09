@@ -11,7 +11,8 @@
 # BACKFILL_FILE as a backfill list, not skipped), BACKFILL_FILE (default ./changelog_backfill.txt),
 # PR_RE (sed -E regex with one group, default 'merge-train: #([0-9]+)'), GH (default gh),
 # LAND_CMD (default: gh pr merge N --merge --match-head-commit SHA; run via bash -c with $1=N $2=SHA),
-# Policy: github_actions=off adds [skip ci] to the default merge (see perun_policy.py).
+# Policy: github_actions=off adds [skip ci] to the default merge (see perun_policy.py). review_gate=warn (default)
+# warns per PR without an independent review receipt, enforce skips it, off opts out (see review_gate.py).
 # WAIT_TRIES/WAIT_SECS (mergeable=UNKNOWN retry, default 10 x 8s).
 # Stacked children (open PRs based on a member's head branch) are retargeted to BASE_BRANCH before each merge.
 # Refuses (skips) a PR whose base is not BASE_BRANCH. On every exit, linked worktrees in UNION_DIRS are removed
@@ -56,6 +57,8 @@ while read -r N SHA; do
   [ "$cur" = "$SHA" ] || { echo "SKIP #$N moved"; continue; }
   bb=$("$GH" pr view "$N" --json baseRefName -q .baseRefName </dev/null)
   [ "$bb" = "$BASE_BRANCH" ] || { echo "REFUSE #$N base is $bb, expected $BASE_BRANCH"; continue; }
+  # review_gate (.perun/policy.json): independent review receipt for this exact head; warn-only unless =enforce.
+  python3 "$(dirname "$0")/review_gate.py" check "$N" --head "$SHA" </dev/null || { echo "REFUSE #$N no independent review"; continue; }
   files=$("$GH" pr diff "$N" --name-only </dev/null)  # not piped to grep -q: its early exit + pipefail = false miss
   grep -q "^$CHANGELOG_DIR/" <<<"$files" \
     ||{ echo "$N" >>"$BACKFILL_FILE"; echo "NOTE #$N needs changelog backfill"; }
