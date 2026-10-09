@@ -1,0 +1,476 @@
+diff --git a/lib/io/output-async.js b/lib/io/output-async.js
+index 6ce6713..ededfa9 100644
+--- a/lib/io/output-async.js
++++ b/lib/io/output-async.js
+@@ -7,7 +7,7 @@ import {pipeStreams} from './pipeline.js';
+ // Handle `input`, `inputFile`, `stdin`, `stdout` and `stderr` options, after spawning, in async mode
+ // When multiple input streams are used, we merge them to ensure the output stream ends only once each input stream has ended
+ export const pipeOutputAsync = (subprocess, fileDescriptors, controller) => {
+-	const inputStreamsGroups = {};
++	const pipeGroups = new Map();
+ 
+ 	for (const [fdNumber, {stdioItems, direction}] of Object.entries(fileDescriptors)) {
+ 		for (const {stream} of stdioItems.filter(({type}) => TRANSFORM_TYPES.has(type))) {
+@@ -20,15 +20,15 @@ export const pipeOutputAsync = (subprocess, fileDescriptors, controller) => {
+ 				stream,
+ 				direction,
+ 				fdNumber,
+-				inputStreamsGroups,
++				pipeGroups,
+ 				controller,
+ 			});
+ 		}
+ 	}
+ 
+-	for (const [fdNumber, inputStreams] of Object.entries(inputStreamsGroups)) {
++	for (const [outputStream, inputStreams] of pipeGroups.entries()) {
+ 		const inputStream = inputStreams.length === 1 ? inputStreams[0] : mergeStreams(inputStreams);
+-		pipeStreams(inputStream, subprocess.stdio[fdNumber]);
++		pipeStreams(inputStream, outputStream);
+ 	}
+ };
+ 
+@@ -52,18 +52,18 @@ const SUBPROCESS_STREAM_PROPERTIES = ['stdin', 'stdout', 'stderr'];
+ 
+ // Most `std*` option values involve piping `subprocess.std*` to a stream.
+ // The stream is either passed by the user or created internally.
+-const pipeStdioItem = ({subprocess, stream, direction, fdNumber, inputStreamsGroups, controller}) => {
++const pipeStdioItem = ({subprocess, stream, direction, fdNumber, pipeGroups, controller}) => {
+ 	if (stream === undefined) {
+ 		return;
+ 	}
+ 
+ 	setStandardStreamMaxListeners(stream, controller);
+ 
+-	if (direction === 'output') {
+-		pipeStreams(subprocess.stdio[fdNumber], stream);
+-	} else {
+-		inputStreamsGroups[fdNumber] = [...(inputStreamsGroups[fdNumber] ?? []), stream];
+-	}
++	const [inputStream, outputStream] = direction === 'output'
++		? [stream, subprocess.stdio[fdNumber]]
++		: [subprocess.stdio[fdNumber], stream];
++	const outputStreams = pipeGroups.get(inputStream) ?? [];
++	pipeGroups.set(inputStream, [...outputStreams, outputStream]);
+ };
+ 
+ // Multiple subprocesses might be piping from/to `process.std*` at the same time.
+diff --git a/lib/io/output-sync.js b/lib/io/output-sync.js
+index 9d0668d..22f9120 100644
+--- a/lib/io/output-sync.js
++++ b/lib/io/output-sync.js
+@@ -1,4 +1,4 @@
+-import {writeFileSync} from 'node:fs';
++import {writeFileSync, appendFileSync} from 'node:fs';
+ import {shouldLogOutput, logLinesSync} from '../verbose/output.js';
+ import {runGeneratorsSync} from '../transform/generator.js';
+ import {splitLinesSync} from '../transform/split.js';
+@@ -13,19 +13,24 @@ export const transformOutputSync = ({fileDescriptors, syncResult: {output}, opti
+ 	}
+ 
+ 	const state = {};
++	const outputFiles = new Set([]);
+ 	const transformedOutput = output.map((result, fdNumber) =>
+ 		transformOutputResultSync({
+ 			result,
+ 			fileDescriptors,
+ 			fdNumber,
+ 			state,
++			outputFiles,
+ 			isMaxBuffer,
+ 			verboseInfo,
+ 		}, options));
+ 	return {output: transformedOutput, ...state};
+ };
+ 
+-const transformOutputResultSync = ({result, fileDescriptors, fdNumber, state, isMaxBuffer, verboseInfo}, {buffer, encoding, lines, stripFinalNewline, maxBuffer}) => {
++const transformOutputResultSync = (
++	{result, fileDescriptors, fdNumber, state, outputFiles, isMaxBuffer, verboseInfo},
++	{buffer, encoding, lines, stripFinalNewline, maxBuffer},
++) => {
+ 	if (result === null) {
+ 		return;
+ 	}
+@@ -57,7 +62,7 @@ const transformOutputResultSync = ({result, fileDescriptors, fdNumber, state, is
+ 
+ 	try {
+ 		if (state.error === undefined) {
+-			writeToFiles(serializedResult, stdioItems);
++			writeToFiles(serializedResult, stdioItems, outputFiles);
+ 		}
+ 
+ 		return returnedResult;
+@@ -98,9 +103,13 @@ const serializeChunks = ({chunks, objectMode, encoding, lines, stripFinalNewline
+ };
+ 
+ // When the `std*` target is a file path/URL or a file descriptor
+-const writeToFiles = (serializedResult, stdioItems) => {
+-	for (const {type, path} of stdioItems) {
+-		if (FILE_TYPES.has(type)) {
++const writeToFiles = (serializedResult, stdioItems, outputFiles) => {
++	for (const {path} of stdioItems.filter(({type}) => FILE_TYPES.has(type))) {
++		const pathString = typeof path === 'string' ? path : path.toString();
++		if (outputFiles.has(pathString)) {
++			appendFileSync(path, serializedResult);
++		} else {
++			outputFiles.add(pathString);
+ 			writeFileSync(path, serializedResult);
+ 		}
+ 	}
+diff --git a/lib/return/early-error.js b/lib/return/early-error.js
+index eed946c..0c968b4 100644
+--- a/lib/return/early-error.js
++++ b/lib/return/early-error.js
+@@ -5,7 +5,7 @@ import {
+ 	Writable,
+ 	Duplex,
+ } from 'node:stream';
+-import {cleanupCustomStreams} from '../stdio/handle-async.js';
++import {cleanupCustomStreams} from '../stdio/handle.js';
+ import {makeEarlyError} from './result.js';
+ import {handleResult} from './reject.js';
+ 
+diff --git a/lib/stdio/duplicate.js b/lib/stdio/duplicate.js
+new file mode 100644
+index 0000000..3a5d369
+--- /dev/null
++++ b/lib/stdio/duplicate.js
+@@ -0,0 +1,116 @@
++import {
++	SPECIAL_DUPLICATE_TYPES_SYNC,
++	SPECIAL_DUPLICATE_TYPES,
++	FORBID_DUPLICATE_TYPES,
++	TYPE_TO_MESSAGE,
++} from './type.js';
++
++// Duplicates in the same file descriptor is most likely an error.
++// However, this can be useful with generators.
++export const filterDuplicates = stdioItems => stdioItems.filter((stdioItemOne, indexOne) =>
++	stdioItems.every((stdioItemTwo, indexTwo) => stdioItemOne.value !== stdioItemTwo.value
++		|| indexOne >= indexTwo
++		|| stdioItemOne.type === 'generator'
++		|| stdioItemOne.type === 'asyncGenerator'));
++
++// Check if two file descriptors are sharing the same target.
++// For example `{stdout: {file: './output.txt'}, stderr: {file: './output.txt'}}`.
++export const getDuplicateStream = ({stdioItem: {type, value, optionName}, direction, fileDescriptors, isSync}) => {
++	const otherStdioItems = getOtherStdioItems(fileDescriptors, type);
++	if (otherStdioItems.length === 0) {
++		return;
++	}
++
++	if (isSync) {
++		validateDuplicateStreamSync({
++			otherStdioItems,
++			type,
++			value,
++			optionName,
++			direction,
++		});
++		return;
++	}
++
++	if (SPECIAL_DUPLICATE_TYPES.has(type)) {
++		return getDuplicateStreamInstance({
++			otherStdioItems,
++			type,
++			value,
++			optionName,
++			direction,
++		});
++	}
++
++	if (FORBID_DUPLICATE_TYPES.has(type)) {
++		validateDuplicateTransform({
++			otherStdioItems,
++			type,
++			value,
++			optionName,
++		});
++	}
++};
++
++// Values shared by multiple file descriptors
++const getOtherStdioItems = (fileDescriptors, type) => fileDescriptors
++	.flatMap(({direction, stdioItems}) => stdioItems
++		.filter(stdioItem => stdioItem.type === type)
++		.map((stdioItem => ({...stdioItem, direction}))));
++
++// With `execaSync()`, do not allow setting a file path both in input and output
++const validateDuplicateStreamSync = ({otherStdioItems, type, value, optionName, direction}) => {
++	if (SPECIAL_DUPLICATE_TYPES_SYNC.has(type)) {
++		getDuplicateStreamInstance({
++			otherStdioItems,
++			type,
++			value,
++			optionName,
++			direction,
++		});
++	}
++};
++
++// When two file descriptors share the file or stream, we need to re-use the same underlying stream.
++// Otherwise, the stream would be closed twice when piping ends.
++// This is only an issue with output file descriptors.
++// This is not a problem with generator functions since those create a new instance for each file descriptor.
++// We also forbid input and output file descriptors sharing the same file or stream, since that does not make sense.
++const getDuplicateStreamInstance = ({otherStdioItems, type, value, optionName, direction}) => {
++	const duplicateStdioItems = otherStdioItems.filter(stdioItem => hasSameValue(stdioItem, value));
++	if (duplicateStdioItems.length === 0) {
++		return;
++	}
++
++	const differentStdioItem = duplicateStdioItems.find(stdioItem => stdioItem.direction !== direction);
++	throwOnDuplicateStream(differentStdioItem, optionName, type);
++
++	return direction === 'output' ? duplicateStdioItems[0].stream : undefined;
++};
++
++const hasSameValue = ({type, value}, secondValue) => {
++	if (type === 'filePath') {
++		return value.path === secondValue.path;
++	}
++
++	if (type === 'fileUrl') {
++		return value.href === secondValue.href;
++	}
++
++	return value === secondValue;
++};
++
++// We do not allow two file descriptors to share the same Duplex or TransformStream.
++// This is because those are set directly to `subprocess.std*`.
++// For example, this could result in `subprocess.stdout` and `subprocess.stderr` being the same value.
++// This means reading from either would get data from both stdout and stderr.
++const validateDuplicateTransform = ({otherStdioItems, type, value, optionName}) => {
++	const duplicateStdioItem = otherStdioItems.find(({value: {transform}}) => transform === value.transform);
++	throwOnDuplicateStream(duplicateStdioItem, optionName, type);
++};
++
++const throwOnDuplicateStream = (stdioItem, optionName, type) => {
++	if (stdioItem !== undefined) {
++		throw new TypeError(`The \`${stdioItem.optionName}\` and \`${optionName}\` options must not target ${TYPE_TO_MESSAGE[type]} that is the same.`);
++	}
++};
+diff --git a/lib/stdio/handle-async.js b/lib/stdio/handle-async.js
+index c2b9929..56be39a 100644
+--- a/lib/stdio/handle-async.js
++++ b/lib/stdio/handle-async.js
+@@ -1,7 +1,6 @@
+ import {createReadStream, createWriteStream} from 'node:fs';
+ import {Buffer} from 'node:buffer';
+ import {Readable, Writable, Duplex} from 'node:stream';
+-import {isStandardStream} from '../utils/standard-stream.js';
+ import {generatorToStream} from '../transform/generator.js';
+ import {handleStdio} from './handle.js';
+ import {TYPE_TO_MESSAGE} from './type.js';
+@@ -16,6 +15,7 @@ const forbiddenIfAsync = ({type, optionName}) => {
+ // Create streams used internally for piping when using specific values for the `std*` options, in async mode.
+ // For example, `stdout: {file}` creates a file stream, which is piped from/to.
+ const addProperties = {
++	fileNumber: forbiddenIfAsync,
+ 	generator: generatorToStream,
+ 	asyncGenerator: generatorToStream,
+ 	nodeStream: ({value}) => ({stream: value}),
+@@ -50,17 +50,3 @@ const addPropertiesAsync = {
+ 		uint8Array: forbiddenIfAsync,
+ 	},
+ };
+-
+-// The stream error handling is performed by the piping logic above, which cannot be performed before subprocess spawning.
+-// If the subprocess spawning fails (e.g. due to an invalid command), the streams need to be manually destroyed.
+-// We need to create those streams before subprocess spawning, in case their creation fails, e.g. when passing an invalid generator as argument.
+-// Like this, an exception would be thrown, which would prevent spawning a subprocess.
+-export const cleanupCustomStreams = fileDescriptors => {
+-	for (const {stdioItems} of fileDescriptors) {
+-		for (const {stream} of stdioItems) {
+-			if (stream !== undefined && !isStandardStream(stream)) {
+-				stream.destroy();
+-			}
+-		}
+-	}
+-};
+diff --git a/lib/stdio/handle-sync.js b/lib/stdio/handle-sync.js
+index 0a312f0..5f278af 100644
+--- a/lib/stdio/handle-sync.js
++++ b/lib/stdio/handle-sync.js
+@@ -40,6 +40,7 @@ const addPropertiesSync = {
+ 		...addProperties,
+ 		fileUrl: ({value}) => ({contents: [bufferToUint8Array(readFileSync(value))]}),
+ 		filePath: ({value: {file}}) => ({contents: [bufferToUint8Array(readFileSync(file))]}),
++		fileNumber: forbiddenIfSync,
+ 		iterable: ({value}) => ({contents: [...value]}),
+ 		string: ({value}) => ({contents: [value]}),
+ 		uint8Array: ({value}) => ({contents: [value]}),
+diff --git a/lib/stdio/handle.js b/lib/stdio/handle.js
+index b97ab5f..77a3b8d 100644
+--- a/lib/stdio/handle.js
++++ b/lib/stdio/handle.js
+@@ -1,4 +1,4 @@
+-import {getStreamName} from '../utils/standard-stream.js';
++import {getStreamName, isStandardStream} from '../utils/standard-stream.js';
+ import {normalizeTransforms} from '../transform/normalize.js';
+ import {getFdObjectMode} from '../transform/object-mode.js';
+ import {
+@@ -11,24 +11,30 @@ import {getStreamDirection} from './direction.js';
+ import {normalizeStdioOption} from './stdio-option.js';
+ import {handleNativeStream} from './native.js';
+ import {handleInputOptions} from './input-option.js';
++import {filterDuplicates, getDuplicateStream} from './duplicate.js';
+ 
+ // Handle `input`, `inputFile`, `stdin`, `stdout` and `stderr` options, before spawning, in async/sync mode
+ // They are converted into an array of `fileDescriptors`.
+ // Each `fileDescriptor` is normalized, validated and contains all information necessary for further handling.
+ export const handleStdio = (addProperties, options, verboseInfo, isSync) => {
+ 	const stdio = normalizeStdioOption(options, isSync);
+-	const fileDescriptors = stdio.map((stdioOption, fdNumber) => getFileDescriptor({
++	const initialFileDescriptors = stdio.map((stdioOption, fdNumber) => getFileDescriptor({
+ 		stdioOption,
+ 		fdNumber,
+-		addProperties,
+ 		options,
+ 		isSync,
+ 	}));
++	const fileDescriptors = getFinalFileDescriptors({
++		initialFileDescriptors,
++		addProperties,
++		options,
++		isSync,
++	});
+ 	options.stdio = fileDescriptors.map(({stdioItems}) => forwardStdio(stdioItems));
+ 	return fileDescriptors;
+ };
+ 
+-const getFileDescriptor = ({stdioOption, fdNumber, addProperties, options, isSync}) => {
++const getFileDescriptor = ({stdioOption, fdNumber, options, isSync}) => {
+ 	const optionName = getStreamName(fdNumber);
+ 	const {stdioItems: initialStdioItems, isStdioArray} = initializeStdioItems({
+ 		stdioOption,
+@@ -47,8 +53,7 @@ const getFileDescriptor = ({stdioOption, fdNumber, addProperties, options, isSyn
+ 	const normalizedStdioItems = normalizeTransforms(stdioItems, optionName, direction, options);
+ 	const objectMode = getFdObjectMode(normalizedStdioItems, direction);
+ 	validateFileObjectMode(normalizedStdioItems, objectMode);
+-	const finalStdioItems = normalizedStdioItems.map(stdioItem => addStreamProperties(stdioItem, addProperties, direction, options));
+-	return {direction, objectMode, stdioItems: finalStdioItems};
++	return {direction, objectMode, stdioItems: normalizedStdioItems};
+ };
+ 
+ // We make sure passing an array with a single item behaves the same as passing that item without an array.
+@@ -74,12 +79,6 @@ const initializeStdioItem = (value, optionName) => ({
+ 	optionName,
+ });
+ 
+-const filterDuplicates = stdioItems => stdioItems.filter((stdioItemOne, indexOne) =>
+-	stdioItems.every((stdioItemTwo, indexTwo) => stdioItemOne.value !== stdioItemTwo.value
+-		|| indexOne >= indexTwo
+-		|| stdioItemOne.type === 'generator'
+-		|| stdioItemOne.type === 'asyncGenerator'));
+-
+ const validateStdioArray = (stdioItems, isStdioArray, optionName) => {
+ 	if (stdioItems.length === 0) {
+ 		throw new TypeError(`The \`${optionName}\` option must not be an empty array.`);
+@@ -131,10 +130,76 @@ const validateFileObjectMode = (stdioItems, objectMode) => {
+ // Some `stdio` values require Execa to create streams.
+ // For example, file paths create file read/write streams.
+ // Those transformations are specified in `addProperties`, which is both direction-specific and type-specific.
+-const addStreamProperties = (stdioItem, addProperties, direction, options) => ({
+-	...stdioItem,
+-	...addProperties[direction][stdioItem.type](stdioItem, options),
+-});
++const getFinalFileDescriptors = ({initialFileDescriptors, addProperties, options, isSync}) => {
++	const fileDescriptors = [];
++
++	try {
++		for (const fileDescriptor of initialFileDescriptors) {
++			fileDescriptors.push(getFinalFileDescriptor({
++				fileDescriptor,
++				fileDescriptors,
++				addProperties,
++				options,
++				isSync,
++			}));
++		}
++
++		return fileDescriptors;
++	} catch (error) {
++		cleanupCustomStreams(fileDescriptors);
++		throw error;
++	}
++};
++
++const getFinalFileDescriptor = ({
++	fileDescriptor: {direction, objectMode, stdioItems},
++	fileDescriptors,
++	addProperties,
++	options,
++	isSync,
++}) => {
++	const finalStdioItems = stdioItems.map(stdioItem => addStreamProperties({
++		stdioItem,
++		addProperties,
++		direction,
++		options,
++		fileDescriptors,
++		isSync,
++	}));
++	return {direction, objectMode, stdioItems: finalStdioItems};
++};
++
++const addStreamProperties = ({stdioItem, addProperties, direction, options, fileDescriptors, isSync}) => {
++	const duplicateStream = getDuplicateStream({
++		stdioItem,
++		direction,
++		fileDescriptors,
++		isSync,
++	});
++
++	if (duplicateStream !== undefined) {
++		return {...stdioItem, stream: duplicateStream};
++	}
++
++	return {
++		...stdioItem,
++		...addProperties[direction][stdioItem.type](stdioItem, options),
++	};
++};
++
++// The stream error handling is performed by the piping logic above, which cannot be performed before subprocess spawning.
++// If the subprocess spawning fails (e.g. due to an invalid command), the streams need to be manually destroyed.
++// We need to create those streams before subprocess spawning, in case their creation fails, e.g. when passing an invalid generator as argument.
++// Like this, an exception would be thrown, which would prevent spawning a subprocess.
++export const cleanupCustomStreams = fileDescriptors => {
++	for (const {stdioItems} of fileDescriptors) {
++		for (const {stream} of stdioItems) {
++			if (stream !== undefined && !isStandardStream(stream)) {
++				stream.destroy();
++			}
++		}
++	}
++};
+ 
+ // When the `std*: Iterable | WebStream | URL | filePath`, `input` or `inputFile` option is used, we pipe to `subprocess.std*`.
+ // When the `std*: Array` option is used, we emulate some of the native values ('inherit', Node.js stream and file descriptor integer). To do so, we also need to pipe to `subprocess.std*`.
+diff --git a/lib/stdio/type.js b/lib/stdio/type.js
+index 6431585..f14545a 100644
+--- a/lib/stdio/type.js
++++ b/lib/stdio/type.js
+@@ -146,6 +146,11 @@ const isObject = value => typeof value === 'object' && value !== null;
+ export const TRANSFORM_TYPES = new Set(['generator', 'asyncGenerator', 'duplex', 'webTransform']);
+ // Types which write to a file or a file descriptor
+ export const FILE_TYPES = new Set(['fileUrl', 'filePath', 'fileNumber']);
++// When two file descriptors of this type share the same target, we need to do some special logic
++export const SPECIAL_DUPLICATE_TYPES_SYNC = new Set(['fileUrl', 'filePath']);
++export const SPECIAL_DUPLICATE_TYPES = new Set([...SPECIAL_DUPLICATE_TYPES_SYNC, 'webStream', 'nodeStream']);
++// Do not allow two file descriptors of this type sharing the same target
++export const FORBID_DUPLICATE_TYPES = new Set(['webTransform', 'duplex']);
+ 
+ // Convert types to human-friendly strings for error messages
+ export const TYPE_TO_MESSAGE = {
+@@ -153,6 +158,7 @@ export const TYPE_TO_MESSAGE = {
+ 	asyncGenerator: 'an async generator',
+ 	fileUrl: 'a file URL',
+ 	filePath: 'a file path string',
++	fileNumber: 'a file descriptor number',
+ 	webStream: 'a web stream',
+ 	nodeStream: 'a Node.js stream',
+ 	webTransform: 'a web TransformStream',

@@ -1,0 +1,411 @@
+diff --git a/cmd/toml-test-decoder/main.go b/cmd/toml-test-decoder/main.go
+index b114eac..344047f 100644
+--- a/cmd/toml-test-decoder/main.go
++++ b/cmd/toml-test-decoder/main.go
+@@ -37,7 +37,7 @@ func main() {
+ 
+ 	j := json.NewEncoder(os.Stdout)
+ 	j.SetIndent("", "  ")
+-	if err := j.Encode(tag.Add(decoded)); err != nil {
++	if err := j.Encode(tag.Add("", decoded)); err != nil {
+ 		log.Fatalf("Error encoding JSON: %s", err)
+ 	}
+ }
+diff --git a/cmd/tomlv/main.go b/cmd/tomlv/main.go
+index c7d689a..0eeb3ce 100644
+--- a/cmd/tomlv/main.go
++++ b/cmd/tomlv/main.go
+@@ -19,19 +19,14 @@ var (
+ 
+ func init() {
+ 	log.SetFlags(0)
+-
+-	flag.BoolVar(&flagTypes, "types", flagTypes,
+-		"When set, the types of every defined key will be shown.")
+-
++	flag.BoolVar(&flagTypes, "types", flagTypes, "Show the types for every key.")
+ 	flag.Usage = usage
+ 	flag.Parse()
+ }
+ 
+ func usage() {
+-	log.Printf("Usage: %s toml-file [ toml-file ... ]\n",
+-		path.Base(os.Args[0]))
++	log.Printf("Usage: %s toml-file [ toml-file ... ]\n", path.Base(os.Args[0]))
+ 	flag.PrintDefaults()
+-
+ 	os.Exit(1)
+ }
+ 
+diff --git a/decode.go b/decode.go
+index e106fa9..436e13b 100644
+--- a/decode.go
++++ b/decode.go
+@@ -60,39 +60,40 @@ func (md *MetaData) PrimitiveDecode(primValue Primitive, v interface{}) error {
+ 
+ // Decode TOML data.
+ //
+-// TOML hashes correspond to Go structs or maps. (Dealer's choice. They can be
+-// used interchangeably.)
++// TOML tables correspond to Go structs or maps (dealer's choice – they can be
++// used interchangeably).
+ //
+-// TOML arrays of tables correspond to either a slice of structs or a slice
+-// of maps.
++// TOML table arrays correspond to either a slice of structs or a slice of maps.
+ //
+-// TOML datetimes correspond to Go `time.Time` values.
++// TOML datetimes correspond to Go `time.Time` values. Local datetimes are
++// parsed in the local timezone and have the Location set to toml.LocalDatetime.
++// Local dates and times have the Location set to toml.LocalDate and
++// toml.LocalTime.
+ //
+-// All other TOML types (float, string, int, bool and array) correspond
+-// to the obvious Go types.
++// All other TOML types (float, string, int, bool and array) correspond to the
++// obvious Go types.
+ //
+ // An exception to the above rules is if a type implements the
+ // encoding.TextUnmarshaler interface. In this case, any primitive TOML value
+-// (floats, strings, integers, booleans and datetimes) will be converted to
+-// a byte string and given to the value's UnmarshalText method. See the
++// (floats, strings, integers, booleans and datetimes) will be converted to a
++// byte string and given to the value's UnmarshalText method. See the
+ // Unmarshaler example for a demonstration with time duration strings.
+ //
+ // Key mapping
+ //
+-// TOML keys can map to either keys in a Go map or field names in a Go
+-// struct. The special `toml` struct tag may be used to map TOML keys to
+-// struct fields that don't match the key name exactly. (See the example.)
+-// A case insensitive match to struct names will be tried if an exact match
+-// can't be found.
++// TOML keys can map to either keys in a Go map or field names in a Go struct.
++// The special `toml` struct tag can be used to map TOML keys to struct fields
++// that don't match the key name exactly (see the example). A case insensitive
++// match to struct names will be tried if an exact match can't be found.
+ //
+-// The mapping between TOML values and Go values is loose. That is, there
+-// may exist TOML values that cannot be placed into your representation, and
+-// there may be parts of your representation that do not correspond to
+-// TOML values. This loose mapping can be made stricter by using the IsDefined
+-// and/or Undecoded methods on the MetaData returned.
++// The mapping between TOML values and Go values is loose. That is, there may
++// exist TOML values that cannot be placed into your representation, and there
++// may be parts of your representation that do not correspond to TOML values.
++// This loose mapping can be made stricter by using the IsDefined and/or
++// Undecoded methods on the MetaData returned.
+ //
+-// This decoder will not handle cyclic types. If a cyclic type is passed,
+-// `Decode` will not terminate.
++// This decoder does not handle cyclic types. Decode will not terminate if a
++// cyclic type is passed.
+ type Decoder struct {
+ 	r io.Reader
+ }
+diff --git a/doc.go b/doc.go
+index b371f39..f57fd7a 100644
+--- a/doc.go
++++ b/doc.go
+@@ -1,27 +1,13 @@
+ /*
+-Package toml provides facilities for decoding and encoding TOML configuration
+-files via reflection. There is also support for delaying decoding with
+-the Primitive type, and querying the set of keys in a TOML document with the
+-MetaData type.
++Package toml implements decoding and encoding of TOML files.
+ 
+-The specification implemented: https://github.com/toml-lang/toml
++This pakcage supports TOML v1.0.0, as listed on https://toml.io
+ 
+-The sub-command github.com/BurntSushi/toml/cmd/tomlv can be used to verify
+-whether a file is a valid TOML document. It can also be used to print the
+-type of each key in a TOML document.
+-
+-Testing
+-
+-There are two important types of tests used for this package. The first is
+-contained inside '*_test.go' files and uses the standard Go unit testing
+-framework. These tests are primarily devoted to holistically testing the
+-decoder and encoder.
++There is also support for delaying decoding with the Primitive type, and
++querying the set of keys in a TOML document with the MetaData type.
+ 
+-The second type of testing is used to verify the implementation's adherence
+-to the TOML specification. These tests have been factored into their own
+-project: https://github.com/BurntSushi/toml-test
+-
+-The reason the tests are in a separate project is so that they can be used by
+-any implementation of TOML. Namely, it is language agnostic.
++The sub-command github.com/BurntSushi/toml/cmd/tomlv can be used to verify
++whether a file is a valid TOML document. It can also be used to print the type
++of each key in a TOML document.
+ */
+ package toml
+diff --git a/encode.go b/encode.go
+index ee8ce9a..f36d4ae 100644
+--- a/encode.go
++++ b/encode.go
+@@ -186,9 +186,22 @@ func (enc *Encoder) encode(key Key, rv reflect.Value) {
+ // eElement encodes any value that can be an array element.
+ func (enc *Encoder) eElement(rv reflect.Value) {
+ 	switch v := rv.Interface().(type) {
+-	case time.Time:
+-		// Using TextMarshaler adds extra quotes, which we don't want.
+-		enc.wf(v.Format(time.RFC3339Nano))
++	case time.Time: // Using TextMarshaler adds extra quotes, which we don't want.
++		format := time.RFC3339Nano
++		switch v.Location() {
++		case LocalDatetime:
++			format = "2006-01-02T15:04:05.999999999"
++		case LocalDate:
++			format = "2006-01-02"
++		case LocalTime:
++			format = "15:04:05.999999999"
++		}
++		switch v.Location() {
++		default:
++			enc.wf(v.Format(format))
++		case LocalDatetime, LocalDate, LocalTime:
++			enc.wf(v.In(time.UTC).Format(format))
++		}
+ 		return
+ 	case encoding.TextMarshaler:
+ 		// Use text marshaler if it's available for this value.
+diff --git a/internal/tag/add.go b/internal/tag/add.go
+index 76fc2b8..4a23a54 100644
+--- a/internal/tag/add.go
++++ b/internal/tag/add.go
+@@ -4,44 +4,67 @@ import (
+ 	"fmt"
+ 	"math"
+ 	"time"
++
++	"github.com/BurntSushi/toml"
+ )
+ 
+-func Add(tomlData interface{}) interface{} {
++// Add JSON tags to a data structure as expected by toml-test.
++func Add(key string, tomlData interface{}) interface{} {
++	// Switch on the data type.
+ 	switch orig := tomlData.(type) {
+ 	default:
+ 		panic(fmt.Sprintf("Unknown type: %T", tomlData))
+ 
++	// A table: we don't need to add any tags, just recurse for every table
++	// entry.
+ 	case map[string]interface{}:
+ 		typed := make(map[string]interface{}, len(orig))
+ 		for k, v := range orig {
+-			typed[k] = Add(v)
++			typed[k] = Add(k, v)
+ 		}
+ 		return typed
++
++	// An array: we don't need to add any tags, just recurse for every table
++	// entry.
+ 	case []map[string]interface{}:
+ 		typed := make([]map[string]interface{}, len(orig))
+ 		for i, v := range orig {
+-			typed[i] = Add(v).(map[string]interface{})
++			typed[i] = Add("", v).(map[string]interface{})
+ 		}
+ 		return typed
+ 	case []interface{}:
+ 		typed := make([]interface{}, len(orig))
+ 		for i, v := range orig {
+-			typed[i] = Add(v)
++			typed[i] = Add("", v)
+ 		}
+ 		return typed
++
++	// Datetime: tag as datetime.
+ 	case time.Time:
+-		return tag("datetime", orig.Format("2006-01-02T15:04:05.999999999Z07:00"))
++		switch orig.Location() {
++		default:
++			return tag("datetime", orig.Format("2006-01-02T15:04:05.999999999Z07:00"))
++		case toml.LocalDatetime:
++			return tag("datetime-local", orig.Format("2006-01-02T15:04:05.999999999"))
++		case toml.LocalDate:
++			return tag("date-local", orig.Format("2006-01-02"))
++		case toml.LocalTime:
++			return tag("time-local", orig.Format("15:04:05.999999999"))
++		}
++
++	// Tag primitive values: bool, string, int, and float64.
+ 	case bool:
+ 		return tag("bool", fmt.Sprintf("%v", orig))
++	case string:
++		return tag("string", orig)
+ 	case int64:
+ 		return tag("integer", fmt.Sprintf("%d", orig))
+ 	case float64:
++		// Special case for nan since NaN == NaN is false.
+ 		if math.IsNaN(orig) {
+ 			return tag("float", "nan")
+ 		}
+ 		return tag("float", fmt.Sprintf("%v", orig))
+-	case string:
+-		return tag("string", orig)
+ 	}
+ }
+ 
+diff --git a/internal/tag/rm.go b/internal/tag/rm.go
+index 1a8a91b..7be1224 100644
+--- a/internal/tag/rm.go
++++ b/internal/tag/rm.go
+@@ -4,19 +4,31 @@ import (
+ 	"log"
+ 	"strconv"
+ 	"time"
++
++	"github.com/BurntSushi/toml"
+ )
+ 
++// Rempve JSON tags to a data structure as returned by toml-test.
+ func Remove(typedJson interface{}) interface{} {
++	// Switch on the data type.
+ 	switch v := typedJson.(type) {
++
++	// Object: this can either be a TOML table or a primitive with tags.
+ 	case map[string]interface{}:
++		// This value represents a primitive: remove the tags and return just
++		// the primitive value.
+ 		if len(v) == 2 && in("type", v) && in("value", v) {
+ 			return untag(v)
+ 		}
++
++		// Table: remove tags on all children.
+ 		m := make(map[string]interface{}, len(v))
+ 		for k, v2 := range v {
+ 			m[k] = Remove(v2)
+ 		}
+ 		return m
++
++	// Array: remove tags from all itenm.
+ 	case []interface{}:
+ 		a := make([]interface{}, len(v))
+ 		for i := range v {
+@@ -24,44 +36,46 @@ func Remove(typedJson interface{}) interface{} {
+ 		}
+ 		return a
+ 	}
++
++	// The top level must be an object or array.
+ 	log.Fatalf("Unrecognized JSON format '%T'.", typedJson)
+ 	panic("unreachable")
+ }
+ 
++// Check if key is in the table m.
+ func in(key string, m map[string]interface{}) bool {
+ 	_, ok := m[key]
+ 	return ok
+ }
+ 
++// Return a primitive: read the "type" and convert the "value" to that.
+ func untag(typed map[string]interface{}) interface{} {
+ 	t := typed["type"].(string)
+-	v := typed["value"]
++	v := typed["value"].(string)
+ 	switch t {
+ 	case "string":
+-		return v.(string)
++		return v
+ 	case "integer":
+-		v := v.(string)
+ 		n, err := strconv.Atoi(v)
+ 		if err != nil {
+ 			log.Fatalf("Could not parse '%s' as integer: %s", v, err)
+ 		}
+ 		return n
+ 	case "float":
+-		v := v.(string)
+ 		f, err := strconv.ParseFloat(v, 64)
+ 		if err != nil {
+ 			log.Fatalf("Could not parse '%s' as float64: %s", v, err)
+ 		}
+ 		return f
+ 	case "datetime":
+-		v := v.(string)
+-		t, err := time.Parse("2006-01-02T15:04:05.999999999Z07:00", v)
+-		if err != nil {
+-			log.Fatalf("Could not parse '%s' as a datetime: %s", v, err)
+-		}
+-		return t
++		return parseTime(v, "2006-01-02T15:04:05.999999999Z07:00", nil)
++	case "datetime-local":
++		return parseTime(v, "2006-01-02T15:04:05.999999999", toml.LocalDatetime)
++	case "date-local":
++		return parseTime(v, "2006-01-02", toml.LocalDate)
++	case "time-local":
++		return parseTime(v, "15:04:05.999999999", toml.LocalTime)
+ 	case "bool":
+-		v := v.(string)
+ 		switch v {
+ 		case "true":
+ 			return true
+@@ -70,6 +84,18 @@ func untag(typed map[string]interface{}) interface{} {
+ 		}
+ 		log.Fatalf("Could not parse '%s' as a boolean.", v)
+ 	}
++
+ 	log.Fatalf("Unrecognized tag type '%s'.", t)
+ 	panic("unreachable")
+ }
++
++func parseTime(v, format string, l *time.Location) time.Time {
++	t, err := time.Parse(format, v)
++	if err != nil {
++		log.Fatalf("Could not parse '%s' as a datetime: %s", v, err)
++	}
++	if l != nil {
++		t = t.In(l)
++	}
++	return t
++}
+diff --git a/parse.go b/parse.go
+index 1cebd6f..7eb28f0 100644
+--- a/parse.go
++++ b/parse.go
+@@ -298,6 +298,24 @@ func (p *parser) valueFloat(it item) (interface{}, tomlType) {
+ 	return num, p.typeOfPrimitive(it)
+ }
+ 
++// Timezones used for local datetime, date, and time.
++var (
++	localOffset   = func() int { _, o := time.Now().Zone(); return o }()
++	LocalDatetime = time.FixedZone("datetime-local", localOffset)
++	LocalDate     = time.FixedZone("date-local", localOffset)
++	LocalTime     = time.FixedZone("time-local", localOffset)
++)
++
++var dtTypes = []struct {
++	fmt  string
++	zone *time.Location
++}{
++	{time.RFC3339Nano, time.Local},
++	{"2006-01-02T15:04:05.999999999", LocalDatetime},
++	{"2006-01-02", LocalDate},
++	{"15:04:05.999999999", LocalTime},
++}
++
+ func (p *parser) valueDatetime(it item) (interface{}, tomlType) {
+ 	it.val = datetimeRepl.Replace(it.val)
+ 	var (
+@@ -305,13 +323,8 @@ func (p *parser) valueDatetime(it item) (interface{}, tomlType) {
+ 		ok  bool
+ 		err error
+ 	)
+-	for _, format := range []string{
+-		time.RFC3339Nano,
+-		"2006-01-02T15:04:05.999999999",
+-		"2006-01-02",
+-		"15:04:05.999999999",
+-	} {
+-		t, err = time.ParseInLocation(format, it.val, time.Local)
++	for _, dt := range dtTypes {
++		t, err = time.ParseInLocation(dt.fmt, it.val, dt.zone)
+ 		if err == nil {
+ 			ok = true
+ 			break
