@@ -61,7 +61,7 @@ PRS=("$@")
 renew() { python3 "$HERE/perun_policy.py" heavy-exclusive-renew >/dev/null 2>&1 || true; }  # keep the lease fresh (TTL by mtime)
 while :; do
 renew
-rc=0; bash -c "$VERIFY_CMD" _ "$T" "${PRS[@]}" >"$LOG" 2>&1 </dev/null || rc=$?
+rc=0; "$(dirname "$0")/scrub_env.sh" bash -c "$VERIFY_CMD" _ "$T" "${PRS[@]}" >"$LOG" 2>&1 </dev/null || rc=$?
 # Filter by verdict prefix, never by position; `|| true` keeps pipefail from aborting on no match.
 grep -E '^(DEFER|DROP|GREEN|RED|STALE|CONFLICT)' "$LOG" | tail -4 || true
 L=$(grep -E '^GREEN' "$LOG" | tail -1 || true)

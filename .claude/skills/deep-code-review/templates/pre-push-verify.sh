@@ -306,6 +306,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     python3 "${scope_check}" "${base_sha}" "${local_sha}" >&2 || true
   fi
 
+  # Warn-only: new scripts with no caller (built but never wired); never fails the push.
+  wired_check=".claude/skills/agentic-delivery/scripts/wired_check.py"
+  if [ -f "${wired_check}" ]; then
+    python3 "${wired_check}" "${base_sha}" "${local_sha}" >&2 || true
+  fi
+
   if is_blank "${DCR_PREPUSH_CMD:-}"; then
     if [ "${DCR_PREPUSH_ALLOW_UNSET:-0}" = "1" ]; then
       printf 'pre-push-verify: DCR_PREPUSH_CMD is unset -- allowing push through (DCR_PREPUSH_ALLOW_UNSET=1)\n' >&2

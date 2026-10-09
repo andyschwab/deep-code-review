@@ -3,18 +3,16 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
-## [1.546.0] — 2026-10-08
-
-### Changed
-
-- Repo-scanning gates now enumerate git files instead of walking the filesystem: `ci-gates.sh privacy` and `size`, the `land-release.sh` size-row regen and `perun_doctor.py` read `git ls-files -co --exclude-standard` at a git work-tree root, so nested worktrees and gitignored build directories are never scanned (a planted violation there no longer fails every push). `find`/full walk remains only outside a git root. Pinned by `scripts/test_scan_tracked_only.py`. The other `os.walk` users (lint/test scanners over caller-named paths, transcript walks) take explicit paths and are unchanged.
+## [1.546.0] — 2026-10-09
 
 ### Added
+- `wired_check.py` (agentic-delivery): warns for each new script under `scripts/` that no hook, settings template, CI workflow, command, package.json, Makefile, other script or SKILL.md/reference run line calls (a script referenced only by its own test counts as unwired). Warn-only; wired into the pre-push template and CI.
+- `scrub_env.sh` (agentic-delivery): runs a command with every `GIT_*` var plus DB env unset; `train_land.sh` uses it for verify runs, and the lane preamble gains the matching testing rule.
 
-- Per-PR independent review gate (warn-first). `agentic-delivery/scripts/review_gate.py`, called per member PR by `land_train.sh` (so `train_land.sh` inherits it), looks for a review receipt (`.perun/reviews/<pr>.json`, written by `review_gate.py receipt`) or a `perun-review` PR comment marker from a reviewer other than the author, for the exact head being merged. New policy key `review_gate`: `warn` (default), `enforce`, `off`. **Warn-only for this release**: a PR with no receipt prints a WARN and still lands; `enforce` skips it; `review_gate=off` opts out. The gate proves an independent review run on the current head (reviewer run id differs from the author's), not a different human; an unexpected error in warn mode warns and never blocks. Expect `enforce` to become the default in a later release. Routed from `agentic-delivery/SKILL.md`; tested by `scripts/test_review_gate.py`.
+### Fixed
+- `ci-gates.sh privacy` now fails closed inside a linked git worktree that lacks `.banlist.local.txt` while the main checkout has it, and prints the exact `cp` command to fix it.
 
-size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 23879→23999 one routing line for the review gate
-size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 67426→68717 review-gate section (policy, receipt format, warn-first)
+size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 23879→23996 one routing line for wired_check.py
 
 ## [1.545.0] — 2026-10-08
 

@@ -133,6 +133,16 @@ cmd_privacy() {
     collect_patterns "$banlist_local"
     banlist_local_base="$(basename "$banlist_local")"
     skip_bases+=( "$banlist_local_base" )
+  else
+    # Fail closed in a linked worktree: gitignored files are not checked out there, so a missing local
+    # banlist would silently skip identifier scans while the main checkout holds one.
+    local gd gc main_local
+    gd="$(git -C "$(dirname "$banlist")" rev-parse --absolute-git-dir 2>/dev/null)" || gd=""
+    gc="$(git -C "$(dirname "$banlist")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || gc=""
+    main_local="$(dirname "$gc")/$(basename "$banlist_local")"
+    if [ -n "$gd" ] && [ "$gd" != "$gc" ] && [ -f "$main_local" ]; then
+      die "privacy: worktree lacks $(basename "$banlist_local") but the main checkout has it (fail closed); fix: cp '$main_local' '$banlist_local'"
+    fi
   fi
 
   # Fail closed on a malformed policy: every actionable pattern must be a valid
