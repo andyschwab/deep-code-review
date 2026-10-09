@@ -9,7 +9,8 @@ fails closed (exit 2), never silently falls back.
 
 Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-negative number (a cap).
 `share_learnings` takes `auto|ask|off` (default `ask`). `auto_update` takes `on|off` (default `on`):
-whether perun_auto_update.py may re-apply a newer release tag in the background.
+whether perun_auto_update.py may re-apply a newer release tag in the background. `review_gate` takes
+`warn|enforce|off` (default `warn`): whether review_gate.py blocks a merge with no independent review receipt.
 
   perun_policy.py get <dim>      print the value (a number prints as a number)
   perun_policy.py show           print the whole effective policy as JSON
@@ -36,6 +37,7 @@ DIMS = ("tokens", "local_cpu", "local_ram", "github_actions", "paid_api_calls", 
 MODES = ("efficient", "maximize", "off")
 SHARE = ("auto", "ask", "off")
 ON_OFF = ("on", "off")
+REVIEW = ("warn", "enforce", "off")
 
 
 def find_policy(start: str = ".") -> Path | None:
@@ -67,10 +69,12 @@ def load(path: Path | None = None) -> dict:
 
 def validate(raw: dict) -> dict:
     """Defaults overlaid with `raw`; ValueError on an unknown key or a bad value."""
-    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on"}
+    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on", "review_gate": "warn"}
     for k, v in raw.items():
         if k == "share_learnings":
             ok = v in SHARE
+        elif k == "review_gate":
+            ok = v in REVIEW
         elif k == "auto_update":
             ok = v in ON_OFF
         elif k in DIMS:
