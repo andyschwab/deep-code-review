@@ -11,7 +11,7 @@ default for this lane, not a suggestion.
 - Stacked on a parent lane not yet pushed: branch off its LOCAL ref (`git rev-parse <parent-branch>`), never poll the remote — the shared `.git` already sees it (#1152).
 
 ## Method load
-- Build/fix lanes do not load `deep-code-review` references while building; load only when asked to review. Self-review of a diff ≤300 changed lines with no blast-radius flag uses `compact-mode.md` alone. Run affected tests while iterating; full suite once before land.
+- Build/fix lanes do not load `deep-code-review` references while building. When asked to self-review the finished diff, follow the DIFF quick-path in `deep-code-review/SKILL.md`. Run affected tests while iterating; full suite once before land.
 
 ## Scope
 - Before starting: `python3 .claude/skills/agentic-delivery/scripts/focus_gate.py check --item <issue>`, then `python3 .claude/skills/agentic-delivery/scripts/claim_probe.py --repo <owner/name> --issue <issue> --ref '#<issue>' --paths <glob> --agent <agent-id> --claim --post` (checks and, only on GO, posts the CLAIM in one call) — abort if it prints NO-GO (a YIELD readout is always also NO-GO).
