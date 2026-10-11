@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+- agentic-delivery: a failed `gh pr list` in `land_train.sh` no longer reads as "no stacked children" (the merge would close them); it prints `could not check: ...` and exits 1. `train_land.sh` does the same for a failed PR base read, and its no-GREEN line shows the verify step's rc and last output line. `land_train.sh` names the failing step (line and command) instead of exiting silently.
+- `_lock.sh`: a busy lock reports holder alive/dead/unknown and age; a waiter says who it waits on and a dead holder still stops the wait with the exact hand-reclaim command (nothing deleted).
+- New `gh_rest.py`: one shared curl fallback for `gh api` when gh fails TLS in a macOS sandbox (`x509: OSStatus -26276`); used by `board_common`, `surface_check`, `merge_train` and as the default `GH` of the train and cleanup scripts. `gh pr ...` has no fallback and fails with the cause named. Tests: `scripts/test-delivery-friction.sh`.
+
 ## [1.563.0] — 2026-10-09
 
 ### Added

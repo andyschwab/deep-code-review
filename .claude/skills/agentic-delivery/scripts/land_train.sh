@@ -23,8 +23,9 @@ set -euo pipefail
 BASE=$1 U=$2
 : "${UNION_DIRS:?set UNION_DIRS}"
 BASE_BRANCH=${BASE_BRANCH:-main} REMOTE=${REMOTE:-origin} CHANGELOG_DIR=${CHANGELOG_DIR:-changelog.d}
-BACKFILL_FILE=${BACKFILL_FILE:-./changelog_backfill.txt} PR_RE=${PR_RE:-merge-train: #([0-9]+)} GH=${GH:-gh}
+BACKFILL_FILE=${BACKFILL_FILE:-./changelog_backfill.txt} PR_RE=${PR_RE:-merge-train: #([0-9]+)} GH=${GH:-$(dirname "$0")/gh_rest.py}  # gh with a curl fallback for the macOS-sandbox TLS failure
 export GH
+trap 'echo "land_train: failed (rc=$?) at line $LINENO: $BASH_COMMAND" >&2' ERR
 # github_actions=off (.perun/policy.json): the merge commit BODY carries [skip ci] so landing triggers no runner.
 # It goes only in that merge-commit body: it never suppresses PR-head checks (the PR's own commits are untouched)
 # or tag-triggered releases (a tag push is not a commit message).
@@ -72,7 +73,10 @@ while read -r N SHA; do
   # Landing may delete this PR's head branch, and GitHub closes (unreopenably) any open PR based on it:
   # retarget those stacked children to the base branch first. Unconditional: harmless when nothing is stacked.
   hb=$("$GH" pr view "$N" --json headRefName -q .headRefName </dev/null)
-  for c in $("$GH" pr list --base "$hb" --state open --json number -q '.[].number' </dev/null); do
+  # A failed listing must not read as "no stacked children": the merge would then close them.
+  kids=$("$GH" pr list --base "$hb" --state open --json number -q '.[].number' </dev/null) \
+    || { echo "could not check: stacked PRs of #$N (gh pr list failed, cause printed above); not merging" >&2; exit 1; }
+  for c in $kids; do
     "$GH" pr edit "$c" --base "$BASE_BRANCH" </dev/null >/dev/null && echo "RETARGET #$c: $hb -> $BASE_BRANCH"
   done
   rc=0; out=$(bash -c "$LAND_CMD" _ "$N" "$SHA" </dev/null 2>&1) || rc=$?  # capture, then tail: a pipe would mask the merge's exit

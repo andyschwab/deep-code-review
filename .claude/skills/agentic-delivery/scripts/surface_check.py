@@ -160,6 +160,7 @@ import urllib.request
 from html.parser import HTMLParser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gh_rest  # noqa: E402  (curl fallback for gh's macOS-sandbox TLS failure)
 import board_common as bc  # noqa: E402  (sibling module: the one typed-post grammar)
 
 PASS, FAIL, COULD_NOT_CHECK = 0, 1, 2
@@ -472,7 +473,7 @@ def _gh_default(args, timeout):
         return 127, "", str(exc)
     except subprocess.TimeoutExpired:
         return 124, "", f"timed out after {timeout:g}s"
-    return proc.returncode, proc.stdout, proc.stderr
+    return gh_rest.fallback(args, proc.returncode, proc.stdout, proc.stderr, timeout)
 
 
 _gh = _gh_default  # the selftest swaps in a fake forge

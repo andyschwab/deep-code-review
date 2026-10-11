@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gh_rest  # noqa: E402
 import perun_policy  # noqa: E402
 
 MARKER = re.compile(r"<!--\s*perun-review\s+reviewer=(\S+)\s+author=(\S+)\s+head=([0-9a-f]{7,40})\s+diff=pass\s+evil-twin=pass\s*-->")
@@ -57,6 +58,8 @@ def has_evidence(pr: str, head: str = "", repo: str = "", review_dir: Path | Non
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
         data = json.loads(out.stdout) if out.returncode == 0 else {}
+        if out.returncode and gh_rest.TLS.search(out.stderr or ""):
+            print("review_gate: gh TLS failure (OSStatus -26276), no REST fallback for `gh pr view`; treated as no evidence", file=sys.stderr)
         gh_author = ((data.get("author") or {}).get("login")) or ""
         for c in data.get("comments") or []:
             for m in MARKER.findall(c.get("body") or ""):

@@ -212,6 +212,7 @@ from datetime import date, datetime, timedelta, timezone
 
 sys.dont_write_bytecode = True  # never litter __pycache__ into a checksummed skill tree
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gh_rest  # noqa: E402  (curl fallback for gh api under the macOS-sandbox TLS failure)
 import board_common as bc  # noqa: E402  (validate_repo, run_checks)
 import focus_gate as fg  # noqa: E402  (resolve_owners, _owner_problem: the standing-grant owner check)
 from refix_gate import load_fix_class_gate  # noqa: E402  (fix_class_gate's glob grammar)
@@ -269,7 +270,7 @@ def default_runner(args, cwd=None, timeout=3600):
             proc.kill()
         proc.communicate()
         return 124, "", f"timed out after {timeout}s: {args[0]}"
-    return proc.returncode, out, err
+    return gh_rest.fallback(args, proc.returncode, out, err)
 
 
 def pid_alive(pid) -> bool:

@@ -6,7 +6,7 @@
 #   record it removes only what it created (its own pid file) and returns 1.
 #   lock_drop <dir>  releases it (only when this shell holds it).
 lock_take() {
-  local d=$1 wait=${2:-0} tmo=${3:-30} p ts
+  local d=$1 wait=${2:-0} tmo=${3:-30} p ts told=
   while :; do
     if mkdir "$d" 2>/dev/null; then
       { echo $$ >"$d/pid" && date +%s >"$d/ts"; } 2>/dev/null && return 0
@@ -19,7 +19,11 @@ lock_take() {
         return 1
       fi
     fi
-    [ "$wait" -gt 0 ] || { echo "lock held by pid ${p:-?} ($d)" >&2; return 1; }
+    local st=alive age=""
+    if [[ $p =~ ^[0-9]+$ ]]; then kill -0 "$p" 2>/dev/null || st=dead; else st=unknown; fi
+    [[ $ts =~ ^[0-9]+$ ]] && age=", age $(($(date +%s) - ts))s"
+    [ "$wait" -gt 0 ] || { echo "lock held by pid ${p:-?} ($st$age) ($d)" >&2; return 1; }
+    [ -n "$told" ] || { echo "waiting on lock held by pid ${p:-?} ($st$age) ($d)" >&2; told=1; }
     wait=$((wait - 1)); sleep 1
   done
 }

@@ -14,7 +14,7 @@
 # Prints "removed=N skipped=M archived=K".
 set -euo pipefail
 : "${ROOT:?set ROOT to your own worktree tree}"
-ROOT=$(cd "$ROOT" && pwd -P); GH=${GH:-gh}; AR=${ARCHIVE_DIR:-${TMPDIR:-/tmp}/worktree-archive}
+ROOT=$(cd "$ROOT" && pwd -P); GH=${GH:-$(dirname "$0")/gh_rest.py}; AR=${ARCHIVE_DIR:-${TMPDIR:-/tmp}/worktree-archive}
 top=$(git rev-parse --show-toplevel); top=$(cd "$top" && pwd -P)
 command -v lsof >/dev/null || { echo "clean_finished: lsof missing; cannot tell if a worktree is in use, removing nothing" >&2; exit 2; }
 rm=0 sk=0 ar=0
