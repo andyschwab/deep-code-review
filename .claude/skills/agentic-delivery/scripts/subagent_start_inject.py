@@ -59,6 +59,12 @@ MINIMAL_CODE_TAG = "MINIMAL-CODE: "
 SKILL_ROUTE = ("Skill route: idea-critic before any owner ask or new plan; "
                "communication-structure before any human-facing message; "
                "agentic-ceo to choose among skills.")
+# Host-refusal rules, always injected (SubagentStart here, SessionStart via session_brief.py): field logs
+# showed hundreds of daily refusals for `sleep N` waits and `cd X && ...; git ...` chains in worktrees.
+HOST_RULES = ("Host rules: never `sleep N` to wait; background the command and act on its completion notification, "
+              "or Monitor with an until-loop.\n"
+              "In an isolated worktree run plain separate git commands from the worktree root; "
+              "no `cd X &&` chains or loops around git (the host refuses them as too complex to verify).")
 
 
 def build_context(house_text: str, agent_type: str, exempt_types: set) -> str:
@@ -81,9 +87,8 @@ def build_context(house_text: str, agent_type: str, exempt_types: set) -> str:
 def run(stdin_text: str) -> str:
     """The hook's stdout for one hook-input JSON string; `''` injects nothing.
 
-    `''` on: a non-`SubagentStart` event, unparseable stdin, no
-    `HOUSE_DEFAULTS_FILE` set, an unreadable house file, or an empty/
-    all-dropped result. Never raises.
+    `''` on: a non-`SubagentStart` event or unparseable stdin. With no/unreadable
+    `HOUSE_DEFAULTS_FILE` (or an all-dropped one) only `HOST_RULES` is injected. Never raises.
     """
     try:
         data = json.loads(stdin_text)
@@ -95,21 +100,20 @@ def run(stdin_text: str) -> str:
     if data.get("hook_event_name") != "SubagentStart":
         return ""
     house_file = os.environ.get("HOUSE_DEFAULTS_FILE")
+    house_text = ""
     if not house_file:
-        sys.stderr.write("subagent_start_inject: HOUSE_DEFAULTS_FILE not set; injecting nothing.\n")
-        return ""
-    try:
-        with open(house_file, encoding="utf-8") as fh:
-            house_text = fh.read()
-    except OSError as exc:
-        sys.stderr.write(f"subagent_start_inject: cannot read HOUSE_DEFAULTS_FILE {house_file!r}: {exc}\n")
-        return ""
+        sys.stderr.write("subagent_start_inject: HOUSE_DEFAULTS_FILE not set; injecting host rules only.\n")
+    else:
+        try:
+            with open(house_file, encoding="utf-8") as fh:
+                house_text = fh.read()
+        except OSError as exc:
+            sys.stderr.write(f"subagent_start_inject: cannot read HOUSE_DEFAULTS_FILE {house_file!r}: {exc}; injecting host rules only.\n")
     exempt_types = set(filter(None, os.environ.get("HOUSE_MINIMAL_CODE_EXEMPT_TYPES", "").split(",")))
     context = build_context(house_text, str(data.get("agent_type") or ""), exempt_types)
-    if not context.strip():
-        return ""
-    if os.environ.get("SKILL_ROUTE_REMINDER") != "0":
+    if context.strip() and os.environ.get("SKILL_ROUTE_REMINDER") != "0":
         context += "\n" + SKILL_ROUTE
+    context = (context + "\n" if context.strip() else "") + HOST_RULES
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": context}})
 
 
@@ -176,10 +180,13 @@ def _selftest() -> int:
         case("malformed-stdin-empty", run("not json"), "")
 
         os.environ.pop("HOUSE_DEFAULTS_FILE", None)
-        case("missing-env-var-empty", run(json.dumps({"hook_event_name": "SubagentStart"})), "")
+        hr = lambda o: json.loads(o)["hookSpecificOutput"]["additionalContext"] if o else ""
+        case("missing-env-var-host-rules-only", hr(run(json.dumps({"hook_event_name": "SubagentStart"}))), HOST_RULES)
+        case("host-rules-no-sleep-no-cd-chain", "sleep N" in HOST_RULES and "cd X &&" in HOST_RULES and HOST_RULES.count("\n") <= 2, True)
+        case("host-rules-also-with-house-file", HOST_RULES in ctx, True)
 
         os.environ["HOUSE_DEFAULTS_FILE"] = os.path.join(tmp, "does-not-exist.md")
-        case("unreadable-file-empty", run(json.dumps({"hook_event_name": "SubagentStart"})), "")
+        case("unreadable-file-host-rules-only", hr(run(json.dumps({"hook_event_name": "SubagentStart"}))), HOST_RULES)
 
         os.environ["HOUSE_DEFAULTS_FILE"] = house_path
         case("build-context-pure", build_context("MINIMAL-CODE: x\ny\n", "a", {"a"}), "y")

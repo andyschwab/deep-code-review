@@ -209,7 +209,8 @@ A CLAUDE.md line telling every subagent "default to the cheapest tier" is
 **Protocol** only — a subagent's own `model:` frontmatter still wins over it.
 On Claude Code, `CLAUDE_CODE_SUBAGENT_MODEL` (an alias or model ID) plus
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in `settings.json`'s `env` block is
-**Host-enforced** instead (v2.1.257+): every subagent, teammate, and workflow
+**Host-enforced** instead (the shipped template sets only the `sonnet` default and omits `FORCE`,
+because `FORCE` overrides every agent's own `model:`, including the Opus high-stakes review pass) (v2.1.257+): every subagent, teammate, and workflow
 agent's `model:` field (built-in Explore and Plan included) is ignored and they
 run on the named model; with only `FORCE` set, on the main conversation's
 model. Exceptions to declare: a fork, and a skill run in a subagent with
@@ -241,7 +242,6 @@ result: junk commits and lost hand-backs. `perun_doctor.py` and
 {
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
-    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
     "CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL": "1h"
   }
 }

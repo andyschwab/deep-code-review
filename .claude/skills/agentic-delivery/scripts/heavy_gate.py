@@ -12,6 +12,8 @@ RAM; swap is not read, one sample shows no trend) or when the machine-wide heavy
 slot count (perun_policy.heavy_slots; local_cpu=maximize raises it to every core). Otherwise it
 prints nothing and the call proceeds. While a train gate holds the EXCLUSIVE lease (perun_policy.py heavy-exclusive) every heavy command is denied with "gate running: wait". It never takes a lease and never stops or deletes anything.
 
+Bypass: the hook keeps a small ledger (`heavy-denies.json`, next to the lease dir). After MAX_DENIES (3) denies of the same command in the same cwd within WINDOW (30 min) the 4th attempt is allowed with a WARN `additionalContext` (it matches the lane preamble's "retry at most 3 times, then proceed"); the ledger entry resets.
+
 Fail open: any error inside the hook (bad stdin, unreadable host data, an unparsable command line, a bad policy) allows the call.
 A block is a JSON `permissionDecision: "deny"` on stdout with exit 0, never exit 2, so a crash
 cannot turn into a block. Register it as `python3 ".../heavy_gate.py" || true`.
@@ -25,6 +27,7 @@ import os
 import re
 import shlex
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -126,6 +129,33 @@ def verdict(policy_cpu="efficient") -> tuple:
     return None, load1, cores, ram
 
 
+MAX_DENIES, WINDOW = 3, 30 * 60
+
+
+def _bypass(cmd: str, cwd: str, deny: bool, now=None) -> bool:
+    """Ledger step. deny=True records a deny; deny=False asks whether MAX_DENIES recent denies already exist
+    (True = allow with WARN, and the entry resets). Any I/O error returns False (keeps the deny)."""
+    import hashlib
+    import perun_policy
+    now = time.time() if now is None else now
+    f = perun_policy.lease_dir().parent / "heavy-denies.json"
+    key = hashlib.sha1(f"{cwd}\0{cmd}".encode()).hexdigest()
+    try:
+        led = json.loads(f.read_text()) if f.is_file() else {}
+        led = {k: [t for t in v if now - t < WINDOW] for k, v in led.items()}
+        led = {k: v for k, v in led.items() if v}
+        hit = not deny and len(led.get(key, [])) >= MAX_DENIES
+        if hit:
+            led.pop(key)
+        elif deny:
+            led.setdefault(key, []).append(now)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(led))
+        return hit
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+
+
 def main() -> int:
     try:
         data = json.load(sys.stdin)
@@ -142,6 +172,12 @@ def main() -> int:
         reason, load1, cores, ram = verdict(cpu)
         if not reason:
             return 0
+        if _bypass(cmd, str(data.get("cwd") or ""), deny=False):
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext":
+                  f"WARN: machine busy ({reason}) but this command was denied {MAX_DENIES} times in 30 min; "
+                  "allowing it per the retry-3-then-proceed rule. Say so in your report."}}))
+            return 0
+        _bypass(cmd, str(data.get("cwd") or ""), deny=True)
         ram_s = f"{ram:.0f}% free" if ram is not None else "unknown"
         msg = (f"machine busy (load {load1:.1f}/{cores} cores, RAM {ram_s}; {reason}): "
                "wait and retry, or run a narrower test (one file or -k filter)")
