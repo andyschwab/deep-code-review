@@ -23,8 +23,8 @@ esac
 STUB
 cat >"$WORK/bin/curl" <<'STUB'
 #!/usr/bin/env bash
-echo "$*" >>"$CURL_LOG"
-n=$(wc -l <"$CURL_LOG")
+echo "$*" >>"$CURL_LOG"; cat >>"$CURL_LOG"
+n=$(grep -c "^-sS" "$CURL_LOG")
 if [ "${CURL_PAGES:-}" = 1 ] && [ "$n" -eq 1 ]; then printf 'HTTP/2 200\r\nlink: <https://api.github.com/p2>; rel="next"\r\n\r\n[1]'
 elif [ "${CURL_PAGES:-}" = 1 ]; then printf 'HTTP/2 200\r\n\r\n[2]'
 elif [ "${CURL_404:-}" = 1 ]; then printf 'HTTP/2 404\r\n\r\n{"message":"Not Found"}'
@@ -75,5 +75,18 @@ out=$(GH_MODE=tls VERIFY_CMD=true UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/trai
 [ $rc -eq 1 ] && grep -q "could not check: base of #1" <<<"$out"; ok $? "train_land: gh failure reading a PR base fails closed with 'could not check'"
 out=$(GH_MODE=listfail VERIFY_CMD='echo boom-cause >&2; exit 7' UNION_DIRS="$R" LOG_DIR="$WORK" bash "$SC/train_land.sh" t2 1 2 2>&1); rc=$?
 [ $rc -eq 3 ] && grep -q "verify rc=7; last log line: boom-cause" <<<"$out"; ok $? "train_land: a crashing verify step names rc and its last output line"
+
+: >"$CURL_LOG"; echo '{}' >"$WORK/body.json"; GH_MODE=tls python3 "$SC/gh_rest.py" api repos/o/r/issues --input "$WORK/body.json" >/dev/null 2>&1
+grep -q -- "-X POST" "$CURL_LOG"; ok $? "gh_rest: --input without -X sends POST (matches gh api)"
+grep -q "^-sS" "$CURL_LOG" && ! grep "^-sS" "$CURL_LOG" | grep -q stubtok; ok $? "gh_rest: token not in curl argv"
+
+# --- clean_finished: lsof failure fails closed ---
+CF="$WORK/cf"; mkdir -p "$CF"; git init -q "$CF/main" -b main; git -C "$CF/main" commit -q --allow-empty -m i
+git -C "$CF/main" worktree add -q -b done1 "$CF/wts/done1"
+printf '#!/usr/bin/env bash\necho "lsof: WARNING: can not read" >&2; exit 1\n' >"$WORK/bin/lsof"; chmod +x "$WORK/bin/lsof"
+printf '#!/usr/bin/env bash\necho "MERGED abc"\n' >"$WORK/gh2"; chmod +x "$WORK/gh2"
+out=$(cd "$CF/main" && ROOT="$CF/wts" GH="$WORK/gh2" bash "$SC/clean_finished.sh" 2>&1)
+[ -d "$CF/wts/done1" ] && grep -q "could not check" <<<"$out" && grep -q "removed=0 skipped=1" <<<"$out"; ok $? "clean_finished: lsof error skips removal and says why"
+rm -f "$WORK/bin/lsof"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

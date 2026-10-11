@@ -31,10 +31,11 @@ def _token():
 
 
 def _curl(url, token, method, body, timeout):
-    cmd = ["curl", "-sS", "-i", "-X", method, "-H", f"Authorization: Bearer {token}", "-H", "Accept: application/vnd.github+json"]
+    cmd = ["curl", "-sS", "-i", "-X", method, "-K", "-", "-H", "Accept: application/vnd.github+json"]
     if body:
         cmd += ["-H", "Content-Type: application/json", "--data-binary", f"@{body}"]
-    p = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=timeout)
+    p = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=timeout,
+                       input=f'header = "Authorization: Bearer {token}"\n')  # token via stdin, not argv
     head, _, text = p.stdout.partition("\n\n")  # text mode folds CRLF
     m = re.match(r"HTTP/\S+ (\d+)", head)
     status = int(m.group(1)) if m else 0
@@ -48,18 +49,19 @@ def fallback(args, rc, out, err, timeout=300):
         return rc, out, err
     if args[:2] != ["gh", "api"]:
         return rc, out, err + "\n" + UNSUPPORTED
-    method, body, pages, path, it = "GET", None, False, None, iter(args[2:])
+    method, body, pages, path, it = None, None, False, None, iter(args[2:])
     for a in it:
         if a == "--paginate":
             pages = True
         elif a in ("-X", "--method"):
-            method = next(it, "GET")
+            method = next(it, None)
         elif a == "--input":
             body = next(it, None)
         elif a.startswith("-") or path:
             return rc, out, err + "\n" + UNSUPPORTED
         else:
             path = a
+    method = method or ("POST" if body else "GET")  # gh api: --input implies POST
     try:
         if "{owner}" in (path or ""):
             path = path.replace("{owner}/{repo}", _slug() or "{owner}")

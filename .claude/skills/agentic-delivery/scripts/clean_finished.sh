@@ -26,7 +26,9 @@ while IFS=$'\t' read -r wt br; do
   if [ "$state" != MERGED ] && [ "$state" != CLOSED ]; then
     { [ -n "${HANDED_BACK:-}" ] && grep -qxF "$br" "$HANDED_BACK" 2>/dev/null; } || continue
   fi
-  if [ -n "$(lsof -t +D "$wt" 2>/dev/null | head -1)" ]; then sk=$((sk+1)); continue; fi
+  # lsof exits 1 with no output when nothing holds the tree; any other outcome (output or error) means in use / could not check.
+  lrc=0; held=$(lsof -t +D "$wt" 2>&1 </dev/null) || lrc=$?
+  if [ -n "$held" ] || [ "$lrc" -gt 1 ]; then echo "clean_finished: skip $wt: in use or could not check (lsof rc=$lrc ${held%%$'\n'*})" >&2; sk=$((sk+1)); continue; fi
   if [ "$state" != MERGED ] || [ "$head" != "$(git -C "$wt" rev-parse HEAD)" ]; then
     [ "$(git -C "$wt" rev-list --count HEAD --not --remotes)" = 0 ] || { sk=$((sk+1)); continue; }
   fi
