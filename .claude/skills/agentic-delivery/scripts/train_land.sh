@@ -14,7 +14,7 @@
 # Takes a per-worktree lock (<git-dir>/train-land.lock, pid-checked; a dead holder's lock is reclaimed), so two
 # trains cannot share this worktree or a log. UNION_DIRS: space-separated, or newline-separated when a path has a space.
 # Base-red guard: when BROWSER_CMD fails, BASELINE_FAILS is unset and RERUN_CMD is set, each failing id is re-run alone at BASE_SHA
-# (twice, TEST=<id>); ids failing both times are pre-existing ("BASE RED: <n> pre-existing: ids") and never block, only new failures do.
+# (train_flake.sh --base: FLAKE_REAL_AT of FLAKE_RUNS failures, each printing `FAIL <id>` so a test absent on the base is NOT excused); those are pre-existing ("BASE RED: <n> pre-existing: ids") and never block, only new failures do.
 # Flake triage (see train_flake.sh; BROWSER_CMD must print `FAIL <id>` per failure and `FAILURES <n>`): RERUN_CMD (TEST=<id>), BASELINE_FAILS (ids failing on the base); LOCK_TIMEOUT_MIN (30), PUSH_WAIT_SECS (600).
 # Exit: 0 landed, 1 base/browser red or lock held, 2 usage/refused, 3 no GREEN union (nothing landed).
 # Optional: CLEAN_ROOT (your own worktree tree: runs reap_own.sh and clean_finished.sh on it first), BASE_AUDIT_CMD (run via bash -c on the bare fresh base before verifying; non-zero prints
@@ -100,9 +100,9 @@ if [ -z "${BASELINE_FAILS:-}" ]; then  # base-red guard: an id that also fails t
   renew; git checkout -q --detach "$B"; : >"$LOG.pre"
   while IFS= read -r id; do
     [ -n "$id" ] || continue; br=0
-    RERUN_CMD=$RERUN_CMD bash "$HERE/train_flake.sh" --one "$id" || br=$?
+    RERUN_CMD=$RERUN_CMD bash "$HERE/train_flake.sh" --base "$id" || br=$?
     [ "$br" -ne 125 ] || { git checkout -q --detach "$REMOTE/$BASE_BRANCH"; echo "fresh store or FLAKE_SETUP_CMD failed re-running $id on the base; nothing landed" >&2; exit 1; }
-    [ "$br" -eq 0 ] || { RERUN_CMD=$RERUN_CMD bash "$HERE/train_flake.sh" --one "$id" || echo "$id" >>"$LOG.pre"; }
+    [ "$br" -ne 0 ] || echo "$id" >>"$LOG.pre"
   done <"$LOG.fails"
   git checkout -q --detach "$U"; pre=$(grep -c . "$LOG.pre" || true)
   if [ "$pre" -gt 0 ]; then
