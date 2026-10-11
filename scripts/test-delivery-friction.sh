@@ -89,4 +89,9 @@ out=$(cd "$CF/main" && ROOT="$CF/wts" GH="$WORK/gh2" bash "$SC/clean_finished.sh
 [ -d "$CF/wts/done1" ] && grep -q "could not check" <<<"$out" && grep -q "removed=0 skipped=1" <<<"$out"; ok $? "clean_finished: lsof error skips removal and says why"
 rm -f "$WORK/bin/lsof"
 
+# --- clean_finished: SCRATCH deletes only inside $TMPDIR ---
+mkdir -p "$CF/tmp/inside" "$CF/outside" "$CF/none"
+out=$(cd "$CF/main" && TMPDIR="$CF/tmp" SCRATCH="$CF/outside $CF/tmp/inside $CF/tmp" ROOT="$CF/none" GH="$WORK/gh2" bash "$SC/clean_finished.sh" 2>&1)
+[ -d "$CF/outside" ] && [ ! -e "$CF/tmp/inside" ] && [ -d "$CF/tmp" ] && grep -q "outside \$TMPDIR" <<<"$out"; ok $? "clean_finished: SCRATCH outside or equal to \$TMPDIR is kept, inside is deleted"
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

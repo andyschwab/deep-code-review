@@ -9,7 +9,8 @@
 # ARCHIVE_DIR/<name>.patch, or <name>.N.patch when that exists (default $TMPDIR/worktree-archive), and it is removed only after the write succeeded.
 # The main worktree and the one you run from are never removed. Untracked file CONTENTS are listed, not saved.
 # Detached-HEAD worktrees have no branch to judge and are left alone.
-# SCRATCH (optional, space-separated absolute paths): deleted outright (never "/" or $HOME).
+# SCRATCH (optional, space-separated absolute paths): deleted only when the resolved path is strictly inside
+# the resolved $TMPDIR; anything else is skipped with a message (an rm -rf on a variable path once wiped user apps).
 # Env: ROOT (required, absolute dir: only worktrees under it are touched), GH (default gh).
 # Prints "removed=N skipped=M archived=K".
 set -euo pipefail
@@ -40,7 +41,12 @@ while IFS=$'\t' read -r wt br; do
   fi
   if git worktree remove --force "$wt" >/dev/null 2>&1; then rm=$((rm+1)); else sk=$((sk+1)); fi
 done < <(git worktree list --porcelain | awk '/^worktree /{w=substr($0,10)} /^branch /{print w "\t" substr($0,19)}')
+tmp_root=$(cd "${TMPDIR:-/nonexistent}" 2>/dev/null && pwd -P) || tmp_root=""
 for s in ${SCRATCH:-}; do
-  case "$s" in /|"$HOME"|"$HOME"/|"") continue ;; /*) rm -rf "$s" ;; esac
+  r=$(cd "$s" 2>/dev/null && pwd -P) || { echo "scratch skip (not a directory): $s" >&2; continue; }
+  case "$r" in
+    "$tmp_root"/?*) [ -n "$tmp_root" ] && rm -rf "$r" ;;
+    *) echo "scratch skip (outside \$TMPDIR): $s" >&2 ;;
+  esac
 done
 echo "removed=$rm skipped=$sk archived=$ar"
