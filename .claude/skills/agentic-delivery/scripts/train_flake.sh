@@ -26,7 +26,7 @@ one_run() {
 if [ "${1:-}" = --one ]; then [ -n "${2:-}" ] && [ -n "${RERUN_CMD:-}" ] || { echo "usage: RERUN_CMD=... train_flake.sh --one <id>" >&2; exit 2; }; one_run "$2" 1; exit $?; fi
 # --base <id>: run on the base checkout; exit 0 = pre-existing (fails >= FLAKE_REAL_AT of FLAKE_RUNS alone AND each failing run's
 # output has a `FAIL <id>` line, proving the test ran there: a test the PR added is absent on the base and is NOT pre-existing),
-# 1 = not pre-existing, 125 = fresh store/hook failed or bad bounds (fail closed).
+# 1 = not pre-existing (RERUN_CMD must print `FAIL <id>` only for tests that actually ran), 125 = fresh store/hook failed or bad bounds (fail closed).
 if [ "${1:-}" = --base ]; then
   [ -n "${2:-}" ] && [ -n "${RERUN_CMD:-}" ] || { echo "usage: RERUN_CMD=... train_flake.sh --base <id>" >&2; exit 2; }
   runs=${FLAKE_RUNS:-3} need=${FLAKE_REAL_AT:-2}; f=0 p=0; o=$(mktemp "$T/flake-out.XXXXXX") || exit 125
@@ -34,7 +34,7 @@ if [ "${1:-}" = --base ]; then
   for n in $(seq "$runs"); do
     RERUN_OUT=$o one_run "$2" "$n"; r=$?
     [ "$r" -ne 125 ] || exit 125
-    if [ "$r" -eq 0 ] || ! grep -qxE "FAIL +$2" "$o"; then p=$((p + 1)); else f=$((f + 1)); fi
+    if [ "$r" -eq 0 ] || ! sed -nE 's/^FAIL +//p' "$o" | grep -qxF -- "$2"; then p=$((p + 1)); else f=$((f + 1)); fi
     [ "$f" -ge "$need" ] || [ "$p" -gt $((runs - need)) ] && break
   done
   [ "$f" -ge "$need" ]; exit $?

@@ -66,5 +66,8 @@ rm -f "$R/fl.seen"; out=$(run b-flaky env "$rr"); ! grep -q '^BASE RED' <<<"$out
 : >"$WORK/merged.log"; out=$(run b-base env "$rr" FLAKE_SETUP_CMD=false); rc=$?
 blocked && grep -q 'fresh store or FLAKE_SETUP_CMD failed' <<<"$out" && ! grep -q '^BASE RED' <<<"$out"; ok $? "train_land: a failing setup hook on the base re-run (rc 125) fails closed, never excused"
 [ "$(g rev-parse HEAD)" = "$(g rev-parse origin/main)" ] && [ -z "$(g branch --show-current)" ]; ok $? "train_land: HEAD is detached back on origin/main after a blocked run"
+printf 'echo "FAIL abc"; exit 1\n' >"$WORK/rr-abc.sh"
+RERUN_CMD="bash $WORK/rr-abc.sh" bash "$SC/train_flake.sh" --base 'a.c' >/dev/null 2>&1; [ $? -eq 1 ]; ok $? "train_flake --base: id is a literal, 'a.c' does not match 'FAIL abc'"
+RERUN_CMD="bash $WORK/rr-abc.sh" bash "$SC/train_flake.sh" --base abc >/dev/null 2>&1; ok $? "train_flake --base: exact id with FAIL line is pre-existing"
 grep -q 'AFFECTED browser specs plus the smoke set, NEVER the full suite' "$SC/train_land.sh"; ok $? "train_land: header says BROWSER_CMD is affected specs + smoke, never the full suite"
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
