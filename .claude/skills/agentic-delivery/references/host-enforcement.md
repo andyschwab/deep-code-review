@@ -203,6 +203,10 @@ an already-running lane (the bridge-in-flight rider above still applies), and
 it never overrides the held-lane roster / no-broadcast-to-held-lanes rule —
 tightening the default profile is not authorization to message a held lane.
 
+## Always-on host rules and the heavy-gate bypass (Claude Code)
+
+`scripts/heavy_gate.py` (PreToolUse Bash) allows a heavy command with a WARN after 3 denies of it in the same cwd within 30 min (the lane preamble's retry-3-then-proceed); the exclusive train-lease deny is never bypassed. `scripts/session_brief.py` (SessionStart) and `scripts/subagent_start_inject.py` (SubagentStart, even without house-defaults.md) both inject the fixed `HOST_RULES` constant from `subagent_start_inject.py`, so field-logged host refusals (`sleep N` waits, `cd X &&` git chains in worktrees) are prevented at the source.
+
 ## Subagent model + cache-TTL pin (a Host-enforced instance, Claude Code)
 
 A CLAUDE.md line telling every subagent "default to the cheapest tier" is
