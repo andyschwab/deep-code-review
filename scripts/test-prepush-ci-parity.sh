@@ -40,5 +40,7 @@ echo "stale" >>"$R/$F/INDEX.md"
 red index 'INDEX.md stale'
 echo "# drift" >>"$R/.claude/skills/agentic-delivery/scripts/wired_check.py"
 red sha256 'SHA256SUMS stale'
+awk 'NR==5{print "## [Unreleased]\n"} {print}' "$R/CHANGELOG.md" >"$WORK/t" && cp "$WORK/t" "$R/CHANGELOG.md"
+red changelog 'CHANGELOG version heading'
 echo "Tests: $pass/$((pass + fail))"
 [ "$fail" -eq 0 ]

@@ -362,6 +362,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     [ -f scripts/write-checksums.sh ] && fg "SHA256SUMS stale" \
       "run 'bash scripts/land-release.sh --regen' (it pins SHA256SUMS last) and commit the result" \
       bash -c 'o="$(git rev-parse --git-common-dir)/dcr-sums.tmp"; bash scripts/write-checksums.sh "$o" >/dev/null && cmp -s "$o" SHA256SUMS'
+    [ -f CHANGELOG.md ] && [ -f scripts/ci-gates.sh ] && fg "CHANGELOG version heading" \
+      "put unreleased notes in changelog.d/<slug>.md, not CHANGELOG.md; land-release.sh stamps the heading at land time" \
+      bash scripts/ci-gates.sh version .
     [ "${fg_fail}" -eq 0 ] || { fail=1; continue; }
   fi
 
