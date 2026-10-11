@@ -1,0 +1,2 @@
+### Fixed
+- `train_land.sh`: when `BROWSER_CMD` fails and `BASELINE_FAILS` is unset, the failing ids are re-run alone at the base (via `RERUN_CMD`, `TEST=<id>`, twice). Ids that also fail there print `BASE RED: <n> pre-existing: ids` and no longer block the train; only new failures do. Without `RERUN_CMD` behavior is unchanged and a fix hint is printed. The header now states `BROWSER_CMD` must be the affected specs plus smoke, never the full suite (field case: a 17-PR train ran a full suite against a base already failing 110 tests and merged nothing for two days).
