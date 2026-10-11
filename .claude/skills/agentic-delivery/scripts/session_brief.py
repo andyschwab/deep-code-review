@@ -155,14 +155,18 @@ def main() -> int:
         except Exception:
             cwd = None
         repo = Path(os.environ.get("CLAUDE_PROJECT_DIR") or cwd or os.getcwd())
-        from subagent_start_inject import HOST_RULES  # one source of truth for the always-on host rules
+        try:
+            from subagent_start_inject import HOST_RULES  # one source of truth for the always-on host rules
+        except Exception:
+            HOST_RULES = ""  # never let a bad import drop the report lines
         lines = brief(repo)
         text = "\n".join(lines)
         out = {"hookSpecificOutput": {"hookEventName": "SessionStart",
-                                      "additionalContext": (text + "\n" if text else "") + HOST_RULES}}
+                                      "additionalContext": "\n".join(x for x in (text, HOST_RULES) if x)}}
         if text:
             out["systemMessage"] = text  # report lines only; host rules stay model-side
-        print(json.dumps(out))
+        if text or HOST_RULES:
+            print(json.dumps(out))
     except Exception:
         pass
     return 0

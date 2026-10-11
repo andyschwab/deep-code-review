@@ -68,6 +68,57 @@ class Bypass(unittest.TestCase):
                 os.environ.pop("PERUN_HEAVY_DIR")
 
 
+class Hardening(unittest.TestCase):
+    def test_exclusive_lease_never_bypassed(self):
+        with tempfile.TemporaryDirectory() as d:
+            lease = Path(d) / "heavy"
+            env = dict(PERUN_HEAVY_DIR=str(lease), PERUN_GATE_LOAD1="0", PERUN_GATE_CORES="8",
+                       PERUN_GATE_FREE_RAM_PCT="80", HOME=d, XDG_CACHE_HOME=d)
+            subprocess.run([sys.executable, str(SC / "perun_policy.py"), "heavy-exclusive"], env={**os.environ, **env},
+                           capture_output=True)
+            p = {"cwd": d, "tool_input": {"command": "pytest -q"}}
+            for _ in range(5):
+                o = run("heavy_gate.py", p, **env)["hookSpecificOutput"]
+                self.assertEqual(o.get("permissionDecision"), "deny")
+                self.assertIn("gate running", o["permissionDecisionReason"])
+
+    def test_corrupt_ledger_fails_open_to_deny(self):
+        import heavy_gate as hg
+        with tempfile.TemporaryDirectory() as d:
+            os.environ["PERUN_HEAVY_DIR"] = str(Path(d) / "heavy")
+            try:
+                (Path(d) / "heavy-denies.json").write_text("{not json")
+                self.assertFalse(hg._bypass("pytest", "/w", False, now=1))
+            finally:
+                os.environ.pop("PERUN_HEAVY_DIR")
+
+    def test_whitespace_normalized_key(self):
+        import heavy_gate as hg
+        with tempfile.TemporaryDirectory() as d:
+            os.environ["PERUN_HEAVY_DIR"] = str(Path(d) / "heavy")
+            try:
+                for c in ("pytest  -q", "pytest -q", " pytest\t-q"):
+                    hg._bypass(c, "/w", True, now=10)
+                self.assertTrue(hg._bypass("pytest -q", "/w", False, now=11))
+            finally:
+                os.environ.pop("PERUN_HEAVY_DIR")
+
+    def test_brief_import_failure_keeps_report_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            sc = Path(d) / "sc"
+            sc.mkdir()
+            for f in SC.glob("*.py"):
+                (sc / f.name).write_text(f.read_text())
+            (sc / "subagent_start_inject.py").write_text("raise ImportError('x')\n")
+            (Path(d) / "PRIORITIES.md").write_text("1. Ship thing #7\n")
+            r = subprocess.run([sys.executable, str(sc / "session_brief.py")], input=json.dumps({"cwd": d}),
+                               capture_output=True, text=True, env={**os.environ, "CLAUDE_PROJECT_DIR": d})
+            self.assertEqual(r.returncode, 0)
+            ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("PRIORITIES.md", ctx)
+            self.assertNotIn("Host rules", ctx)
+
+
 class Template(unittest.TestCase):
     def test_no_force_pin(self):
         env = json.loads(TPL.read_text())["env"]
