@@ -52,9 +52,10 @@ non-file-capable model also paste the `references/*.md` for the archetype.
   were justified by the old side (`internal only`/`never published`).
 - `FILE <paths>` — named files.
 
-**DIFF quick-path** — small self-contained diff you will fix immediately.
-Batch-mark untouched domains N/A; escalate on any blast-radius 🚩. Procedure:
-`method.md`.
+**DIFF quick-path** — diff ≤300 changed lines (`git diff --shortstat`) and no
+blast-radius 🚩: method = `compact-mode.md` only. Read no other reference; run
+affected tests only (import graph), full suite once before land. Any 🚩 or
+>300 lines → full DIFF method (`method.md`).
 
 **Archetype → load map** (`ARCHETYPE` from the first-response block):
 
