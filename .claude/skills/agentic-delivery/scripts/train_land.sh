@@ -66,6 +66,8 @@ rc=0; "$(dirname "$0")/scrub_env.sh" bash -c "$VERIFY_CMD" _ "$T" "${PRS[@]}" >"
 # Filter by verdict prefix, never by position; `|| true` keeps pipefail from aborting on no match.
 grep -E '^(DEFER|DROP|GREEN|RED|STALE|CONFLICT)' "$LOG" | tail -4 || true
 L=$(grep -E '^GREEN' "$LOG" | tail -1 || true)
+# A GREEN line from a verify step that exited non-zero (killed, timed out after printing) is not a pass.
+[ -z "$L" ] || [ "$rc" -eq 0 ] || { echo "could not check: verify printed GREEN but exited rc=$rc; treating as no GREEN union" >&2; L=; }
 if [ -z "$L" ]; then
   if [ -n "${RATCHET_CMD:-}" ]; then  # attribute: merge each PR alone onto the base, run the ratchet
     base=$(git rev-parse HEAD)

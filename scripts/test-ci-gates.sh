@@ -3759,6 +3759,13 @@ else
   record 1 "train hardening: spaced UNION_DIRS, per-worktree lock, exit 3 on no GREEN union"; tail -8 "$WORK/train-hardening.log"
 fi
 
+# train fail-closed parsers: own per-feature file (scripts/test-train-failclosed.sh), one case here.
+if bash "$ROOT/scripts/test-train-failclosed.sh" >"$WORK/train-failclosed.log" 2>&1; then
+  record 0 "train fail-closed: missing failed-ids list and GREEN-with-nonzero-rc are not a pass"
+else
+  record 1 "train fail-closed: missing failed-ids list and GREEN-with-nonzero-rc are not a pass"; tail -8 "$WORK/train-failclosed.log"
+fi
+
 # train resilience: own per-feature file (scripts/test-train-resilience.sh), one case here.
 if bash "$ROOT/scripts/test-train-resilience.sh" >"$WORK/train-resilience.log" 2>&1; then
   record 0 "train resilience: flake re-run triage, exclusive gate lease, mkdir locks"
