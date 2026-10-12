@@ -53,6 +53,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 PROTOCOL_ONLY = (
@@ -79,6 +80,43 @@ def _flatten_commands(hook_entries: list) -> list:
             cmd = h.get("command")
             if cmd:
                 out.append(cmd)
+    return out
+
+
+HOUSE_RED = ("MISSING RED: injector hook wired but house-defaults file {f} is absent or empty -- the hook fails "
+             "open and lanes run with no token cap/voice; re-run install.sh (writes a default if absent)")
+
+
+def _house_status(start_cmds: list, settings_path: str) -> str:
+    """PRESENT when a `subagent_start_inject.py` hook names a non-empty HOUSE_DEFAULTS_FILE, else MISSING/RED.
+
+    `$CLAUDE_PROJECT_DIR` and relative paths resolve against the settings file's project root (its
+    `.claude/..`). A hook with no HOUSE_DEFAULTS_FILE assignment at all also fails open: RED.
+    """
+    cmds = [c for c in start_cmds if "subagent_start_inject.py" in c]
+    if not cmds:
+        return "MISSING"
+    root = os.path.dirname(os.path.dirname(os.path.abspath(settings_path)))
+    m = re.search(r'HOUSE_DEFAULTS_FILE=(?:"([^"]*)"|(\S+))', cmds[0])
+    f = ((m.group(1) or m.group(2)) if m else "").replace("${CLAUDE_PROJECT_DIR}", root).replace("$CLAUDE_PROJECT_DIR", root)
+    f = f and os.path.join(root, f)
+    try:
+        ok = bool(f) and os.path.getsize(f) > 0
+    except OSError:
+        ok = False
+    return "PRESENT" if ok else HOUSE_RED.format(f=f or "(unset)")
+
+
+def heavy_slot_lines(slots: int, lanes_n: int, env: dict) -> list:
+    """Lines reporting the effective heavy-slot count; WARN when >1 (a train's first-in-line slot should be
+    serial) or when `PERUN_POLICY` (env) rather than the repo policy file chose the policy (shell-rc leftover)."""
+    src = f"env PERUN_POLICY={env['PERUN_POLICY']}" if env.get("PERUN_POLICY") else "repo policy"
+    out = [f"heavy-slots: {slots} (lanes {lanes_n}; source: {src})"]
+    if slots > 1:
+        out.append(f"heavy-slots: WARN: {slots} > 1: a train's first-in-line slot can run {slots} heavy commands at once; "
+                   "set local_cpu=off (serial) or tokens=off to force 1")
+    if env.get("PERUN_POLICY"):
+        out.append("heavy-slots: WARN: PERUN_POLICY set in the environment overrides the repo policy (leftover in a shell rc?); unset it unless intended")
     return out
 
 
@@ -118,7 +156,7 @@ def check_settings(settings_path: str) -> dict:
     sb = data.get("sandbox", {}) if isinstance(data, dict) else {}
     sb = sb if isinstance(sb, dict) else {}
     return {
-        "subagent-start-injector": "PRESENT" if any("subagent_start_inject.py" in c for c in start_cmds) else "MISSING",
+        "subagent-start-injector": _house_status(start_cmds, settings_path),
         "handback-cap-two-tier": handback_status,
         "subagent-model-pin": PIN_WARN if (str(env.get("CLAUDE_CODE_SUBAGENT_MODEL_FORCE")) in ("1", "true")
                                            and "haiku" in str(env.get("CLAUDE_CODE_SUBAGENT_MODEL", "")).lower())
@@ -204,6 +242,18 @@ def main(argv: list | None = None) -> int:
         rep.update(host_safety.report(args.project, tsv))
     for item, status in sorted(rep.items()):
         print(f"{item}: {status}")
+    try:
+        sys.path.insert(0, os.path.join(args.skill_root, "scripts"))
+        import host_probe
+        import perun_policy
+        pol = perun_policy.load()
+        load1, cores = host_probe.read_load1_and_cores()
+        cores, idle = cores or os.cpu_count() or 1, host_probe.read_cpu_idle_pct()
+        for line in heavy_slot_lines(perun_policy.heavy_slots(cores, load1, pol["tokens"], idle),
+                                     perun_policy.lanes(pol["local_cpu"], cores, load1, pol["tokens"], idle), os.environ):
+            print(line)
+    except (ImportError, ValueError, OSError) as e:
+        print(f"heavy-slots: COULD_NOT_CHECK ({e})")
     warn = sandbox_gh_warn(args.settings)
     if warn:
         print(warn)
@@ -257,7 +307,7 @@ def _selftest() -> int:
             json.dump({
                 "hooks": {
                     "SubagentStart": [{"hooks": [{"type": "command",
-                        "command": "HOUSE_DEFAULTS_FILE=x python3 .../subagent_start_inject.py"}]}],
+                        "command": "HOUSE_DEFAULTS_FILE=\"$CLAUDE_PROJECT_DIR/.claude/house-defaults.md\" python3 .../subagent_start_inject.py"}]}],
                     "SubagentStop": [
                         {"hooks": [{"type": "command", "command": "python3 .../handback_cap.py"}]},
                         {"matcher": "reviewer", "hooks": [{"type": "command",
@@ -267,6 +317,16 @@ def _selftest() -> int:
                 "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"},
                 "sandbox": {"enabled": True, "allowUnsandboxedCommands": False},
             }, fh)
+        os.makedirs(os.path.join(tmp, ".claude"))
+        hf = os.path.join(tmp, ".claude", "house-defaults.md")
+        after_path = os.path.join(tmp, ".claude", "after.json")
+        with open(after_path, "w", encoding="utf-8") as fh:
+            json.dump(json.load(open(os.path.join(tmp, "after.json"))), fh)
+        case("house-file-absent-red", check_settings(after_path)["subagent-start-injector"].startswith("MISSING RED"), True)
+        open(hf, "w").close()
+        case("house-file-empty-red", check_settings(after_path)["subagent-start-injector"].startswith("MISSING RED"), True)
+        with open(hf, "w", encoding="utf-8") as fh:
+            fh.write("one rule\n")
         after = check_settings(after_path)
         case("after-merge-start-present", after["subagent-start-injector"], "PRESENT")
         case("after-merge-handback-two-tier-present", after["handback-cap-two-tier"], "PRESENT")

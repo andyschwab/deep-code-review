@@ -2038,6 +2038,19 @@ else
   record 1 "operating_selfcheck: absent agentic-ceo sibling reports N/A naming --with-ceo (exit 0)"
 fi
 
+# Bug-class lint (macOS awk rejects a newline in `-v`; `merge-tree | head` hides the merge exit code): no shipped
+# script feeds `awk -v` a command substitution or a list-named variable, or pipes merge-tree into head.
+# Pass multi-line data via ENVIRON; capture merge-tree output first. Test files hold the patterns, so are skipped.
+_lint_files="$(git -C "$ROOT" ls-files -- install.sh scripts '.claude/skills/*/scripts' '.claude/skills/*/templates' .github | grep -E '\.(sh|yml)$' | grep -vE '(^|/)test' || true)"
+_lint_awk="$(cd "$ROOT" && printf '%s\n' "$_lint_files" | xargs grep -nE 'awk[^|]* -v [A-Za-z_]+="?(\$\(|\$\{?[A-Za-z_]*(list|lines|files|members|items|msgs))' 2>/dev/null || true)"
+if [ -z "$_lint_awk" ]; then record 0 "lint: no awk -v fed a command substitution or list variable"; else printf '%s\n' "$_lint_awk"; record 1 "lint: no awk -v fed a command substitution or list variable"; fi
+_lint_mt="$(cd "$ROOT" && printf '%s\n' "$_lint_files" | xargs grep -nE 'merge-tree[^|]*\|[[:space:]]*head' 2>/dev/null || true)"
+if [ -z "$_lint_mt" ]; then record 0 "lint: no merge-tree piped into head"; else printf '%s\n' "$_lint_mt"; record 1 "lint: no merge-tree piped into head"; fi
+# the lint itself bites: planted offenders are caught by the same patterns
+_lp="$WORK/lint-plant.sh"; printf '%s\n' 'awk -v x="$file_list" 1' 'git merge-tree a b | head -3' > "$_lp"
+if grep -qE 'awk[^|]* -v [A-Za-z_]+="?(\$\(|\$\{?[A-Za-z_]*(list|lines|files|members|items|msgs))' "$_lp" \
+  && grep -qE 'merge-tree[^|]*\|[[:space:]]*head' "$_lp"; then record 0 "lint: planted awk -v list + merge-tree|head are caught"; else record 1 "lint: planted awk -v list + merge-tree|head are caught"; fi
+
 # ---------------------------------------------------------------------------
 # autonomy-doctrine — a STRUCTURAL check, not a behavioural eval: pins the
 # standing-grant clause (Human gates + termination conditions), its

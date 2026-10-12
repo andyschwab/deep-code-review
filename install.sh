@@ -519,6 +519,17 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   fi
   OPLAYER_DEST="${TARGET_DIR}/.claude/settings.operating-layer.json.new"
   mkdir -p "$(dirname "${OPLAYER_DEST}")"
+  # Default house-defaults file the SubagentStart injector reads (it fails open when absent: lanes ran uncapped). Only if absent.
+  OPLAYER_HOUSE="${TARGET_DIR}/.claude/house-defaults.md"
+  if [[ ! -e "${OPLAYER_HOUSE}" ]]; then
+    cat > "${OPLAYER_HOUSE}" <<'HOUSE'
+Lane budget: stay inside the lane token cap. Read only the line ranges you need, never re-read a file you just edited, and stop as soon as the task is done.
+Chat voice: caveman ultra (terse fragments, no filler, no progress narration). Code, commits, PR bodies and docs stay normal prose.
+Hand-back: one line `status | evidence (sha/path/test) | next`, at most 10 lines and 800 characters; deliverables go to files, never into chat.
+MINIMAL-CODE: Write the simplest, shortest change that works; reuse what exists, stdlib first, no unrequested abstractions.
+HOUSE
+    echo "wrote default ${OPLAYER_HOUSE} (edit freely; an existing file is never overwritten)"
+  fi
   if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
     OPLAYER_LOCAL="${TARGET_DIR}/.claude/settings.local.json"
     [[ -f "${OPLAYER_LOCAL}" ]] || echo '{}' > "${OPLAYER_LOCAL}"

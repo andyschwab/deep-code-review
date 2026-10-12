@@ -126,7 +126,9 @@ require_clean_tree() {
 # caller guarantees <base> is non-empty (fail-closed happens before this is
 # called, not inside it).
 skip_ci_marker_in_range() {
-  git log --format=%B "$1..HEAD" | grep -qiE '\[(skip ci|ci skip)\]'
+  local msgs  # capture first: `git log | grep -q` SIGPIPEs (141) under pipefail on a long range
+  msgs="$(git log --format=%B "$1..HEAD")" || return 1
+  grep -qiE '\[(skip ci|ci skip)\]' <<<"$msgs"
 }
 
 # login_for_token <token> — print the `gh api user` login for <token>, or
