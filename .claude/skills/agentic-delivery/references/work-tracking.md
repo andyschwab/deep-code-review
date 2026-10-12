@@ -26,10 +26,10 @@ Anything else is noise. An issue In Progress with no update for 14 days is stale
 
 ## Weekly project update
 
-Post one update per project per week: health (On track / At risk / Off track), then Delivered, Next, Blockers.
-`scripts/tracker_weekly_update.py` drafts it from the last 7 days of merged and open PRs and never posts; a human or
-agent posts it through the tracker UI or MCP after reading it. Health is a suggestion: the DRI decides, and only a
-person calls Off track.
+Post one update per project per milestone, not on a schedule, in the structure from `communication-structure`
+(`references/leadership-status-update.md`; no PR numbers, no promises). `scripts/tracker_weekly_update.py` drafts raw
+material from the last 7 days of merged and open PRs and never posts; rewrite it into that structure before a human or
+agent posts it through the tracker UI or MCP. Health is a suggestion: the DRI decides, and only a person calls Off track.
 
 ## Hygiene check
 
