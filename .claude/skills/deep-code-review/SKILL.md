@@ -103,7 +103,7 @@ STAGE: <prototype|mvp|growth|mature | UNVERIFIED> (owner-declared, or named from
 COVERAGE_LEDGER: <applicable domains + must-load refs>
 ```
 
-Read a repo-root `REVIEW.md` in Phase 0 (never relaxes the safety floor): `review-config.md`, also feedback ledger, PR posting.
+Phase 0: read `REVIEW.md`, `.review/learned-rules.md` if present (safety floor holds): `review-config.md`, ledger, PR posting.
 
 Dirty / occupied tree → dedicated worktree; planted probes banned on the live
 tree. Skip of the planted-defect probe caps only the gate-self-test claim.
