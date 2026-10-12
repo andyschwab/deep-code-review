@@ -461,6 +461,7 @@ or directory`) and `xargs kill` kills nothing.
   legitimate long job that is detached by design. High; Critical when `--apply` runs without a dry-run gate.
   Require a **positive-control fixture** (a detached long-running job that must survive the selector; its absence
   is the finding), and a default of report-only that prints each victim with the evidence that selected it.
+- **"In use" is not just cwd.** Before treating a worktree, file, or directory as idle, enumerate every holder: cwd, executable path, script file descriptor (an interpreter running a script from inside it), open and memory-mapped files, and locks (`lsof +D <dir>`, `lsof -p`). A cwd-only check frees a tree a live process still runs from.
 - **Escalate, don't nuke.** Graceful stop (SIGTERM) → a bounded grace window for the
   child to flush and release locks → SIGKILL only if it outlives the window. A
   straight SIGKILL orphans children and skips the signal-safe cleanup the store-root

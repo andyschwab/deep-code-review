@@ -11,6 +11,9 @@ default for this lane, not a suggestion.
 - Stage explicit paths only (`git add <path>...`); never `git add -A` or `git add .`, and never `git stash` (it sweeps in files other lanes own).
 - Stacked on a parent lane not yet pushed: branch off its LOCAL ref (`git rev-parse <parent-branch>`), never poll the remote — the shared `.git` already sees it (#1152).
 
+## Method load
+- Build/fix lanes do not load `deep-code-review` references while building. When asked to self-review the finished diff, follow the DIFF quick-path in `deep-code-review/SKILL.md`. Run affected tests while iterating; full suite once before land.
+
 ## Scope
 - Before starting: `python3 .claude/skills/agentic-delivery/scripts/focus_gate.py check --item <issue>`, then `python3 .claude/skills/agentic-delivery/scripts/claim_probe.py --repo <owner/name> --issue <issue> --ref '#<issue>' --paths <glob> --agent <agent-id> --claim --post` (checks and, only on GO, posts the CLAIM in one call) — abort if it prints NO-GO (a YIELD readout is always also NO-GO).
 - Any ask outside this brief's scope: `python3 .claude/skills/agentic-ceo/scripts/task_ledger.py add --ask "<text>"` — never a private note or a silent scope-creep edit.
