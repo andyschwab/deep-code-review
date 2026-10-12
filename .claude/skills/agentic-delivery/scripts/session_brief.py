@@ -144,11 +144,21 @@ def priority_line(repo: Path):
     return f"top ranked in PRIORITIES.md: {title[:120]} (claim status not checked offline)"
 
 
+def merge_line(repo: Path):
+    """One resume line when `merge_checkpoint.sh save` left .git/perun-merge-state (a stalled merge)."""
+    gd = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=repo, capture_output=True, text=True, timeout=3)
+    if gd.returncode or not (Path(gd.stdout.strip()) / "perun-merge-state").is_file():
+        return None
+    r = subprocess.run(["bash", str(HERE / "merge_checkpoint.sh"), "status"], cwd=repo,
+                       capture_output=True, text=True, timeout=3)
+    return r.stdout.strip() or None
+
+
 def brief(repo: Path) -> list:
     """The ≤3 report lines for `repo`; each section is independent and fails silent."""
     lines = []
     _deadline[0] = time.monotonic() + BUDGET
-    for fn in (version_line, hygiene_line, priority_line):
+    for fn in (merge_line, version_line, hygiene_line, priority_line):
         if time.monotonic() >= _deadline[0]:
             break  # budget spent: skip the remaining sections
         try:
