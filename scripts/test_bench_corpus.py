@@ -30,6 +30,14 @@ def corpus_with(tmp, cid="c1", file="a.py", match="alpha"):
     return tmp
 
 
+class ReviewerIsolation(unittest.TestCase):
+    def test_reviewer_excludes_user_settings_and_account_mcp(self):
+        # account-level MCP connectors add ~140k input tokens per call unless excluded
+        self.assertIn("--strict-mcp-config", bc.CLAUDE_ARGS)
+        i = bc.CLAUDE_ARGS.index("--setting-sources")
+        self.assertEqual(bc.CLAUDE_ARGS[i + 1], "project,local")
+
+
 class Split(unittest.TestCase):
     def test_deterministic_third_and_public_is_train(self):
         ids = [f"case-{i}" for i in range(12)]
