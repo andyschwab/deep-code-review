@@ -60,6 +60,7 @@ if [ "$mode" = tag ] || [ "$mode" = publish ]; then
   fi
   [ "$mode" = publish ] || exit 0
   notes=$(mktemp "${TMPDIR:-/tmp}/land-notes.XXXXXX"); trap 'rm -f "$notes"' EXIT
+  # awk-v-ok: $ver is a validated single-line VERSION scalar
   git show "$REMOTE/$BASE_BRANCH:CHANGELOG.md" | awk -v h="## [$ver]" 'index($0,h)==1{p=1;next} p&&/^## /{p=0} p' >"$notes"
   grep -q '[^[:space:]]' "$notes" || { echo "land-release publish: no CHANGELOG section for $ver" >&2; exit 2; }
   # repo URL from the remote (ssh or https form, REPO_URL overrides); no link when it is not a web remote
