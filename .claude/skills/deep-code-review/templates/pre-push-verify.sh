@@ -380,6 +380,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     python3 "${wired_check}" "${base_sha}" "${local_sha}" >&2 || true
   fi
 
+  # Warn-only: tests that read the real clock (red at the next week rollover); never fails the push.
+  clock_lint=".claude/skills/agentic-delivery/scripts/clock_lint.py"
+  if [ -f "${clock_lint}" ]; then
+    python3 "${clock_lint}" --base "${base_sha}" --head "${local_sha}" --deadline 5 >&2 || true
+  fi
+
   if is_blank "${DCR_PREPUSH_CMD:-}"; then
     if [ "${DCR_PREPUSH_ALLOW_UNSET:-0}" = "1" ]; then
       printf 'pre-push-verify: DCR_PREPUSH_CMD is unset -- allowing push through (DCR_PREPUSH_ALLOW_UNSET=1)\n' >&2

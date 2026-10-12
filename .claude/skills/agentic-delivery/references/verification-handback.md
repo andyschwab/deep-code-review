@@ -684,3 +684,9 @@ page, a header clipped, and an integration returned 4xx for days while every han
 - **QA on a fresh database per branch.** Run QA against a database built from that branch's migrations, never a
   shared or long-lived one: a stale or other-branch schema passes a branch whose migration is broken, or fails one
   that is fine. Record the DB identity in the receipt.
+- **Future-clock run.** Tests that read the real clock or timezone pass for weeks, then turn the development
+  branch red at a week, month or DST rollover. Before handback on a suite that touches dates, run it once with
+  the clock pushed forward and an off-UTC zone, for example `TZ=Pacific/Kiritimati faketime -f "+8d" <suite>`
+  (libfaketime) or the project's fake-time flag, and compare with a normal run; a failure only in the shifted run
+  is a test bug, not a flake. `scripts/clock_lint.py` flags the real-clock reads statically (`--base REF` limits it
+  to changed tests; `clock-lint: allow` is the per-line escape).
