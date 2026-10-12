@@ -20,10 +20,25 @@ T=${TMPDIR:-/tmp}
 one_run() {
   local d rc=0; d=$(mktemp -d "$T/flake-store.XXXXXX") || return 125; echo "train_flake: store $d (left for OS temp cleanup)" >&2
   export TEST=$1 FLAKE_RUN=$2 FLAKE_STORE=$d
-  if [ -z "${FLAKE_SETUP_CMD:-}" ] || bash -c "$FLAKE_SETUP_CMD" >/dev/null 2>&1 </dev/null; then bash -c "$RERUN_CMD" >/dev/null 2>&1 </dev/null || rc=1; else rc=125; fi
+  if [ -z "${FLAKE_SETUP_CMD:-}" ] || bash -c "$FLAKE_SETUP_CMD" >/dev/null 2>&1 </dev/null; then bash -c "$RERUN_CMD" >"${RERUN_OUT:-/dev/null}" 2>&1 </dev/null || rc=1; else rc=125; fi
   return $rc
 }
 if [ "${1:-}" = --one ]; then [ -n "${2:-}" ] && [ -n "${RERUN_CMD:-}" ] || { echo "usage: RERUN_CMD=... train_flake.sh --one <id>" >&2; exit 2; }; one_run "$2" 1; exit $?; fi
+# --base <id>: run on the base checkout; exit 0 = pre-existing (fails >= FLAKE_REAL_AT of FLAKE_RUNS alone AND each failing run's
+# output has a `FAIL <id>` line, proving the test ran there: a test the PR added is absent on the base and is NOT pre-existing),
+# 1 = not pre-existing (RERUN_CMD must print `FAIL <id>` only for tests that actually ran), 125 = fresh store/hook failed or bad bounds (fail closed).
+if [ "${1:-}" = --base ]; then
+  [ -n "${2:-}" ] && [ -n "${RERUN_CMD:-}" ] || { echo "usage: RERUN_CMD=... train_flake.sh --base <id>" >&2; exit 2; }
+  runs=${FLAKE_RUNS:-3} need=${FLAKE_REAL_AT:-2}; f=0 p=0; o=$(mktemp "$T/flake-out.XXXXXX") || exit 125
+  case $runs$need in ''|*[!0-9]*) exit 125 ;; esac; [ "$need" -ge 1 ] && [ "$need" -le "$runs" ] || exit 125
+  for n in $(seq "$runs"); do
+    RERUN_OUT=$o one_run "$2" "$n"; r=$?
+    [ "$r" -ne 125 ] || exit 125
+    if [ "$r" -eq 0 ] || ! sed -nE 's/^FAIL +//p' "$o" | grep -qxF -- "$2"; then p=$((p + 1)); else f=$((f + 1)); fi
+    [ "$f" -ge "$need" ] || [ "$p" -gt $((runs - need)) ] && break
+  done
+  [ "$f" -ge "$need" ]; exit $?
+fi
 if [ "${1:-}" = --record ]; then
   [ -n "${2:-}" ] && [ -n "${FLAKE_INVOCATION:-${BROWSER_CMD:-}}" ] || { echo "usage: FLAKE_INVOCATION=<cmd> train_flake.sh --record <failing-ids-file>" >&2; exit 2; }
   echo "# baseline host=$host inv=$inv"; cat -- "$2"; exit 0
