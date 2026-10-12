@@ -38,7 +38,8 @@ for q in ${QA_PORTS:-}; do PIDS="$PIDS $(lsof -t -a -u "$(id -u)" -iTCP:"$q" -sT
 n=0; rows=""
 for P in $(printf '%s\n' $PIDS | sort -u); do
   [ "$P" != "$$" ] || continue
-  C=$(lsof -a -p "$P" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+  lo=$(lsof -a -p "$P" -d cwd -Fn 2>/dev/null) || true  # lsof rc 1 (pid gone / denied) must not abort under pipefail; an unreadable live cwd becomes BAD below
+  C=$(sed -n 's/^n//p' <<<"$lo" | head -1)
   if [ -z "$C" ] && alive "$P"; then BAD="${BAD:+$BAD; }cwd of pid $P unreadable"; fi
   if [ -n "$ROOT" ]; then
     case "$C" in "$ROOT"|"$ROOT"/*) ;; *) continue ;; esac

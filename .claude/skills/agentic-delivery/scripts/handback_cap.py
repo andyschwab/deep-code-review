@@ -85,8 +85,9 @@ def _read_blocks(path):
         return 0
 
 
-PUSH_RE = re.compile(r"\bgit\b((?:\s+-C\s+(\S+)|\s+-\S+)*)\s+push\b")
-PUSH_RECHECK_S = int(os.environ.get("HANDBACK_PUSH_RECHECK_S", "30"))
+# `git [-c k=v] [-C dir | -C "dir w/ space"] [--opt] push`; group 2/3 = the -C dir (quoted or bare)
+PUSH_RE = re.compile(r"""\bgit\b((?:\s+-C\s+(?:"([^"]*)"|'([^']*)'|(\S+))|\s+-c\s+\S+|\s+-\S+)*)\s+push\b""")
+PUSH_MAX_S = int(os.environ.get("HANDBACK_PUSH_MAX_S", "1800"))  # keep blocking while the push is live, at most this long
 
 
 def _inside(p, root):
@@ -109,7 +110,8 @@ def _push_running(cwd):
             m = PUSH_RE.search(cmd)
             if not m or not pid.isdigit() or int(pid) == os.getpid():
                 continue
-            if m.group(2) and _inside(m.group(2), root):
+            cdir = m.group(2) or m.group(3) or m.group(4)
+            if cdir and _inside(cdir, root):
                 return True
             out = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", pid, "-Fn"], capture_output=True, text=True, timeout=10)
             if out.returncode > 1:
@@ -131,17 +133,12 @@ def check(data):
     if running:
         os.makedirs(STATE_DIR, exist_ok=True)
         path = _state_path(str(data.get("agent_id") or "unknown")) + ".push"
-        blocks = _read_blocks(path)
-        if blocks < MAX_BLOCKS:
-            # Only a stop attempt at least PUSH_RECHECK_S after the last counted one spends a block, so an instant retry
-            # loop cannot burn the release valve while the push still runs.
-            try:
-                recent = time.time() - os.path.getmtime(path) < PUSH_RECHECK_S
-            except OSError:
-                recent = False
-            if not recent:
-                with open(path, "w") as fh:
-                    fh.write(str(blocks + 1))
+        try:  # file mtime = first block; keep blocking while the push is live, released after PUSH_MAX_S
+            first = os.path.getmtime(path)
+        except OSError:
+            first = time.time()
+            open(path, "w").close()
+        if time.time() - first < PUSH_MAX_S:
             sys.stderr.write(
                 "A git push from this worktree is still running (its pre-push hook may take 15+ minutes). "
                 "You own it until it exits: wait with lane_guard.py wait --pid <pid> --timeout <s>, then hand back.\n"
@@ -216,14 +213,11 @@ def _selftest():
     case("push-not-running-passes", check({"agent_id": "p2", "cwd": "/idle", "last_assistant_message": "VERIFIED"}), 0)
     case("push-unknown-passes-with-COULD_NOT_CHECK", check({"agent_id": "p5", "cwd": "/denied", "last_assistant_message": "VERIFIED"}), 0)
     case("push-exempt-type-passes", check({"agent_id": "p3", "agent_type": "Explore", "cwd": "/live", "last_assistant_message": "x"}), 0)
-    for _ in range(MAX_BLOCKS + 2):  # instant retries: still blocked, no block spent past the first
+    for _ in range(MAX_BLOCKS + 5):  # many stop attempts while the push is live: still blocked
         rc = check({"agent_id": "p4", "cwd": "/live", "last_assistant_message": "VERIFIED"})
-    case("push-instant-retries-never-release", rc, 2)
-    os.utime(_state_path("p4") + ".push", (0, 0))  # a separate, later stop attempt counts
-    for _ in range(MAX_BLOCKS):
-        check({"agent_id": "p4", "cwd": "/live", "last_assistant_message": "VERIFIED"})
-        os.utime(_state_path("p4") + ".push", (0, 0))
-    case("push-block-releases-after-max-spaced-attempts", check({"agent_id": "p4", "cwd": "/live", "last_assistant_message": "VERIFIED"}), 0)
+    case("push-live-keeps-blocking", rc, 2)
+    os.utime(_state_path("p4") + ".push", (0, 0))  # first block long ago (> PUSH_MAX_S): released
+    case("push-block-releases-after-max-age", check({"agent_id": "p4", "cwd": "/live", "last_assistant_message": "VERIFIED"}), 0)
     _push_running = real_push
     case("push-check-no-cwd-is-unknown", _push_running(""), None)
     real_run = subprocess.run
@@ -234,8 +228,13 @@ def _selftest():
         case("ps-denied-is-unknown-not-false", _push_running(tmp), None)
     finally:
         subprocess.run = real_run
-    m = PUSH_RE.search("git -C /w/x push -q origin main")
-    case("git-dash-C-push-matches", bool(m and m.group(2) == "/w/x"), True)
+    def cd(c):
+        m = PUSH_RE.search(c)
+        return m and (m.group(2) or m.group(3) or m.group(4))
+    case("git-dash-C-push-matches", cd("git -C /w/x push -q origin main"), "/w/x")
+    case("git-dash-C-quoted-space-matches", cd('git -C "/w/dir w/ space" push'), "/w/dir w/ space")
+    case("git-dash-c-kv-push-matches", bool(PUSH_RE.search("git -c core.x=1 push origin main")), True)
+    case("git-dash-c-then-C-matches", cd("git -c a=b -C /w/y push"), "/w/y")
     case("plain-git-push-matches", bool(PUSH_RE.search("git push origin")), True)
     case("git-status-does-not-match", bool(PUSH_RE.search("git status --push")), False)
 

@@ -97,10 +97,11 @@ BR="BROWSER RED: union $U fails browser specs (see $LOG.browser); nothing landed
   [ -n "${BASELINE_FAILS:-}" ] || echo "hint: set RERUN_CMD (TEST=<id>) so failures already red on the base are detected and ignored; keep BROWSER_CMD to affected specs + smoke, not the full suite" >&2; exit 1; }
 sed -nE 's/^FAIL +//p' "$LOG.browser" >"$LOG.fails"
 pre=0
-if [ -z "${BASELINE_FAILS:-}" ]; then  # base-red guard: an id that also fails twice alone on the base is pre-existing
+if :; then  # base-red guard: an id (not already in BASELINE_FAILS) that also fails twice alone on the base is pre-existing
   renew; git checkout -q --detach "$B"; : >"$LOG.pre"
   while IFS= read -r id; do
     [ -n "$id" ] || continue; br=0
+    [ -z "${BASELINE_FAILS:-}" ] || ! grep -qxF -- "$id" "$BASELINE_FAILS" || continue  # listed ids are handled by the baseline
     RERUN_CMD=$RERUN_CMD bash "$HERE/train_flake.sh" --base "$id" || br=$?
     [ "$br" -ne 125 ] || { git checkout -q --detach "$REMOTE/$BASE_BRANCH"; echo "fresh store or FLAKE_SETUP_CMD failed re-running $id on the base; nothing landed" >&2; exit 1; }
     [ "$br" -ne 0 ] || echo "$id" >>"$LOG.pre"

@@ -47,6 +47,12 @@ echo 'echo "FAIL $TEST"; exit 1' >"$WORK/rerun.sh"
 out=$(run); rc=$?
 [ $rc -eq 0 ] && grep -q '^BASE RED: 2 pre-existing' <<<"$out" && ! grep -q '^DROP' <<<"$out"
 ok $? "train_land: failure pre-existing on the base is excused, no PR blamed"
+# (1f) BASELINE_FAILS set: ids outside the list still get the base check (pre-existing, not blamed on a PR)
+echo 'echo "FAIL $TEST"; exit 1' >"$WORK/rerun.sh"; echo zz >"$WORK/other"
+FLAKE_INVOCATION="bash $WORK/browser.sh" bash "$SC/train_flake.sh" --record "$WORK/other" >"$WORK/baseline"
+out=$(BASELINE_FAILS="$WORK/baseline" FLAKE_INVOCATION="bash $WORK/browser.sh" run env); rc=$?
+[ $rc -eq 0 ] && grep -q '^BASE RED: 2 pre-existing' <<<"$out" && ! grep -q '^DROP\|^CANT' <<<"$out"
+ok $? "train_land: with BASELINE_FAILS set, an id outside the list that fails on the base is still base-checked, not blamed"
 # (1e) FLAKE_REAL_AT above 2 must not let two failures of three pass as flakes: fails 2 of 3 alone -> REAL -> not landed
 printf 'x\n' >"$WORK/one"; echo 'f="$WORK/seq"; r=$(head -c1 "$f"); tail -c +2 "$f" >"$f.n"; mv "$f.n" "$f"; [ "$r" != F ]' >"$WORK/rr.sh"
 printf 'FFP' >"$WORK/seq"; RERUN_CMD="bash $WORK/rr.sh" FLAKE_RUNS=3 FLAKE_REAL_AT=3 bash "$SC/train_flake.sh" "$WORK/one" >"$WORK/o" 2>/dev/null; rc=$?
@@ -71,6 +77,16 @@ grep -q '^orphans=' <<<"$out" && ! grep -q 'COULD_NOT_CHECK' <<<"$out"; ok $? "r
 printf '#!/bin/sh\nexit 3\n' >"$WORK/fakebin/pgrep"
 out=$(ROOT="$WORK" PATH="$WORK/fakebin:$PATH" bash "$SC/reap_own.sh" 2>/dev/null); rc=$?
 [ $rc -eq 2 ] && grep -q '^reaped=COULD_NOT_CHECK' <<<"$out" && ! grep -q '^reaped=0' <<<"$out"; ok $? "reap_own (kill mode): pgrep failure prints reaped=COULD_NOT_CHECK, not reaped=0"
+
+# lsof that fails on a live matching pid: COULD_NOT_CHECK, not a silent pipefail abort
+printf '#!/bin/sh\nexit 1\n' >"$WORK/fakebin/lsof"; chmod +x "$WORK/fakebin/lsof"; rm -f "$WORK/fakebin/pgrep"
+sleep 63 & SP=$!
+out=$(ROOT="$WORK" PATTERN='sleep 63' PATH="$WORK/fakebin:$PATH" bash "$SC/reap_own.sh" --report 2>/dev/null); rc=$?
+out2=$(ROOT="$WORK" PATTERN='sleep 63' PATH="$WORK/fakebin:$PATH" bash "$SC/reap_own.sh" 2>/dev/null); rc2=$?
+kill "$SP" 2>/dev/null; wait "$SP" 2>/dev/null
+[ $rc -eq 2 ] && grep -q '^orphans=COULD_NOT_CHECK' <<<"$out" && [ $rc2 -eq 2 ] && grep -q '^reaped=COULD_NOT_CHECK' <<<"$out2"
+ok $? "reap_own: lsof failing on a live matching pid prints COULD_NOT_CHECK in both modes (no silent abort)"
+rm -f "$WORK/fakebin/lsof"
 
 # (3) session_brief: unreadable origin/main version and a failed lsof are NOT CHECKED lines, not silence
 out=$(python3 - <<PY
