@@ -47,6 +47,11 @@ class Lifecycle(unittest.TestCase):
         self.assertTrue(rf.is_safety({"severity": "Low", "area": "A"}))
         self.assertIn("- shadow: bug", rf.learned_rules(rows("bug", 0, 6, area="A")))
 
+    def test_bug_class_areas_never_disabled(self):
+        for a in "FGI":
+            self.assertEqual(rf.learned_rules(rows("race", 0, 6, area=a)).count("disabled: race"), 0)
+            self.assertIn("- shadow: race", rf.learned_rules(rows("race", 0, 6, area=a)))
+
     def test_promoted_flips_to_disabled(self):
         self.assertEqual(rf.state(5, 0, False), "promoted")
         self.assertEqual(rf.state(5, 13, False), "disabled")

@@ -15,7 +15,7 @@ record appends one JSON line to the ledger (default .review/feedback.jsonl, over
 $REVIEW_FEEDBACK_LEDGER). summary prints per-rule accept-rate (telemetry) and SUGGESTED REVIEW.md
 rules: a rule is suggested only when it was dismissed at least --min-dismissals times and never
 accepted, and never when any of its rows is safety-floor (severity Blocker/Critical, or area in
-A B C D N Q T, or any area that is not an assigned domain letter: security, LLM/agent, data integrity, secrets, privacy, tenancy). Suggestions are text for
+A B C D F G I N Q T, or any area that is not an assigned domain letter: security, LLM/agent, data integrity, secrets, privacy, tenancy). Suggestions are text for
 a human to paste into REVIEW.md; this script never writes it, so nothing is silenced automatically.
 Side effects: learn writes (or removes, when empty) its --out file; record creates the ledger directory and appends. Reasons are free text: keep names and
 identifiers out, and keep the ledger out of public commits. Exits non-zero on a bad ledger line
@@ -30,7 +30,7 @@ from pathlib import Path
 
 SEVERITIES = ("Blocker", "Critical", "High", "Medium", "Low", "Nit")
 SAFETY_SEV = {"Blocker", "Critical"}
-SAFETY_AREAS = set("ABCDNQT")
+SAFETY_AREAS = set("ABCDFGINQT")
 AREAS = tuple("ABCDEFGHIJKLMNOPQRST") + ("W",)  # assigned domains; U/V/X-Z are not
 DEFAULT_LEDGER = ".review/feedback.jsonl"
 CANDIDATE_MIN, SHADOW_MIN = 2, 3

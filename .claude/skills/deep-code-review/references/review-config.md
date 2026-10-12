@@ -65,7 +65,7 @@ python3 scripts/review_feedback.py summary [--min-dismissals 3] [--json]
   and, for a rule dismissed at least `--min-dismissals` times and never accepted, a suggested
   `- skip: …` line for `REVIEW.md`.
 - **Never suggested, never silenced:** any rule with a safety-floor row (severity Blocker/Critical or
-  area A B C D N Q T, or an area that is not a domain letter). The script only prints; a human pastes a suggestion into `REVIEW.md` or discards it.
+  area A B C D F G I N Q T, or an area that is not a domain letter). The script only prints; a human pastes a suggestion into `REVIEW.md` or discards it.
 - `record` (or `learn`) derives a rule lifecycle from the ledger (no stored state) and writes a capped
   `.review/learned-rules.md` (<= 40 lines): candidate (2 rows) -> shadow (3 rows; applied, tag the
   finding `[shadow]`) -> promoted (>= 5 accepts and accept-rate >= 0.8) or disabled (>= 3 dismissals and
