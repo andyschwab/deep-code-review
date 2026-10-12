@@ -37,7 +37,7 @@ case "$1 $2" in
               if [ "$f" = mergeable ] && [ "$n" = 3 ] && [ ! -e "$STUB/seen3" ]; then touch "$STUB/seen3"; echo UNKNOWN
              else cat "$STUB/$f.$n"; fi ;;
   "pr diff") cat "$STUB/files.$n" ;;
-  "pr list") cat "$STUB/children.$4" 2>/dev/null ;;
+  "pr list") cat "$STUB/children.$4" 2>/dev/null || true ;;
   "pr edit") echo "$*" >>"$STUB/edits.log" ;;
   "pr merge") echo "merged $n $*" ;;
   "pr ready") touch "$STUB/ready.$n" ;;

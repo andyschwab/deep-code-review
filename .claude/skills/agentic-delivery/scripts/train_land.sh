@@ -26,7 +26,7 @@ set -euo pipefail
 : "${VERIFY_CMD:?set VERIFY_CMD}" "${UNION_DIRS:?set UNION_DIRS}"
 T=$1; shift
 BASE_BRANCH=${BASE_BRANCH:-main} REMOTE=${REMOTE:-origin} LOG=${LOG_DIR:-.}/train$T.log
-HERE=$(cd "$(dirname "$0")" && pwd) GH=${GH:-gh}
+HERE=$(cd "$(dirname "$0")" && pwd) GH=${GH:-$(dirname "$0")/gh_rest.py}
 . "$HERE/_clean_union.sh"
 # .perun/policy.json: PERUN_JOBS (parallelism from local_cpu) and PERUN_GITHUB_ACTIONS reach VERIFY_CMD and
 # BROWSER_CMD. github_actions=off: this script never waits on or re-runs CI (it has no CI wait at all), and
@@ -48,7 +48,8 @@ if [ -n "${CLEAN_ROOT:-}" ]; then  # start-of-train cleanup of your own finished
   ROOT=$CLEAN_ROOT bash "$HERE/reap_own.sh" || true; ROOT=$CLEAN_ROOT bash "$HERE/clean_finished.sh" || true
 fi
 for n in "$@"; do
-  bb=$("$GH" pr view "$n" --json baseRefName -q .baseRefName </dev/null)
+  bb=$("$GH" pr view "$n" --json baseRefName -q .baseRefName </dev/null) \
+    || { echo "could not check: base of #$n (gh pr view failed, cause printed above); nothing built" >&2; exit 1; }
   [ "$bb" = "$BASE_BRANCH" ] || { echo "REFUSE #$n base is $bb, expected $BASE_BRANCH; nothing built" >&2; exit 2; }
 done
 
@@ -65,6 +66,8 @@ rc=0; "$(dirname "$0")/scrub_env.sh" bash -c "$VERIFY_CMD" _ "$T" "${PRS[@]}" >"
 # Filter by verdict prefix, never by position; `|| true` keeps pipefail from aborting on no match.
 grep -E '^(DEFER|DROP|GREEN|RED|STALE|CONFLICT)' "$LOG" | tail -4 || true
 L=$(grep -E '^GREEN' "$LOG" | tail -1 || true)
+# A GREEN line from a verify step that exited non-zero (killed, timed out after printing) is not a pass.
+[ -z "$L" ] || [ "$rc" -eq 0 ] || { echo "could not check: verify printed GREEN but exited rc=$rc; treating as no GREEN union" >&2; L=; }
 if [ -z "$L" ]; then
   if [ -n "${RATCHET_CMD:-}" ]; then  # attribute: merge each PR alone onto the base, run the ratchet
     base=$(git rev-parse HEAD)
@@ -76,7 +79,7 @@ if [ -z "$L" ]; then
     done
     git checkout -q --detach "$base"
   fi
-  echo "no GREEN union (verify rc=$rc); nothing landed"; exit 3
+  echo "no GREEN union (verify rc=$rc; last log line: $(tail -1 "$LOG" 2>/dev/null)); nothing landed"; exit 3
 fi
 B=$(sed -E 's/.*base=([0-9a-f]+).*/\1/' <<<"$L"); U=$(sed -E 's/.*union=([0-9a-f]+).*/\1/' <<<"$L")
 if [ -z "${BROWSER_CMD:-}" ] || [ "$BROWSER_CMD" = skip ]; then

@@ -3745,11 +3745,25 @@ else
   record 1 "train scripts: land_train/train_land/reap_own tests pass"; tail -5 "$WORK/train-scripts.log"
 fi
 
+# delivery friction: gh TLS curl fallback, fail-closed gh failures, lock holder reporting; own per-feature file, one case here.
+if bash "$ROOT/scripts/test-delivery-friction.sh" >"$WORK/delivery-friction.log" 2>&1; then
+  record 0 "delivery friction: gh_rest curl fallback, could-not-check fail-closed, lock holder status"
+else
+  record 1 "delivery friction: gh_rest curl fallback, could-not-check fail-closed, lock holder status"; tail -8 "$WORK/delivery-friction.log"
+fi
+
 # train hardening (#1341): own per-feature file (scripts/test-train-hardening.sh), one case here.
 if bash "$ROOT/scripts/test-train-hardening.sh" >"$WORK/train-hardening.log" 2>&1; then
   record 0 "train hardening: spaced UNION_DIRS, per-worktree lock, exit 3 on no GREEN union"
 else
   record 1 "train hardening: spaced UNION_DIRS, per-worktree lock, exit 3 on no GREEN union"; tail -8 "$WORK/train-hardening.log"
+fi
+
+# train fail-closed parsers: own per-feature file (scripts/test-train-failclosed.sh), one case here.
+if bash "$ROOT/scripts/test-train-failclosed.sh" >"$WORK/train-failclosed.log" 2>&1; then
+  record 0 "train fail-closed: missing failed-ids list and GREEN-with-nonzero-rc are not a pass"
+else
+  record 1 "train fail-closed: missing failed-ids list and GREEN-with-nonzero-rc are not a pass"; tail -8 "$WORK/train-failclosed.log"
 fi
 
 # train resilience: own per-feature file (scripts/test-train-resilience.sh), one case here.
