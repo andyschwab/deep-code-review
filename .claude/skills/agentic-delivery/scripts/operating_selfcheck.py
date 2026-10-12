@@ -90,13 +90,12 @@ HOUSE_RED = ("MISSING RED: injector hook wired but house-defaults file {f} is ab
 def _house_status(start_cmds: list, settings_path: str) -> str:
     """PRESENT when a `subagent_start_inject.py` hook names a non-empty HOUSE_DEFAULTS_FILE, else MISSING/RED.
 
-    `$CLAUDE_PROJECT_DIR` and relative paths resolve against the settings file's project root (its
-    `.claude/..`). A hook with no HOUSE_DEFAULTS_FILE assignment at all also fails open: RED.
+    `$CLAUDE_PROJECT_DIR` and relative paths resolve against `$CLAUDE_PROJECT_DIR`, else the cwd. A hook with no HOUSE_DEFAULTS_FILE assignment at all also fails open: RED.
     """
     cmds = [c for c in start_cmds if "subagent_start_inject.py" in c]
     if not cmds:
         return "MISSING"
-    root = os.path.dirname(os.path.dirname(os.path.abspath(settings_path)))
+    root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()  # not the settings path: user-level settings live in ~/.claude
     m = re.search(r'HOUSE_DEFAULTS_FILE=(?:"([^"]*)"|(\S+))', cmds[0])
     f = ((m.group(1) or m.group(2)) if m else "").replace("${CLAUDE_PROJECT_DIR}", root).replace("$CLAUDE_PROJECT_DIR", root)
     f = f and os.path.join(root, f)
@@ -107,12 +106,13 @@ def _house_status(start_cmds: list, settings_path: str) -> str:
     return "PRESENT" if ok else HOUSE_RED.format(f=f or "(unset)")
 
 
-def heavy_slot_lines(slots: int, lanes_n: int, env: dict) -> list:
-    """Lines reporting the effective heavy-slot count; WARN when >1 (a train's first-in-line slot should be
-    serial) or when `PERUN_POLICY` (env) rather than the repo policy file chose the policy (shell-rc leftover)."""
+def heavy_slot_lines(slots: int, lanes_n: int, env: dict, train: bool = False) -> list:
+    """Lines reporting the effective heavy-slot count. WARN when `PERUN_POLICY` (env, a shell-rc leftover) overrides
+    the repo policy, and when slots >1 because of that override or while a train holds its exclusive lease
+    (its first-in-line slot should be serial). The default floor of 2 alone is not a warning."""
     src = f"env PERUN_POLICY={env['PERUN_POLICY']}" if env.get("PERUN_POLICY") else "repo policy"
     out = [f"heavy-slots: {slots} (lanes {lanes_n}; source: {src})"]
-    if slots > 1:
+    if slots > 1 and (train or env.get("PERUN_POLICY")):
         out.append(f"heavy-slots: WARN: {slots} > 1: a train's first-in-line slot can run {slots} heavy commands at once; "
                    "set local_cpu=off (serial) or tokens=off to force 1")
     if env.get("PERUN_POLICY"):
@@ -250,7 +250,8 @@ def main(argv: list | None = None) -> int:
         load1, cores = host_probe.read_load1_and_cores()
         cores, idle = cores or os.cpu_count() or 1, host_probe.read_cpu_idle_pct()
         for line in heavy_slot_lines(perun_policy.heavy_slots(cores, load1, pol["tokens"], idle),
-                                     perun_policy.lanes(pol["local_cpu"], cores, load1, pol["tokens"], idle), os.environ):
+                                     perun_policy.lanes(pol["local_cpu"], cores, load1, pol["tokens"], idle), os.environ,
+                                     perun_policy.exclusive_holder(perun_policy.lease_dir()) is not None):
             print(line)
     except (ImportError, ValueError, OSError) as e:
         print(f"heavy-slots: COULD_NOT_CHECK ({e})")
@@ -317,6 +318,7 @@ def _selftest() -> int:
                 "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"},
                 "sandbox": {"enabled": True, "allowUnsandboxedCommands": False},
             }, fh)
+        os.environ["CLAUDE_PROJECT_DIR"] = tmp
         os.makedirs(os.path.join(tmp, ".claude"))
         hf = os.path.join(tmp, ".claude", "house-defaults.md")
         after_path = os.path.join(tmp, ".claude", "after.json")

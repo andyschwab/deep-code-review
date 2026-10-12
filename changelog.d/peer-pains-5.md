@@ -1,5 +1,5 @@
 ### Fixed
-- install.sh: `--with-operating-layer` writes a default `.claude/house-defaults.md` (lane budget, caveman voice, one-line hand-back, minimal-code) only when absent; the SubagentStart injector previously failed open without it, so lanes ran past the token cap.
-- operating_selfcheck.py: reports `MISSING RED` when the injector hook is wired but the house-defaults file is absent or empty; prints the effective heavy-slot count and WARNs when it is above 1 or when `PERUN_POLICY` comes from the environment.
+- install.sh: `--with-operating-layer` writes a default `.claude/house-defaults.md` (lane budget, one-line hand-back, optional voice pointer) only on apply, only when absent and not a symlink; the SubagentStart injector previously failed open without it, so lanes ran past the token cap.
+- operating_selfcheck.py: reports `MISSING RED` when the injector hook is wired but the house-defaults file is absent or empty; prints the effective heavy-slot count and WARNs on a `PERUN_POLICY` env override or >1 under an override or a running train.
 - Heavy admission (`host_probe.py --lane-type heavy`, `perun_policy.py heavy-slots`/`lanes`) uses CPU idle when readable, so IO-inflated load1 with idle CPUs no longer stalls; load1 stays the fallback.
 - Pipe bug class: `git log | grep -q` under pipefail (integrator-gate, ci-gates rule-baseline) and `printf | grep -q` on large range logs now capture or use here-strings; `scripts/test-ci-gates.sh` lints for `awk -v` fed command substitutions or list variables and `merge-tree | head`.

@@ -1370,6 +1370,7 @@ rules_scan() {
   local f
   for f in "$1"/.claude/skills/*/SKILL.md; do
     [ -f "$f" ] || continue
+    # awk-v-ok: one SKILL.md path
     awk -v P="${f#"$1"/}" '
       function flush(  i) {
         if (!(para ~ /scripts\/|ci-gates|evals?\/|evals\.json|[Hh]ook|[Aa]dvisory|[Ee]nforced/))

@@ -26,18 +26,32 @@ def sh(*a, **kw):
 class HouseDefaults(unittest.TestCase):
     def test_install_writes_default_once_and_keeps_existing(self):
         with tempfile.TemporaryDirectory() as d:
-            r = sh("bash", str(ROOT / "install.sh"), "--with-delivery", "--with-operating-layer", d)
+            r = sh("bash", str(ROOT / "install.sh"), "--with-delivery", "--apply-operating-layer", d)
             self.assertEqual(r.returncode, 0, r.stderr)
             f = Path(d) / ".claude/house-defaults.md"
             txt = f.read_text()
-            for key in ("token cap", "caveman", "Hand-back", "MINIMAL-CODE: "):
+            for key in ("token cap", "Hand-back", "public caveman repository"):
                 self.assertIn(key, txt)
+            self.assertNotIn("caveman ultra", txt)
             f.write_text("mine\n")
-            self.assertEqual(sh("bash", str(ROOT / "install.sh"), "--with-delivery", "--with-operating-layer", d).returncode, 0)
+            self.assertEqual(sh("bash", str(ROOT / "install.sh"), "--with-delivery", "--apply-operating-layer", d).returncode, 0)
             self.assertEqual(f.read_text(), "mine\n")
+
+    def test_with_only_writes_nothing_and_symlink_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(sh("bash", str(ROOT / "install.sh"), "--with-delivery", "--with-operating-layer", d).returncode, 0)
+            self.assertFalse((Path(d) / ".claude/house-defaults.md").exists())
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / ".claude").mkdir()
+            (Path(d) / ".claude/house-defaults.md").symlink_to(Path(d) / "elsewhere.md")
+            r = sh("bash", str(ROOT / "install.sh"), "--with-delivery", "--apply-operating-layer", d)
+            self.assertIn("symlink", r.stderr)
+            self.assertFalse((Path(d) / "elsewhere.md").exists())
 
     def test_selfcheck_red_when_file_absent_or_empty(self):
         with tempfile.TemporaryDirectory() as d:
+            os.environ["CLAUDE_PROJECT_DIR"] = d
+            self.addCleanup(os.environ.pop, "CLAUDE_PROJECT_DIR")
             (Path(d) / ".claude").mkdir()
             s = Path(d) / ".claude/settings.local.json"
             s.write_text(json.dumps(HOOK))
@@ -57,6 +71,16 @@ class HeavySlots(unittest.TestCase):
         out = sc.heavy_slot_lines(3, 2, {"PERUN_POLICY": "/x/p.json"})
         self.assertIn("source: env PERUN_POLICY=/x/p.json", out[0])
         self.assertEqual(sum("WARN" in l for l in out), 2)
+
+    def test_default_floor_is_not_a_warning(self):
+        self.assertFalse(any("WARN" in l for l in sc.heavy_slot_lines(2, 2, {})))
+        self.assertTrue(any("WARN" in l for l in sc.heavy_slot_lines(2, 2, {}, train=True)))
+
+    def test_idle_boundaries(self):
+        kw = dict(swap_samples=(1, 1), free_ram_pct=50, lane_type="heavy", load1=30.0, cores=8)
+        d = lambda i: host_probe.decide(cpu_idle_pct=i, **kw)  # noqa: E731
+        self.assertEqual([d(0.0), d(10.0), d(24.9), d(25.0)], ["HOLD load-high"] * 3 + ["SPAWN"])
+        self.assertEqual(perun_policy.heavy_slots(8, 30.0, idle_pct=0.0), 2)
 
     def test_idle_cpu_beats_io_inflated_load(self):
         self.assertEqual(perun_policy.heavy_slots(8, 30.0), 2)  # load1 fallback

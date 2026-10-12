@@ -521,12 +521,13 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 ]]; then
   mkdir -p "$(dirname "${OPLAYER_DEST}")"
   # Default house-defaults file the SubagentStart injector reads (it fails open when absent: lanes ran uncapped). Only if absent.
   OPLAYER_HOUSE="${TARGET_DIR}/.claude/house-defaults.md"
-  if [[ ! -e "${OPLAYER_HOUSE}" ]]; then
+  if [[ "${APPLY_OPLAYER}" -eq 1 && -L "${OPLAYER_HOUSE}" ]]; then
+    echo "warning: ${OPLAYER_HOUSE} is a symlink; not writing a default house-defaults file (fail closed)" >&2
+  elif [[ "${APPLY_OPLAYER}" -eq 1 && ! -e "${OPLAYER_HOUSE}" ]]; then
     cat > "${OPLAYER_HOUSE}" <<'HOUSE'
 Lane budget: stay inside the lane token cap. Read only the line ranges you need, never re-read a file you just edited, and stop as soon as the task is done.
-Chat voice: caveman ultra (terse fragments, no filler, no progress narration). Code, commits, PR bodies and docs stay normal prose.
+Optional chat voice: add your own line here; compressed assistant prose is available from the public caveman repository. Code, commits, PR bodies and docs stay normal prose.
 Hand-back: one line `status | evidence (sha/path/test) | next`, at most 10 lines and 800 characters; deliverables go to files, never into chat.
-MINIMAL-CODE: Write the simplest, shortest change that works; reuse what exists, stdlib first, no unrequested abstractions.
 HOUSE
     echo "wrote default ${OPLAYER_HOUSE} (edit freely; an existing file is never overwritten)"
   fi
@@ -679,6 +680,7 @@ upsert_agents_block() {
     block_file="$(mktemp "${TMPDIR:-/tmp}/perun.XXXXXX")"
     out_file="$(mktemp "${TMPDIR:-/tmp}/perun.XXXXXX")"
     printf '%s\n' "${block}" > "${block_file}"
+    # awk-v-ok: markers and a file path, single-line by construction
     awk -v begin="<!-- ${marker_begin} -->" -v end="<!-- ${marker_end} -->" \
       -v bf="${block_file}" '
       BEGIN {

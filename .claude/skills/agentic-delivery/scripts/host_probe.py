@@ -192,12 +192,22 @@ def read_load1_and_cores() -> tuple:
         return None, cores
 
 
-def read_cpu_idle_pct(sample_interval: float = 0.3) -> float | None:
-    """CPU idle percentage; `top -l 1 -n 0` (macOS) or a short `/proc/stat` delta (Linux)."""
+_IDLE_CACHE: list = []  # one reading per process
+
+
+def read_cpu_idle_pct(sample_interval: float = 0.15) -> float | None:
+    """CPU idle percentage, cached per process: the second `top -l 2 -n 0` sample (macOS) or a <=150ms
+    `/proc/stat` delta (Linux); None when unreadable (callers fall back to load1)."""
+    if not _IDLE_CACHE:
+        _IDLE_CACHE.append(_read_cpu_idle_pct(sample_interval))
+    return _IDLE_CACHE[0]
+
+
+def _read_cpu_idle_pct(sample_interval: float) -> float | None:
     if sys.platform == "darwin":
-        out = _run(["top", "-l", "1", "-n", "0"])
-        m = out and re.search(r"([\d.]+)%\s*idle", out)
-        return float(m.group(1)) if m else None
+        # the first `top` sample is the since-boot average; the second is the live interval
+        m = re.findall(r"([\d.]+)%\s*idle", _run(["top", "-l", "2", "-n", "0"]) or "")
+        return float(m[-1]) if len(m) >= 2 else None
     try:
         def snap():
             with open("/proc/stat", encoding="utf-8") as fh:
