@@ -9,13 +9,13 @@ Denies (exit 2, reason on stderr; the host blocks the call) a command that runs
 
 Parsing: shlex tokens, split into segments on newline, `;`, `&&`, `||`, `|`. Per segment the leading
 VAR=val tokens are env, the next token is argv0; git means basename(argv0) == "git" (so /usr/bin/git
-matches), and `bash|sh|zsh -c STR` recurses into STR. A bare or `export VAR=val` segment is sticky env
+matches), `bash|sh|zsh -c STR` and `eval STR` recurse, and `env [-i|-u X|VAR=v]` / `xargs [opts]` are skipped as wrappers into STR. A bare or `export VAR=val` segment is sticky env
 for the rest of the command. Option values (the `-m`/`-F` argument) are skipped, so a message that
 says `--no-verify` or `SKIP=1` is not a hit.
 
 Unparseable input -> allow plus a one-line stderr note.
 # ponytail: a deny hook that blocks on a parse error breaks legit commands, so it fails open; ceiling:
-# `g=git; $g commit -n`, aliases and scripts that wrap git are not seen. Upgrade: resolve the command
+# guards honest mistakes; deliberate evasion is backstopped by the host classifier. `g=git; $g commit -n`, aliases and scripts that wrap git are not seen. Upgrade: resolve the command
 # through the shell, or a git-level hook (core.hooksPath is the thing being protected, so none here).
 Side effects: none.
 """
@@ -30,6 +30,7 @@ ARG_SHORT = {"commit": "mFCctuz", "merge": "mFsX", "push": "o"}  # short flags w
 ARG_LONG = {"message", "file", "author", "date", "cleanup", "template", "reuse-message", "reedit-message",
             "fixup", "squash", "strategy", "strategy-option", "repo", "receive-pack", "exec", "push-option"}
 GIT_OPT_VAL = ("-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path")
+OPT_VAL = ("-u", "-n", "-I", "-P", "-L", "-d", "-E", "-s", "-a", "-C", "-S")  # wrapper options taking a value
 WRAP = ("env", "command", "exec", "nohup", "sudo", "time", "builtin")
 MSG = ("Blocked git hook bypass ({why}). Fix the failing hook; never bypass it "
        "(no --no-verify, commit -n, HUSKY=0, SKIP=, GIT_CONFIG_*, core.hooksPath).")
@@ -110,15 +111,26 @@ def bypass(cmd, _sticky=None):
     gated = False
     for seg in segs:
         i, env = 0, []
-        while i < len(seg) and (re.match(r"\w+=", seg[i]) or os.path.basename(seg[i]) in WRAP + ("export",)):
+        while i < len(seg):
+            b = os.path.basename(seg[i])
             if re.match(r"\w+=", seg[i]):
                 env.append(seg[i])
-            i += 1
+                i += 1
+            elif b in WRAP + ("export", "xargs"):
+                i += 1
+                while i < len(seg) and seg[i].startswith("-"):  # wrapper options, e.g. env -i / -u X, xargs -n 1
+                    i += 2 if seg[i] in OPT_VAL else 1
+            else:
+                break
         bad = next((e for e in env if _env_bad(e)), "")
         if i >= len(seg):  # bare assignment / export: sticky for the rest of the command
             sticky += [e for e in env if _env_bad(e)]
             continue
         name = os.path.basename(seg[i])
+        if name == "eval":
+            r = bypass(" ".join(seg[i + 1:]), sticky)
+            if r:
+                return r
         if name in ("bash", "sh", "zsh", "dash") and "-c" in seg[i:-1]:
             r = bypass(seg[seg.index("-c", i) + 1], sticky)
             if r:
