@@ -40,6 +40,8 @@ shorthand. This is about shape and length, not vocabulary. Lookup table:
   working on the surface they use, in plain value terms (what changed for them), checked on that live surface
   before you write it. No effort counts ("12 tasks done", lines, PRs, "% complete") and no "coming next week"
   promises. The backlog-count rule below applies to backlog items, not to effort.
+- **Status updates for leadership (tracker project updates, issue status comments, owner hand-offs) use a fixed
+  seven-part structure.** Read `references/leadership-status-update.md`; check with `scripts/status_update_lint.py`.
 - **Status vocabulary: merged, deployed, verified-on-<page> are distinct.** "live", "live now", "shipped to
   users" and "done" claim the last one and need a `verified-on-<page>` or `journey:` reference nearby; else say
   "merged" or "deployed, unverified". `python3 .claude/skills/communication-structure/scripts/status_vocab_lint.py --file <update.md>` flags the rest (exit 1).
