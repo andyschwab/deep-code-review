@@ -42,7 +42,7 @@ In order, first hit wins:
 6. **The live-lane cap** (`--live-lanes`/`--max-lanes`, only when both given):
    at or over the cap is `HOLD lane-cap`.
    `--lane-type heavy` (a heavy local command, not a fan-out lane) adds an admission brake before this
-   step: `load1` > cores is `HOLD load-high` on its own (no idle-% pairing), and the free-RAM veto in
+   step: `load1` > cores is `HOLD load-high` unless CPU idle is known and >= 25% (IO-inflated load; load1 alone is the fallback when idle is unreadable), and the free-RAM veto in
    step 2 already defers it when RAM is low. Unreadable load never holds.
 7. Otherwise `SPAWN`.
 
@@ -71,6 +71,7 @@ import time
 
 FREE_RAM_HOLD_PCT = 15.0        # fanout-host-sizing.md's ~15% working-buffer floor
 CANARY_HOLD_RATIO = 2.0         # fanout-host-sizing.md's "roughly 2x baseline"
+HEAVY_IDLE_PCT = 25.0  # heavy admission: above this idle, load1 > cores is IO wait, not CPU contention
 CPU_CONTENTION_IDLE_PCT = 10.0  # "CPU idle collapsing toward zero"
 
 EXIT = {"SPAWN": 0, "HOLD": 1, "COULD_NOT_CHECK": 2}
@@ -107,7 +108,10 @@ def decide(*, swap_samples: tuple, free_ram_pct: float | None, lane_type: str,
         if load1 > cores and cpu_idle_pct is not None and cpu_idle_pct < CPU_CONTENTION_IDLE_PCT:
             return "HOLD cpu-contention"
     if lane_type == "heavy" and load1 is not None and cores and load1 > cores:
-        return "HOLD load-high"  # admission control: defer a heavy local command, retry when load falls
+        # admission control: defer a heavy local command, retry when load falls. A known-idle CPU means the
+        # load is IO wait, not contention: admit. load1 alone only when no idle reading exists.
+        if cpu_idle_pct is None or cpu_idle_pct < HEAVY_IDLE_PCT:
+            return "HOLD load-high"
     if canary_requested:
         if canary_ratio is None:
             return "COULD_NOT_CHECK canary"
@@ -188,12 +192,22 @@ def read_load1_and_cores() -> tuple:
         return None, cores
 
 
-def read_cpu_idle_pct(sample_interval: float = 0.3) -> float | None:
-    """CPU idle percentage; `top -l 1 -n 0` (macOS) or a short `/proc/stat` delta (Linux)."""
+_IDLE_CACHE: list = []  # one reading per process
+
+
+def read_cpu_idle_pct(sample_interval: float = 0.15) -> float | None:
+    """CPU idle percentage, cached per process: the second `top -l 2 -n 0` sample (macOS) or a <=150ms
+    `/proc/stat` delta (Linux); None when unreadable (callers fall back to load1)."""
+    if not _IDLE_CACHE:
+        _IDLE_CACHE.append(_read_cpu_idle_pct(sample_interval))
+    return _IDLE_CACHE[0]
+
+
+def _read_cpu_idle_pct(sample_interval: float) -> float | None:
     if sys.platform == "darwin":
-        out = _run(["top", "-l", "1", "-n", "0"])
-        m = out and re.search(r"([\d.]+)%\s*idle", out)
-        return float(m.group(1)) if m else None
+        # the first `top` sample is the since-boot average; the second is the live interval
+        m = re.findall(r"([\d.]+)%\s*idle", _run(["top", "-l", "2", "-n", "0"]) or "")
+        return float(m[-1]) if len(m) >= 2 else None
     try:
         def snap():
             with open("/proc/stat", encoding="utf-8") as fh:
@@ -302,7 +316,7 @@ def main(argv: list | None = None) -> int:
         pol = perun_policy.load()
         if max_lanes is None and args.live_lanes is not None:
             load1, cores = read_load1_and_cores()
-            max_lanes = perun_policy.lanes(pol["local_cpu"], cores or 1, load1, pol["tokens"])
+            max_lanes = perun_policy.lanes(pol["local_cpu"], cores or 1, load1, pol["tokens"], read_cpu_idle_pct())
             print(f"host_probe: lane cap {max_lanes} applied from policy local_cpu={pol['local_cpu']} "
                   "(pass --max-lanes to override)", file=sys.stderr)
         if isinstance(pol["local_ram"], (int, float)):
@@ -370,6 +384,10 @@ def _selftest() -> int:
          decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="heavy", load1=9.0, cores=8), "HOLD load-high")
     case("heavy-admits-when-load-under-cores",
          decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="heavy", load1=3.0, cores=8), "SPAWN")
+    case("heavy-admits-io-load-with-idle-cpu",
+         decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="heavy", load1=30.0, cores=8, cpu_idle_pct=80.0), "SPAWN")
+    case("heavy-defers-high-load-busy-cpu",
+         decide(swap_samples=(100, 100), free_ram_pct=50, lane_type="heavy", load1=30.0, cores=8, cpu_idle_pct=3.0), "HOLD load-high")
     case("heavy-defers-when-ram-low",
          decide(swap_samples=(100, 100), free_ram_pct=5, lane_type="heavy", load1=1.0, cores=8), "HOLD low-ram")
     case("heavy-unreadable-load-never-holds",

@@ -778,7 +778,7 @@ cmd_size_ratchet() {
     # Base predates byte adoption (its budgets are line counts): rows are not
     # comparable across units, so the adoption commit cannot ratchet — say so,
     # pass. Only the BASE is consulted; the working tree must carry the line.
-    if ! printf '%s\n' "$old_content" | grep -q '^# unit: bytes$'; then
+    if ! grep -q '^# unit: bytes$' <<<"$old_content"; then
       printf 'size-ratchet: base %s budgets use a different unit (pre-byte adoption) -- not comparable, skipped\n' "$base"
       return 0
     fi
@@ -823,9 +823,10 @@ cmd_size_ratchet() {
     [ "$new_b" -gt "$old_b" ] || continue
 
     marker="size-budget-raise: $p ${old_b}→${new_b}"
-    if printf '%s\n' "$range_msgs" | grep -qF -- "$marker" \
-       || { printf '%s\n' "$added_log" | grep -qF -- "$marker" \
-            && ! printf '%s\n' "$base_log" | grep -qF -- "$marker"; }; then
+    # here-strings, not `printf | grep -q`: under pipefail grep -q's early exit SIGPIPEs printf (141) on a big log
+    if grep -qF -- "$marker" <<<"$range_msgs" \
+       || { grep -qF -- "$marker" <<<"$added_log" \
+            && ! grep -qF -- "$marker" <<<"$base_log"; }; then
       printf 'size-ratchet: %s raised %s->%s with a documented marker (ok)\n' "$p" "$old_b" "$new_b"
     else
       printf 'RATCHET FAIL: %s raised %s->%s bytes with no "%s <reason>" line in the %s..HEAD commit range or among CHANGELOG.md lines added since base\n' \
@@ -983,7 +984,7 @@ cmd_mustload() {
       || die "mustload: malformed row (no TAB separator) in $config: $_trimmed"
     _c="${_trimmed#*$'\t'}"
     if [ "$_a" = "phase-conditional" ]; then
-      printf '%s' "$_c" | grep -qE '^[A-Za-z0-9._-]+\.md$' \
+      grep -qE '^[A-Za-z0-9._-]+\.md$' <<<"$_c" \
         || die "mustload: malformed phase-conditional ref \"$_c\" in $config (fail closed)"
       if [ "${#cfg_conditional[@]}" -gt 0 ]; then
         for _k in "${cfg_conditional[@]}"; do
@@ -1369,6 +1370,7 @@ rules_scan() {
   local f
   for f in "$1"/.claude/skills/*/SKILL.md; do
     [ -f "$f" ] || continue
+    # awk-v-ok: one SKILL.md path
     awk -v P="${f#"$1"/}" '
       function flush(  i) {
         if (!(para ~ /scripts\/|ci-gates|evals?\/|evals\.json|[Hh]ook|[Aa]dvisory|[Ee]nforced/))
@@ -1413,7 +1415,8 @@ cmd_rules() {
     rel="$(cd "$(dirname "$baseline")" && pwd)/$(basename "$baseline")"; rel="${rel#"$(cd "$root" && pwd)"/}"
     if git -C "$root" cat-file -e "${base}:${rel}" 2>/dev/null; then
       grown="$(comm -13 <(git -C "$root" show "${base}:${rel}" | LC_ALL=C sort -u) <(LC_ALL=C sort -u "$baseline"))"
-      if [ -n "$grown" ] && ! git -C "$root" log --format=%B "${base}..HEAD" | grep -q '^rule-baseline-raise: .\+'; then
+      range_log="$(git -C "$root" log --format=%B "${base}..HEAD")"  # capture first: `git log | grep -q` SIGPIPEs under pipefail
+      if [ -n "$grown" ] && ! grep -q '^rule-baseline-raise: .\+' <<<"$range_log"; then
         printf '%s\n' "$grown" >&2
         die "rules: baseline grew vs $base without a 'rule-baseline-raise: <reason>' commit-message line"
       fi

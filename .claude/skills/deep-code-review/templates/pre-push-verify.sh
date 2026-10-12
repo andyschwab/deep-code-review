@@ -322,6 +322,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
     mg_fail=0
     for mg_step in "Fix commits carry a pinned test" "Prose lessons carry a mechanism"; do
+      # awk-v-ok: one CI step name
       mg_script="$(awk -v n="- name: ${mg_step}" 'index($0,n){f=1;next} f&&/run: \|/{r=1;next} r&&/^ {0,9}[^ ]/{exit} r' "${ci_yml}")"
       [ -n "${mg_script}" ] || continue
       if ! BASE_SHA="${mg_base}" HEAD_SHA="${local_sha}" bash -c "${mg_script}" </dev/null >&2; then
