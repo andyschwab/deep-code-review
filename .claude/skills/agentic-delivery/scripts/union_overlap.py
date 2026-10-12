@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""union_overlap.py [--repo DIR] --base REF --mine PR_OR_REF... --other PR_OR_REF... | --selftest
+
+WHY: two machines each building a merge union raced into stale trains. Before merging, list the files the
+candidate PRs and the other in-flight union both touch (`git diff --name-only <merge-base> <ref>`).
+A PR number N resolves to `refs/pull/N/head` (fetch it first); anything else is used as a ref.
+Prints one overlapping path per line, exit 1; prints `no overlap` exit 0; prints `COULD_NOT_CHECK: <why>`
+and exits 2 on ANY git error (unknown ref, no merge-base) - never 0 on an unchecked pair.
+Limit: path-level overlap only; two PRs editing different hunks of one file still report that file.
+"""
+import argparse
+import os
+import subprocess
+import sys
+import tempfile
+
+
+class Fail(Exception):
+    pass
+
+
+def git(repo, *a):
+    p = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True)
+    if p.returncode:
+        raise Fail("git %s: %s" % (" ".join(a[:2]), p.stderr.strip() or "exit %d" % p.returncode))
+    return p.stdout
+
+
+def files(repo, base, ref):
+    ref = "refs/pull/%s/head" % ref if ref.isdigit() else ref
+    mb = git(repo, "merge-base", base, ref).strip()
+    return set(git(repo, "diff", "--name-only", mb, ref).split("\n")) - {""}
+
+
+def overlap(repo, base, mine, other):
+    if not mine or not other:
+        raise Fail("need at least one --mine and one --other")
+    a = set().union(*(files(repo, base, r) for r in mine))
+    b = set().union(*(files(repo, base, r) for r in other))
+    return sorted(a & b)
+
+
+def selftest():
+    d = tempfile.mkdtemp(prefix="union_overlap_")
+
+    def g(*a):
+        subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+                       check=True, capture_output=True)
+
+    def commit_on(branch, name):
+        g("checkout", "-q", "-b", branch, "main")
+        open(os.path.join(d, name), "w").write(branch)
+        g("add", name)
+        g("commit", "-q", "-m", branch)
+
+    g("init", "-q", "-b", "main")
+    g("commit", "-q", "--allow-empty", "-m", "base")
+    commit_on("a", "shared.txt")
+    commit_on("b", "shared.txt")
+    commit_on("c", "own.txt")
+    assert overlap(d, "main", ["a"], ["b"]) == ["shared.txt"], "overlap missed"
+    assert overlap(d, "main", ["a"], ["c"]) == [], "false overlap"
+    for bad in (["nope"], ["99"]):
+        try:
+            overlap(d, "main", ["a"], bad)
+            raise AssertionError("git error not surfaced")
+        except Fail:
+            pass
+    assert main(["--repo", d, "--base", "main", "--mine", "a", "--other", "b"]) == 1
+    assert main(["--repo", d, "--base", "main", "--mine", "a", "--other", "c"]) == 0
+    assert main(["--repo", d, "--base", "main", "--mine", "a", "--other", "nope"]) == 2
+    print("union_overlap selftest: ok")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--repo", default=".")
+    ap.add_argument("--base", default="origin/main")
+    ap.add_argument("--mine", nargs="+", default=[])
+    ap.add_argument("--other", nargs="+", default=[])
+    ap.add_argument("--selftest", action="store_true")
+    args = ap.parse_args(argv)
+    if args.selftest:
+        return selftest() or 0
+    try:
+        hit = overlap(args.repo, args.base, args.mine, args.other)
+    except Fail as e:
+        print("COULD_NOT_CHECK: %s" % e)
+        return 2
+    print("\n".join(hit) if hit else "no overlap")
+    return 1 if hit else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

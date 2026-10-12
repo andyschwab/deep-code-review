@@ -125,7 +125,7 @@ from `status` (exit 1 = open asks exist, informational), never memory.
 open; `reconcile` catches a dropped ask. `done` needs a sha/URL/`#N`/test
 id; `block` needs `--party`; `drop` needs the owner's `--quote`. A question
 for an absent owner goes to `defer` (a stated default, or `--park` for that
-item only), then `next`; `questions` is the owner's batch (rule:
+item only), then `next`; `questions` is the owner's batch, `away` the numbered paste-ready one (rule:
 `agentic-delivery`'s `unattended-operating-mode.md`).
 
 ## Stay strategic

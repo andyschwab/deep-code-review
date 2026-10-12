@@ -123,6 +123,7 @@ USAGE
   task_ledger.py [--file PATH] reconcile --transcript-asks FILE
   task_ledger.py [--file PATH] defer   --id T-### --question "<q>" (--default "<choice taken>" | --park)
   task_ledger.py [--file PATH] questions
+  task_ledger.py [--file PATH] away
   task_ledger.py [--file PATH] answer  --qid Q-### --text "<owner answer>"
   task_ledger.py --selftest
 
@@ -697,6 +698,25 @@ def questions_summary(questions: list):
     return (WARN if pending else OK), lines
 
 
+def away_batch(rows: list, questions: list, limit: int = 20):
+    """Paste-ready "while you were away" batch: ONE numbered line per pending question. Pure; (exit_code, lines).
+
+    Each line: decision, recommended default (the choice already taken, or none for a parked item), what it
+    blocks (the parked row's ask, else nothing). Capped at `limit` lines so it stays one screen.
+    """
+    pending = pending_questions(questions)
+    lines = [f"{len(pending)} owner decision(s) pending"]
+    for n, q in enumerate(pending[:limit], 1):
+        i = _find_row(rows, q["item"])
+        row = rows[i] if i is not None else None
+        blocks = f"{q['item']} {row['ask'][:50]}" if row and row["status"] == "blocked" else "nothing (default taken)"
+        default = "none, parked" if q["default"] == "parked" else q["default"]
+        lines.append(f"{n}. {q['id']} {q['question']} | default: {default} | blocks: {blocks}")
+    if len(pending) > limit:
+        lines.append(f"+{len(pending) - limit} more: run `questions`")
+    return (WARN if pending else OK), lines
+
+
 # ---------------------------------------------------------------------------
 # I/O: locking, atomic writes, file reads. Everything above this line is pure.
 # ---------------------------------------------------------------------------
@@ -831,6 +851,7 @@ def main(argv: list = None) -> int:
     choice = p.add_mutually_exclusive_group(required=True)
     choice.add_argument("--default", default=None, help="the choice taken; work continues under it")
     choice.add_argument("--park", action="store_true", help="block only this item on the owner")
+    sub.add_parser("away", help="print pending owner questions as one numbered, paste-ready batch")
     sub.add_parser("questions", help="print the pending owner questions as one batch")
     p = sub.add_parser("answer", help="record the owner's answer to a deferred question")
     p.add_argument("--qid", required=True)
@@ -915,6 +936,12 @@ def main(argv: list = None) -> int:
             code, lines = questions_summary(questions)
             for line in lines:
                 print(line)
+            return code
+
+        if args.cmd == "away":
+            with _locked(path, exclusive=False):
+                code, lines = away_batch(_read_rows(path), _read_questions(path))
+            print("\n".join(lines))
             return code
 
         if args.cmd == "answer":
@@ -1257,6 +1284,11 @@ def _selftest() -> int:
         check("cli-defer-park-ok", rc_defer == OK and os.path.isfile(os.path.join(tmpdir, "QUESTIONS.jsonl")), str(rc_defer))
         check("cli-next-skips-parked-and-counts", "next: T-002" in out and "questions pending: 1" in out, out)
         check("cli-questions-exits-warn", rc_q == WARN and "Q-001 T-001" in out, out)
+        away_buf = io.StringIO()
+        with contextlib.redirect_stdout(away_buf):
+            rc_away = main(["--file", q_path, "away"])
+        check("cli-away-numbered-default-blocks", rc_away == WARN and "1. Q-001 Drop old table? | default: none, parked | blocks: T-001 Migrate the billing database" in away_buf.getvalue(), away_buf.getvalue())
+        check("away-empty-ok", away_batch([], [])[0] == OK)
         ub_buf = io.StringIO()
         with contextlib.redirect_stdout(ub_buf):
             rc_ub_early = main(["--file", q_path, "unblock", "--id", "T-001"])
