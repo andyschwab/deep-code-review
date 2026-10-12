@@ -123,7 +123,7 @@ USAGE
   task_ledger.py [--file PATH] reconcile --transcript-asks FILE
   task_ledger.py [--file PATH] defer   --id T-### --question "<q>" (--default "<choice taken>" | --park)
   task_ledger.py [--file PATH] questions
-  task_ledger.py [--file PATH] away
+  task_ledger.py [--file PATH] away     (exit 2 if the ledger file is missing)
   task_ledger.py [--file PATH] answer  --qid Q-### --text "<owner answer>"
   task_ledger.py --selftest
 
@@ -687,31 +687,25 @@ def do_answer(questions: list, qid: str, text: str, rows: list = None):
     return OK, f"answered {qid} ({q['item']}){hint}", new_questions
 
 
-def questions_summary(questions: list):
+def questions_summary(questions: list, rows: list = None, limit: int = 20):
     """The owner's batch: a count line + one line per pending question. Pure; returns (exit_code, lines).
 
-    WARN (exit 1) means "questions are waiting" — informational, like `status`.
+    With `rows` (the `away` view) each line is numbered paste-ready text: decision, recommended default, and
+    what it blocks (the parked row's ask), capped at `limit` lines. WARN (exit 1) means "questions are
+    waiting" — informational, like `status`.
     """
     pending = pending_questions(questions)
-    lines = [f"questions: {len(pending)} pending"]
-    lines += [f"{q['id']} {q['item']} ({q['ts']}) {q['question']} -- default: {q['default']}" for q in pending]
-    return (WARN if pending else OK), lines
-
-
-def away_batch(rows: list, questions: list, limit: int = 20):
-    """Paste-ready "while you were away" batch: ONE numbered line per pending question. Pure; (exit_code, lines).
-
-    Each line: decision, recommended default (the choice already taken, or none for a parked item), what it
-    blocks (the parked row's ask, else nothing). Capped at `limit` lines so it stays one screen.
-    """
-    pending = pending_questions(questions)
+    if rows is None:
+        lines = [f"questions: {len(pending)} pending"]
+        lines += [f"{q['id']} {q['item']} ({q['ts']}) {q['question'][:160]} -- default: {q['default']}" for q in pending]
+        return (WARN if pending else OK), lines
     lines = [f"{len(pending)} owner decision(s) pending"]
     for n, q in enumerate(pending[:limit], 1):
         i = _find_row(rows, q["item"])
         row = rows[i] if i is not None else None
         blocks = f"{q['item']} {row['ask'][:50]}" if row and row["status"] == "blocked" else "nothing (default taken)"
         default = "none, parked" if q["default"] == "parked" else q["default"]
-        lines.append(f"{n}. {q['id']} {q['question']} | default: {default} | blocks: {blocks}")
+        lines.append(f"{n}. {q['id']} {q['question'][:160]} | default: {default} | blocks: {blocks}")
     if len(pending) > limit:
         lines.append(f"+{len(pending) - limit} more: run `questions`")
     return (WARN if pending else OK), lines
@@ -939,8 +933,11 @@ def main(argv: list = None) -> int:
             return code
 
         if args.cmd == "away":
+            if not os.path.exists(path):
+                print(f"no ledger at {path}")
+                return ERROR
             with _locked(path, exclusive=False):
-                code, lines = away_batch(_read_rows(path), _read_questions(path))
+                code, lines = questions_summary(_read_questions(path), _read_rows(path))
             print("\n".join(lines))
             return code
 
@@ -1288,7 +1285,14 @@ def _selftest() -> int:
         with contextlib.redirect_stdout(away_buf):
             rc_away = main(["--file", q_path, "away"])
         check("cli-away-numbered-default-blocks", rc_away == WARN and "1. Q-001 Drop old table? | default: none, parked | blocks: T-001 Migrate the billing database" in away_buf.getvalue(), away_buf.getvalue())
-        check("away-empty-ok", away_batch([], [])[0] == OK)
+        check("away-empty-ok", questions_summary([], [])[0] == OK)
+        miss_buf = io.StringIO()
+        with contextlib.redirect_stdout(miss_buf):
+            rc_miss = main(["--file", os.path.join(tmpdir, "nope.md"), "away"])
+        check("cli-away-missing-ledger-errors", rc_miss == ERROR and "no ledger at" in miss_buf.getvalue(), miss_buf.getvalue())
+        many = [{"id": f"Q-{i:03d}", "item": "T-999", "question": "x" * 300, "default": "d", "ts": "t", "answer": None} for i in range(1, 26)]
+        lines_many = questions_summary(many, [])[1]
+        check("away-capped-and-clipped", len(lines_many) == 22 and lines_many[-1].startswith("+5 more") and len(lines_many[1]) < 220, str(len(lines_many)))
         ub_buf = io.StringIO()
         with contextlib.redirect_stdout(ub_buf):
             rc_ub_early = main(["--file", q_path, "unblock", "--id", "T-001"])

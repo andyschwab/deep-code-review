@@ -2,7 +2,7 @@
 """union_overlap.py [--repo DIR] --base REF --mine PR_OR_REF... --other PR_OR_REF... | --selftest
 
 WHY: two machines each building a merge union raced into stale trains. Before merging, list the files the
-candidate PRs and the other in-flight union both touch (`git diff --name-only <merge-base> <ref>`).
+candidate PRs and the other in-flight union both touch (`git diff --name-only --no-renames <merge-base> <ref>` (a rename counts both paths)).
 A PR number N resolves to `refs/pull/N/head` (fetch it first); anything else is used as a ref.
 Prints one overlapping path per line, exit 1; prints `no overlap` exit 0; prints `COULD_NOT_CHECK: <why>`
 and exits 2 on ANY git error (unknown ref, no merge-base) - never 0 on an unchecked pair.
@@ -20,7 +20,10 @@ class Fail(Exception):
 
 
 def git(repo, *a):
-    p = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True)
+    try:
+        p = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True, errors="surrogateescape")
+    except (OSError, UnicodeError) as e:
+        raise Fail("git %s: %s" % (" ".join(a[:2]), e))
     if p.returncode:
         raise Fail("git %s: %s" % (" ".join(a[:2]), p.stderr.strip() or "exit %d" % p.returncode))
     return p.stdout
@@ -29,7 +32,7 @@ def git(repo, *a):
 def files(repo, base, ref):
     ref = "refs/pull/%s/head" % ref if ref.isdigit() else ref
     mb = git(repo, "merge-base", base, ref).strip()
-    return set(git(repo, "diff", "--name-only", mb, ref).split("\n")) - {""}
+    return set(git(repo, "diff", "--name-only", "--no-renames", mb, ref).split("\n")) - {""}
 
 
 def overlap(repo, base, mine, other):
@@ -54,10 +57,19 @@ def selftest():
         g("commit", "-q", "-m", branch)
 
     g("init", "-q", "-b", "main")
-    g("commit", "-q", "--allow-empty", "-m", "base")
+    open(os.path.join(d, "base.txt"), "w").write("line one\nline two\nline three\nline four\n")
+    g("add", "base.txt")
+    g("commit", "-q", "-m", "base")
     commit_on("a", "shared.txt")
     commit_on("b", "shared.txt")
     commit_on("c", "own.txt")
+    g("checkout", "-q", "-b", "r", "main")
+    g("mv", "base.txt", "moved.txt")
+    g("commit", "-q", "-m", "rename")
+    g("checkout", "-q", "-b", "e", "main")
+    open(os.path.join(d, "base.txt"), "a").write("edit\n")
+    g("commit", "-q", "-am", "edit")
+    assert overlap(d, "main", ["r"], ["e"]) == ["base.txt"], "rename failed open"
     assert overlap(d, "main", ["a"], ["b"]) == ["shared.txt"], "overlap missed"
     assert overlap(d, "main", ["a"], ["c"]) == [], "false overlap"
     for bad in (["nope"], ["99"]):
@@ -66,6 +78,10 @@ def selftest():
             raise AssertionError("git error not surfaced")
         except Fail:
             pass
+    assert main(["--repo", d, "--base", "main", "--mine", "a"]) == 2, "empty --other"
+    assert main(["--repo", d, "--base", "main", "--other", "a"]) == 2, "empty --mine"
+    assert main(["--repo", d, "--base", "nobase", "--mine", "a", "--other", "b"]) == 2, "bad --base"
+    assert main(["--repo", os.path.join(d, "missing"), "--base", "main", "--mine", "a", "--other", "b"]) == 2, "non-repo dir"
     assert main(["--repo", d, "--base", "main", "--mine", "a", "--other", "b"]) == 1
     assert main(["--repo", d, "--base", "main", "--mine", "a", "--other", "c"]) == 0
     assert main(["--repo", d, "--base", "main", "--mine", "a", "--other", "nope"]) == 2
@@ -87,7 +103,7 @@ def main(argv=None):
     except Fail as e:
         print("COULD_NOT_CHECK: %s" % e)
         return 2
-    print("\n".join(hit) if hit else "no overlap")
+    print("\n".join(hit[:50] + (["+%d more" % (len(hit) - 50)] if len(hit) > 50 else [])) if hit else "no overlap")
     return 1 if hit else 0
 
 
