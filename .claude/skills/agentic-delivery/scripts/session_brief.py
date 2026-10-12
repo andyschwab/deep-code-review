@@ -15,7 +15,7 @@ Lines (each skipped when its input is missing; nothing is fetched from the netwo
   3. the top-ranked item in PRIORITIES.md (queue_guard.ranked_ids; claim status not checked
      offline).
 Time: all subprocess calls share a 5s budget (BUDGET); once spent, the rest are skipped.
-Output: one JSON object with `systemMessage` (shown to the user) and `additionalContext`.
+Output: one JSON object with `additionalContext` (report lines plus the fixed HOST_RULES from subagent_start_inject.py, always) and, when there are report lines, `systemMessage` (shown to the user).
 Any error ends the hook silently with exit 0.
 """
 import json
@@ -155,11 +155,18 @@ def main() -> int:
         except Exception:
             cwd = None
         repo = Path(os.environ.get("CLAUDE_PROJECT_DIR") or cwd or os.getcwd())
+        try:
+            from subagent_start_inject import HOST_RULES  # one source of truth for the always-on host rules
+        except Exception:
+            HOST_RULES = ""  # never let a bad import drop the report lines
         lines = brief(repo)
-        if lines:
-            text = "\n".join(lines)
-            print(json.dumps({"systemMessage": text,
-                              "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
+        text = "\n".join(lines)
+        out = {"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                      "additionalContext": "\n".join(x for x in (text, HOST_RULES) if x)}}
+        if text:
+            out["systemMessage"] = text  # report lines only; host rules stay model-side
+        if text or HOST_RULES:
+            print(json.dumps(out))
     except Exception:
         pass
     return 0
