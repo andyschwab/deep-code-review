@@ -51,12 +51,12 @@ out=$(run b-base env RERUN_CMD="bash $WORK/rerun.sh"); rc=$?
 ok $? "train_land: union whose only failure is red on the base lands, printing BASE RED"
 : >"$WORK/merged.log"
 out=$(run b-new env RERUN_CMD="bash $WORK/rerun.sh"); rc=$?
-[ $rc -eq 1 ] && grep -q '^BASE RED: 1 pre-existing: bx$' <<<"$out" && grep -q '^REAL nw$' <<<"$out" && ! grep -q 'REAL bx' <<<"$out" && [ ! -s "$WORK/merged.log" ]
+[ $rc -eq 3 ] && grep -q '^BASE RED: 1 pre-existing: bx$' <<<"$out" && grep -q '^REAL nw$' <<<"$out" && ! grep -q 'REAL bx' <<<"$out" && [ ! -s "$WORK/merged.log" ]
 ok $? "train_land: a new failure beside a pre-existing one still blocks (only bx is excused)"
 out=$(run b-base env); rc=$?
 [ $rc -eq 1 ] && grep -q '^BROWSER RED' <<<"$out" && grep -q 'hint: set RERUN_CMD' <<<"$out" && [ ! -s "$WORK/merged.log" ]
 ok $? "train_land: without RERUN_CMD behavior is unchanged and the fix hint is printed"
-blocked() { [ $rc -eq 1 ] && [ ! -s "$WORK/merged.log" ]; }
+blocked() { { [ $rc -eq 1 ] || [ $rc -eq 3 ]; } && [ ! -s "$WORK/merged.log" ]; }
 rr="RERUN_CMD=bash $WORK/rerun.sh"
 for c in add empty count; do
   : >"$WORK/merged.log"; rm -f "$R/fl.seen"; out=$(run b-$c env "$rr"); rc=$?

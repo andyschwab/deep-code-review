@@ -43,8 +43,10 @@ skip it.
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
+import time
 
 MAX_CHARS = int(os.environ.get("HANDBACK_MAX_CHARS", "800"))
 MAX_LINES = int(os.environ.get("HANDBACK_MAX_LINES", "10"))
@@ -83,10 +85,65 @@ def _read_blocks(path):
         return 0
 
 
+# `git [-c k=v] [-C dir | -C "dir w/ space"] [--opt] push`; group 2/3 = the -C dir (quoted or bare)
+PUSH_RE = re.compile(r"""\bgit\b((?:\s+-C\s+(?:"([^"]*)"|'([^']*)'|(\S+))|\s+-c\s+\S+|\s+-\S+)*)\s+push\b""")
+PUSH_MAX_S = int(os.environ.get("HANDBACK_PUSH_MAX_S", "1800"))  # keep blocking while the push is live, at most this long
+
+
+def _inside(p, root):
+    p = os.path.realpath(p)
+    return p == root or p.startswith(root.rstrip("/") + "/")
+
+
+def _push_running(cwd):
+    """True/False: is a `git push` (also `git -C <dir> push`) live with its cwd or -C dir inside `cwd`?
+    None = could not check (no cwd, ps/lsof denied or failed): the hook stays advisory and fails open, but says so."""
+    if not cwd or not os.path.isdir(cwd):
+        return None
+    try:
+        r = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10)
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        root = os.path.realpath(cwd)
+        for ln in r.stdout.splitlines():
+            pid, _, cmd = ln.strip().partition(" ")
+            m = PUSH_RE.search(cmd)
+            if not m or not pid.isdigit() or int(pid) == os.getpid():
+                continue
+            cdir = m.group(2) or m.group(3) or m.group(4)
+            if cdir and _inside(cdir, root):
+                return True
+            out = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", pid, "-Fn"], capture_output=True, text=True, timeout=10)
+            if out.returncode > 1:
+                return None
+            if any(n.startswith("n") and _inside(n[1:], root) for n in out.stdout.splitlines()):
+                return True
+        return False
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def check(data):
     """Return the hook exit code (0 pass, 2 block) for one hook-input dict."""
     if str(data.get("agent_type") or "") in _exempt_types():
         return 0
+    running = _push_running(data.get("cwd"))
+    if running is None and data.get("cwd"):
+        sys.stderr.write("COULD_NOT_CHECK: cannot tell whether a git push from this worktree is still running (ps/lsof unavailable).\n")
+    if running:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        path = _state_path(str(data.get("agent_id") or "unknown")) + ".push"
+        try:  # file mtime = first block; keep blocking while the push is live, released after PUSH_MAX_S
+            first = os.path.getmtime(path)
+        except OSError:
+            first = time.time()
+            open(path, "w").close()
+        if time.time() - first < PUSH_MAX_S:
+            sys.stderr.write(
+                "A git push from this worktree is still running (its pre-push hook may take 15+ minutes). "
+                "You own it until it exits: wait with lane_guard.py wait --pid <pid> --timeout <s>, then hand back.\n"
+            )
+            return 2
     msg = data.get("last_assistant_message") or ""
     agent_id = str(data.get("agent_id") or "unknown")
     chars = len(msg)
@@ -148,6 +205,38 @@ def _selftest():
         else:
             failed += 1
             print(f"FAIL  {name} (got rc={got}, want rc={want})")
+
+    global _push_running
+    real_push = _push_running
+    _push_running = lambda cwd: {"/live": True, "/idle": False}.get(cwd)
+    case("push-running-blocks", check({"agent_id": "p1", "cwd": "/live", "last_assistant_message": "VERIFIED"}), 2)
+    case("push-not-running-passes", check({"agent_id": "p2", "cwd": "/idle", "last_assistant_message": "VERIFIED"}), 0)
+    case("push-unknown-passes-with-COULD_NOT_CHECK", check({"agent_id": "p5", "cwd": "/denied", "last_assistant_message": "VERIFIED"}), 0)
+    case("push-exempt-type-passes", check({"agent_id": "p3", "agent_type": "Explore", "cwd": "/live", "last_assistant_message": "x"}), 0)
+    for _ in range(MAX_BLOCKS + 5):  # many stop attempts while the push is live: still blocked
+        rc = check({"agent_id": "p4", "cwd": "/live", "last_assistant_message": "VERIFIED"})
+    case("push-live-keeps-blocking", rc, 2)
+    os.utime(_state_path("p4") + ".push", (0, 0))  # first block long ago (> PUSH_MAX_S): released
+    case("push-block-releases-after-max-age", check({"agent_id": "p4", "cwd": "/live", "last_assistant_message": "VERIFIED"}), 0)
+    _push_running = real_push
+    case("push-check-no-cwd-is-unknown", _push_running(""), None)
+    real_run = subprocess.run
+    def _deny(*a, **k):
+        raise PermissionError("ps denied")
+    subprocess.run = _deny
+    try:
+        case("ps-denied-is-unknown-not-false", _push_running(tmp), None)
+    finally:
+        subprocess.run = real_run
+    def cd(c):
+        m = PUSH_RE.search(c)
+        return m and (m.group(2) or m.group(3) or m.group(4))
+    case("git-dash-C-push-matches", cd("git -C /w/x push -q origin main"), "/w/x")
+    case("git-dash-C-quoted-space-matches", cd('git -C "/w/dir w/ space" push'), "/w/dir w/ space")
+    case("git-dash-c-kv-push-matches", bool(PUSH_RE.search("git -c core.x=1 push origin main")), True)
+    case("git-dash-c-then-C-matches", cd("git -c a=b -C /w/y push"), "/w/y")
+    case("plain-git-push-matches", bool(PUSH_RE.search("git push origin")), True)
+    case("git-status-does-not-match", bool(PUSH_RE.search("git status --push")), False)
 
     # short message passes
     case("short-passes", check({"agent_id": "a1", "last_assistant_message": "VERIFIED | verdict=ok"}), 0)
@@ -235,7 +324,6 @@ def _selftest():
     # host-enforcement.md fix for a report-file-less review lane) — must be a
     # real subprocess: MAX_LINES/MAX_CHARS are read from os.environ at import,
     # so an in-process check() call can never see a per-invocation override.
-    import subprocess
 
     twenty_lines = "\n".join(["VERIFIED"] + ["ok"] * 19)  # 20 lines, well under 800 chars
 

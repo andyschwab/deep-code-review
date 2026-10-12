@@ -48,6 +48,7 @@ fi
 runs=${FLAKE_RUNS:-3} need=${FLAKE_REAL_AT:-2} real=0
 case $runs$need in ''|*[!0-9]*) echo "train_flake: FLAKE_RUNS/FLAKE_REAL_AT must be integers" >&2; exit 2 ;; esac
 [ "$runs" -ge 1 ] && [ "$need" -ge 1 ] && [ "$need" -le "$runs" ] || { echo "train_flake: need 1 <= FLAKE_REAL_AT <= FLAKE_RUNS" >&2; exit 2; }
+[ "$need" -le 2 ] || need=2  # a FLAKE must pass at least FLAKE_RUNS-1 of FLAKE_RUNS: a higher FLAKE_REAL_AT never lets 2+ failures pass as flakes
 if [ -s "${2:-/dev/null}" ] && [ "$(head -n1 "$2")" != "# baseline host=$host inv=$inv" ]; then
   echo "train_flake: baseline $2 not recorded on this host with this invocation (want '# baseline host=$host inv=$inv'); refusing to compare" >&2; exit 2
 fi
