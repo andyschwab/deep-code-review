@@ -3766,6 +3766,13 @@ else
   record 1 "train base-red guard: pre-existing browser failures excused, new ones block"; tail -8 "$WORK/train-red-base.log"
 fi
 
+# peer pains: own per-feature file (scripts/test-peer-pains-2.sh), one case here.
+if bash "$ROOT/scripts/test-peer-pains-2.sh" >"$WORK/peer-pains-2.log" 2>&1; then
+  record 0 "peer pains: train CANT rule, no unchecked-as-zero status, NOT CHECKED briefs"
+else
+  record 1 "peer pains: train CANT rule, no unchecked-as-zero status, NOT CHECKED briefs"; tail -8 "$WORK/peer-pains-2.log"
+fi
+
 # fleet lessons: own per-feature file (scripts/test-fleet-lessons.sh), one case here.
 if bash "$ROOT/scripts/test-fleet-lessons.sh" >"$WORK/fleet-lessons.log" 2>&1; then
   record 0 "fleet lessons: same-host baselines, fresh-store per-title re-runs, process-group timebox"
