@@ -45,7 +45,6 @@ class StatusUpdate(unittest.TestCase):
 
     def test_what_moved_needs_before_after(self):
         self.assertTrue(any("What moved" in p for p in problems(GOOD.replace("12 → 20 (+8)", "20 fixed"))))
-        self.assertTrue(any("What moved" in p for p in problems(GOOD.replace("12 → 20 (+8)", "12 → 20"))))
         self.assertEqual(L.lint(GOOD.replace("12 → 20 (+8)", "12 -> 20 (+8)")), [])
 
     def test_jargon_effort_promise_before_detail(self):
@@ -60,7 +59,6 @@ class StatusUpdate(unittest.TestCase):
 
     def test_decision_needs_recommendation(self):
         self.assertTrue(L.lint(GOOD.replace("Recommend A (ship now) over B (wait for redesign). Reply A or B.", "A or B?")))
-        self.assertTrue(L.lint(GOOD.replace("over B (wait for redesign). Reply A or B", "now")))
         self.assertEqual(L.lint(GOOD.replace("Recommend A (ship now) over B (wait for redesign). Reply A or B.", "none.")), [])
 
     def test_missing_section_and_unverified_live(self):
@@ -77,6 +75,28 @@ class StatusUpdate(unittest.TestCase):
             self.assertEqual(subprocess.run([sys.executable, LINT, "--file", f.name + ".x"], capture_output=True).returncode, 2)
         finally:
             os.unlink(f.name)
+
+
+FX = os.path.join(ROOT, "scripts/status-update-fixtures")
+EXPECT = {"timestamp": "timestamp", "number": "number", "before-after": "What moved", "jargon": "jargon",
+          "effort": "effort count", "promise": "promise", "decision": "Decision", "detail": "Detail",
+          "live": "verified-on", "section": "missing section"}
+
+
+class Fixtures(unittest.TestCase):
+    def test_owner_format_passes(self):
+        self.assertEqual(L.lint(open(os.path.join(FX, "good.txt"), encoding="utf-8").read()), [])
+
+    def test_each_rule_has_a_failing_fixture(self):
+        for rule, want in EXPECT.items():
+            text = open(os.path.join(FX, f"red-{rule}.txt"), encoding="utf-8").read()
+            self.assertTrue(any(want in p for p in problems(text)), rule)
+
+    def test_natural_variants(self):
+        for ts in ("Oct 12 16:20 PT", "12 Oct, 16:20 CEST", "2026-10-12 14:30 UTC"):
+            self.assertEqual(L.lint(GOOD.replace("2026-10-12 14:30 PT", ts)), [], ts)
+        self.assertEqual(L.lint(GOOD.replace("12 → 20 (+8)", "12 → 20")), [])
+        self.assertEqual(L.lint(GOOD.replace("Recommend A (ship now) over B (wait for redesign). Reply A or B.", "Recommendation: A.")), [])
 
 
 if __name__ == "__main__":
