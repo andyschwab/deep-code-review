@@ -123,6 +123,7 @@ USAGE
   task_ledger.py [--file PATH] reconcile --transcript-asks FILE
   task_ledger.py [--file PATH] defer   --id T-### --question "<q>" (--default "<choice taken>" | --park)
   task_ledger.py [--file PATH] questions
+  task_ledger.py [--file PATH] away     (exit 2 if the ledger file is missing)
   task_ledger.py [--file PATH] answer  --qid Q-### --text "<owner answer>"
   task_ledger.py --selftest
 
@@ -686,14 +687,27 @@ def do_answer(questions: list, qid: str, text: str, rows: list = None):
     return OK, f"answered {qid} ({q['item']}){hint}", new_questions
 
 
-def questions_summary(questions: list):
+def questions_summary(questions: list, rows: list = None, limit: int = 20):
     """The owner's batch: a count line + one line per pending question. Pure; returns (exit_code, lines).
 
-    WARN (exit 1) means "questions are waiting" — informational, like `status`.
+    With `rows` (the `away` view) each line is numbered paste-ready text: decision, recommended default, and
+    what it blocks (the parked row's ask), capped at `limit` lines. WARN (exit 1) means "questions are
+    waiting" — informational, like `status`.
     """
     pending = pending_questions(questions)
-    lines = [f"questions: {len(pending)} pending"]
-    lines += [f"{q['id']} {q['item']} ({q['ts']}) {q['question']} -- default: {q['default']}" for q in pending]
+    if rows is None:
+        lines = [f"questions: {len(pending)} pending"]
+        lines += [f"{q['id']} {q['item']} ({q['ts']}) {q['question'][:160]} -- default: {q['default']}" for q in pending]
+        return (WARN if pending else OK), lines
+    lines = [f"{len(pending)} owner decision(s) pending"]
+    for n, q in enumerate(pending[:limit], 1):
+        i = _find_row(rows, q["item"])
+        row = rows[i] if i is not None else None
+        blocks = f"{q['item']} {row['ask'][:50]}" if row and row["status"] == "blocked" else "nothing (default taken)"
+        default = "none, parked" if q["default"] == "parked" else q["default"]
+        lines.append(f"{n}. {q['id']} {q['question'][:160]} | default: {default} | blocks: {blocks}")
+    if len(pending) > limit:
+        lines.append(f"+{len(pending) - limit} more: run `questions`")
     return (WARN if pending else OK), lines
 
 
@@ -831,6 +845,7 @@ def main(argv: list = None) -> int:
     choice = p.add_mutually_exclusive_group(required=True)
     choice.add_argument("--default", default=None, help="the choice taken; work continues under it")
     choice.add_argument("--park", action="store_true", help="block only this item on the owner")
+    sub.add_parser("away", help="print pending owner questions as one numbered, paste-ready batch")
     sub.add_parser("questions", help="print the pending owner questions as one batch")
     p = sub.add_parser("answer", help="record the owner's answer to a deferred question")
     p.add_argument("--qid", required=True)
@@ -915,6 +930,15 @@ def main(argv: list = None) -> int:
             code, lines = questions_summary(questions)
             for line in lines:
                 print(line)
+            return code
+
+        if args.cmd == "away":
+            if not os.path.exists(path):
+                print(f"no ledger at {path}")
+                return ERROR
+            with _locked(path, exclusive=False):
+                code, lines = questions_summary(_read_questions(path), _read_rows(path))
+            print("\n".join(lines))
             return code
 
         if args.cmd == "answer":
@@ -1257,6 +1281,18 @@ def _selftest() -> int:
         check("cli-defer-park-ok", rc_defer == OK and os.path.isfile(os.path.join(tmpdir, "QUESTIONS.jsonl")), str(rc_defer))
         check("cli-next-skips-parked-and-counts", "next: T-002" in out and "questions pending: 1" in out, out)
         check("cli-questions-exits-warn", rc_q == WARN and "Q-001 T-001" in out, out)
+        away_buf = io.StringIO()
+        with contextlib.redirect_stdout(away_buf):
+            rc_away = main(["--file", q_path, "away"])
+        check("cli-away-numbered-default-blocks", rc_away == WARN and "1. Q-001 Drop old table? | default: none, parked | blocks: T-001 Migrate the billing database" in away_buf.getvalue(), away_buf.getvalue())
+        check("away-empty-ok", questions_summary([], [])[0] == OK)
+        miss_buf = io.StringIO()
+        with contextlib.redirect_stdout(miss_buf):
+            rc_miss = main(["--file", os.path.join(tmpdir, "nope.md"), "away"])
+        check("cli-away-missing-ledger-errors", rc_miss == ERROR and "no ledger at" in miss_buf.getvalue(), miss_buf.getvalue())
+        many = [{"id": f"Q-{i:03d}", "item": "T-999", "question": "x" * 300, "default": "d", "ts": "t", "answer": None} for i in range(1, 26)]
+        lines_many = questions_summary(many, [])[1]
+        check("away-capped-and-clipped", len(lines_many) == 22 and lines_many[-1].startswith("+5 more") and len(lines_many[1]) < 220, str(len(lines_many)))
         ub_buf = io.StringIO()
         with contextlib.redirect_stdout(ub_buf):
             rc_ub_early = main(["--file", q_path, "unblock", "--id", "T-001"])

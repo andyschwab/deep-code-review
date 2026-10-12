@@ -20,6 +20,8 @@ regressions. It is a **diagnosis shortcut, not a new merge authority**: it does 
 mainline beyond whatever narrow, human-approved change-control path a project already has for exactly this case
 (one reviewed, unblocking fix).
 
+Before merging while another machine's union is in flight, run `scripts/union_overlap.py --base origin/main --mine <PRs> --other <PRs|ref>`: exit 1 lists shared files (serialize), exit 2 `COULD_NOT_CHECK` is not a pass.
+
 ## A red union is not automatically the first PR's fault: attribute it, and check the bare base first
 
 Three train-failure shapes look like a PR failure and are not. **(1) Culprit attribution:** when a union fails a
