@@ -8005,6 +8005,89 @@
         "Names cwd-only as an incomplete in-use test",
         "Lists exec path, script fd, open/mapped files, and locks"
       ]
+    },
+    {
+      "id": "full-audit-guard-added-later-and-secondary-reads",
+      "prompt": "FULL audit of an app whose getProject accessor gained a tenant check, while a search palette, an export job and a notifications feed read the projects table directly. Server actions also run a 5s external call on mount.",
+      "expected_output": "Greps every other reader of the raw table and flags the search, export and notifications readers as bypassing the accessor guard; builds a role x resource matrix including those secondary read surfaces; flags the slow mount-time server action because the Next client dispatches server actions one at a time.",
+      "expectations": [
+        "Greps all other readers of the raw primitive after a guard is added to one accessor",
+        "Covers secondary read surfaces (search, exports, notifications, counts) in the access matrix",
+        "Flags a long server action called on mount as blocking later actions"
+      ]
+    },
+    {
+      "id": "full-audit-replay-and-fail-closed-switch",
+      "prompt": "FULL audit: a client retries a 429 with the same single-use token, a webhook handler rejects redeliveries older than 5 minutes, an idempotency key is matched by prefix, a kill switch parses 'off' only and treats anything else as on, and a nightly job and a manual button take separate locks.",
+      "expected_output": "Flags token reuse on retry, the freshness window versus redelivery, the prefix-matched key collision, the kill switch not failing closed on unknown values, and the two locks for one job.",
+      "expectations": [
+        "Flags single-use token replay on a 429 retry",
+        "Flags prefix-matched idempotency keys",
+        "Flags a kill switch that does not fail closed on unknown values",
+        "Requires one shared lock for scheduled and manual runs of the same job"
+      ]
+    },
+    {
+      "id": "full-audit-contract-identity-gate-ledger",
+      "prompt": "FULL audit: a job writes a metrics JSON with key 'latency' as seconds while the dashboard reader assumes milliseconds; a lookup has two branches, one matching user by id and tenant, one by id only; a lib function deleteProject is guarded on the admin route but reachable from an unguarded webhook; a CI gate passes when the test file is missing and reports '100% tests'; a fix commit patched only the cited line of a missing-await pattern.",
+      "expected_output": "Lists writers and readers of the key and flags the unit mismatch; flags the id-only branch as a weaker bound key set; lists every entry point reaching deleteProject; flags the gate fallback and pass-rate-vs-coverage; re-greps the whole missing-await class; emits id, status and evidence line per finding.",
+      "expectations": [
+        "Lists writers and readers per persisted key and flags the shape mismatch",
+        "Flags the lookup branch that matches a smaller key set",
+        "Lists every entry point reaching a library mutation with its guard",
+        "Flags the gate fallback that passes on missing input and pass rate versus coverage",
+        "Re-greps the whole defect class instead of only the cited line",
+        "Emits a findings ledger with id, status and evidence line"
+      ]
+    },
+    {
+      "id": "gate-tooling-hooks-and-harness",
+      "prompt": "Review this repo's gate tooling: the harness inherits the caller's lint config env vars; a test run that crashes prints PASS; the cache lookup checks only the key while the consumer also checks the version; affected tests are picked by directory name and run none if unmapped; a new coverage ratchet records a baseline on its first run and passes; the land step re-resolves the branch name after the gate; a script runs bash -c \"git checkout $BRANCH\"; two jobs share one checkout with a per-run lock; a hook accepts 'tests passed' from the agent's message text.",
+      "expected_output": "Flags each: scrub the tool's own config env; infra failure and empty evidence are 'could not check', not PASS/FAIL; one shared acceptance rule for cache and consumer; import-graph selection with full-suite fallback; seed the ratchet; carry the gated SHA to land; pass data as argv; machine-wide lock with pid reclaim; hook verifies receipt/artifact and allows explicit 'not run (reason)'.",
+      "expectations": [
+        "Flags config env vars leaking into the gate harness",
+        "Reports infra failure or empty evidence as could not check, never PASS or FAIL",
+        "Requires cache lookup and consumer to share one acceptance rule",
+        "Selects affected tests by import graph with a fail-closed full-suite fallback",
+        "Flags a ratchet whose first run only records a baseline",
+        "Carries the gated SHA end to end to land",
+        "Flags data interpolated into bash -c and requires argv",
+        "Requires a machine-wide lock with pid reclaim for shared-state jobs",
+        "Requires hooks to verify the real artifact or receipt and allows explicit not run with a reason"
+      ]
+    },
+    {
+      "id": "full-audit-external-contract-rerun-ledger",
+      "prompt": "FULL audit of a repo whose analytics module builds warehouse SQL with a column name that no longer exists, inside a try/except that logs and returns an empty list; a prior machine report with three ids sits in code-review/ from an earlier run. Re-run the audit.",
+      "expected_output": "Checks the query identifiers against the live schema and flags the swallowing catch; loads the prior machine report from code-review/ by default and emits fixed or still-open per prior id before new hunting.",
+      "expectations": [
+        "Verifies each external query or API identifier against the live schema or published contract",
+        "Flags the catch that swallows the error and hides wrong identifiers as empty data",
+        "Reads the prior machine report from code-review/ for the same target by default on a FULL re-run, with no PRIOR flag needed",
+        "Emits fixed or still-open for every prior id before new findings",
+        "Points to machine-report.md rather than restating the ledger format"
+      ]
+    },
+    {
+      "id": "nextjs-server-action-nonvoid-return",
+      "prompt": "Review a Next.js server action `checkInvite(code)` that returns `true` or `false` to the client, and a second that returns the string of any caught error's message.",
+      "expected_output": "Flags that every non-void return and thrown error is serialized to the browser: the boolean is an existence oracle for invite codes, the error string can leak internal messages or ids; asks that the caller handle every branch.",
+      "expectations": [
+        "Flags the boolean return as an existence or permission oracle",
+        "Flags the returned error string as a possible internal-message leak",
+        "Checks the caller handles every return branch, not only the happy path"
+      ]
+    },
+    {
+      "id": "gate-parser-zero-failures-killed-log",
+      "prompt": "Review a bisect helper that runs the test suite, greps the log for `FAILED` lines and treats zero matches as a clean commit. A run was SIGKILLed by the OOM killer; the log held only the kill line and the helper reported 0 failures. Two other scripts in the repo parse the same logs.",
+      "expected_output": "Flags that zero parsed failures is read as pass without checking exit status or a summary line, so a killed or truncated log passes; requires exit status plus a completeness marker before zero means passed, and applies the fix to the sibling parsers via the class re-grep.",
+      "expectations": [
+        "Flags zero parsed failures read as clean without checking exit status",
+        "Requires a completeness marker such as the runner summary line, not only the exit code",
+        "Applies the fix to every sibling parser of the same logs, found by a class re-grep",
+        "Treats a missing summary line or non-zero exit as could not check, not passed"
+      ]
     }
   ]
 }
