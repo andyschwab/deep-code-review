@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""clock_lint.py [--base REF [--head REF]] [--root DIR] [FILES...] | --selftest -- flag tests that read the real clock.
+"""clock_lint.py [--base REF [--head REF]] [--root DIR] [--deadline SECS] [FILES...] | --selftest -- flag tests that read the real clock.
 
 WHY: tests that read the real clock or timezone pass for weeks, then turn the development branch red at a
 week, month or DST rollover. Flagged reads: py `datetime/dt/timezone/arrow/pendulum .now/.utcnow/.today`,
 `date.today`, `time.time` (and `import ... as` aliases); js/ts `Date.now()`, `new Date()` with no args,
 `moment()`/`dayjs()` with no args, `DateTime.now()`; go `time.Now()` (and an aliased time import); sh `date`
-(a `-d`/`-r` date that is not relative to now is deterministic and allowed). Not flagged: elapsed-time
-deltas (`t - start`, `start = time.time()`, `time.Since`), `perf_counter`/`monotonic`, text in strings or
-comments.
+(any flags then a `-d`/`-r` date that is not relative to now is deterministic and allowed). Always flagged,
+whatever surrounds the read (`datetime.now() - delta`, `deadline = Date.now()`). Not flagged: `perf_counter`/
+`monotonic`/`process_time` (not wall clock), text in strings or comments.
 A read is exempt only where a REAL fake clock is in scope: freezegun/freeze_time, time_machine, libfaketime/
 faketime, jest/vi `useFakeTimers`/`setSystemTime`, MockDate, or a `now=`/`clock=` keyword argument that is not
 itself a real read. Scope is the enclosing test function/block; a marker in the file preamble (not a bare
@@ -17,8 +17,8 @@ Files: explicit FILES (a non-test path prints `SKIP file: not a test file`), els
 file. Test files: test_*.py, *_test.py, *.test.*/*.spec.* (js/ts/mjs/cjs), __tests__/, tests/, *_test.go,
 test*.sh, *.bats.
 Output: `file:line: real clock in test; pin a fake clock or inject now`. Escape: `clock-lint: allow` in a comment
-on the same line or on a comment-only line above. Exit 0 clean, 1 findings, 2 COULD_NOT_CHECK (unreadable file
-or git failure; printed, never silent; 2 only when there are no findings).
+on the same line or on a comment-only line above. Exit 0 clean, 1 findings, 2 COULD_NOT_CHECK (unreadable file,
+git failure or `--deadline` exceeded (checked per file; the pre-push hook passes 5); printed, never silent; 2 only when there are no findings).
 Limits: line regexes and indentation/keyword block detection, not a parser; a clock read built by string
 concatenation is not seen; a fake clock anywhere in a test block exempts that whole block. Read-only.
 """
@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 TEST_RE = re.compile(r"(^|/)(test_[^/]*\.py|[^/]*_test\.(py|go)|[^/]*\.(test|spec)\.[cm]?[jt]sx?|test[^/]*\.sh|[^/]*\.bats"
                      r"|(__tests__|tests?)/[^/]*\.(py|[cm]?[jt]sx?|go|sh))$")
@@ -35,18 +36,17 @@ READS = {
     "py": r"\b(datetime|dt|timezone|arrow|pendulum)\.(now|utcnow|today)\s*\(|\bdate\.today\s*\(|\btime\.time(_ns)?\s*\(",
     "js": r"\bDate\.now\s*\(\s*\)|\bnew\s+Date\s*\(\s*\)|\b(moment|dayjs)\s*\(\s*\)|\bDateTime\.(now|local)\s*\(",
     "go": r"\btime\.Now\s*\(\s*\)",
-    "sh": r"(^|[\s$(`;|&])date(?![\w-])(?!\s+(-d|--date=?|-r|--reference=?)\s*(?!now|yesterday|tomorrow|next|last|[+-]\d|\S*ago\b)\S)",
+    "sh": r"(^|[\s$(`;|&])date(?![\w-])(?!(?:\s+-[a-zA-Z]+|\s+--utc)*\s+(-d|--date=?|-r|--reference=?)\s*(?!now|yesterday|tomorrow|next|last|[+-]\d|\S*ago\b)\S)",
 }
-ELAPSED = re.compile(r"\b(start|t0|t1|tic|begin|before|started|deadline)\w*\s*(:=|=)\s*|\)\s*-|-\s*\w*\s*$|time\.Since")
 FAKE = re.compile(r"freezegun|freeze_time|time_machine|time-machine|libfaketime|faketime|useFakeTimers|setSystemTime|"
                   r"[Mm]ock[Dd]ate|[(,]\s*(now|clock|now_fn|nowFn)\s*=(?!=)(?!\s*\w*\.?(datetime\.|dt\.)?(now|utcnow|today)\b)"
                   r"(?!\s*(time\.|Date\.now|new Date\(\s*\)))")
 BLOCK = {  # block start (a decorator line also starts one for py)
     "py": r"^\s*(@|(async\s+)?def\s|class\s)", "js": r"^\s*(it|test|describe|beforeEach|beforeAll|afterEach|afterAll)\b",
     "go": r"^func\s", "sh": r"^\s*(function\s+\w+|\w+\s*\(\)\s*\{|@test\b)"}
-GLOBAL = {  # block headers whose fake clock covers the file
-    "py": r"fixture|\bdef\s+(setUp\w*|setup_?\w*|\w*conftest\w*)\b", "js": r"^\s*(describe|beforeEach|beforeAll)\b",
-    "go": r"TestMain", "sh": r"\bsetup\b"}
+GLOBAL = {  # block headers whose fake clock covers the file (matched per line, never a test's own name)
+    "py": r"^\s*(@(pytest\.)?fixture\b|(async\s+)?def\s+(setUp\w*|setup_(module|class|method|function)|teardown_\w+)\b)",
+    "js": r"^\s*(describe|beforeEach|beforeAll)\b", "go": r"^func\s+TestMain\b", "sh": r"^\s*setup\s*\(\)"}
 IMPORT = re.compile(r"^\s*(import\b|from\s+\S+\s+import\b|.*\brequire\()")
 ALLOW = "clock-lint: allow"
 COMMENT = re.compile(r"^\s*(#|//|\*|/\*)")
@@ -97,7 +97,7 @@ def scan(path, text):
     for k, (a, b) in enumerate(spans):
         if any(FAKE.search(cl[i]) and not IMPORT.match(lines[i]) for i in range(a, b)):
             ok.add(k)
-            glob = glob or b <= first or bool(re.search(GLOBAL[lang], "\n".join(lines[a:min(b, a + 4)])))
+            glob = glob or b <= first or bool(re.search(GLOBAL[lang], "\n".join(lines[a:min(b, a + 4)]), re.M))
     if glob:
         return []
     out = []
@@ -105,7 +105,7 @@ def scan(path, text):
         if k in ok:
             continue
         for i in range(a, b):
-            if not rx.search(cl[i]) or ELAPSED.search(cl[i]) or COMMENT.match(lines[i]) or ALLOW in lines[i] \
+            if not rx.search(cl[i]) or COMMENT.match(lines[i]) or ALLOW in lines[i] \
                     or (i and ALLOW in lines[i - 1] and COMMENT.match(lines[i - 1])):
                 continue
             out.append((i + 1, lines[i]))
@@ -126,14 +126,18 @@ def files(root, base, head, args):
     return [os.path.join(top, f) for f in p.stdout.split("\n") if f]
 
 
-def run(root, base, args, head="HEAD"):
+def run(root, base, args, head="HEAD", deadline=None):
     bad = cant = 0
+    end = time.monotonic() + deadline if deadline is not None else None
     try:
         paths = files(root, base, head, args)
     except OSError as e:
         print("COULD_NOT_CHECK %s" % e)
         return 2
     for f in paths:
+        if end is not None and time.monotonic() > end:
+            print("COULD_NOT_CHECK deadline exceeded before %s" % f)
+            return 1 if bad else 2
         rel = f if args else os.path.relpath(os.path.realpath(f), os.path.realpath(root))
         if not TEST_RE.search(f.replace(os.sep, "/")) or f.rsplit(".", 1)[-1] not in EXT:
             if args:
@@ -167,21 +171,27 @@ def selftest():
         ("test_a.py", "@mock.patch('time.sleep')\ndef test_x(s):\n    datetime.now()\n", 1),
         ("test_a.py", "def test_x():\n    f(now=datetime.now())\n", 1),
         ("test_a.py", "def test_x():\n    f(now=FIXED)\n    datetime.now()\n", 0),
-        ("test_a.py", "def test_x():\n    start = time.time()\n    e = time.time() - start\n    p = time.perf_counter()\n", 0),
+        ("test_a.py", "def test_x():\n    start = time.time()\n    e = time.time() - start\n", 2),
+        ("test_a.py", "def test_x():\n    p = time.perf_counter() + time.monotonic() + time.process_time()\n", 0),
+        ("test_a.py", "def test_x():\n    d = datetime.now() - timedelta(days=1)\n    deadline = datetime.now()\n", 2),
+        ("test_a.py", "@freeze_time('2020-01-01')\ndef test_fixture_x():\n    datetime.now()\ndef test_y():\n    datetime.now()\n", 1),
+        ("test_a.py", "@pytest.fixture\ndef c():\n    with freeze_time('2020-01-01'):\n        yield\ndef test_y():\n    datetime.now()\n", 0),
         ("test_a.py", "def test_x():\n    s = 'datetime.now()'  # datetime.now()\n    \"\"\"\n    time.time()\n    \"\"\"\n", 0),
         ("test_c.py", "x = time.time()  # clock-lint: allow\ny = time.time()\n", 1),
         ("test_c.py", "# clock-lint: allow\ny = time.time()\n", 0),
         ("a.test.ts", "const t = Date.now();\nconst u = new Date('2020-01-01');\nconst v = new Date();\n", 2),
         ("a.test.mjs", "it('a', () => { moment(); });\n", 1),
-        ("a.test.ts", "it('a', () => {\n  const start = Date.now();\n  const d = Date.now() - start;\n});\n", 0),
+        ("a.test.ts", "it('a', () => {\n  const start = Date.now();\n  const d = Date.now() - start;\n});\n", 2),
         ("b.spec.js", "beforeEach(() => { jest.useFakeTimers(); });\nit('a', () => { Date.now(); });\n", 0),
         ("b.spec.js", "it('a', () => { vi.setSystemTime(1); Date.now(); });\nit('b', () => { Date.now(); });\n", 1),
         ("b.spec.js", "it('a', () => { jest.advanceTimersByTime(1); Date.now(); });\n", 1),
         ("x_test.go", "func TestA(t *testing.T) {\n\tn := time.Now()\n\t// time.Now()\n}\n", 1),
         ("x_test.go", "import t \"time\"\nfunc TestA() {\n\tn := t.Now()\n}\n", 1),
-        ("x_test.go", "func TestA() {\n\tstart := time.Now()\n\td := time.Since(start)\n}\n", 0),
+        ("x_test.go", "func TestA() {\n\tstart := time.Now()\n\td := time.Since(start)\n}\n", 1),
         ("test-r.sh", "d=$(date +%F)\ne=$(date -d @0 +%F)\nf=$(date)\n", 2),
         ("test-r.sh", "e=$(date -d '2020-01-01' +%F)\ng=$(date -d 'yesterday' +%F)\necho \"date is fixed\"\n", 1),
+        ("test-r.sh", "a=$(date -u -d '2020-01-01' +%F)\nb=$(date -u -r 5 +%F)\nc=$(date --utc --date='2020-01-01')\n", 0),
+        ("test-r.sh", "a=$(date -u +%F)\nb=$(date -u -d 'yesterday' +%F)\n", 2),
         ("test-r.sh", "g=$(date -d '3 days ago' +%F)\nh=$(date -r 5 +%F)\n", 1),
         ("app.py", "datetime.now()\n", 0),
     ]
@@ -194,8 +204,8 @@ def selftest():
 def main(argv):
     if argv == ["--selftest"]:
         return selftest()
-    root, base, head = ".", None, "HEAD"
-    for opt in ("--root", "--base", "--head"):
+    root, base, head, deadline = ".", None, "HEAD", None
+    for opt in ("--root", "--base", "--head", "--deadline"):
         if opt in argv:
             i = argv.index(opt)
             if i + 1 >= len(argv):
@@ -204,8 +214,9 @@ def main(argv):
             del argv[i:i + 2]
             if opt == "--root": root = v
             elif opt == "--base": base = v
+            elif opt == "--deadline": deadline = float(v)
             else: head = v
-    return run(root, base, argv, head)
+    return run(root, base, argv, head, deadline)
 
 
 if __name__ == "__main__":

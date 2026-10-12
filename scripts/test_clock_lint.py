@@ -73,7 +73,31 @@ class ClockLint(unittest.TestCase):
     def test_pre_push_hook_wired_warn_only(self):
         with open(os.path.join(ROOT, ".claude/skills/deep-code-review/templates/pre-push-verify.sh")) as fh:
             hook = fh.read()
-        self.assertIn('python3 "${clock_lint}" --base "${base_sha}" --head "${local_sha}" >&2 || true', hook)
+        self.assertIn('python3 "${clock_lint}" --base "${base_sha}" --head "${local_sha}" --deadline 5 >&2 || true', hook)
+
+    def test_deadline_is_not_silent(self):
+        p = self.put("test_d.py", "time.time()\n")
+        rc, out = lint("--deadline", "0", p)
+        self.assertEqual(rc, 2)
+        self.assertIn("COULD_NOT_CHECK deadline exceeded", out)
+        self.assertEqual(lint("--deadline", "5", p)[0], 1)
+
+    def test_always_flag_wall_clock_never_monotonic(self):
+        p = self.put("test_m.py", "def test_a():\n    a = time.monotonic() + time.perf_counter() + time.process_time()\n")
+        self.assertEqual(lint(p)[0], 0)
+        p = self.put("test_w.py", "def test_a():\n    x = datetime.now() - timedelta(days=1)\n    deadline = datetime.now()\n    s = time.time()\n    e = time.time() - s\n")
+        self.assertEqual(lint(p)[1].count("real clock in test"), 4)
+
+    def test_fixture_in_test_name_is_not_a_marker(self):
+        p = self.put("test_n.py", "@freeze_time('2020-01-01')\ndef test_fixture_a():\n    datetime.now()\ndef test_b():\n    datetime.now()\n")
+        self.assertIn("test_n.py:5:", lint(p)[1])
+        p = self.put("test_o.py", "@pytest.fixture\ndef c():\n    with freeze_time('2020-01-01'):\n        yield\ndef test_b():\n    datetime.now()\n")
+        self.assertEqual(lint(p)[0], 0)
+
+    def test_sh_date_flags_before_d(self):
+        p = self.put("test-u.sh", "a=$(date -u -d '2020-01-01' +%F)\nb=$(date --utc --date='2020-01-01')\n")
+        self.assertEqual(lint(p)[0], 0)
+        self.assertEqual(lint(self.put("test-v.sh", "a=$(date -u +%F)\nb=$(date -u -d 'yesterday')\n"))[1].count("real clock"), 2)
 
     def test_selftest(self):
         self.assertEqual(lint("--selftest")[0], 0)
