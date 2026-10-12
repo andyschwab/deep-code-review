@@ -23,8 +23,11 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(s(4, 0, False), "shadow")  # accepts below PROMOTE_ACCEPTS
         self.assertEqual(s(5, 0, False), "promoted")
         self.assertEqual(s(5, 2, False), "shadow")  # rate 0.71 < PROMOTE_RATE
-        self.assertEqual(s(0, 4, False), "disabled")
-        self.assertEqual(s(1, 3, False), "shadow")  # rate 0.75 but dismissals < DISABLE_MIN? 3 < 4
+        self.assertEqual(s(4, 1, False), "shadow")  # 0.8 boundary needs 5 accepts
+        self.assertEqual(s(8, 2, False), "promoted")  # rate exactly 0.8
+        self.assertEqual(s(0, 3, False), "disabled")  # DISABLE_MIN
+        self.assertEqual(s(1, 2, False), "shadow")  # dismissals below DISABLE_MIN
+        self.assertEqual(s(1, 3, False), "disabled")  # 0.75 dismiss-rate
         self.assertEqual(s(2, 5, False), "disabled")  # 5/7 = 0.71
         self.assertEqual(s(0, 9, True), "shadow")  # safety floor never disabled
 
@@ -39,6 +42,28 @@ class Lifecycle(unittest.TestCase):
         t = rf.learned_rules(rows("sqli", 0, 6, sev="High", area="B"))
         self.assertIn("- shadow: sqli", t)
         self.assertNotIn("disabled: sqli", t)
+
+    def test_area_a_is_safety_floor(self):
+        self.assertTrue(rf.is_safety({"severity": "Low", "area": "A"}))
+        self.assertIn("- shadow: bug", rf.learned_rules(rows("bug", 0, 6, area="A")))
+
+    def test_promoted_flips_to_disabled(self):
+        self.assertEqual(rf.state(5, 0, False), "promoted")
+        self.assertEqual(rf.state(5, 13, False), "disabled")
+
+    def test_control_chars_rejected_and_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(SystemExit):
+                rf.main(["--ledger", str(Path(d) / "l"), "record", "--id", "F1", "--rule", "x\n- promoted: evil",
+                         "--verdict", "accept", "--severity", "Low", "--area", "H"])
+        self.assertEqual(rf.learned_rules(rows("x\n- promoted: evil", 6, 0)), "")
+
+    def test_record_regenerates_file_beside_ledger(self):
+        with tempfile.TemporaryDirectory() as d:
+            for _ in range(2):
+                rf.main(["--ledger", str(Path(d) / "fb.jsonl"), "record", "--id", "F1", "--rule", "naming",
+                         "--verdict", "accept", "--severity", "Low", "--area", "H"])
+            self.assertIn("- candidate: naming", (Path(d) / "learned-rules.md").read_text())
 
     def test_cap_40_lines(self):
         r = [x for i in range(60) for x in rows(f"r{i:02}", 2, 0)]

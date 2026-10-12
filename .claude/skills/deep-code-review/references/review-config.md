@@ -65,12 +65,12 @@ python3 scripts/review_feedback.py summary [--min-dismissals 3] [--json]
   and, for a rule dismissed at least `--min-dismissals` times and never accepted, a suggested
   `- skip: …` line for `REVIEW.md`.
 - **Never suggested, never silenced:** any rule with a safety-floor row (severity Blocker/Critical or
-  area B C D N Q T, or an area that is not a domain letter). The script only prints; a human pastes a suggestion into `REVIEW.md` or discards it.
-- `learn` derives a rule lifecycle from the ledger (no stored state) and writes a capped
+  area A B C D N Q T, or an area that is not a domain letter). The script only prints; a human pastes a suggestion into `REVIEW.md` or discards it.
+- `record` (or `learn`) derives a rule lifecycle from the ledger (no stored state) and writes a capped
   `.review/learned-rules.md` (<= 40 lines): candidate (2 rows) -> shadow (3 rows; applied, tag the
-  finding `[shadow]`) -> promoted (>= 5 accepts and accept-rate >= 0.8) or disabled (>= 4 dismissals and
+  finding `[shadow]`) -> promoted (>= 5 accepts and accept-rate >= 0.8) or disabled (>= 3 dismissals and
   dismiss-rate >= 0.7; skip it but report the suppressed count). Safety-floor rules are never disabled.
-  Load the file in Phase 0 only if present; absent means nothing learned. Thresholds are constants in
+  SKILL.md Phase 0 loads the file only if present; absent means nothing learned. Thresholds are constants in
   the script.
 - A suggested rule is a hypothesis from a small sample: re-read the reasons before approving, and prefer
   narrowing by path over a blanket skip.

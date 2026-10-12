@@ -3,7 +3,7 @@
 
   record  --id F3 --rule <rule> --verdict accept|dismiss --severity <sev> [--area B] [--reason "..."]
   summary [--min-dismissals 3] [--json]
-  learn   [--out .review/learned-rules.md]
+  learn   [--out PATH]   (record also runs it; default PATH = learned-rules.md beside the ledger)
 
 learn derives each rule's lifecycle state from the ledger alone (no stored state, so it is idempotent:
 same ledger -> byte-identical file). candidate (>= CANDIDATE_MIN rows) -> shadow (>= SHADOW_MIN rows:
@@ -15,7 +15,7 @@ record appends one JSON line to the ledger (default .review/feedback.jsonl, over
 $REVIEW_FEEDBACK_LEDGER). summary prints per-rule accept-rate (telemetry) and SUGGESTED REVIEW.md
 rules: a rule is suggested only when it was dismissed at least --min-dismissals times and never
 accepted, and never when any of its rows is safety-floor (severity Blocker/Critical, or area in
-B C D N Q T, or any area that is not an assigned domain letter: security, LLM/agent, data integrity, secrets, privacy, tenancy). Suggestions are text for
+A B C D N Q T, or any area that is not an assigned domain letter: security, LLM/agent, data integrity, secrets, privacy, tenancy). Suggestions are text for
 a human to paste into REVIEW.md; this script never writes it, so nothing is silenced automatically.
 Side effects: learn writes (or removes, when empty) its --out file; record creates the ledger directory and appends. Reasons are free text: keep names and
 identifiers out, and keep the ledger out of public commits. Exits non-zero on a bad ledger line
@@ -30,13 +30,12 @@ from pathlib import Path
 
 SEVERITIES = ("Blocker", "Critical", "High", "Medium", "Low", "Nit")
 SAFETY_SEV = {"Blocker", "Critical"}
-SAFETY_AREAS = set("BCDNQT")
+SAFETY_AREAS = set("ABCDNQT")
 AREAS = tuple("ABCDEFGHIJKLMNOPQRST") + ("W",)  # assigned domains; U/V/X-Z are not
 DEFAULT_LEDGER = ".review/feedback.jsonl"
-DEFAULT_LEARNED = ".review/learned-rules.md"
 CANDIDATE_MIN, SHADOW_MIN = 2, 3
 PROMOTE_ACCEPTS, PROMOTE_RATE = 5, 0.8
-DISABLE_MIN, DISABLE_RATE = 4, 0.7
+DISABLE_MIN, DISABLE_RATE = 3, 0.7  # DISABLE_MIN is also summary's --min-dismissals default
 MAX_LINES = 40
 ORDER = ("promoted", "shadow", "candidate", "disabled")
 
@@ -64,7 +63,7 @@ def load(path):
     return rows
 
 
-def summarize(rows, min_dismissals=3):
+def summarize(rows, min_dismissals=DISABLE_MIN):
     by = defaultdict(list)
     for r in rows:
         by[r["rule"]].append(r)
@@ -92,10 +91,16 @@ def state(acc, dis, safety):
     return "shadow" if n >= SHADOW_MIN else "candidate" if n >= CANDIDATE_MIN else None
 
 
+def clean(rule):
+    return rule.isprintable() and "\n" not in rule
+
+
 def learned_rules(rows):
     """Compact learned-rules.md text (<= MAX_LINES lines) or "" when no rule reached candidate."""
     items = []
     for x in summarize(rows):
+        if not clean(x["rule"]):
+            continue  # a forged ledger rule must not inject lines
         st = state(x["accepted"], x["dismissed"], x["safety_floor"])
         if st:
             items.append((ORDER.index(st), x["rule"], st, x))
@@ -110,6 +115,18 @@ def learned_rules(rows):
     return "\n".join(head + body) + "\n"
 
 
+def learn(ledger, out=None):
+    """Write learned-rules.md beside the ledger (or --out); remove it when nothing is learned."""
+    out = Path(out) if out else Path(ledger).parent / "learned-rules.md"
+    text = learned_rules(load(ledger))
+    if text:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+    else:
+        out.unlink(missing_ok=True)  # no learned rules: absent file means a review loads nothing
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ledger", default=os.environ.get("REVIEW_FEEDBACK_LEDGER", DEFAULT_LEDGER))
@@ -122,26 +139,22 @@ def main(argv=None):
     r.add_argument("--area", required=True, type=str.upper, choices=AREAS, help="domain letter A-T or W")
     r.add_argument("--reason", default="")
     s = sub.add_parser("summary")
-    s.add_argument("--min-dismissals", type=int, default=3)
+    s.add_argument("--min-dismissals", type=int, default=DISABLE_MIN)
     s.add_argument("--json", action="store_true")
     l = sub.add_parser("learn")
-    l.add_argument("--out", default=DEFAULT_LEARNED)
+    l.add_argument("--out", help="default: learned-rules.md beside the ledger")
     a = ap.parse_args(argv)
     if a.cmd == "learn":
-        text, out = learned_rules(load(a.ledger)), Path(a.out)
-        if text:
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(text, encoding="utf-8")
-        else:
-            out.unlink(missing_ok=True)  # no learned rules: absent file means a review loads nothing
-        return 0
+        return learn(a.ledger, a.out)
     if a.cmd == "record":
+        if not clean(a.rule):
+            sys.exit("review_feedback: --rule must be printable single-line text")
         row = {k: getattr(a, k) for k in ("id", "rule", "verdict", "severity", "area", "reason")}
         row["reason"] = " ".join(row["reason"].split())  # one line: a newline must not forge extra suggestion lines
         Path(a.ledger).parent.mkdir(parents=True, exist_ok=True)
         with open(a.ledger, "a", encoding="utf-8") as f:
             f.write(json.dumps(row) + "\n")
-        return 0
+        return learn(a.ledger)  # keep learned-rules.md current so a review finds it without a manual step
     res = summarize(load(a.ledger), a.min_dismissals)
     if a.json:
         print(json.dumps(res, indent=2))
