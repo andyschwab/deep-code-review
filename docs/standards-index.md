@@ -1416,3 +1416,14 @@ fact).
 | Standard / source | URL | What was confirmed |
 |---|---|---|
 | Next.js — Mutating Data | https://nextjs.org/docs/app/getting-started/mutating-data | "Invoking Server Functions" note: "The client currently dispatches and awaits them one at a time. This is an implementation detail and may change." Scope is the client, not per page; may change. Fetched + verified 2026-10-11. |
+
+## Verified by direct fetch (2026-10-13) — council (`idea-critic/references/council.md`)
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| Wang et al., Self-Consistency | https://arxiv.org/abs/2203.11171 | Sampling many reasoning paths and taking the most consistent answer improves over chain-of-thought (e.g. +17.9% GSM8K, +6.4% StrategyQA). The cheap baseline the council must beat. Fetched + verified 2026-10-13. |
+| "Should we be going MAD?" | https://arxiv.org/abs/2311.17371 | Multi-agent debate in current form does not reliably beat self-consistency or multi-path ensembling; sensitive to hyperparameters. Basis for the kill criterion. Fetched + verified 2026-10-13. |
+| Wang et al., Mixture-of-Agents | https://arxiv.org/abs/2406.04692 | Layered heterogeneous agents; open-source-only MoA 65.1% vs GPT-4 Omni 57.5% on AlpacaEval 2.0. Motivates mixed-model `--cmd`. Fetched + verified 2026-10-13. |
+| Claude Council (skill) | https://github.com/amgadelgamal/claude-council | Four Claude persona subagents, anonymized peer critique, chairman synthesis; all members Claude, no stated evidence rule. Fetched + verified 2026-10-13. |
+
+By name, not fetched (no URL): Du et al. multi-agent debate (abstract only read); Huang et al. on debate vs self-consistency at equal response count (search summary only).

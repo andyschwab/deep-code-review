@@ -27,6 +27,10 @@ REQUIRED = (
     "dissent_ledger",
     "remaining_risk",
 )
+COUNCIL = (  # council.py decision record (has "tally"); see references/council.md
+    "verdict", "independence", "origin", "claim", "steelman", "tally",
+    "confidence", "dissent", "what_would_change_it", "cost",
+)
 VERDICTS = {"HOLD", "REVISE", "PASS_TO_USER"}
 INDEPENDENCE = {"inline", "independent"}
 ORIGINS = {"owner-request", "agent-originated"}
@@ -65,18 +69,30 @@ def main(argv: list[str]) -> int:
     if not isinstance(data, dict):
         die(1, "verdict must be a JSON object")
 
-    missing = [k for k in REQUIRED if k not in data]
+    council = "tally" in data
+    missing = [k for k in (COUNCIL if council else REQUIRED) if k not in data]
     if missing:
         die(1, f"missing key(s): {', '.join(missing)}")
 
     verdict = data["verdict"]
     origin = data["origin"]
     independence = data["independence"]
-    user_q = data["user_question"]
+    user_q = data.get("user_question")
     steelman = data["steelman"]
-    strongest_attack = data["strongest_attack_survived"]
+    strongest_attack = data.get("strongest_attack_survived")
 
-    if verdict not in VERDICTS:
+    if council:
+        if verdict == "COULD_NOT_DECIDE":
+            if not str(data.get("reason", "")).strip():
+                die(1, "COULD_NOT_DECIDE requires a non-empty reason")
+        elif verdict not in VERDICTS:
+            die(1, "verdict must be HOLD | REVISE | PASS_TO_USER | COULD_NOT_DECIDE")
+        conf = data["confidence"]
+        if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
+            die(1, "confidence must be a number in [0, 1]")
+        if not data["what_would_change_it"] or not isinstance(data["what_would_change_it"], list):
+            die(1, "what_would_change_it must be a non-empty list")
+    elif verdict not in VERDICTS:
         die(1, "verdict must be HOLD | REVISE | PASS_TO_USER")
     if origin not in ORIGINS:
         die(1, "origin must be owner-request | agent-originated")
@@ -84,6 +100,8 @@ def main(argv: list[str]) -> int:
         die(1, "independence must be inline | independent")
     if origin == "owner-request" and verdict == "HOLD":
         die(1, "owner-request + HOLD is illegal")
+    if council:
+        user_q, strongest_attack = "NONE", "n/a-council"  # council has no user_question
     if isinstance(user_q, list):
         die(1, "user_question must be one line or NONE, never a list")
     if not isinstance(user_q, str) or not user_q.strip():
