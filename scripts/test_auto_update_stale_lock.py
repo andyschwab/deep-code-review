@@ -44,6 +44,28 @@ class StaleLockTests(unittest.TestCase):
         os.utime(self.proj / ".git/MERGE_HEAD", (time.time() - 5 * 86400,) * 2)
         self.assertIn("MERGE_HEAD present in", au.blocker(self.proj, self.marker()))
 
+    def test_old_rebase_dir_with_a_fresh_child_still_blocks(self):
+        d = self.proj / ".git/worktrees/lane1/rebase-merge"
+        d.mkdir(parents=True)
+        (d / "done").write_text("x\n")
+        os.utime(d, (time.time() - 2 * 86400,) * 2)
+        self.assertIn("rebase-merge present in", au.blocker(self.proj, self.marker()))
+        for q in (d / "done", d):
+            os.utime(q, (time.time() - 2 * 86400,) * 2)
+        self.assertEqual(au.blocker(self.proj, self.marker()), "")
+
+    def test_subdirectory_target_installed_over_older_commit_is_not_dirty(self):
+        repo = self.tmp / "mono repo"
+        repo.mkdir()
+        sh("git", "init", "-q", cwd=repo)
+        sub = repo / "app one"
+        os.rename(self.proj, sub)
+        sh("git", "init", "-q", cwd=repo)
+        import shutil
+        shutil.move(str(sub / ".git"), str(self.tmp / "old.git"))
+        self.proj = sub
+        self.assertEqual(au.blocker(sub, self.install_over_old_commit()), "")
+
     def install_over_old_commit(self):
         sh("git", "add", "-A", cwd=self.proj)
         sh(*COMMIT, "old", cwd=self.proj)
@@ -65,7 +87,7 @@ class StaleLockTests(unittest.TestCase):
         sh("git", "add", "-f", ".claude/settings.local.json", cwd=self.proj)
         sh(*COMMIT, "s", cwd=self.proj)
         (self.proj / ".claude/settings.local.json").write_text('{"a": 1}\n')
-        self.assertIn("uncommitted changes: M .claude/settings.local.json", au.blocker(self.proj, m))
+        self.assertIn("uncommitted changes: .claude/settings.local.json", au.blocker(self.proj, m))
 
     def test_three_same_reason_skips_warn_and_a_clear_run_resets(self):
         (self.proj / ".git/MERGE_HEAD").write_text("x\n")
