@@ -690,3 +690,5 @@ page, a header clipped, and an integration returned 4xx for days while every han
   (libfaketime) or the project's fake-time flag, and compare with a normal run; a failure only in the shifted run
   is a test bug, not a flake. `scripts/clock_lint.py` flags the real-clock reads statically (`--base REF` limits it
   to changed tests; `clock-lint: allow` is the per-line escape).
+
+**Vacuous-green check.** Run `python3 scripts/vacuous_test_gate.py REPORT --base origin/main` (JUnit XML, Jest JSON or pytest-json-report) when a diff adds or edits test files: it FAILs a file with 0 executed tests, all tests skipped, or 0 reported assertions, and a changed file absent from the report is `COULD_NOT_CHECK`, never green.

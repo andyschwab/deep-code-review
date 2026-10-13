@@ -240,3 +240,5 @@ symptom (no status looks like pending), opposite remedy — a config fix vs a re
 shows **no checks at all** and is non-mergeable — the *emit-on-transition-only* tell (below) applied to a state
 that will **never** transition without a re-merge; the loop is not waiting, it is stuck, and the run it is
 waiting for was never dispatched.
+
+**Cheap gates first.** Run `python3 scripts/preflight.py gates.json` before a long commit or push hook cycle: it runs every `cheap` gate without stopping at the first failure, prints all failures together, runs expensive gates only if the cheap ones pass (or `--all`), and a gate that cannot start is `COULD_NOT_RUN`, never a pass. Timeouts kill only the direct child, not its process group.
