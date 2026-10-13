@@ -66,6 +66,13 @@ Earlier, different runs (a prompt-only 89-case test and a high-stakes Opus test)
 [older results](docs/bench/bench90-results.md); they are not today's numbers and are not
 comparable with the tables above.
 
+**On the strongest model the review method ties a plain prompt (measured 2026-10-13).**
+The same 39 cases on `claude-opus-5-5`: plain prompt F1 0.772, Perun 0.777 (difference
++0.005, interval -0.051 to +0.061), at $0.17 against $0.27 per review. A second
+independent pass raised recall from 0.69 to 0.74 (+0.05, interval 0.00 to +0.13) at twice
+the cost. Extra probe steps were tried on 24 further cases, did not help, and were not
+shipped. The advantages in the tables above are measured on the mid-tier model only.
+
 - **Shorter instructions to read.** AI tools charge by the *token* (a piece of a word).
   The instructions the assistant must read before each review shrank by
   [19%](CHANGELOG.md) (release 1.501.0, counted as characters divided by 4).

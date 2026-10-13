@@ -3,6 +3,23 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.568.0] — 2026-10-13
+
+README states the Opus result: on the strongest model the review method ties a plain prompt (39 cases, F1 0.777 vs 0.772) at higher cost; a second pass adds about 5 points of recall at twice the cost.
+
+### Fixed
+- agentic-delivery: the train's test-id comparisons share one normalizer (`train_flake.sh --norm`: strips trailing whitespace and CR, nothing else). An id printed with a trailing space or CRLF used to miss its clean twin, so the culprit bisect read every PR as clean and landed nothing.
+
+### Added
+- agentic-delivery: `merge_train.py merge --apply` posts commit status `perun/train-gate`=success on a member head right before merging it, and overwrites it with `error` if that merge fails (`verify` and dry-run post nothing; a failed post is a loud `WARN`, never claimed posted; `--no-status` opts out), and `operating_selfcheck.py` warns when the base branch does not require that status (unknown reads `COULD_NOT_CHECK`). Requiring the context makes the train the only thing that can vouch for a merge.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 36379→37121 documents the one-time perun/train-gate required-check step
+
+Auto-update is no longer blocked by a merge, rebase or cherry-pick in progress in a *linked* worktree (each has its own checkout; in a busy fleet one is always in progress, which blocked updates indefinitely). A train lock under 24 hours old in a linked worktree, and any lock in the checkout's own git dir, still block.
+
+### Fixed
+- Auto-update no longer stalls for days on a leftover lock: a `MERGE_HEAD`/rebase/train lock in a linked worktree older than 24h is ignored (logged as `ignoring stale <lock> in <dir>`); fresh locks and locks in the repo's own git dir still block. Tracked-modified managed files whose hash already matches the install marker (an install over an older commit) no longer count as uncommitted changes; user edits and `settings*.json` changes still block. After 3 consecutive skips for the same reason, `behind_warn` (session brief and operating selfcheck) adds `auto-update skipped N runs in a row: <reason>`.
+
 ## [1.567.0] — 2026-10-13
 
 ### Added
