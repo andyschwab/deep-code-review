@@ -80,6 +80,14 @@ class StaleLockTests(unittest.TestCase):
         (self.proj / ".claude/settings.local.json").write_text('{"a": 1}\n')
         self.assertIn("uncommitted changes: .claude/settings.local.json", au.blocker(self.proj, m))
 
+    def test_edit_to_a_tracked_team_settings_file_does_not_block(self):
+        m = self.install_over_old_commit()
+        (self.proj / ".claude/settings.json").write_text("{}\n")
+        sh("git", "add", "-f", ".claude/settings.json", cwd=self.proj)
+        sh(*COMMIT, "team settings", cwd=self.proj)
+        (self.proj / ".claude/settings.json").write_text('{"model": "x"}\n')
+        self.assertEqual(au.blocker(self.proj, m), "")
+
     def test_three_same_reason_skips_warn_and_a_clear_run_resets(self):
         (self.proj / ".git/MERGE_HEAD").write_text("x\n")
         for _ in range(2):
