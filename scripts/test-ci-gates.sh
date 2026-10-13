@@ -4015,6 +4015,16 @@ else
   record 1 "heavy_gate/session_brief: load/RAM/lease blocks, maximize, fail-open, <200ms, <=3-line brief, no delete/kill"
 fi
 
+# vacuous_test_gate + preflight: planted-RED selftests (vacuous/skipped specs FAIL, missing = COULD_NOT_CHECK;
+# all cheap gates run, unstartable gate = COULD_NOT_RUN).
+for sc in vacuous_test_gate preflight; do
+  if python3 "$ROOT/.claude/skills/agentic-delivery/scripts/$sc.py" --selftest >/dev/null 2>&1; then
+    record 0 "$sc: --selftest passes"
+  else
+    record 1 "$sc: --selftest passes"
+  fi
+done
+
 # escaped_defects --gh (#1331): an empty --since is an empty search term; must not query gh.
 ed="$ROOT/.claude/skills/agentic-delivery/scripts/escaped_defects.py"
 if python3 -c "import sys; sys.path.insert(0,'$(dirname "$ed")'); import escaped_defects as e; assert e.gh_escaped('', None) is None and e.gh_escaped('  ', None) is None"; then
