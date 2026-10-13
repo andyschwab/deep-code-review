@@ -26,7 +26,7 @@ python3 scripts/council.py --cmd "claude -p --strict-mcp-config" \
   citations: `unsupported_claims`; bad attacks (no valid citation, or target not
   another answer's label): `voided_objections`.
 - Critique shows other answers in fenced blocks with a random per-run delimiter,
-  every line prefixed, marked as data. One unparseable lens is dropped; fewer
+  every line prefixed, marked as data. One unparseable lens is dropped (listed in `dropped`, lowers confidence); fewer
   than 2 parseable answers is `COULD_NOT_DECIDE`.
 - Verdict = deterministic tally; ties go to the more cautious
   (`HOLD` > `REVISE` > `PASS_TO_USER`); `owner-request` + `HOLD` becomes `REVISE`.

@@ -9,7 +9,8 @@ FAKE = '''import sys, json
 cfg = json.load(open(sys.argv[1])); p = sys.stdin.read()
 open(cfg["log"], "a").write(json.dumps(p) + "\\n")
 if cfg.get("fail"): sys.exit(2)
-if "STAGE: CRITIQUE" in p: print(cfg["critique"]); sys.exit()
+if "STAGE: CRITIQUE" in p:
+    import re; print(cfg["critique"].replace("@T", re.search(r"ANSWER (\\w)", p).group(1))); sys.exit()
 for lens, out in cfg["answers"].items():
     if "LENS: " + lens in p: print(out); sys.exit()
 '''
@@ -57,6 +58,33 @@ class T(unittest.TestCase):
                 self.assertNotIn(lens, p)
         self.assertEqual(rec["verdict"], "HOLD")
         self.assertEqual(self.valid(rec, d), 0)
+
+    def test_quoted_attack_flips_unquoted_does_not(self):
+        mk = lambda q: json.dumps({"verdict": "PASS_TO_USER", "attacks": [dict(
+            {"target": "@T", "text": "t", "evidence": "README.md:1"}, **q)]})
+        answers = [ans("HOLD"), ans("HOLD"), ans("REVISE")]
+        _, rec, _, _ = self.run_council(answers, mk({"quote": "one"}))
+        self.assertEqual(rec["verdict"], "PASS_TO_USER")
+        _, rec, _, _ = self.run_council(answers, mk({}))
+        self.assertEqual(rec["verdict"], "HOLD")
+
+    def test_dropped_lens_recorded_and_critiqued_by_own_cmd(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "README.md").write_text("one\ntwo\n")
+        (d / "fake.py").write_text(FAKE)
+        lenses = ("skeptic", "better-way", "kill-criteria")
+        flip = json.dumps({"verdict": "REVISE", "attacks": [{"target": "@T", "text": "t", "evidence": "README.md:1", "quote": "one"}]})
+        cmds = []
+        for name, outs, crit in (("A", ["not json", None, ans("REVISE")], "{}"), ("B", [None, ans("HOLD"), None], flip)):
+            (d / f"{name}.json").write_text(json.dumps({"answers": dict(zip(lenses, outs)), "critique": crit, "log": str(d / name)}))
+            cmds += ["--cmd", f"{sys.executable} {d/'fake.py'} {d/(name + '.json')}"]
+        r = subprocess.run([sys.executable, str(SK / "council.py"), *cmds, "--claim", "c", "--steelman", "s", "--root", str(d)], capture_output=True, text=True)
+        rec = json.loads(r.stdout)
+        self.assertEqual(rec["dropped"][0][0], "skeptic")
+        self.assertEqual(rec["verdict"], "REVISE")  # B's critique flipped lens 2's own slot
+        self.assertEqual(len((d / "A").read_text().splitlines()), 3)
+        self.assertEqual(len((d / "B").read_text().splitlines()), 2)
+        self.assertLess(rec["confidence"], 1.0)
 
     def test_unevidenced_critique_cannot_flip_and_is_voided(self):
         crit = json.dumps({"verdict": "HOLD", "attacks": [{"target": "A", "text": "t", "evidence": "nope.py:9"}]})
