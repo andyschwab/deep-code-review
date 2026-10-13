@@ -11,6 +11,7 @@ Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-
 `share_learnings` takes `auto|ask|off` (default `ask`). `auto_update` takes `on|off` (default `on`):
 whether perun_auto_update.py may re-apply a newer release tag in the background. `review_gate` takes
 `warn|enforce|off` (default `warn`): whether review_gate.py blocks a merge with no independent review receipt.
+`release_every` takes an integer >= 1 (default 1): `land-release.sh publish` releases only when the minor is a multiple of it.
 
   perun_policy.py get <dim>      print the value (a number prints as a number)
   perun_policy.py show           print the whole effective policy as JSON
@@ -69,12 +70,14 @@ def load(path: Path | None = None) -> dict:
 
 def validate(raw: dict) -> dict:
     """Defaults overlaid with `raw`; ValueError on an unknown key or a bad value."""
-    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on", "review_gate": "warn"}
+    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on", "review_gate": "warn", "release_every": 1}
     for k, v in raw.items():
         if k == "share_learnings":
             ok = v in SHARE
         elif k == "review_gate":
             ok = v in REVIEW
+        elif k == "release_every":  # publish a GitHub release every Nth minor version (land-release.sh publish)
+            ok = isinstance(v, int) and not isinstance(v, bool) and v >= 1
         elif k == "auto_update":
             ok = v in ON_OFF
         elif k in DIMS:
@@ -123,7 +126,15 @@ def token_cap(n: int, tokens) -> int:
     return min(n, cap)
 
 
-def lanes(mode, cores: int, load1: float | None = None, tokens="maximize") -> int:
+def free_cores(cores: int, load1: float | None, idle_pct: float | None = None) -> int:
+    """Idle cores: `cores * idle%` when a CPU-idle reading exists (disk-IO wait inflates load1 while CPUs sit
+    idle, which stalled admission), else the load1 fallback `cores - load1`."""
+    if idle_pct is not None:
+        return int(cores * idle_pct / 100.0)
+    return int(cores - (load1 or 0))
+
+
+def lanes(mode, cores: int, load1: float | None = None, tokens="maximize", idle_pct: float | None = None) -> int:
     """Parallel heavy-lane count for a `local_cpu` value. efficient: half the cores; maximize: every idle
     core (cores minus current load1), never below 1 and never past the host's own load ceiling; off: 1
     (serial); a number: that many; then capped by `tokens` (token_cap). `tokens` defaults to `maximize`
@@ -132,7 +143,7 @@ def lanes(mode, cores: int, load1: float | None = None, tokens="maximize") -> in
     if isinstance(mode, (int, float)):
         n = max(1, int(mode))
     elif mode == "maximize":
-        n = max(1, int(cores - (load1 or 0)))
+        n = max(1, free_cores(cores, load1, idle_pct))
     elif mode == "off":
         n = 1
     else:
@@ -140,12 +151,12 @@ def lanes(mode, cores: int, load1: float | None = None, tokens="maximize") -> in
     return token_cap(n, tokens)
 
 
-def heavy_slots(cores: int, load1: float | None = None, tokens="maximize") -> int:
+def heavy_slots(cores: int, load1: float | None = None, tokens="maximize", idle_pct: float | None = None) -> int:
     """Concurrent heavy local commands (full test suite, build, browser run) a gate admits: free cores
-    (cores minus load1) but never below 2, so a busy host still makes progress. A primitive: callers opt in.
+    (cores x CPU idle%, else cores minus load1) but never below 2, so a busy host still makes progress. A primitive: callers opt in.
     Pair with `host_probe.py --lane-type heavy`, which defers the job when load1 > cores or RAM is low.
     `tokens` caps the result (token_cap). Kill criterion: if the median pre-push time rises after adopting this, revert to the flat cap."""
-    return token_cap(max(2, int(cores - (load1 or 0))), tokens)
+    return token_cap(max(2, free_cores(cores, load1, idle_pct)), tokens)
 
 
 LEASE_TTL = 2 * 3600
@@ -276,12 +287,12 @@ def main(argv: list) -> int:
         if argv == ["lanes"]:
             import host_probe  # lazy: host_probe imports this module
             load1, cores = host_probe.read_load1_and_cores()
-            print(lanes(pol["local_cpu"], cores or os.cpu_count() or 1, load1, pol["tokens"]))
+            print(lanes(pol["local_cpu"], cores or os.cpu_count() or 1, load1, pol["tokens"], host_probe.read_cpu_idle_pct()))
             return 0
         if argv == ["heavy-slots"]:
             import host_probe
             load1, cores = host_probe.read_load1_and_cores()
-            print(heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"]))
+            print(heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"], host_probe.read_cpu_idle_pct()))
             return 0
         if argv in (["heavy-exclusive"], ["heavy-exclusive-release"], ["heavy-exclusive-renew"]):  # caller shell = holder
             if argv != ["heavy-exclusive"]:
@@ -297,7 +308,7 @@ def main(argv: list) -> int:
                 return 0
             import host_probe
             load1, cores = host_probe.read_load1_and_cores()
-            ok = heavy_acquire(lease_dir(), heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"]), pid)
+            ok = heavy_acquire(lease_dir(), heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"], host_probe.read_cpu_idle_pct()), pid)
             print(pid if ok else "FULL")
             return 0 if ok else 1
     except (ValueError, OSError) as e:

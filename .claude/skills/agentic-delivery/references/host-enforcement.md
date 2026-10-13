@@ -203,13 +203,18 @@ an already-running lane (the bridge-in-flight rider above still applies), and
 it never overrides the held-lane roster / no-broadcast-to-held-lanes rule —
 tightening the default profile is not authorization to message a held lane.
 
+## Always-on host rules and the heavy-gate bypass (Claude Code)
+
+`scripts/heavy_gate.py` (PreToolUse Bash) allows a heavy command with a WARN after 3 denies of it in the same cwd within 30 min (the lane preamble's retry-3-then-proceed); the exclusive train-lease deny is never bypassed. `scripts/session_brief.py` (SessionStart) and `scripts/subagent_start_inject.py` (SubagentStart, even without house-defaults.md) both inject the fixed `HOST_RULES` constant from `subagent_start_inject.py`, so field-logged host refusals (`sleep N` waits, `cd X &&` git chains in worktrees) are prevented at the source.
+
 ## Subagent model + cache-TTL pin (a Host-enforced instance, Claude Code)
 
 A CLAUDE.md line telling every subagent "default to the cheapest tier" is
 **Protocol** only — a subagent's own `model:` frontmatter still wins over it.
 On Claude Code, `CLAUDE_CODE_SUBAGENT_MODEL` (an alias or model ID) plus
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in `settings.json`'s `env` block is
-**Host-enforced** instead (v2.1.257+): every subagent, teammate, and workflow
+**Host-enforced** instead (the shipped template sets only the `sonnet` default and omits `FORCE`,
+because `FORCE` overrides every agent's own `model:`, including the Opus high-stakes review pass) (v2.1.257+): every subagent, teammate, and workflow
 agent's `model:` field (built-in Explore and Plan included) is ignored and they
 run on the named model; with only `FORCE` set, on the main conversation's
 model. Exceptions to declare: a fork, and a skill run in a subagent with
@@ -241,7 +246,6 @@ result: junk commits and lost hand-backs. `perun_doctor.py` and
 {
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
-    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
     "CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL": "1h"
   }
 }
@@ -290,7 +294,7 @@ required check must actually run to satisfy branch protection); prefer `gh
 pr merge --auto` (merges once required checks pass, no polling) over a
 watch/poll loop. The one rerun carve-out: at most one same-commit rerun, and
 only when the failure log matches a known infrastructure-flake signature
-(runner lost, network timeout) — `merge-queue-worktrees.md` **A load-flaky
+(runner lost, network timeout) — `red-gate-triage.md` **A load-flaky
 required gate is not a confirmed red** and `gate-epistemology.md` principle
 3 own the mechanics; anything else is fixed, not rerun. None of this blocks
 a genuinely new push (a real fix, a rebase after a real conflict) — only the

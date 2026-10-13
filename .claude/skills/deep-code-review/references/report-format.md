@@ -57,6 +57,8 @@ Counts: Blocker N · Critical N · High N · Medium N · Low N · Nit N
 |----|-----|------|----------|-------|--------|-----|
 | F1 | Critical | Security/A05 | api/users.py:88 | SQL built by string concat | SQLi, full DB read | Parameterize / bound params |
 
+**Guard severity.** A detector, monitor, or alert on a top invariant whose output reaches no human (unread log, unrouted alert, no owner) scores as high as the invariant it guards: the breach is unobservable.
+
 ## Detailed findings (Blocker / Critical / High only)
 ### F1 — <title>  [Critical]
 - Where: <file:line>

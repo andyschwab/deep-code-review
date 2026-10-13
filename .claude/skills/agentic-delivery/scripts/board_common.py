@@ -48,6 +48,11 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gh_rest  # noqa: E402  (curl fallback for gh's macOS-sandbox TLS failure)
 import sys
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
@@ -266,7 +271,7 @@ def default_runner(args, cwd=None):
         return 127, "", str(exc)
     except subprocess.TimeoutExpired:
         return 124, "", f"timed out: {args[0]}"
-    return proc.returncode, proc.stdout, proc.stderr
+    return gh_rest.fallback(args, proc.returncode, proc.stdout, proc.stderr)
 
 
 def decode_pages(text: str) -> list:

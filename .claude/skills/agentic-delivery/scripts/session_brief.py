@@ -7,7 +7,7 @@ and left ranked P0s unpulled, because the checks existed but nothing surfaced th
 Lines (each skipped when its input is missing; nothing is fetched from the network):
   1. `perun <installed> < <origin/main>`: the installed .claude/skills/deep-code-review/VERSION vs
      the Perun checkout's local origin/main ref, plus the update command. The checkout path comes
-     from $PERUN_SOURCE, else `<cache>/perun/source` (written by install.sh). Silent when current.
+     from $PERUN_SOURCE, else `<cache>/perun/source` (written by install.sh). Silent when current; a failed read prints NOT CHECKED, never silence or 0.
   2. worktrees whose branch is merged into origin/main (`git branch --merged`; a squash-merged
      branch is not seen as merged) and dev servers listening with a cwd inside this repo's
      worktrees (lsof, skipped when missing or denied), each with a copy-paste report/cleanup
@@ -15,7 +15,7 @@ Lines (each skipped when its input is missing; nothing is fetched from the netwo
   3. the top-ranked item in PRIORITIES.md (queue_guard.ranked_ids; claim status not checked
      offline).
 Time: all subprocess calls share a 5s budget (BUDGET); once spent, the rest are skipped.
-Output: one JSON object with `systemMessage` (shown to the user) and `additionalContext`.
+Output: one JSON object with `additionalContext` (report lines plus the fixed HOST_RULES from subagent_start_inject.py, always) and, when there are report lines, `systemMessage` (shown to the user).
 Any error ends the hook silently with exit 0.
 """
 import json
@@ -63,7 +63,9 @@ def version_line(repo: Path):
         return None
     latest = _git(src, "show", "origin/main:.claude/skills/deep-code-review/VERSION")
     have = installed.read_text().strip()
-    if not latest or _vtuple(latest) <= _vtuple(have):
+    if not latest:
+        return f"perun version NOT CHECKED (could not read origin/main of {src}); installed {have}"
+    if _vtuple(latest) <= _vtuple(have):
         return None
     return f"perun {have} < {latest.strip()} on origin/main; update: bash {src}/scripts/update-installed.sh {repo}"
 
@@ -102,13 +104,21 @@ def dev_servers(paths):
 def hygiene_line(repo: Path):
     wts = worktrees(repo)
     if not wts:
-        return None
+        if not (repo / ".git").exists():
+            return None  # not a git repo: nothing to check
+        return "NOT CHECKED (git worktree list failed or timed out): merged worktrees, dev servers; this is not zero"
     main_wt = wts[0][0]
-    merged = set()
+    merged, unchecked = set(), []
+    out = None
     if _git(repo, "rev-parse", "-q", "--verify", "origin/main"):
-        merged = {b.strip() for b in (_git(repo, "branch", "--merged", "origin/main", "--format=%(refname:short)") or "").splitlines()}
+        out = _git(repo, "branch", "--merged", "origin/main", "--format=%(refname:short)")
+    if out is None:  # no origin/main ref, or git failed/timed out: the merged list is unknown, not empty
+        unchecked.append("merged worktrees")
+    merged = {b.strip() for b in (out or "").splitlines()}
     done = [p for p, b in wts[1:] if b and b in merged]
     servers = dev_servers([p for p, _ in wts])
+    if servers is None:
+        unchecked.append("dev servers")
     parts, sc = [], ".claude/skills/agentic-delivery/scripts"
     parent = os.path.commonpath([os.path.dirname(p) for p in done]) if done else ""
     if done:
@@ -116,6 +126,8 @@ def hygiene_line(repo: Path):
     if servers:
         parts.append(f"{len(servers)} dev server(s) listening from this repo's worktrees (pids {' '.join(servers[:5])}); "
                      f"list: bash {main_wt}/{sc}/reap_own.sh --report")
+    if unchecked:
+        parts.append(f"NOT CHECKED (git/lsof unavailable or timed out): {', '.join(unchecked)}; this is not zero")
     return "; ".join(parts) or None
 
 
@@ -132,11 +144,21 @@ def priority_line(repo: Path):
     return f"top ranked in PRIORITIES.md: {title[:120]} (claim status not checked offline)"
 
 
+def merge_line(repo: Path):
+    """One resume line when `merge_checkpoint.sh save` left .git/perun-merge-state (a stalled merge)."""
+    gd = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=repo, capture_output=True, text=True, timeout=3)
+    if gd.returncode or not (Path(gd.stdout.strip()) / "perun-merge-state").is_file():
+        return None
+    r = subprocess.run(["bash", str(HERE / "merge_checkpoint.sh"), "status"], cwd=repo,
+                       capture_output=True, text=True, timeout=3)
+    return r.stdout.strip() or None
+
+
 def brief(repo: Path) -> list:
     """The ≤3 report lines for `repo`; each section is independent and fails silent."""
     lines = []
     _deadline[0] = time.monotonic() + BUDGET
-    for fn in (version_line, hygiene_line, priority_line):
+    for fn in (merge_line, version_line, hygiene_line, priority_line):
         if time.monotonic() >= _deadline[0]:
             break  # budget spent: skip the remaining sections
         try:
@@ -155,11 +177,18 @@ def main() -> int:
         except Exception:
             cwd = None
         repo = Path(os.environ.get("CLAUDE_PROJECT_DIR") or cwd or os.getcwd())
+        try:
+            from subagent_start_inject import HOST_RULES  # one source of truth for the always-on host rules
+        except Exception:
+            HOST_RULES = ""  # never let a bad import drop the report lines
         lines = brief(repo)
-        if lines:
-            text = "\n".join(lines)
-            print(json.dumps({"systemMessage": text,
-                              "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
+        text = "\n".join(lines)
+        out = {"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                      "additionalContext": "\n".join(x for x in (text, HOST_RULES) if x)}}
+        if text:
+            out["systemMessage"] = text  # report lines only; host rules stay model-side
+        if text or HOST_RULES:
+            print(json.dumps(out))
     except Exception:
         pass
     return 0

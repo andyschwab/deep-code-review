@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: deep-code-review contributors
-  version: "1.563.0"
+  version: "1.564.0"
 ---
 
 # Deep Code Review
@@ -52,9 +52,10 @@ non-file-capable model also paste the `references/*.md` for the archetype.
   were justified by the old side (`internal only`/`never published`).
 - `FILE <paths>` — named files.
 
-**DIFF quick-path** — small self-contained diff you will fix immediately.
-Batch-mark untouched domains N/A; escalate on any blast-radius 🚩. Procedure:
-`method.md`.
+**DIFF quick-path** — diff ≤300 changed lines (`git diff --shortstat`) and no
+blast-radius 🚩: method = `compact-mode.md` only. Read no other reference; run
+affected tests only (import graph), full suite once before land. Any 🚩 or
+>300 lines → full DIFF method (`method.md`).
 
 **Archetype → load map** (`ARCHETYPE` from the first-response block):
 
@@ -102,7 +103,7 @@ STAGE: <prototype|mvp|growth|mature | UNVERIFIED> (owner-declared, or named from
 COVERAGE_LEDGER: <applicable domains + must-load refs>
 ```
 
-Read a repo-root `REVIEW.md` in Phase 0 (never relaxes the safety floor): `review-config.md`, also feedback ledger, PR posting.
+Phase 0: read `REVIEW.md`, `.review/learned-rules.md` if present (safety floor holds): `review-config.md`, ledger, PR posting.
 
 Dirty / occupied tree → dedicated worktree; planted probes banned on the live
 tree. Skip of the planted-defect probe caps only the gate-self-test claim.

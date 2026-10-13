@@ -6,9 +6,13 @@ default for this lane, not a suggestion.
 ## Identity & isolation
 - First command: `python3 .claude/skills/agentic-delivery/scripts/lane_guard.py --expect-branch <branch>`. Refusal → stop; hand back the `LANE_GUARD REFUSE:` line plus changed files.
 - Resuming after a hold or a pause: re-read the shared record/backlog file for any new standing rule before continuing prior work — a rule posted mid-hold lives there, not in chat.
+- Before your first push: `git config core.hooksPath .githooks` (shared by every worktree; do it once). The pre-push hook then runs, in under 30s over the pushed range, the cheap CI gates (size-ratchet, mustload, run-evals selftest, INDEX/SHA256SUMS freshness, fix-class) and each failure prints its exact fix, e.g. `land-release.sh --regen`. Never `--no-verify` around it.
 - One writer per worktree. Never bare `git stash` (stack is shared — use a WIP commit instead). Never `--no-verify`. Never force-push without an owner-authored grant on file.
 - Stage explicit paths only (`git add <path>...`); never `git add -A` or `git add .`, and never `git stash` (it sweeps in files other lanes own).
 - Stacked on a parent lane not yet pushed: branch off its LOCAL ref (`git rev-parse <parent-branch>`), never poll the remote — the shared `.git` already sees it (#1152).
+
+## Method load
+- Build/fix lanes do not load `deep-code-review` references while building. When asked to self-review the finished diff, follow the DIFF quick-path in `deep-code-review/SKILL.md`. Run affected tests while iterating; full suite once before land.
 
 ## Scope
 - Before starting: `python3 .claude/skills/agentic-delivery/scripts/focus_gate.py check --item <issue>`, then `python3 .claude/skills/agentic-delivery/scripts/claim_probe.py --repo <owner/name> --issue <issue> --ref '#<issue>' --paths <glob> --agent <agent-id> --claim --post` (checks and, only on GO, posts the CLAIM in one call) — abort if it prints NO-GO (a YIELD readout is always also NO-GO).
@@ -21,7 +25,7 @@ default for this lane, not a suggestion.
 - Before running tests from a hook, scrub inherited env: `scripts/scrub_env.sh <cmd>` unsets GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and every other GIT_* var plus DB vars (DATABASE_URL, PG*, MYSQL_*, REDIS_URL); a test's `git init` that inherited GIT_DIR once flipped the host repo to core.bare=true.
 - NO POLLING. Never hand-roll a sleep/loop waiting on background work; use the bounded wait below.
 - Never run delete/kill experiments on the host (container/VM or skip) and never `rm -rf` a variable-built path; deny rules are text-only, the sandbox is the boundary (`operating-discipline.md` item 8).
-- Never end your turn with background jobs running (browser tests, builds; kill your own dev servers): `python3 .claude/skills/agentic-delivery/scripts/lane_guard.py wait --pid <pid> --port <port> --file <output> --timeout <s> && lane_guard.py handback …`. `COULD_NOT_CHECK` → hand back what is still running, not "waiting".
+- A lane owns its background work until it completes: never hand back while its own `git push` (a pre-push hook can run 15+ minutes), test run or build is still running; `handback_cap.py` blocks a handback while a push from this worktree is live. Never end your turn with background jobs running (browser tests, builds; kill your own dev servers): `python3 .claude/skills/agentic-delivery/scripts/lane_guard.py wait --pid <pid> --port <port> --file <output> --timeout <s> && lane_guard.py handback …`. `COULD_NOT_CHECK` → hand back what is still running, not "waiting".
 - Final message is one line: `status | evidence | next`. Deliverables (code, reports, findings) live in files; never paste them into chat. If findings do not fit in one line, write them to a file and hand back its path.
 - Board posts only through `python3 .claude/skills/agentic-delivery/scripts/board_post.py --repo <owner/name> --issue <issue> --type <CLAIM|RELEASE|HANDOFF|BLOCKER> ...` — typed posts, never free-form chat to a shared board.
 

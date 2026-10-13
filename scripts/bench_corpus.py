@@ -78,7 +78,10 @@ def public_manifest(man):
 
 
 MODEL = "sonnet"
-CLAUDE_ARGS = ["-p", "--setting-sources", "project,local", "--output-format", "json",
+# --strict-mcp-config: account-level claude.ai connectors otherwise attach their tool schemas once connected
+# (measured ~140k cached-input tokens per call: $0.585 vs $0.002 for the same one-line read), which swamps
+# review cost and makes arms incomparable.
+CLAUDE_ARGS = ["-p", "--setting-sources", "project,local", "--strict-mcp-config", "--output-format", "json",
                "--no-session-persistence", "--allowedTools", "Read", "Grep", "Glob"]
 
 

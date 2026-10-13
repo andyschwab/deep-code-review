@@ -14,28 +14,58 @@ your team, a pilot plan, limits and an FAQ.
 
 ## Why it matters
 
-The numbers below come from one test of held-out real bug fixes from
-open-source projects ([full results](docs/bench/bench90-results.md)). The
-assistant (Claude Code, run by [`scripts/bench_corpus.py`](scripts/bench_corpus.py))
-saw only the code change, not the fix, and ran once per case. The cases' answers
-are read only by the test runner, so Perun can't be tuned to them. The
-[public manifest](scripts/eval-fixtures/bench/manifest.json) lists 27 other
-cases to show how cases are built; it is not the set behind these numbers. A bug
-counts as "caught" if the review named it. This is a clean 89-case run with isolated run directories; it replaces earlier 30-case and 64-case numbers.
+**Bottom line (measured 2026-10-12):** on 39 held-out real bug fixes, Perun caught
+more bugs than a plain "review this" prompt, but the gain is borderline: the lower
+end of its margin of error is 0. Against Claude Code's built-in `/code-review`, Perun
+caught about the same number of bugs with far fewer false alarms. Treat this as
+directional evidence, not proof.
 
-- **Reviewing with repo access is the big win, and it is now the default.** An
-  assistant that can read the surrounding code caught
-  [64.4% of the bugs against 36.7% for a diff-only prompt](docs/bench/bench90-results.md)
-  (+27.8 points, margin of error +18.9 to +37.8) with about 20 points fewer false
-  alarms, at $0.073 against $0.082 per review. Perun's `/review` command and the
-  opt-in PR workflow now always run in a checkout with read and search tools.
-  Extra instructions on top (the long skill text, or a caller-tracing prompt) added cost or lost precision without a measured gain.
-- **On this prompt-only benchmark, Perun's review is not measurably better than a plain prompt, and it costs about 2 times as much.**
-  Bugs caught on 89 cases: [plain 36.0%, Perun one pass 32.6%](docs/bench/bench90-results.md)
-  (-3.4 points, margin of error -10.1 to +3.4); two merged passes 39.3% (+3.4 points, -2.2 to +9.0).
-- **False alarms are not measurably different either.** Share of flagged issues a verifier
-  model judged real: plain 61.8%, one pass 65.3% (+3.5 points, -3.8 to +10.5). No difference clears zero.
-  Perun still misses most bugs, so keep people reviewing too.
+Setup: model `claude-sonnet-5-5`, every run with `--strict-mcp-config`, the same day,
+the same cases, the same verifier for every arm. The assistant saw only the code
+change (checked out at the commit before the fix), not the fix. "Recall" is the share of
+the known bugs the review caught, judged by a verifier model; "strict" uses a fixed
+text match instead. "Verified precision" is the share of flagged issues the verifier
+confirmed as real. F1 combines recall and verified precision.
+
+Perun against a plain prompt (39 cases, paired):
+
+| | Plain prompt | Perun, one pass | Perun minus plain [95% interval] |
+|---|---|---|---|
+| Recall, verifier-judged | 0.385 | 0.487 | +0.103 [0.000, +0.231] |
+| Recall, strict | 0.462 | 0.615 | +0.154 [0.000, +0.308] |
+| Verified precision | 0.778 | 0.800 | +0.022 [-0.104, +0.142] |
+| F1 | 0.515 | 0.606 | not computed |
+| Cost per case | $0.06 | $0.12 | about 2 times |
+
+Perun against `/code-review` (34 of the 39 cases; 5 did not finish before the spend cap):
+
+| | Plain prompt | Perun | `/code-review` | `/code-review` plus verifier |
+|---|---|---|---|---|
+| Recall, verifier-judged | 0.382 | 0.529 | 0.529 | 0.412 |
+| Recall, strict | 0.441 | 0.647 | 0.735 | 0.529 |
+| Verified precision | 0.792 | 0.839 | 0.336 | 0.688 |
+| F1 | 0.516 | 0.649 | 0.411 | 0.515 |
+| Cost per case | $0.061 | $0.126 | $0.109 | $0.192 |
+
+Paired differences, Perun minus the other (95% interval):
+
+| Against | Recall, verifier-judged | Verified precision | F1 |
+|---|---|---|---|
+| `/code-review` | +0.000 [-0.088, +0.088] | +0.502 [+0.405, +0.590] | +0.238 [+0.135, +0.333] |
+| `/code-review` plus verifier | +0.118 [+0.029, +0.235] | +0.151 [+0.004, +0.292] | +0.134 [+0.043, +0.240] |
+
+Strict recall against `/code-review` was -0.088 [-0.206, +0.029]: `/code-review` caught as
+many or slightly more by the strict match, with about 3 times as many findings.
+
+**Caveats.** One model. One 39-case corpus of open-source projects, 34 for the
+`/code-review` comparison. One run per case. The verifier is itself a model, not a
+person. Recall against the plain prompt is borderline (interval lower bound 0).
+Perun still misses about half the bugs, so keep people reviewing too. Full tables:
+[`bench-results.md`](.claude/skills/deep-code-review/scripts/fixtures/bench-results.md).
+Earlier, different runs (a prompt-only 89-case test and a high-stakes Opus test) are in
+[older results](docs/bench/bench90-results.md); they are not today's numbers and are not
+comparable with the tables above.
+
 - **Shorter instructions to read.** AI tools charge by the *token* (a piece of a word).
   The instructions the assistant must read before each review shrank by
   [19%](CHANGELOG.md) (release 1.501.0, counted as characters divided by 4).
@@ -43,13 +73,6 @@ counts as "caught" if the review named it. This is a clean 89-case run with isol
   your computer. The installer tells you how to switch on each agent's
   *sandbox* (a fence around what its commands can touch). No number is claimed:
   the effect has not been measured ([host safety](docs/host-safety.md)).
-
-**Cost.** A review with Perun costs more than a plain one:
-[$0.080 per code change for one pass against $0.043](docs/bench/bench90-results.md)
-(about 1.9 times; $0.163 for two passes), as reported by the test runner.
-For changes that are explicitly high-stakes, Perun runs one agentic pass on Opus instead of two Sonnet passes:
-recall 0.744 against 0.644 for one Sonnet pass (+0.100, interval +0.022 to +0.189), $0.131 per review against $0.144
-for two Sonnet passes combined ([details](docs/bench/bench90-results.md)).
 
 Time saved and money saved have not been measured, so none are claimed. To
 estimate them for your team, use the worked formula and the three-step pilot in

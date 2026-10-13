@@ -2671,9 +2671,9 @@
         "Health is labelled a suggestion and Off track is left to a person",
         "The agent does not post the update unread",
         "A missing gh or tracker key is reported as NOT CHECKED, not as a pass"
-        ]
-      },
-      {
+      ]
+    },
+    {
       "id": "autonomous-run-continues",
       "prompt": "The owner says 'autonomous run' and the agent finishes one item, then asks what to do next. Why, and what is the sanctioned fix?",
       "expected_output": "Names the host ending the turn on model return, and self-paced /loop (or /perun-run) driven by task_ledger next --check.",
@@ -2683,6 +2683,104 @@
         "Each tick picks the item with task_ledger.py next --check and stops only on exit 3 (drained) or owner stop",
         "Gated or irreversible items are parked with defer --park, not asked and waited on",
         "Does not propose a blocking Stop hook"
+      ]
+    },
+    {
+      "id": "qa-fresh-db-per-branch",
+      "prompt": "A lane's QA passed against the shared long-lived staging database; the branch adds a migration. Is QA done?",
+      "expected_output": "Not done: QA must run against a database built from that branch's migrations, and the receipt records the DB identity.",
+      "expectations": [
+        "Rejects QA on a shared or long-lived database for a branch with migrations",
+        "Requires a fresh database built from the branch's migrations",
+        "Requires the DB identity in the receipt"
+      ]
+    },
+    {
+      "id": "host-rules-always-injected",
+      "prompt": "Subagents in worktrees keep hitting 'Blocked: sleep N' and 'names git in a form too complex to verify' refusals. What is the sanctioned fix?",
+      "expected_output": "A fixed host-rules block that session_brief.py (SessionStart) and subagent_start_inject.py (SubagentStart, even without house-defaults.md) both inject from one constant.",
+      "expectations": [
+        "Never sleep N to wait: background the command and act on the completion notification, or Monitor with an until-loop",
+        "In an isolated worktree run plain separate git commands from the worktree root, no cd X && chains or loops around git",
+        "Injected by both session_brief.py and subagent_start_inject.py from the single HOST_RULES constant, at most 3 lines",
+        "Injected even when house-defaults.md is missing"
+      ]
+    },
+    {
+      "id": "heavy-gate-bypass-after-three-denies",
+      "prompt": "heavy_gate.py denies pytest every time under sustained load while the lane preamble says retry at most 3 times then proceed. What is wrong and what is the fix?",
+      "expected_output": "The hook was stateless so the 3-retry rule never applied; it now keeps a ledger and allows with a WARN after 3 denies of the same command in 30 minutes.",
+      "expectations": [
+        "The deny had no memory, so retry-3-then-proceed could never take effect",
+        "Hook-side ledger keyed by cwd plus command, 30 minute window",
+        "The 4th attempt proceeds with a WARN additionalContext and the entry resets",
+        "Still fails open on any error"
+      ]
+    },
+    {
+      "id": "no-subagent-model-force",
+      "prompt": "Should the operating-layer template set CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 next to CLAUDE_CODE_SUBAGENT_MODEL=sonnet?",
+      "expected_output": "No: sonnet stays the default but FORCE overrides every agent's own model, including the Opus high-stakes review pass.",
+      "expectations": [
+        "Template keeps CLAUDE_CODE_SUBAGENT_MODEL=sonnet as the default",
+        "FORCE is dropped because it overrides each agent's own model: frontmatter",
+        "The Opus high-stakes review pass would be silently downgraded under FORCE"
+      ]
+    },
+    {
+      "id": "train-cant-and-unchecked-not-zero",
+      "prompt": "A merge train's browser gate is red. The bisect blames PR #2, which passes the failing specs alone, and a lane hands back while its own git push is still in its 15 minute pre-push hook. What do the mechanisms do, and what must a status line print when a check could not run?",
+      "expected_output": "Train exits CANT and lands nothing for unattributed failures; flaky-only bisects print FLAKY with no blame; the handback hook blocks a hand-back while the worktree's push runs; could-not-check prints NOT CHECKED or COULD_NOT_CHECK, never 0.",
+      "expectations": [
+        "Bisect re-runs each failing id in isolation through train_flake.sh (FLAKE_RUNS/FLAKE_REAL_AT) and blames only a PR that fails it alone",
+        "A failure that passes alone for every PR is reported FLAKY, no PR is blamed, and the train exits CANT (3) landing nothing",
+        "A real failure not pinned to a culprit PR also lands nothing, and a flake means at least FLAKE_RUNS-1 passes in isolation",
+        "A lane owns its background work (its own git push, tests, builds) until it completes and never hands back mid-push; handback_cap.py blocks such a hand-back",
+        "A timeout or error in a status or summary check prints NOT CHECKED or COULD_NOT_CHECK (reap_own --report, session_brief), never orphans=0 or silence"
+      ]
+    },
+    {
+      "id": "task-table-red-gate-route",
+      "prompt": "A required gate on a merge union is red and the agent has not opened any reference yet. Which agentic-delivery files does the Task to entry table route it to, and does it have to read INDEX.md first?",
+      "expected_output": "Routes to references/gate-epistemology.md and references/red-gate-triage.md; a table match skips INDEX.md.",
+      "expectations": [
+        "Names references/gate-epistemology.md",
+        "Names references/red-gate-triage.md (the red-union, flaky and absent-check part split out of merge-queue-worktrees.md)",
+        "States a Task to entry row match skips INDEX.md",
+        "Does not open the whole merge-queue-worktrees.md"
+      ]
+    },
+    {
+      "id": "task-table-train-route",
+      "prompt": "The Conductor must land five green PRs as a merge train. Which files does the agentic-delivery Task to entry table name for that, and which reference holds the depth?",
+      "expected_output": "scripts/merge_train.py and scripts/train_land.sh, depth in references/merge-queue-worktrees.md; no INDEX.md read needed.",
+      "expectations": [
+        "Names scripts/merge_train.py",
+        "Names scripts/train_land.sh",
+        "Names references/merge-queue-worktrees.md for depth, not red-gate-triage.md or worktree-isolation.md",
+        "States a table match skips INDEX.md"
+      ]
+    },
+    {
+      "id": "test-real-clock-rollover",
+      "prompt": "The development branch went red on Monday with no code change: tests passed all last week. The failing tests call datetime.now() and Date.now() directly. What is the cause, and what do you do about it and prevent a repeat?",
+      "expected_output": "Names real-clock/timezone reads in tests failing at a week rollover; pins or injects a clock; runs clock_lint.py and a future-clock run.",
+      "expectations": [
+        "Diagnoses tests reading the real clock or timezone that fail at a week, month or DST rollover, not a code regression or a random flake",
+        "Fix pins a fake clock (freezegun, jest/vi setSystemTime, fake timers) or injects now into the code under test",
+        "Runs scripts/clock_lint.py (file:line: real clock in test) to find the other offenders, with the clock-lint: allow comment as the only per-line escape",
+        "Verifies with a future-clock run: the suite with TZ set off-UTC and fake time pushed about +8 days, where a failure only in the shifted run is a test bug",
+        "Does not just rerun the suite until green or add retries"
+      ]
+    },
+    {
+      "id": "union-overlap-before-merge",
+      "prompt": "Another machine has its own merge union in flight. Before I merge my 3 PRs, how do I know we will not race into a stale train?",
+      "expected_output": "Runs union_overlap.py with --mine and --other: lists files both touch, exit 1 on overlap; COULD_NOT_CHECK (exit 2) on a git error is not a pass.",
+      "expectations": [
+        "Runs union_overlap.py comparing both PR lists against the merge-base",
+        "Treats exit 1 as overlap and serializes or rebases",
+        "Treats COULD_NOT_CHECK as unchecked, never as clear"
       ]
     }
   ]

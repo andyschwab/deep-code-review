@@ -2038,6 +2038,23 @@ else
   record 1 "operating_selfcheck: absent agentic-ceo sibling reports N/A naming --with-ceo (exit 0)"
 fi
 
+# Bug-class lint (macOS awk rejects a newline in `-v`; `merge-tree | head` hides the merge exit code): no shipped
+# script feeds `awk -v` a command substitution or a list-named variable, or pipes merge-tree into head.
+# Pass multi-line data via ENVIRON; capture merge-tree output first. Test files hold the patterns, so are skipped.
+_lint_files="$(git -C "$ROOT" ls-files -- install.sh scripts '.claude/skills/*/scripts' '.claude/skills/*/templates' .github | grep -E '\.(sh|yml)$' | grep -vE '(^|/)test' || true)"
+_lint_awk=""
+while IFS=: read -r _f _n _; do  # every `-v` fed from `$` is flagged (a scalar can hold newlines too) unless annotated awk-v-ok
+  [ -n "$_f" ] || continue
+  case "$(sed -n "$((_n - 2)),${_n}p" "$ROOT/$_f")" in *awk-v-ok*) ;; *) _lint_awk="${_lint_awk}${_f}:${_n}"$'\n' ;; esac
+done < <(cd "$ROOT" && printf '%s\n' "$_lint_files" | xargs grep -nE '(awk[^|]*|^[[:space:]]*)-v [A-Za-z_]+=("[^"]*|[^ "'"'"']*)\$' 2>/dev/null || true)
+if [ -z "$_lint_awk" ]; then record 0 "lint: every awk -v fed from a shell variable is annotated awk-v-ok"; else printf '%s\n' "$_lint_awk"; record 1 "lint: every awk -v fed from a shell variable is annotated awk-v-ok"; fi
+_lint_mt="$(cd "$ROOT" && printf '%s\n' "$_lint_files" | xargs grep -nE 'merge-tree[^|]*\|[[:space:]]*head' 2>/dev/null || true)"
+if [ -z "$_lint_mt" ]; then record 0 "lint: no merge-tree piped into head"; else printf '%s\n' "$_lint_mt"; record 1 "lint: no merge-tree piped into head"; fi
+# the lint itself bites: planted offenders are caught by the same patterns
+_lp="$WORK/lint-plant.sh"; printf '%s\n' 'awk -v x="$one_var" 1' 'git merge-tree a b | head -3' > "$_lp"
+if grep -qE '(awk[^|]*|^[[:space:]]*)-v [A-Za-z_]+=("[^"]*|[^ "'"'"']*)\$' "$_lp" \
+  && grep -qE 'merge-tree[^|]*\|[[:space:]]*head' "$_lp"; then record 0 "lint: planted awk -v list + merge-tree|head are caught"; else record 1 "lint: planted awk -v list + merge-tree|head are caught"; fi
+
 # ---------------------------------------------------------------------------
 # autonomy-doctrine — a STRUCTURAL check, not a behavioural eval: pins the
 # standing-grant clause (Human gates + termination conditions), its
@@ -3745,6 +3762,13 @@ else
   record 1 "train scripts: land_train/train_land/reap_own tests pass"; tail -5 "$WORK/train-scripts.log"
 fi
 
+# delivery friction: gh TLS curl fallback, fail-closed gh failures, lock holder reporting; own per-feature file, one case here.
+if bash "$ROOT/scripts/test-delivery-friction.sh" >"$WORK/delivery-friction.log" 2>&1; then
+  record 0 "delivery friction: gh_rest curl fallback, could-not-check fail-closed, lock holder status"
+else
+  record 1 "delivery friction: gh_rest curl fallback, could-not-check fail-closed, lock holder status"; tail -8 "$WORK/delivery-friction.log"
+fi
+
 # train hardening (#1341): own per-feature file (scripts/test-train-hardening.sh), one case here.
 if bash "$ROOT/scripts/test-train-hardening.sh" >"$WORK/train-hardening.log" 2>&1; then
   record 0 "train hardening: spaced UNION_DIRS, per-worktree lock, exit 3 on no GREEN union"
@@ -3752,11 +3776,32 @@ else
   record 1 "train hardening: spaced UNION_DIRS, per-worktree lock, exit 3 on no GREEN union"; tail -8 "$WORK/train-hardening.log"
 fi
 
+# train fail-closed parsers: own per-feature file (scripts/test-train-failclosed.sh), one case here.
+if bash "$ROOT/scripts/test-train-failclosed.sh" >"$WORK/train-failclosed.log" 2>&1; then
+  record 0 "train fail-closed: missing failed-ids list and GREEN-with-nonzero-rc are not a pass"
+else
+  record 1 "train fail-closed: missing failed-ids list and GREEN-with-nonzero-rc are not a pass"; tail -8 "$WORK/train-failclosed.log"
+fi
+
 # train resilience: own per-feature file (scripts/test-train-resilience.sh), one case here.
 if bash "$ROOT/scripts/test-train-resilience.sh" >"$WORK/train-resilience.log" 2>&1; then
   record 0 "train resilience: flake re-run triage, exclusive gate lease, mkdir locks"
 else
   record 1 "train resilience: flake re-run triage, exclusive gate lease, mkdir locks"; tail -8 "$WORK/train-resilience.log"
+fi
+
+# train base-red guard: own per-feature file (scripts/test-train-red-base.sh), one case here.
+if bash "$ROOT/scripts/test-train-red-base.sh" >"$WORK/train-red-base.log" 2>&1; then
+  record 0 "train base-red guard: pre-existing browser failures excused, new ones block"
+else
+  record 1 "train base-red guard: pre-existing browser failures excused, new ones block"; tail -8 "$WORK/train-red-base.log"
+fi
+
+# peer pains: own per-feature file (scripts/test-peer-pains-2.sh), one case here.
+if bash "$ROOT/scripts/test-peer-pains-2.sh" >"$WORK/peer-pains-2.log" 2>&1; then
+  record 0 "peer pains: train CANT rule, no unchecked-as-zero status, NOT CHECKED briefs"
+else
+  record 1 "peer pains: train CANT rule, no unchecked-as-zero status, NOT CHECKED briefs"; tail -8 "$WORK/peer-pains-2.log"
 fi
 
 # fleet lessons: own per-feature file (scripts/test-fleet-lessons.sh), one case here.
@@ -3938,7 +3983,8 @@ sb_out=$(cd "$sb_repo" && echo '{}' | PERUN_SOURCE="$sb_src" CLAUDE_PROJECT_DIR=
   && printf '%s' "$sb_out" | grep -q "perun 1.0.0 < 9.9.9.*update-installed.sh" \
   && printf '%s' "$sb_out" | grep -q "1 worktree(s) merged into origin/main.*clean_finished.sh" \
   && printf '%s' "$sb_out" | grep -q "#42 Fix the importer" || { hg_ok=0; echo "sb: brief wrong: $sb_out"; }
-[ -z "$(cd "$hg_dir" && echo x | PERUN_SOURCE=/nonexistent CLAUDE_PROJECT_DIR="$hg_dir/none" python3 "$sbr")" ] || { hg_ok=0; echo "sb: noisy outside a repo"; }
+# outside a repo: no report lines (systemMessage); only the always-on HOST_RULES additionalContext may print.
+[ "$(cd "$hg_dir" && echo x | PERUN_SOURCE=/nonexistent CLAUDE_PROJECT_DIR="$hg_dir/none" python3 "$sbr" | python3 -c 'import json,sys;d=json.load(sys.stdin);print("systemMessage" in d)')" = False ] || { hg_ok=0; echo "sb: noisy outside a repo"; }
 # report-only: no hook file may delete or stop anything.
 if grep -nE '\brm[[:space:]]|\bkill\b|pkill|worktree[[:space:]",]+remove|rmtree|os\.(remove|unlink|kill)|find .*-delete|\.unlink\(' "$hg" "$sbr"; then
   hg_ok=0; echo "hooks contain a delete/kill call"
@@ -3976,6 +4022,34 @@ fi
 # ---------------------------------------------------------------------------
 # rules — rule-enforcement lint: planted RED, advisory/mechanism/baseline pass,
 # baseline growth needs a commit marker. Own git fixture.
+# ---------------------------------------------------------------------------
+# dirty-tree guard lint: a skill shell script that runs `git checkout|switch|reset` on a caller-given
+# tree must call require_clean_tree (agentic-delivery/scripts/_dirty_guard.sh) so it refuses a dirty
+# tree up front instead of silently wiping uncommitted edits.
+# ---------------------------------------------------------------------------
+_dg_bad() { # file...: print each whose first git checkout/switch/reset (comments ignored) is not preceded by a require_clean_tree call line
+  local f
+  for f in "$@"; do
+    awk -v F="$f" '
+      /^[[:space:]]*#/ { next }
+      /^[[:space:]]*require_clean_tree([[:space:]]|$)/ { g = 1 }
+      !g && /(^|[^[:alnum:]_.-])git( +(-[cC] +("[^"]*"|[^ ]+)|--[a-z-]+(=[^ ]+)?|-[a-z]))* +(checkout|switch|reset)([[:space:]]|$)/ { print F; exit }' "$f"
+  done
+  return 0
+}
+_dg_fix="$WORK/dg-fixture.sh"
+printf 'git checkout -q --detach "$X"\n' >"$_dg_fix"
+[ -n "$(_dg_bad "$_dg_fix")" ]; record $? "dirty-tree lint: a checkout script without the guard is flagged"
+printf '# require_clean_tree\ngit -c a=b --git-dir=.g reset --hard\n' >"$_dg_fix"
+[ -n "$(_dg_bad "$_dg_fix")" ]; record $? "dirty-tree lint: a comment mention and git -c/--git-dir forms do not pass"
+printf 'git -C "a b" switch x\n' >"$_dg_fix"
+[ -n "$(_dg_bad "$_dg_fix")" ]; record $? "dirty-tree lint: quoted git -C path form is flagged"
+printf 'require_clean_tree . || exit 2\ngit checkout -q --detach "$X"\n' >"$_dg_fix"
+[ -z "$(_dg_bad "$_dg_fix")" ]; record $? "dirty-tree lint: a guarded checkout script passes"
+_dg_real=$(_dg_bad "$ROOT"/.claude/skills/*/scripts/*.sh)
+if [ -z "$_dg_real" ]; then record 0 "dirty-tree lint: every skill script with checkout/switch/reset calls require_clean_tree"
+else printf '  unguarded: %s\n' "$_dg_real"; record 1 "dirty-tree lint: every skill script with checkout/switch/reset calls require_clean_tree"; fi
+
 # ---------------------------------------------------------------------------
 rr="$WORK/rules-fixture"
 mkdir -p "$rr/.claude/skills/demo" "$rr/scripts"

@@ -10,7 +10,9 @@ newline-separated regexes in $PERUN_HEAVY_PATTERNS, each matched at the start of
 it denies the call when host_probe.decide(lane_type="heavy") says HOLD (load1 > cores or low free
 RAM; swap is not read, one sample shows no trend) or when the machine-wide heavy leases already fill the
 slot count (perun_policy.heavy_slots; local_cpu=maximize raises it to every core). Otherwise it
-prints nothing and the call proceeds. While a train gate holds the EXCLUSIVE lease (perun_policy.py heavy-exclusive) every heavy command is denied with "gate running: wait". It never takes a lease and never stops or deletes anything.
+prints nothing and the call proceeds. While a train gate holds the EXCLUSIVE lease (perun_policy.py heavy-exclusive) every heavy command is denied with "gate running: wait" and that deny is never bypassed or counted. It never takes a lease and never stops or deletes anything.
+
+Bypass: the hook keeps a small ledger (`heavy-denies.json`, next to the lease dir). After MAX_DENIES (3) denies of the same command (whitespace-normalized) in the same cwd within WINDOW (30 min) the 4th attempt is allowed with a WARN `additionalContext` (it matches the lane preamble's "retry at most 3 times, then proceed"); the ledger entry resets.
 
 Fail open: any error inside the hook (bad stdin, unreadable host data, an unparsable command line, a bad policy) allows the call.
 A block is a JSON `permissionDecision: "deny"` on stdout with exit 0, never exit 2, so a crash
@@ -23,8 +25,10 @@ PERUN_GATE_FREE_RAM_PCT override the readings; PERUN_HEAVY_DIR points the lease 
 import json
 import os
 import re
+import fcntl
 import shlex
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -126,6 +130,35 @@ def verdict(policy_cpu="efficient") -> tuple:
     return None, load1, cores, ram
 
 
+MAX_DENIES, WINDOW = 3, 30 * 60
+
+
+def _bypass(cmd: str, cwd: str, deny: bool, now=None) -> bool:
+    """Ledger step. deny=True records a deny; deny=False asks whether MAX_DENIES recent denies already exist
+    (True = allow with WARN, and the entry resets). Any I/O error returns False (keeps the deny)."""
+    import hashlib
+    import perun_policy
+    now = time.time() if now is None else now
+    f = perun_policy.lease_dir().parent / "heavy-denies.json"
+    key = hashlib.sha1(f"{cwd}\0{' '.join(cmd.split())}".encode()).hexdigest()
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with open(f.with_suffix(".lock"), "a") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)  # serialize the read-modify-write across concurrent hooks
+            led = json.loads(f.read_text()) if f.is_file() else {}
+            led = {k: [t for t in v if now - t < WINDOW] for k, v in led.items()}
+            led = {k: v for k, v in led.items() if v}
+            hit = not deny and len(led.get(key, [])) >= MAX_DENIES
+            if hit:
+                led.pop(key)
+            elif deny:
+                led.setdefault(key, []).append(now)
+            f.write_text(json.dumps(led))
+            return hit
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+
+
 def main() -> int:
     try:
         data = json.load(sys.stdin)
@@ -142,6 +175,14 @@ def main() -> int:
         reason, load1, cores, ram = verdict(cpu)
         if not reason:
             return 0
+        gate = "gate running" in reason  # the exclusive train lease is never bypassed
+        if not gate and _bypass(cmd, str(data.get("cwd") or ""), deny=False):
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext":
+                  f"WARN: machine busy ({reason}) but this command was denied {MAX_DENIES} times in 30 min; "
+                  "allowing it per the retry-3-then-proceed rule. Say so in your report."}}))
+            return 0
+        if not gate:
+            _bypass(cmd, str(data.get("cwd") or ""), deny=True)
         ram_s = f"{ram:.0f}% free" if ram is not None else "unknown"
         msg = (f"machine busy (load {load1:.1f}/{cores} cores, RAM {ram_s}; {reason}): "
                "wait and retry, or run a narrower test (one file or -k filter)")

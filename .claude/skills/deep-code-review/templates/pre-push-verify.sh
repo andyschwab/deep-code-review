@@ -322,6 +322,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
     mg_fail=0
     for mg_step in "Fix commits carry a pinned test" "Prose lessons carry a mechanism"; do
+      # awk-v-ok: one CI step name
       mg_script="$(awk -v n="- name: ${mg_step}" 'index($0,n){f=1;next} f&&/run: \|/{r=1;next} r&&/^ {0,9}[^ ]/{exit} r' "${ci_yml}")"
       [ -n "${mg_script}" ] || continue
       if ! BASE_SHA="${mg_base}" HEAD_SHA="${local_sha}" bash -c "${mg_script}" </dev/null >&2; then
@@ -331,6 +332,41 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       fi
     done
     [ "${mg_fail}" -eq 0 ] || { fail=1; continue; }
+  fi
+
+  # Fast CI-parity gates (each <1s; only when this repo ships them): the cheap deterministic CI steps lanes
+  # kept skipping because the full scripts/test-ci-gates.sh is slow. Each failure names the exact fix.
+  if [ -f scripts/ci-gates.sh ] && command -v python3 >/dev/null 2>&1; then
+    fg_base="${base_sha}"
+    fg_ref="refs/remotes/${remote_name}/$(resolve_default_branch)"
+    git rev-parse --verify -q "${fg_ref}" >/dev/null 2>&1 && fg_base="$(git merge-base "${fg_ref}" "${local_sha}" 2>/dev/null || printf '%s' "${base_sha}")"
+    fg_fail=0
+    fg() { # fg <name> <fix> <cmd...>: run quietly, print output only on failure
+      fg_name="$1"; fg_fix="$2"; shift 2
+      if ! fg_out="$("$@" 2>&1 </dev/null)"; then
+        printf '%s\npre-push-verify: FAIL -- %s. Fix: %s\n' "${fg_out}" "${fg_name}" "${fg_fix}" >&2
+        fg_fail=1
+      fi
+    }
+    [ -f scripts/size-budgets.tsv ] && fg "size-ratchet vs ${fg_base}" \
+      "run 'bash scripts/land-release.sh --regen' if the raise is real, then add the marker line quoted in the RATCHET FAIL above ('size-budget-raise: <path> <old>→<new> <reason>') to a commit message in this range" \
+      bash scripts/ci-gates.sh size-ratchet --base "${fg_base}" --config scripts/size-budgets.tsv .
+    [ -f scripts/mustload-budgets.tsv ] && fg "mustload floor/ceiling pin" \
+      "shrink the must-load read set, or update the pin in scripts/mustload-budgets.tsv in the same commit with the reason" \
+      bash scripts/ci-gates.sh mustload --config scripts/mustload-budgets.tsv .
+    [ -f scripts/run-evals.py ] && fg "run-evals --selftest" \
+      "tag any chat-unanswerable expectation (e.g. an untagged 'Loads ...') with [needs_files] in the skill's evals/evals.json" \
+      python3 scripts/run-evals.py --selftest
+    [ -f scripts/skill_index.py ] && fg "INDEX.md stale" \
+      "run 'bash scripts/land-release.sh --regen' and commit the result" \
+      python3 scripts/skill_index.py --check
+    [ -f scripts/write-checksums.sh ] && fg "SHA256SUMS stale" \
+      "run 'bash scripts/land-release.sh --regen' (it pins SHA256SUMS last) and commit the result" \
+      bash -c 'o="$(git rev-parse --git-common-dir)/dcr-sums.tmp"; bash scripts/write-checksums.sh "$o" >/dev/null && cmp -s "$o" SHA256SUMS'
+    [ -f CHANGELOG.md ] && [ -f scripts/ci-gates.sh ] && fg "CHANGELOG version heading" \
+      "put unreleased notes in changelog.d/<slug>.md, not CHANGELOG.md; land-release.sh stamps the heading at land time" \
+      bash scripts/ci-gates.sh version .
+    [ "${fg_fail}" -eq 0 ] || { fail=1; continue; }
   fi
 
   # Warn-only scope-creep report (new files/deps/single-impl types); never fails the push.
@@ -343,6 +379,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   wired_check=".claude/skills/agentic-delivery/scripts/wired_check.py"
   if [ -f "${wired_check}" ]; then
     python3 "${wired_check}" "${base_sha}" "${local_sha}" >&2 || true
+  fi
+
+  # Warn-only: tests that read the real clock (red at the next week rollover); never fails the push.
+  clock_lint=".claude/skills/agentic-delivery/scripts/clock_lint.py"
+  if [ -f "${clock_lint}" ]; then
+    python3 "${clock_lint}" --base "${base_sha}" --head "${local_sha}" --deadline 5 >&2 || true
   fi
 
   if is_blank "${DCR_PREPUSH_CMD:-}"; then
