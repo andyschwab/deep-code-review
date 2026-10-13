@@ -16,7 +16,7 @@ merge, rebase, cherry-pick or train lock (`MERGE_HEAD`, `CHERRY_PICK_HEAD`, `reb
 `rebase-apply/`, `train-land.lock` in its own or common git dir; in a linked `worktrees/*/` dir only a
 `train-land.lock` under 24h old), when a Perun-managed
 file differs from the hash install recorded, or when `git status` shows uncommitted changes to a
-managed path or `.claude/settings*.json`. It finds the newest `vX.Y.Z` tag on the remote
+managed path or `.claude/settings.local.json`. It finds the newest `vX.Y.Z` tag on the remote
 (`git ls-remote`); when it is newer it fetches the tag into a cache clone
 (`$XDG_CACHE_HOME/perun/src`) without `--force` (a local tag that moved is refused), aborts unless
 the tag's commit is an ancestor of the remote's `main` and the tree's `SHA256SUMS` verifies, then
@@ -118,7 +118,8 @@ def _newest(lock: Path) -> float:
 def blocker(target: Path, marker: dict) -> str:
     """Why an update must wait ('' when clear): a merge/rebase/cherry-pick/train lock in this checkout's own or
     common git dir, a train lock under 24h old in a linked worktree (a linked worktree's own merge or rebase never blocks), a managed file edited since install, or uncommitted git changes to a managed path
-    or `.claude/settings*.json` (untracked files do not count)."""
+    or `.claude/settings.local.json` (untracked files do not count; other settings files are never written by an
+    update, so their edits do not block)."""
     gd = git("-C", str(target), "rev-parse", "--absolute-git-dir", "--git-common-dir")
     if gd.returncode == 0:
         own, common = gd.stdout.split("\n")[:2]
@@ -143,7 +144,7 @@ def blocker(target: Path, marker: dict) -> str:
             return f"dirty Perun-managed file {rel}"
     clean = {str(rel) for rel, _ in files}  # sha matched the marker: an install over an older commit, not a user edit
     paths = [*marker.get("skills", {}), *([marker["agent"]["path"]] if marker.get("agent") else []),
-             ":(glob).claude/settings*.json"]
+             ".claude/settings.local.json"]  # the one settings file an update rewrites; a team's tracked settings.json is never touched
     # --relative + -z: names relative to target and unquoted, so a subdirectory target or a path with spaces compares exactly
     st = git("-C", str(target), "diff", "--name-only", "-z", "--relative", "HEAD", "--", *paths)
     left = [l for l in st.stdout.split("\0") if l and l not in clean] if st.returncode == 0 else []
