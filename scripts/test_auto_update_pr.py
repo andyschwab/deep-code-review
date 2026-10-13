@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the auto_update_pr step of perun_auto_update.py and the committed-version WARN in
 session_brief.py / operating_selfcheck.py. Offline: origin is a bare repo under $TMPDIR; gh is a stub script on PATH."""
-import json, os, subprocess, sys, tempfile, unittest
+import json, os, subprocess, sys, tempfile, unittest, unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,7 +53,7 @@ class AutoUpdatePrTests(unittest.TestCase):
         sh("git", "push", "-q", "origin", "main", cwd=self.proj)
         sh("git", "fetch", "-q", "origin", cwd=self.proj)
         (self.proj / ".claude/.perun-install.json").write_text(json.dumps(
-            {"version": "1.1.0", "skills": {SKILL: {}}, "files": {CMD: ""}}))
+            {"version": "1.1.0", "skills": {SKILL: {"VERSION": "", "SKILL.md": ""}}, "files": {CMD: ""}}))
         self.put("1.1.0", "new\n")  # the in-place update: uncommitted in the user's checkout
         (self.proj / "mine.txt").write_text("user work\n")
 
@@ -85,15 +85,61 @@ class AutoUpdatePrTests(unittest.TestCase):
         self.assertEqual(sh("git", "rev-parse", "--abbrev-ref", "HEAD", cwd=self.proj).strip(), "main")
         self.assertEqual(sh("git", "worktree", "list", cwd=self.proj).count("\n"), 1)  # throwaway worktree removed
 
-    def test_idempotent(self):
+    def test_idempotent_on_open_pr_and_retries_failed_create(self):
         au.update_pr(self.proj)
         self.log.unlink()
-        self.assertIn("already on origin", au.update_pr(self.proj))
+        os.environ["GH_PR_LIST"] = '[{"number": 3}]'
+        self.assertIn("open PR for perun/update-v1.1.0 exists", au.update_pr(self.proj))
         self.assertNotIn("pr create", self.calls())
+        os.environ["GH_PR_LIST"] = "[]"  # branch pushed, no open PR (earlier create failed): PR only, no second branch
+        self.assertEqual(au.update_pr(self.proj), "pr opened: perun/update-v1.1.0 -> main (branch already pushed)")
+
+    def test_only_recorded_files_untracked_and_symlinks_excluded(self):
+        (self.proj / SKILL / "stray.md").write_text("untracked user file\n")
+        (self.proj / SKILL / "link.md").symlink_to(self.proj / "mine.txt")
+        m = json.loads((self.proj / ".claude/.perun-install.json").read_text())
+        m["skills"][SKILL]["link.md"] = ""
+        m["files"]["../escape.md"] = ""
+        m["files"]["/etc/hosts"] = ""
+        (self.proj / ".claude/.perun-install.json").write_text(json.dumps(m))
+        self.assertEqual(au.managed_files(self.proj, m), [f"{SKILL}/VERSION", f"{SKILL}/SKILL.md", CMD])
+        au.update_pr(self.proj)
+        tree = sh("git", "ls-tree", "-r", "--name-only", "perun/update-v1.1.0", cwd=self.origin)
+        for bad in ("stray.md", "link.md", "mine.txt", "escape", "hosts"):
+            self.assertNotIn(bad, tree)
+
+    def test_gh_missing_goes_to_rest_path_without_raising(self):
+        real = subprocess.run
+
+        def run(cmd, *a, **k):
+            if cmd[0] == "gh":
+                raise FileNotFoundError("gh")
+            return real(cmd, *a, **k)
+        with unittest.mock.patch("subprocess.run", run):
+            self.assertIsNone(au.pr_open("b", self.proj))
+            self.assertTrue(au.pr_create("b", "main", "1.1.0", self.proj).strip())  # no token: a failure line, not a raise
+
+    def test_hook_timeout_aborts_cleans_up_and_logs(self):
+        real = au.git
+
+        def git(*a, **k):
+            if "commit" in a:
+                raise subprocess.TimeoutExpired("git", 1)
+            return real(*a, **k)
+        with unittest.mock.patch.object(au, "git", git):
+            self.assertEqual(au.update_pr(self.proj), "pr failed: hooks timed out")
+        self.assertEqual(self.branches(), "")
+        self.assertEqual(sh("git", "worktree", "list", cwd=self.proj).count("\n"), 1)
+
+    def test_log_redacts_url_credentials(self):
+        au.log(self.proj, "failed: push https://user:tok3n@example.com/r.git denied")
+        txt = (au.cache() / "auto-update.log").read_text()
+        self.assertIn("https://***@example.com/r.git", txt)
+        self.assertNotIn("tok3n", txt)
 
     def test_existing_pr_or_current_version_skips(self):
         os.environ["GH_PR_LIST"] = '[{"number": 7}]'
-        self.assertIn("PR for perun/update-v1.1.0 exists", au.update_pr(self.proj))
+        self.assertIn("open PR for perun/update-v1.1.0 exists", au.update_pr(self.proj))
         self.assertEqual(self.branches(), "")
         os.environ.pop("GH_PR_LIST")
         self.put("1.0.0", "old\n")  # working tree equals what is committed

@@ -55,7 +55,9 @@ def cache() -> Path:
 
 
 def log(target: Path, msg: str) -> None:
-    """Append one timestamped line for `target` to the local log. Side effect: creates the cache dir."""
+    """Append one timestamped line for `target` to the local log (credentials in URLs redacted: `://user:token@` ->
+    `://***@`). Side effect: creates the cache dir."""
+    msg = re.sub(r"://[^/@\s]+@", "://***@", msg)
     cache().mkdir(parents=True, exist_ok=True)
     with open(cache() / "auto-update.log", "a") as f:
         f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {target} {msg}\n")
@@ -161,41 +163,72 @@ def behind_warn(target: Path) -> str | None:
                   "open/merge the perun/update PR")
 
 
-def pr_open(branch: str, ver: str, cwd: Path) -> bool | None:
-    """True when a PR for `branch` exists in any state (gh, else nothing), False when none, None when unknown."""
-    r = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number"],
-                       capture_output=True, text=True, timeout=60, cwd=cwd)
+def pr_open(branch: str, cwd: Path) -> bool | None:
+    """True when an OPEN PR for `branch` exists, False when none, None when unknown (gh missing or failing)."""
     try:
+        r = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number"],
+                           capture_output=True, text=True, timeout=60, cwd=cwd)
         return bool(json.loads(r.stdout)) if r.returncode == 0 else None
-    except ValueError:
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
 
 
 def pr_create(branch: str, base: str, ver: str, cwd: Path) -> str:
     """Open the PR; '' on success else the failure line. `gh pr create`, falling back to the gh_rest.py curl path
-    (`gh api -X POST .../pulls`) when gh fails (e.g. the sandbox TLS error)."""
+    (`gh api -X POST .../pulls`) when gh fails or is missing (e.g. the sandbox TLS error)."""
     title, body = f"Update Perun skills to v{ver}", "Automated Perun update. Review and merge; nothing here auto-merges."
-    r = subprocess.run(["gh", "pr", "create", "--head", branch, "--base", base, "--title", title, "--body", body],
-                       capture_output=True, text=True, timeout=120, cwd=cwd)
-    if r.returncode == 0:
-        return ""
+    try:
+        if subprocess.run(["gh", "pr", "create", "--head", branch, "--base", base, "--title", title, "--body", body],
+                          capture_output=True, text=True, timeout=120, cwd=cwd).returncode == 0:
+            return ""
+    except (OSError, subprocess.SubprocessError):
+        pass  # gh missing or hung: the REST path below
+    import gh_rest
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump({"title": title, "body": body, "head": branch, "base": base}, f)
-    try:  # gh_rest.py runs `gh api` and retries with curl on the sandbox TLS error; it resolves {owner}/{repo} from origin
-        r2 = subprocess.run([sys.executable, str(Path(__file__).with_name("gh_rest.py")), "api", "-X", "POST",
-                             "repos/{owner}/{repo}/pulls", "--input", f.name], capture_output=True, text=True,
-                            timeout=300, cwd=cwd)
+    args = ["gh", "api", "-X", "POST", "repos/{owner}/{repo}/pulls", "--input", f.name]
+    try:
+        try:
+            r = subprocess.run(args, capture_output=True, text=True, timeout=120, cwd=cwd)
+            rc, out, err = r.returncode, r.stdout, r.stderr
+        except (OSError, subprocess.SubprocessError):
+            rc, out, err = 1, "", "failed to verify certificate"  # gh unusable: force the curl path
+        cwd0 = os.getcwd()
+        os.chdir(cwd)  # gh_rest resolves {owner}/{repo} from the cwd's origin
+        try:
+            rc, out, err = gh_rest.fallback(args, rc, out, err)
+        finally:
+            os.chdir(cwd0)
     finally:
         os.unlink(f.name)
-    return "" if r2.returncode == 0 else (r2.stderr.strip().splitlines() or ["?"])[-1]
+    return "" if rc == 0 else (err.strip().splitlines() or ["?"])[-1]
+
+
+HOOK_TIMEOUT = 1800  # commit/push run the repo's own hooks (never bypassed); bound them
+
+
+def managed_files(target: Path, marker: dict) -> list:
+    """Repo-relative files the marker recorded as installed (skill-file hashes plus slash commands) that exist in
+    `target` as regular, non-symlink files inside it. Untracked user files, symlinks and `..`/absolute paths never qualify."""
+    root, out = target.resolve(), []
+    rels = [f"{d}/{f}" for d, fs in marker.get("skills", {}).items() for f in fs] + list(marker.get("files", {}))
+    for rel in rels:
+        pr = Path(rel)
+        p = target / pr
+        if pr.is_absolute() or ".." in pr.parts or p.is_symlink() or not p.is_file() or not p.resolve().is_relative_to(root):
+            continue
+        out.append(rel)
+    return out
 
 
 def update_pr(target: Path) -> str:
     """Land the installed Perun on the default branch as a PR; returns the one-line outcome for the log.
     Never touches `target`'s checkout: works in a throwaway detached worktree off `origin/<default>`, copies only
-    the marker's managed skill dirs and command files, commits, pushes `perun/update-v<ver>` (never forced) and
-    opens a PR (never merged). Idempotent: skips when the committed version is already >= installed, when the
-    branch exists on the remote, when a PR for it exists, or when the copy changes nothing."""
+    the marker-recorded managed files (`managed_files`), stages exactly those paths, commits, pushes
+    `perun/update-v<ver>` (never forced) and opens a PR (never merged). Idempotent: skips when the committed
+    version is already >= installed, when an OPEN PR for the branch exists, or when the copy changes nothing; a
+    branch pushed earlier whose PR creation failed is retried (PR only). Commit/push hooks are never bypassed, but
+    time out after HOOK_TIMEOUT: the worktree is removed and the outcome is `hooks timed out`."""
     try:
         marker = json.loads((target / ".claude/.perun-install.json").read_text())
         ver = (target / VER).read_text().strip()
@@ -211,36 +244,36 @@ def update_pr(target: Path) -> str:
     if not committed_behind(target):
         return f"pr skip: committed version on {ref} is not behind {ver}"
     branch, base = f"perun/update-v{ver}", ref.split("/", 1)[1]
-    if git("-C", str(target), "ls-remote", "--heads", "origin", branch).stdout.strip():
-        return f"pr skip: {branch} already on origin"
-    paths = [*marker.get("skills", {}), *marker.get("files", {})]
+    if pr_open(branch, target):
+        return f"pr skip: open PR for {branch} exists"
+    if git("-C", str(target), "ls-remote", "--heads", "origin", branch).stdout.strip():  # pushed, PR missing: retry the PR only
+        err = pr_create(branch, base, ver, target)
+        return f"pr failed: create: {err}" if err else f"pr opened: {branch} -> {base} (branch already pushed)"
+    paths = managed_files(target, marker)
+    if not paths:
+        return "pr skip: no managed files recorded"
     with tempfile.TemporaryDirectory(prefix="perun-pr-") as tmp:
         wt = Path(tmp) / "wt"
         if git("-C", str(target), "worktree", "add", "-q", "--detach", str(wt), ref).returncode != 0:
             return "pr failed: worktree add"
         try:
             for rel in paths:
-                src, dst = target / rel, wt / rel
-                git("-C", str(wt), "rm", "-r", "-q", "--ignore-unmatch", "--", rel)  # drop files the release removed
-                if src.is_dir():
-                    shutil.copytree(src, dst, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
-                elif src.is_file():
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, dst)
-            git("-C", str(wt), "add", "-A", "--", *paths)
+                (wt / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target / rel, wt / rel)
+            git("-C", str(wt), "add", "--", *paths)
             if not git("-C", str(wt), "diff", "--cached", "--name-only").stdout.strip():
                 return "pr skip: managed paths already match the default branch"
             c = git("-C", str(wt), "-c", "user.name=perun-auto-update", "-c", "user.email=perun-auto-update@users.noreply.github.com",
-                    "commit", "-q", "-m", f"Update Perun skills to v{ver}")
+                    "commit", "-q", "-m", f"Update Perun skills to v{ver}", timeout=HOOK_TIMEOUT)
             if c.returncode != 0:
                 return f"pr failed: commit: {(c.stderr.strip().splitlines() or ['?'])[-1]}"
-            if pr_open(branch, ver, wt):
-                return f"pr skip: PR for {branch} exists"
-            p = git("-C", str(wt), "push", "-q", "origin", f"HEAD:refs/heads/{branch}", timeout=300)
+            p = git("-C", str(wt), "push", "-q", "origin", f"HEAD:refs/heads/{branch}", timeout=HOOK_TIMEOUT)
             if p.returncode != 0:
                 return f"pr failed: push: {(p.stderr.strip().splitlines() or ['?'])[-1]}"
             err = pr_create(branch, base, ver, wt)
             return f"pr failed: create: {err}" if err else f"pr opened: {branch} -> {base}"
+        except subprocess.TimeoutExpired:
+            return "pr failed: hooks timed out"
         finally:
             git("-C", str(target), "worktree", "remove", "--force", str(wt))
             git("-C", str(target), "worktree", "prune")
