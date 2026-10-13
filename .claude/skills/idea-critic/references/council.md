@@ -15,6 +15,8 @@ python3 scripts/council.py --cmd "claude -p --strict-mcp-config" \
 - `--cmd` reads the prompt on stdin and prints the answer; repeat it for mixed
   models (lens *i* uses cmd *i* mod N). Default is solo-3: one cmd, three lenses
   in `scripts/lenses/*.txt` (plain text, no host tool names; edit them freely).
+- The packet is shown with numbered lines and its path under `--root`, so a model with no file tools
+  (a bare `ollama run`, an API one-shot) can still cite `path:line`; keep the packet under `--root`.
 - Lens answers are independent: no lens sees another's. The critique round runs
   only when verdicts differ, with answers shuffled and relabelled A/B/C (seeded,
   recorded). A member changes its verdict only if its critique carries an
@@ -48,4 +50,10 @@ Debate-style councils often fail to beat plain self-consistency
 (`docs/standards-index.md`, "Should we be going MAD?"). Keep the council only if,
 at equal call budget, it beats self-consistency-3 (same cmd, three samples, vote)
 on the bench by a margin that survives a bootstrap over TEST cases. Otherwise it
-stays opt-in or is removed. Not yet measured; no accuracy claim is made here.
+stays opt-in or is removed.
+
+Measured 2026-10-13 (29 labelled pass/block cases from `evals/`, one mid-tier model with file-read
+tools): council, self-consistency-3 and a single call all scored 29/29, so the set cannot separate
+them; the council cost about twice self-consistency-3 (critique ran on 7 cases). No accuracy
+advantage is shown. It stays opt-in: use it for the audit trail (verified citations, kept dissent)
+or mixed models, not for accuracy, until a harder set says otherwise. The tool-less path is untested for accuracy.
