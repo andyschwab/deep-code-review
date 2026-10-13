@@ -19,15 +19,23 @@ python3 scripts/council.py --cmd "claude -p --strict-mcp-config" \
   only when verdicts differ, with answers shuffled and relabelled A/B/C (seeded,
   recorded). A member changes its verdict only if its critique carries an
   evidenced attack.
-- Claims need `path:line` (checked: file under `--root`, line in range) or a URL.
-  URLs are recorded but never count as verified; failed citations land in
-  `unsupported_claims` / `voided_objections`.
+- Claims and attacks need `path:line` plus a short verbatim `quote`. Verified = the file is
+  under `--root` (no absolute path, `..` or symlink), the line is in range, and
+  the quote appears within 3 lines of it (whitespace-normalized). Exists but no
+  matching quote, or a URL: `cited_unverified`, no confidence credit. Unusable
+  citations: `unsupported_claims`; bad attacks (no valid citation, or target not
+  another answer's label): `voided_objections`.
+- Critique shows other answers in fenced blocks with a random per-run delimiter,
+  every line prefixed, marked as data. One unparseable lens is dropped; fewer
+  than 2 parseable answers is `COULD_NOT_DECIDE`.
 - Verdict = deterministic tally; ties go to the more cautious
   (`HOLD` > `REVISE` > `PASS_TO_USER`); `owner-request` + `HOLD` becomes `REVISE`.
   `confidence` = top-vote share x mean verified-claim share, never self-reported.
   Minority answers are kept verbatim in `dissent`.
-- `--max-calls` (8), `--max-chars` (200000) and `--timeout` (120s per call) are
-  checked before each call. Any cap hit, non-zero exit, timeout or unparseable
+- `--max-calls` (8), `--max-chars` (200000), `--max-seconds` (600 total) and
+  `--timeout` (120s per call) are checked before each call; any internal error
+  also maps to `COULD_NOT_DECIDE`. A timed-out command's grandchildren may
+  outlive it, so use a cmd that exits cleanly. Any cap hit, non-zero exit, timeout or unparseable
   answer yields `COULD_NOT_DECIDE` (exit 3), never a guessed verdict.
   `--dry-run` prints planned calls.
 - Validate: `scripts/validate_verdict.py --file record.json` accepts the council
