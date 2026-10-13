@@ -13,7 +13,8 @@ network wait ever lands on the session start path. Prints nothing (hook stdout w
 `--run [--target DIR]` (the background worker, also runnable by hand): under one machine-wide
 flock, it reads `.claude/.perun-install.json` (`version`, `remote`), skips when the target has a
 merge, rebase, cherry-pick or train lock (`MERGE_HEAD`, `CHERRY_PICK_HEAD`, `rebase-merge/`,
-`rebase-apply/`, `train-land.lock` in its git dir or any `worktrees/*/` dir), when a Perun-managed
+`rebase-apply/`, `train-land.lock` in its own or common git dir; in a linked `worktrees/*/` dir only a
+`train-land.lock` under 24h old), when a Perun-managed
 file differs from the hash install recorded, or when `git status` shows uncommitted changes to a
 managed path or `.claude/settings*.json`. It finds the newest `vX.Y.Z` tag on the remote
 (`git ls-remote`); when it is newer it fetches the tag into a cache clone
