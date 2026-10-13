@@ -1,0 +1,1 @@
+README states the Opus result: on the strongest model the review method ties a plain prompt (39 cases, F1 0.777 vs 0.772) at higher cost; a second pass adds about 5 points of recall at twice the cost.
