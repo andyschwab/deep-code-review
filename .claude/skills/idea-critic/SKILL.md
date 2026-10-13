@@ -114,6 +114,11 @@ kill/quit/pivot criteria pre-committed *before* the bet. It reuses the
 the decision and hands it to the owner; it never makes the call and never
 fabricates a probability — an ungroundable number is labeled `assumption`.
 
+For a high-blast or irreversible call, read `references/council.md`: it runs the
+hats as independent calls (any model via `scripts/council.py --cmd`), tallies the
+verdict mechanically, and fails closed with `COULD_NOT_DECIDE` on any cap or
+command failure.
+
 ---
 
 ## Hats
