@@ -69,6 +69,17 @@ def selftest():
         assert subprocess.run(me, capture_output=True).returncode == 3
         open(cfg, "w").write("{")
         assert subprocess.run(me, capture_output=True).returncode == 2
+        for bad in ({"timeout": "5"}, {"timeout": 0}, {"timeout": True}, {"cheap": "yes"}):
+            json.dump({"gates": [py("pass", **bad)]}, open(cfg, "w"))
+            assert subprocess.run(me, capture_output=True).returncode == 2, bad
+        json.dump({"gates": [py("pass", cheap=True)]}, open(cfg, "w"))
+        for junk in ("[1, 2]", "\xff not json"):  # non-object / unreadable cache is ignored, not a traceback
+            open(cache, "w", errors="surrogateescape").write(junk)
+            o = subprocess.run(me, capture_output=True, text=True)
+            assert o.returncode == 0 and "Traceback" not in o.stderr, o
+            assert isinstance(json.load(open(cache)), dict)
+        o = subprocess.run(me[:-1] + [os.path.join(t, "no", "dir", "c.json")], capture_output=True, text=True)
+        assert o.returncode == 0 and "WARN" in o.stderr and "Traceback" not in o.stderr, o
     print("selftest ok")
 
 
@@ -83,7 +94,11 @@ def main(argv=None):
         return selftest() or 0
     try:
         gates = json.load(open(a.config))["gates"]
-        assert gates and all(g["name"] and g["command"] for g in gates)
+        assert gates and all(g["name"] and g["command"] for g in gates), "empty name/command"
+        for g in gates:
+            t = g.get("timeout", 600)
+            assert isinstance(t, (int, float)) and not isinstance(t, bool) and t > 0, "timeout must be a positive number"
+            assert isinstance(g.get("cheap", False), bool), "cheap must be true or false"
     except (OSError, ValueError, KeyError, TypeError, AssertionError) as e:
         print(f"preflight: bad config: {e!r}", file=sys.stderr)
         return 2
@@ -92,13 +107,17 @@ def main(argv=None):
         print(f"{s} {n} ({sec:.1f}s){': ' + d if d else ''}")
     try:
         times = json.load(open(a.cache))
+        times = times if isinstance(times, dict) else {}
     except (OSError, ValueError):
         times = {}
     times.update({n: round(sec, 2) for n, s, sec, _ in res if s != "SKIPPED"})
     try:
-        json.dump(times, open(a.cache, "w"), indent=1)
-    except OSError as e:
-        print(f"preflight: cache not written: {e}", file=sys.stderr)
+        tmp = f"{a.cache}.{os.getpid()}.tmp"
+        with open(tmp, "w") as fh:
+            json.dump(times, fh, indent=1)
+        os.replace(tmp, a.cache)
+    except (OSError, TypeError, ValueError) as e:
+        print(f"WARN: preflight cache not written: {e}", file=sys.stderr)
     top = sorted((r for r in res if r[1] != "SKIPPED"), key=lambda r: -r[2])[:3]
     print("slowest: " + ", ".join(f"{n} {sec:.1f}s" for n, _, sec, _ in top))
     st = {s for _, s, _, _ in res}
