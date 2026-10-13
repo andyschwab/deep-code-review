@@ -101,13 +101,14 @@ if [ $rc -eq 0 ]; then git checkout -q --detach "$REMOTE/$BASE_BRANCH"; break; f
 BR="BROWSER RED: union $U fails browser specs (see $LOG.browser); nothing landed"
 [ -n "${RERUN_CMD:-}" ] || { git checkout -q --detach "$REMOTE/$BASE_BRANCH"; echo "$BR" >&2
   [ -n "${BASELINE_FAILS:-}" ] || echo "hint: set RERUN_CMD (TEST=<id>) so failures already red on the base are detected and ignored; keep BROWSER_CMD to affected specs + smoke, not the full suite" >&2; exit 1; }
-sed -nE 's/^FAIL +//p' "$LOG.browser" >"$LOG.fails"
+NORM="bash $HERE/train_flake.sh --norm"  # the one id normalizer: emit and match share it
+sed -nE 's/^FAIL +//p' "$LOG.browser" | $NORM >"$LOG.fails"; $NORM <"${BASELINE_FAILS:-/dev/null}" >"$LOG.baseline"
 pre=0
 if :; then  # base-red guard: an id (not already in BASELINE_FAILS) that also fails twice alone on the base is pre-existing
   renew; git checkout -q --detach "$B"; : >"$LOG.pre"
   while IFS= read -r id; do
     [ -n "$id" ] || continue; br=0
-    [ -z "${BASELINE_FAILS:-}" ] || ! grep -qxF -- "$id" "$BASELINE_FAILS" || continue  # listed ids are handled by the baseline
+    [ -z "${BASELINE_FAILS:-}" ] || ! grep -qxF -- "$id" "$LOG.baseline" || continue  # listed ids are handled by the baseline
     RERUN_CMD=$RERUN_CMD bash "$HERE/train_flake.sh" --base "$id" || br=$?
     [ "$br" -ne 125 ] || { git checkout -q --detach "$REMOTE/$BASE_BRANCH"; echo "fresh store or FLAKE_SETUP_CMD failed re-running $id on the base; nothing landed" >&2; exit 1; }
     [ "$br" -ne 0 ] || echo "$id" >>"$LOG.pre"
@@ -123,7 +124,7 @@ git checkout -q --detach "$REMOTE/$BASE_BRANCH"  # isolated re-runs above ran at
 cat "$LOG.flake"
 # Landable only when at least one NEW failure was listed and every new one re-ran and classified FLAKE: a red run with no
 # attributable new failure (empty list, baseline-only, crash before any FAIL line) never lands.
-newn=$(grep -vxFf "${BASELINE_FAILS:-/dev/null}" "$LOG.fails" 2>/dev/null | grep -c . || true)
+newn=$(grep -vxFf "$LOG.baseline" "$LOG.fails" 2>/dev/null | grep -c . || true)
 flk=$(grep -c '^FLAKE ' "$LOG.flake" || true)
 # The runner must also print "FAILURES <n>" (its own count): missing, or more than the listed FAIL lines = an unlisted crash.
 listed=$(( $(grep -c . "$LOG.fails" || true) + pre )); rn=$(sed -nE 's/^FAILURES +([0-9]+) *$/\1/p' "$LOG.browser" | tail -1)

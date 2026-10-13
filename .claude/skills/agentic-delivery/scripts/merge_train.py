@@ -220,6 +220,7 @@ from refix_gate import load_fix_class_gate  # noqa: E402  (fix_class_gate's glob
 _FCG = load_fix_class_gate()
 
 OK, RED, ERROR, HALT = 0, 1, 2, 3
+GATE_CONTEXT = "perun/train-gate"
 GREEN_CONCLUSIONS = {"success", "neutral", "skipped"}
 PR_LIMIT = 200
 MAX_BACKOFF = 300
@@ -606,6 +607,7 @@ class Train:
                 self.state.update(base=self.a.base, base_sha=self.base_sha, members=members)
                 self.save()
                 self.say(f"GREEN base={self.base_sha[:7]} members={names(members)}")
+                self.post_status(members)
                 return OK
             guilty = self.attribute(members) if why.startswith("cap") else []
             for m, reason in guilty or [self.bisect(members)]:
@@ -615,6 +617,30 @@ class Train:
         self.save()
         self.say("RED no green union: every member parked" if parked_any else "NOOP no eligible members")
         return RED if parked_any else OK
+
+    def post_status(self, members):
+        """Vouch for the proved union: post commit status `perun/train-gate`=success on each member head.
+
+        With the base requiring that context, only a train GREEN can merge. A failed post is a WARN
+        (never raised, never claimed posted); --no-status skips it.
+        """
+        if self.a.no_status:
+            return
+        repo = self.a.repo or "{owner}/{repo}"
+        for m in members:
+            body = json.dumps({"state": "success", "context": GATE_CONTEXT,
+                               "description": f"train verified union on {self.a.base}@{self.base_sha[:7]}"})
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+                fh.write(body)
+            try:
+                rc, _, err = self.run(["gh", "api", "-X", "POST", f"repos/{repo}/statuses/{m['head']}", "--input", fh.name], ok=False)
+            finally:
+                os.unlink(fh.name)
+            if rc == 0:
+                self.say(f"STATUS posted {GATE_CONTEXT}=success on #{m['number']} {m['head'][:7]}")
+            else:
+                self.say(f"WARN {GATE_CONTEXT} NOT posted on #{m['number']} {m['head'][:7]} ({clean(err.strip(), 120)}); "
+                         "a base that requires it will block this merge")
 
     # ---- merge ----------------------------------------------------------
     def same_base(self, proved, current):
@@ -1225,6 +1251,7 @@ def build_parser():
     common.add_argument("--remote", default="origin")
     common.add_argument("--state", default="", help="state file (default <git-common-dir>/merge-train.json)")
     common.add_argument("--min-checks", type=int, default=1, help="K: latest successful check runs required")
+    common.add_argument("--no-status", action="store_true", help=f"do not post the {GATE_CONTEXT} commit status on GREEN")
     common.add_argument("--allow-forks", action="store_true", help="admit fork PRs (their code runs locally)")
     common.add_argument("--retries", type=int, default=2, help="bounded re-runs for a flaky step")
     common.add_argument("--backoff", type=float, default=30.0, help="first retry delay in seconds (doubles, max 300)")
@@ -1332,6 +1359,7 @@ class FakeForge:
         self.grant_blame, self.grant_date = "a" * 40, datetime.now(timezone.utc).date().isoformat()
         self.bodies = []  # merge commit bodies written by `gh pr merge --body`
         self.based, self.udiffs, self.update_fail = {}, {}, set()  # refresh / dupes scenarios
+        self.statuses, self.status_fail = [], False  # gate-status POST paths; simulate a rejected post
 
     def base(self):
         return self.hist[-1]
@@ -1346,6 +1374,9 @@ class FakeForge:
             rows = [{"number": n, "headRefOid": p["head"], **{k: p[k] for k in ("isDraft", "mergeable", "isCrossRepository")}}
                     for n, p in self.prs.items() if p["state"] == "OPEN"]
             return 0, json.dumps(rows), ""
+        if a[:4] == ["gh", "api", "-X", "POST"]:
+            self.statuses.append(a[4])
+            return (1, "", "HTTP 403: Resource not accessible") if self.status_fail else (0, "{}", "")
         if a[:2] == ["gh", "api"]:
             sha = a[2].split("/commits/")[1].split("/")[0]
             runs = next(p["runs"] for p in self.prs.values() if p["head"] == sha)
@@ -1566,6 +1597,29 @@ def _selftest() -> int:
         return (rc == OK and merged == ["1", "2"] and "MERGED #2 h2 -> main@M2 grant=owner-grant-1" in out
                 and all("--merge" in c for c in f.calls if c[:3] == ["gh", "pr", "merge"])
                 and again_rc == OK and "NOOP" in again), (out, merged, again)
+
+    def green_posts_gate_status_on_member_heads():
+        f = FakeForge(2)
+        rc, out = go(f, "verify", "--verify-cmd", "t", state=fresh("gs.json"))
+        return (rc == OK and f.statuses == ["repos/{owner}/{repo}/statuses/h1", "repos/{owner}/{repo}/statuses/h2"]
+                and "STATUS posted perun/train-gate=success on #1" in out), (f.statuses, out)
+
+    def no_status_flag_posts_nothing():
+        f = FakeForge(2)
+        rc, out = go(f, "verify", "--verify-cmd", "t", "--no-status", state=fresh("ns.json"))
+        return rc == OK and "GREEN" in out and not f.statuses and "STATUS" not in out, out
+
+    def failed_status_post_warns_never_claims_posted():
+        f = FakeForge(2)
+        f.status_fail = True
+        rc, out = go(f, "verify", "--verify-cmd", "t", state=fresh("sf.json"))
+        return rc == OK and "WARN perun/train-gate NOT posted on #1" in out and "STATUS posted" not in out, out
+
+    def red_union_posts_no_status():
+        f = FakeForge(2)
+        f.bad = {1, 2}
+        rc, out = go(f, "verify", "--verify-cmd", "t", state=fresh("rs.json"))
+        return rc == RED and not f.statuses, out
 
     def base_moved_halts_without_reverify():
         f = FakeForge(2)
@@ -2268,6 +2322,10 @@ def _selftest() -> int:
         ("deterministic-failure-parks-member", deterministic_failure_parks_member),
         ("all-members-bad-is-red", all_members_bad_is_red),
         ("red-base-halts", red_base_halts),
+        ("green-posts-gate-status-on-member-heads", green_posts_gate_status_on_member_heads),
+        ("no-status-flag-posts-nothing", no_status_flag_posts_nothing),
+        ("failed-status-post-warns-never-claims-posted", failed_status_post_warns_never_claims_posted),
+        ("red-union-posts-no-status", red_union_posts_no_status),
         ("ratchet-overshoot-attributed-per-member", ratchet_overshoot_attributed_per_member),
         ("dry-run-is-default", dry_run_is_default),
         ("apply-needs-grant", apply_needs_grant),
