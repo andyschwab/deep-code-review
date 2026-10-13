@@ -144,7 +144,10 @@ def default_ref(target: Path) -> str:
 
 def committed_behind(target: Path) -> tuple | None:
     """`(committed, installed)` version strings when the Perun copy committed on the default branch is older
-    than the working tree's; None when current, unreadable or no default ref. Local refs only, no network."""
+    than the working tree's; None when current, unreadable, no default ref, or no install marker (not an install). Local refs only, no network."""
+    # only an INSTALLED target: Perun's own source repo is ahead of its default branch on every release branch
+    if not (target / ".claude" / ".perun-install.json").is_file():
+        return None
     ref = default_ref(target)
     try:
         have = (target / VER).read_text().strip()
