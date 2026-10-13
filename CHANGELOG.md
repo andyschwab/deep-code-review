@@ -3,6 +3,18 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.570.0] — 2026-10-13
+
+### Changed
+- idea-critic: moved the Anti-rationalization (excuse → rebuttal) table out of `SKILL.md` into the routed `references/anti-rationalization.md` (same content, read before `PASS_TO_USER` or when skipping a hat). `SKILL.md` drops from 16,320 to 15,474 bytes, under consumers' ~4,000-token (chars/4) core cap.
+- Size gate: every `.claude/skills/*/SKILL.md` must now be at most 16,000 bytes. Only `agentic-delivery` and `deep-code-review` (over the cap today) are allowlisted, frozen at their current byte budgets (may shrink, never grow). Planted-RED self-test added.
+
+### Fixed
+- Auto-update PR base: new policy key `auto_update_pr_base` (default empty = `origin/HEAD` as before) names the branch the `perun/update-v<ver>` PR targets and the committed-version WARN compares against. A named base missing on origin skips with `pr skip: auto_update_pr_base '<b>' not found on origin`, never guessed.
+- Install flags: capability-adding or safety-reducing flags (`--with-operating-layer`, `--apply-operating-layer`, `--no-sandbox`) are now recorded in the untracked `.claude/.dcr-install-flags.local` (excluded via `.git/info/exclude`), so a committed record no longer replays one machine's choice on every clone. Pack flags and the conservative opt-outs (`--no-auto-update`, `--no-operating-layer`) stay in the tracked `.dcr-install-flags`; the three local flags found there are ignored with a warning, never honored. `update-installed.sh`, `perun_doctor.py` and the uninstaller read/remove both; a local flag in an old tracked file is ignored with a warning (re-run install.sh with it on that machine) and dropped on the next install.
+size-budget-raise: .claude/skills/agentic-delivery/references/host-enforcement.md 40807→40994 one sentence for the PR base key
+size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 6903→7053 one sentence for the local flags file
+
 ## [1.569.0] — 2026-10-13
 
 Council works with models that have no file tools: the evidence packet is shown with numbered lines and its path, so citations can be verified without the model reading files. Measured before the fix: 21 of 29 bench cases ended undecided because a tool-less model tried to open the packet.
