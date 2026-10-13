@@ -9,7 +9,9 @@ fails closed (exit 2), never silently falls back.
 
 Each dimension in DIMS takes `efficient` (default), `maximize`, `off`, or a non-negative number (a cap).
 `share_learnings` takes `auto|ask|off` (default `ask`). `auto_update` takes `on|off` (default `on`):
-whether perun_auto_update.py may re-apply a newer release tag in the background. `review_gate` takes
+whether perun_auto_update.py may re-apply a newer release tag in the background. `auto_update_pr` takes `on|off`
+(default `on`): whether it then opens a `perun/update-v<ver>` PR so the copy committed on the default branch catches
+up (never auto-merged). `review_gate` takes
 `warn|enforce|off` (default `warn`): whether review_gate.py blocks a merge with no independent review receipt.
 `release_every` takes an integer >= 1 (default 1): `land-release.sh publish` releases only when the minor is a multiple of it.
 
@@ -70,7 +72,7 @@ def load(path: Path | None = None) -> dict:
 
 def validate(raw: dict) -> dict:
     """Defaults overlaid with `raw`; ValueError on an unknown key or a bad value."""
-    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on", "review_gate": "warn", "release_every": 1}
+    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on", "auto_update_pr": "on", "review_gate": "warn", "release_every": 1}
     for k, v in raw.items():
         if k == "share_learnings":
             ok = v in SHARE
@@ -78,7 +80,7 @@ def validate(raw: dict) -> dict:
             ok = v in REVIEW
         elif k == "release_every":  # publish a GitHub release every Nth minor version (land-release.sh publish)
             ok = isinstance(v, int) and not isinstance(v, bool) and v >= 1
-        elif k == "auto_update":
+        elif k in ("auto_update", "auto_update_pr"):
             ok = v in ON_OFF
         elif k in DIMS:
             ok = v in MODES or (isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0)
@@ -333,7 +335,7 @@ def _selftest() -> int:
     p.write_text('{"local_cpu": "maximize", "github_actions": "off", "tokens": 5000, "share_learnings": "auto"}')
     pol = load(p)
     assert (pol["local_cpu"], pol["github_actions"], pol["tokens"], pol["share_learnings"]) == ("maximize", "off", 5000, "auto")
-    assert pol["network"] == "efficient" and pol["auto_update"] == "on"
+    assert pol["network"] == "efficient" and pol["auto_update"] == "on" and pol["auto_update_pr"] == "on"
     p.write_text('{"auto_update": "off"}')
     assert load(p)["auto_update"] == "off"
     for bad in ('{"tokens": "lots"}', '{"nope": 1}', '{"tokens": -1}', '{"share_learnings": "yes"}', '{"auto_update": true}', "[1]", "{"):

@@ -558,3 +558,18 @@ hand; `install.sh` never edits settings:
 - **Host classifiers block self-modification.** In auto mode a host safety classifier can refuse an agent's commit of agent-instruction files (`AGENTS.md`, `.claude/agents/*`) even when the owner authored them. Ship such a rollout as an install-script step the owner runs; never have an agent commit it.
 - **Prefer fixup commits to amend.** The same classifiers treat amending an unpushed commit as destructive, so doctrine should say fixup commit, not amend.
 - **Toolchain preflight.** Before gates run, check that each required tool resolves on `PATH` (a package manager supplied by a shim such as corepack often does not); a missing shim otherwise surfaces as an opaque hook failure.
+
+## Committed Perun copy stays current (auto-update PR)
+
+Background auto-update (`scripts/perun_auto_update.py`) rewrites only the main clone's working tree. The Perun
+copy committed on the integration branch then stays old, so every lane worktree and fresh checkout (branched from
+it) runs old skills. With policy `auto_update_pr: on` (the default; `off` opts out) the same worker, after an update
+or an up-to-date check, opens a PR that commits the installed managed paths (the marker's skill dirs and slash-command
+files) to `perun/update-v<ver>`. It works in a throwaway detached worktree off `origin/<default>`, so the user's
+checkout and uncommitted work are never touched; pushes without force; opens the PR with `gh pr create`, falling back
+to `gh_rest.py`'s curl path; never merges. It skips when the committed version already equals the installed one,
+when the branch or a PR for it exists, or when nothing differs, and logs the outcome to `auto-update.log`. Failures
+stay silent to the agent and never block the session. Read-only detection: `session_brief.py` and
+`operating_selfcheck.py` WARN `committed Perun vX < installed vY: lanes in other worktrees run old skills;
+open/merge the perun/update PR` when `git show <default>:.claude/skills/deep-code-review/VERSION` is behind the
+working tree. Merging that PR is the human's call (protocol, not enforced).
