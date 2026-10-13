@@ -179,6 +179,12 @@ class AutoUpdatePrTests(unittest.TestCase):
         sh("git", "update-ref", "-d", "refs/remotes/origin/main", cwd=self.proj)
         self.assertIsNone(au.behind_warn(self.proj))
 
+    def test_no_warn_without_install_marker(self):
+        # Perun's own source repo is ahead of its default branch on every release branch: not an install, no WARN
+        self.assertIsNotNone(au.behind_warn(self.proj))
+        (self.proj / ".claude/.perun-install.json").unlink()
+        self.assertIsNone(au.behind_warn(self.proj))
+
 
 if __name__ == "__main__":
     unittest.main()
