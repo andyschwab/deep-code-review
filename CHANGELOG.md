@@ -3,6 +3,20 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.571.0] — 2026-10-13
+
+README states the tools-enabled benchmark result (50 cases, mid-tier model): +4.7 points of recall over a plain prompt with the same tools, F1 a tie, about twice the cost; three further levers tested and not shipped.
+
+Auto-update is no longer blocked by an uncommitted edit to a tracked `.claude/settings.json` (or any settings file other than `.claude/settings.local.json`): an update never writes those files. Seen in the field right after the linked-worktree fix: the next run skipped on a team settings edit.
+
+### Added
+- `scripts/vacuous_test_gate.py`: fails a changed test file that executed 0 tests, skipped every test, or reported 0 assertions (JUnit XML, Jest JSON, pytest-json-report); a changed file missing from the report is `COULD_NOT_CHECK`, never green. Routed from `verification-handback.md`.
+- `scripts/preflight.py`: runs all cheap gates from a JSON list first and prints every failure together, runs expensive gates only if they pass (or `--all`), caches per-gate wall time and prints the slowest; an unstartable gate is `COULD_NOT_RUN`. Routed from `red-gate-triage.md`.
+- Both have `--selftest`, wired into `scripts/test-ci-gates.sh`.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/verification-handback.md 59384→59723 route the vacuous-test gate
+size-budget-raise: .claude/skills/agentic-delivery/references/red-gate-triage.md 21607→22000 route the preflight runner
+
 ## [1.570.0] — 2026-10-13
 
 ### Changed

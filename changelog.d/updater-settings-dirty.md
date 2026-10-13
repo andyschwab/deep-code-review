@@ -1,1 +1,0 @@
-Auto-update is no longer blocked by an uncommitted edit to a tracked `.claude/settings.json` (or any settings file other than `.claude/settings.local.json`): an update never writes those files. Seen in the field right after the linked-worktree fix: the next run skipped on a team settings edit.

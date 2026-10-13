@@ -1,1 +1,0 @@
-README states the tools-enabled benchmark result (50 cases, mid-tier model): +4.7 points of recall over a plain prompt with the same tools, F1 a tie, about twice the cost; three further levers tested and not shipped.
