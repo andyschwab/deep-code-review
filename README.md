@@ -73,6 +73,16 @@ independent pass raised recall from 0.69 to 0.74 (+0.05, interval 0.00 to +0.13)
 the cost. Extra probe steps were tried on 24 further cases, did not help, and were not
 shipped. The advantages in the tables above are measured on the mid-tier model only.
 
+**With tools enabled (the reviewer may run commands), measured 2026-10-13.** 50 Node and
+Python cases on `claude-sonnet-5-5`, pooled over repeated runs: Perun caught 48.0% of the
+known bugs against 43.3% for a plain prompt with the same tools (+4.7 points, interval +0.7
+to +9.3); precision was equal (80%); F1 0.601 against 0.563 (+0.038, interval -0.006 to
++0.086, a tie); $0.14 against $0.07 per run. Extra "run a probe for each candidate" and
+"compare old and new behavior" steps, and a much shorter core file, were tested and either
+did not help or made results worse; none shipped. Plainly: on small bug-fix diffs Perun is
+a little better than a plain prompt at finding bugs on the mid-tier model and no better on
+the strongest one. Its clear advantage is far fewer false alarms than `/code-review`.
+
 - **Shorter instructions to read.** AI tools charge by the *token* (a piece of a word).
   The instructions the assistant must read before each review shrank by
   [19%](CHANGELOG.md) (release 1.501.0, counted as characters divided by 4).
