@@ -199,7 +199,26 @@ class InstallWiringTests(unittest.TestCase):
         p = self.install(repo, "--no-auto-update")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(json.loads((repo / ".perun/policy.json").read_text()), {"tokens": 5, "auto_update": "off"})
-        self.assertIn("--no-auto-update", (repo / ".claude/.dcr-install-flags").read_text())
+        self.assertIn("--no-auto-update", (repo / ".claude/.dcr-install-flags.local").read_text())
+
+    def test_machine_local_flags_go_to_untracked_local_file_and_migrate(self):
+        repo = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        p = self.install(repo, "--with-delivery", "--apply-operating-layer", "--no-sandbox")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        tracked, local = (repo / ".claude/.dcr-install-flags").read_text(), (repo / ".claude/.dcr-install-flags.local").read_text()
+        self.assertEqual((tracked.split(), local.split()), (["--with-delivery"], ["--apply-operating-layer", "--no-sandbox"]))
+        self.assertIn(".dcr-install-flags.local", (repo / ".git/info/exclude").read_text())
+        self.assertNotIn("dcr-install-flags", (repo / ".claude/.perun-install.json").read_text())  # not a managed file
+        # migration: an old tracked file holding a local flag still replays it, and is split on the update
+        (repo / ".claude/.dcr-install-flags").write_text("--with-delivery\n--apply-operating-layer\n")
+        (repo / ".claude/.dcr-install-flags.local").unlink()
+        u = subprocess.run(["bash", str(ROOT / "scripts/update-installed.sh"), str(repo)], capture_output=True, text=True,
+                           env={**os.environ, "DCR_NO_PULL": "1", "PERUN_REMOTE": "https://example.com/perun.git"})
+        self.assertEqual(u.returncode, 0, u.stderr)
+        self.assertEqual((repo / ".claude/.dcr-install-flags").read_text().split(), ["--with-delivery"])
+        self.assertEqual((repo / ".claude/.dcr-install-flags.local").read_text().split(), ["--apply-operating-layer"])
+        self.assertIn("subagent_start_inject.py", (repo / ".claude/settings.local.json").read_text())
 
 
 if __name__ == "__main__":

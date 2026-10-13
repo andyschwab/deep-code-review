@@ -78,11 +78,17 @@ def settings_env(repo):
     return env
 
 
+def flag_words(repo):
+    """Flags from the tracked record plus the untracked machine-local one."""
+    return [w for n in (".dcr-install-flags", ".dcr-install-flags.local")
+            for w in ((repo / ".claude" / n).read_text().split() if (repo / ".claude" / n).is_file() else [])]
+
+
 def check(repo, home):
     rows = []  # (status, check, detail)
     add = lambda s, c, d: rows.append((s, c, d))
     flags = repo / ".claude/.dcr-install-flags"
-    flagtxt = flags.read_text().split() if flags.is_file() else []
+    flagtxt = flag_words(repo)
     latest, mine = ver(SRC), ver(repo)
     if not mine:
         add("FAIL", "installed version", "deep-code-review not installed in this repo")
@@ -188,8 +194,7 @@ def verdict(rows, repo):
 
 def default_on_preview(repo):
     """Lines describing what the default-on operating layer would add when old flags are replayed."""
-    f = repo / ".claude/.dcr-install-flags"
-    flags = f.read_text().split() if f.is_file() else []
+    flags = flag_words(repo)
     if not ({"--with-delivery", "--full"} & set(flags)) or {"--no-operating-layer", "--with-operating-layer", "--apply-operating-layer"} & set(flags):
         return []
     t = json.loads((SRC / ".claude/skills/agentic-delivery/templates/operating-layer.settings.json").read_text())

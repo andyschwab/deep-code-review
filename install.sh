@@ -654,17 +654,33 @@ fi
 
 [[ -z "${OPLAYER_PRE:-}" ]] || rm -f "${OPLAYER_PRE}"
 
-# Record the flags so scripts/update-installed.sh can replay this install.
+# Record the flags so scripts/update-installed.sh can replay this install. Machine-local flags (they only shape
+# this machine's settings.local.json / policy) go to an untracked .dcr-install-flags.local so a committed record
+# never replays one person's choice on another clone; pack-selection flags stay in the tracked file.
 mkdir -p "${TARGET_DIR}/.claude"
+LOCAL_FLAGS="${TARGET_DIR}/.claude/.dcr-install-flags.local"
 { skip=0
   for a in "$@"; do
     if [[ "${skip}" -eq 1 ]]; then skip=0; continue; fi
     case "${a}" in --tracker-project|--tracker|--tracker-project=*|--tracker=*) [[ "${a}" == *=* ]] || skip=1; continue ;; esac
+    case "${a}" in --with-operating-layer|--apply-operating-layer|--no-operating-layer|--no-sandbox|--no-auto-update) continue ;; esac
     [[ "${a}" == -* ]] && printf '%s\n' "${a}"
   done
   # tracker flags replay as single-token --opt=value lines (the marker is one arg per line)
   [[ -n "${TRACKER_PROJECT}" ]] && printf -- '--tracker-project=%s\n--tracker=%s\n' "${TRACKER_PROJECT}" "${TRACKER}"
   true; } > "${TARGET_DIR}/.claude/.dcr-install-flags"
+for a in "$@"; do
+  case "${a}" in --with-operating-layer|--apply-operating-layer|--no-operating-layer|--no-sandbox|--no-auto-update) printf '%s\n' "${a}" ;; esac
+done > "${LOCAL_FLAGS}"
+if [[ -s "${LOCAL_FLAGS}" ]]; then  # keep the local record out of git without touching a tracked .gitignore
+  _ex="$(git -C "${TARGET_DIR}" rev-parse --git-path info/exclude 2>/dev/null || true)"
+  [[ -z "${_ex}" || "${_ex}" == /* ]] || _ex="${TARGET_DIR}/${_ex}"
+  if [[ -n "${_ex}" ]] && ! grep -qxF '.claude/.dcr-install-flags.local' "${_ex}" 2>/dev/null; then
+    { mkdir -p "$(dirname "${_ex}")" && printf '.claude/.dcr-install-flags.local\n' >> "${_ex}"; } 2>/dev/null || true
+  fi
+else
+  rm -f "${LOCAL_FLAGS}"
+fi
 # session_brief.py compares the installed version to this checkout's origin/main (machine-local, never committed).
 if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
   { mkdir -p "${XDG_CACHE_HOME:-${HOME}/.cache}/perun" && printf '%s\n' "${SCRIPT_DIR}" > "${XDG_CACHE_HOME:-${HOME}/.cache}/perun/source"; } 2>/dev/null || true

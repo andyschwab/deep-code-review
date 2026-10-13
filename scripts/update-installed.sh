@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Re-run install.sh on each TARGET with the flags recorded by its last install
-# (TARGET/.claude/.dcr-install-flags), so installed skills track this checkout.
+# (TARGET/.claude/.dcr-install-flags plus the untracked .dcr-install-flags.local for machine-local flags), so installed skills track this checkout.
 # First fetches this checkout and fast-forwards it when behind its upstream;
 # refuses on a dirty tree, diverged history, or no upstream (DCR_NO_PULL=1 skips).
 # Usage: scripts/update-installed.sh TARGET...
@@ -21,8 +21,9 @@ fi
 echo "dcr version: $(cat "${HERE}/.claude/skills/deep-code-review/VERSION")"
 # One bad target must not abort the rest: run each in a function (|| disables set -e, so return explicitly).
 update_one() {
-  local t="$1" m inf p l flags
+  local t="$1" m inf p l flags mf
   m="${t}/.claude/.dcr-install-flags"
+  mf="${m}.local"
   if [[ ! -f "${m}" ]]; then
     # Pre-marker install: infer one flag per installed sibling skill, plus the operating layer.
     inf=()
@@ -32,7 +33,7 @@ update_one() {
       product-output-safety:--with-output-safety; do
       [[ -d "${t}/.claude/skills/${p%%:*}" ]] && inf+=("${p#*:}")
     done
-    grep -qs subagent_start_inject.py "${t}/.claude/settings.local.json" && inf+=(--apply-operating-layer)
+    grep -qs subagent_start_inject.py "${t}/.claude/settings.local.json" && printf '%s\n' --apply-operating-layer > "${mf}"
     [[ -d "${t}/.claude/skills/deep-code-review" ]] \
       || { echo "error: no install marker at ${m} and no deep-code-review skill to infer from; run install.sh once first" >&2; return 1; }
     mkdir -p "${t}/.claude" || return 1
@@ -41,6 +42,8 @@ update_one() {
   fi
   flags=()
   while IFS= read -r l; do [[ -n "${l}" ]] && flags+=("${l}"); done < "${m}"
+  # machine-local flags (untracked); an older tracked file may still hold them too, so both are read and install.sh re-splits
+  if [[ -f "${mf}" ]]; then while IFS= read -r l; do [[ -n "${l}" ]] && flags+=("${l}"); done < "${mf}"; fi
   bash "${HERE}/install.sh" ${flags[@]+"${flags[@]}"} "${t}" || return 1
 }
 failed=()
