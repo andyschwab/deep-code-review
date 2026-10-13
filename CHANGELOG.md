@@ -3,6 +3,13 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.567.0] — 2026-10-13
+
+### Added
+- idea-critic council: `scripts/council.py` runs the three hats as independent calls on any model (`--cmd` template, repeatable for mixed models), tallies the verdict deterministically, runs an anonymized critique only on disagreement, verifies `path:line` citations, keeps dissent verbatim, computes confidence, and fails closed with `COULD_NOT_DECIDE` on caps or command failure. `validate_verdict.py` accepts the council record. Kill criterion: keep only if it beats self-consistency-3 at equal budget on the bench.
+
+size-budget-raise: .claude/skills/idea-critic/SKILL.md 16062→16320 routes the council reference
+
 ## [1.566.0] — 2026-10-13
 
 Auto-update now opens a `perun/update-v<ver>` PR so the Perun copy committed on the default branch catches up (policy `auto_update_pr`, default on; never auto-merged, user checkout untouched); `session_brief.py` and `operating_selfcheck.py` warn when the committed copy is behind the installed one.
