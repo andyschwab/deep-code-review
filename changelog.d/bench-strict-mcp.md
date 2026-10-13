@@ -1,1 +1,0 @@
-- Benchmark reviewers now run with `--strict-mcp-config`: account-level claude.ai connectors otherwise attached about 140k input tokens to every reviewer call ($0.585 vs $0.002 for the same one-line read), which swamped review cost and made arms incomparable.
