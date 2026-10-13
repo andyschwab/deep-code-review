@@ -30,7 +30,8 @@ python3 scripts/council.py --cmd "claude -p --strict-mcp-config" \
   than 2 parseable answers is `COULD_NOT_DECIDE`.
 - Verdict = deterministic tally; ties go to the more cautious
   (`HOLD` > `REVISE` > `PASS_TO_USER`); `owner-request` + `HOLD` becomes `REVISE`.
-  `confidence` = top-vote share x mean verified-claim share, never self-reported.
+  `confidence` = (top votes / n) x (mean verified-claim share over the n parsed
+  lenses) x (n / 3, the drop factor), never self-reported.
   Minority answers are kept verbatim in `dissent`.
 - `--max-calls` (8), `--max-chars` (200000), `--max-seconds` (600 total) and
   `--timeout` (120s per call) are checked before each call; any internal error

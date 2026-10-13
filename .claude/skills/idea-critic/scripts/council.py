@@ -142,7 +142,7 @@ def run(a) -> dict:
                 rec["unsupported_claims"].append(c)
             elif s_ == "cited-unverified":
                 rec["cited_unverified"].append(c)
-        answers.append({"cmd": cmd, "raw": raw.strip(), "verdict": d["verdict"], "would": d["would_change_it"],
+        answers.append({"lens": LENSES[k], "cmd": cmd, "raw": raw.strip(), "verdict": d["verdict"], "would": d["would_change_it"],
                         "share": states.count("verified") / len(states) if states else 0.0})
     n = len(answers)
     if n < 2:
@@ -162,6 +162,9 @@ def run(a) -> dict:
                 d = parse(raw, "attacks")
             except (ValueError, KeyError):
                 continue
+            if "attacks" not in d:
+                rec["dropped"].append([answers[i]["lens"], "critique missing attacks"])
+                continue
             good = [x for x in d["attacks"] if x.get("target") in mine and cite_state(x, root) == "verified"]
             rec["voided_objections"] += [x for x in d["attacks"] if x not in good]
             if good:
@@ -172,7 +175,7 @@ def run(a) -> dict:
     if a.origin == "owner-request" and verdict == "HOLD":
         verdict = "REVISE"  # schema: owner-request + HOLD is illegal
     rec.update(verdict=verdict, tally=tally,
-               confidence=round(top / n * sum(x["share"] for x in answers) / 3, 3),
+               confidence=round((top / n) * (sum(x["share"] for x in answers) / n) * (n / 3), 3),
                dissent=[x["raw"] for x, f in zip(answers, final) if f != verdict],
                what_would_change_it=[x["would"] for x in answers if x["would"]] or
                ["UNVERIFIED: no reviewer stated a checkable condition"])

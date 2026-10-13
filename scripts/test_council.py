@@ -86,6 +86,14 @@ class T(unittest.TestCase):
         self.assertEqual(len((d / "B").read_text().splitlines()), 2)
         self.assertLess(rec["confidence"], 1.0)
 
+    def test_critique_without_attacks_dropped_only_that_critic(self):
+        rc, rec, _, _ = self.run_council([ans("HOLD"), ans("REVISE"), ans("HOLD")], '{"verdict": "HOLD"}')
+        self.assertEqual((rc, rec["verdict"], len(rec["dropped"])), (0, "HOLD", 3))
+
+    def test_confidence_two_lenses_full_agreement(self):
+        _, rec, _, _ = self.run_council([ans("REVISE"), ans("REVISE"), "not json"])
+        self.assertEqual(rec["confidence"], round(2 / 3, 3))
+
     def test_unevidenced_critique_cannot_flip_and_is_voided(self):
         crit = json.dumps({"verdict": "HOLD", "attacks": [{"target": "A", "text": "t", "evidence": "nope.py:9"}]})
         _, rec, _, _ = self.run_council([ans("REVISE"), ans("REVISE"), ans("PASS_TO_USER")], crit)
