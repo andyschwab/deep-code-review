@@ -1,4 +1,0 @@
-### Fixed
-- Field logs showed hundreds of daily host refusals (`Blocked: sleep N`, "names git in a form too complex to verify"). A fixed two-line `HOST_RULES` block (never `sleep N` to wait; plain separate git commands from the worktree root, no `cd X &&` chains or loops) is now always injected by `session_brief.py` at SessionStart and by `subagent_start_inject.py` at SubagentStart, even when `house-defaults.md` is missing; both read one constant.
-- `heavy_gate.py` kept a stateless deny that contradicted the lane preamble's "retry at most 3 times, then proceed". It now keeps a ledger and allows the command with a WARN after 3 denies of the same command in the same cwd within 30 minutes.
-- The operating-layer template no longer sets `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`; it keeps the `sonnet` default, and `FORCE` was overriding the Opus high-stakes review pass.

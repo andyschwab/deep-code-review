@@ -3,6 +3,91 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.565.0] — 2026-10-13
+
+### Changed
+- README and bench-results now report the 2026-10-12 paired strict-MCP benchmark (n=39, n=34 vs /code-review) with intervals and caveats; unsupported earlier claims removed.
+
+- Benchmark reviewers now run with `--strict-mcp-config`: account-level claude.ai connectors otherwise attached about 140k input tokens to every reviewer call ($0.585 vs $0.002 for the same one-line read), which swamped review cost and made arms incomparable.
+
+### Fixed
+- agentic-delivery: test-result parsers fail closed. `train_flake.sh` exits 2 with `could not check` when its failed-ids file is missing (it used to read as "no REAL failures", exit 0); `train_land.sh` no longer treats a `GREEN` log line as a pass when the verify step exited non-zero (for example SIGKILLed after printing it). Tests: `scripts/test-train-failclosed.sh`.
+- agentic-delivery: a failed `gh pr list` in `land_train.sh` no longer reads as "no stacked children" (the merge would close them); it prints `could not check: ...` and exits 1. `train_land.sh` does the same for a failed PR base read, and its no-GREEN line shows the verify step's rc and last output line. `land_train.sh` names the failing step (line and command) instead of exiting silently.
+- `_lock.sh`: a busy lock reports holder alive/dead/unknown and age; a waiter says who it waits on and a dead holder still stops the wait with the exact hand-reclaim command (nothing deleted).
+- New `gh_rest.py`: one shared curl fallback for `gh api` when gh fails TLS in a macOS sandbox (`x509: OSStatus -26276`); used by `board_common`, `surface_check`, `merge_train` and as the default `GH` of the train and cleanup scripts. `gh pr ...` has no fallback and fails with the cause named. Tests: `scripts/test-delivery-friction.sh`. `gh_rest.py` sends POST when `--input` is given without `-X` (as `gh api` does) and passes the token to curl on stdin, not argv.
+- `clean_finished.sh`: an `lsof` error or unavailable result now counts as "in use / could not check": the worktree is skipped with the reason printed, not removed.
+- `clean_finished.sh`: `SCRATCH` paths are deleted only when they resolve strictly inside `$TMPDIR`; anything else is skipped with a message.
+
+
+
+### Added
+- release-engineering: gate-tooling rule that a zero failure count needs exit status and a summary line first (a killed run parses as zero failures), with an eval.
+
+### Fixed
+- Field logs showed hundreds of daily host refusals (`Blocked: sleep N`, "names git in a form too complex to verify"). A fixed two-line `HOST_RULES` block (never `sleep N` to wait; plain separate git commands from the worktree root, no `cd X &&` chains or loops) is now always injected by `session_brief.py` at SessionStart and by `subagent_start_inject.py` at SubagentStart, even when `house-defaults.md` is missing; both read one constant.
+- `heavy_gate.py` kept a stateless deny that contradicted the lane preamble's "retry at most 3 times, then proceed". It now keeps a ledger and allows the command with a WARN after 3 denies of the same command in the same cwd within 30 minutes.
+- The operating-layer template no longer sets `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`; it keeps the `sonnet` default, and `FORCE` was overriding the Opus high-stakes review pass.
+
+### Added
+- communication-structure: default seven-part leadership status update (bottom line with timestamp and number, what moved as before → after, verified-live user abilities, health, slipped, A/B decision, one detail link) in `references/leadership-status-update.md`, with `scripts/status_update_lint.py` (reuses `status_vocab_lint`), tests and an eval case. agentic-delivery `work-tracking.md` now links to it and posts per milestone instead of weekly.
+
+
+### Changed
+- communication-structure: `status_update_lint.py` accepts natural variants (any date-form timestamp with zone, `X → Y` with optional delta, `Recommended: A`, file-path Detail, "nothing new is live yet"); "merge" is no longer jargon, SHAs are. Adds owner-format regression fixtures and one failing fixture per rule.
+
+size-budget-raise: .claude/skills/communication-structure/SKILL.md 7661→7890 leadership status update pointer
+size-budget-raise: .claude/skills/agentic-delivery/references/work-tracking.md 3585→3687 link to leadership status structure
+
+### Added
+- Learned-rules lifecycle in `review_feedback.py learn`: candidate, shadow, promoted, disabled derived deterministically from the feedback ledger into a capped `.review/learned-rules.md` that a review loads only if present. Safety-floor rules are never disabled. Tests: `scripts/test_learned_rules.py` (5).
+- size-budget-raise: review-config.md and review_feedback.py carry the learn lifecycle.
+- `record` now regenerates `learned-rules.md` beside the ledger and SKILL.md Phase 0 loads it when present; area A joins the never-disable floor; control characters in a rule are rejected; one threshold source (`DISABLE_MIN`).
+- Areas F, G and I (reliability, concurrency, contracts) join the never-disable floor.
+
+### Added
+- `task_ledger.py away`: one numbered, paste-ready batch of pending owner decisions (default + what each blocks).
+- `union_overlap.py`: lists files two in-flight merge unions both touch (exit 1 overlap, exit 2 COULD_NOT_CHECK).
+
+size-budget-raise: .claude/skills/agentic-ceo/SKILL.md 12725→12762 one routing line for `away`
+size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 69576→69797 one routing line for union_overlap.py
+
+### Fixed
+- `train_land.sh` bisect no longer lands regressions or blames flakes: each real browser failure is re-run in isolation through `train_flake.sh` (`FLAKE_RUNS`/`FLAKE_REAL_AT`); a PR is dropped only when it fails the id alone, flaky-only bisects print `FLAKY` with no blame, and any failure not pinned to a culprit prints `CANT` and lands nothing (exit 3). A `FLAKE` must now pass at least `FLAKE_RUNS`-1 of `FLAKE_RUNS` isolated re-runs: a `FLAKE_REAL_AT` above 2 no longer lets two failures pass as flakes.
+- `reap_own.sh` prints `orphans=` / `reaped=COULD_NOT_CHECK` (exit 2) when pgrep or lsof fail, never a false `orphans=0`; `session_brief.py` prints `NOT CHECKED` lines for unreadable versions, merged-worktree lists and dev-server scans instead of staying silent.
+- `handback_cap.py` blocks a hand-back while a `git push` / `git -C <dir> push` from the lane's worktree is still running (it keeps blocking while the push is live, released after 30 min; `git -c k=v` and quoted `-C "dir"` forms match; an unknowable state prints `COULD_NOT_CHECK` and passes); the lane preamble states a lane owns its background work until it completes.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 69576→69999 document the CANT rule for the train bisect
+
+### Added
+- agentic-delivery: `bypass_guard.py` PreToolUse(Bash) hook (wired in `operating-layer.settings.json`) denies `git commit|push|merge --no-verify`, `git commit -n`, `HUSKY=0`/`SKIP=` env prefixes and `-c core.hooksPath=`, with the fix "fix the failing hook; never bypass".
+- agentic-delivery: shared `_dirty_guard.sh` (`require_clean_tree`); `train_land.sh` refuses a dirty tree up front with the exact fix, and a `test-ci-gates.sh` lint requires it in any skill shell script that runs `git checkout|switch|reset`.
+- agentic-delivery: `merge_checkpoint.sh save|status` persists a stalled merge (`.git/perun-merge-state`); `session_brief.py` shows a one-line resume instruction.
+- agentic-delivery: `train_land.sh` and `land_train.sh` print up front that the run lands to the base and that a host-classifier denial means stop and park for the owner, never retry or route around.
+
+### Fixed
+- install.sh: `--with-operating-layer` writes a default `.claude/house-defaults.md` (lane budget, one-line hand-back, optional voice pointer) only on apply, only when absent and not a symlink; the SubagentStart injector previously failed open without it, so lanes ran past the token cap.
+- operating_selfcheck.py: reports `MISSING RED` when the injector hook is wired but the house-defaults file is absent or empty; prints the effective heavy-slot count and WARNs on a `PERUN_POLICY` env override or >1 under an override or a running train.
+- Heavy admission (`host_probe.py --lane-type heavy`, `perun_policy.py heavy-slots`/`lanes`) uses CPU idle when readable, so IO-inflated load1 with idle CPUs no longer stalls; load1 stays the fallback.
+- Pipe bug class: `git log | grep -q` under pipefail (integrator-gate, ci-gates rule-baseline) and `printf | grep -q` on large range logs now capture or use here-strings; `scripts/test-ci-gates.sh` lints for `awk -v` fed command substitutions or list variables and `merge-tree | head`.
+
+### Added
+- `pre-push-verify.sh` now also runs the cheap deterministic CI gates over the pushed range when the repo ships them: size-ratchet against the merge-base, the mustload floor pin, `run-evals.py --selftest`, INDEX.md freshness and SHA256SUMS freshness. Each failure names its cause and the exact fix (the marker line to add, or `land-release.sh --regen`). The repo ships `.githooks/pre-push` wiring it; lanes enable it per clone with `git config core.hooksPath .githooks` (one line in the lane preamble). Runs in about a second; fails closed. Tested by `scripts/test-prepush-ci-parity.sh` (planted RED per gate plus a green run).
+
+Cut token cost of skill routing. `skill_index.py` now emits one-line triggers (first sentence, 90-100 chars), drops the exit-codes and per-script token columns, and lists `scripts/*.sh` (8 agentic-delivery shell scripts were missing, including `train_land.sh` and `land_train.sh`); the deep-code-review INDEX.md shrinks from 9.4k to about 4.8k tokens and the agentic-delivery one from 4.7k to about 2.8k. agentic-delivery SKILL.md gains a Task to entry table (train, red gate, lane, worktree, verification, new fleet) so common tasks skip INDEX.md, and the previously unrouted red-gate task now has a route. `references/merge-queue-worktrees.md` is split into three routed parts: `merge-queue-worktrees.md` (queue, seat, train landing), `red-gate-triage.md` (red unions, flaky and absent checks) and `worktree-isolation.md`; cross-references and the ledger index are updated.
+
+- Review: DIFF quick-path is concrete (≤300 lines, no blast-radius flag → `compact-mode.md` only, affected tests); lane preamble keeps build/fix lanes off review references; unread monitors score as high as the invariant they guard; "in use" checks enumerate cwd, exec path, script fd, open/mapped files, locks.
+
+Size budgets raised for the new checks above.
+
+### Added
+- agentic-delivery: `clock_lint.py [--base REF] [FILES]` flags tests that read the real clock (`Date.now()`, `datetime.now()`, `time.time()`, `time.Now()`, shell `date`) unless a real fake clock (freezegun, time_machine, fake timers, an injected `now=`) is in scope of that test, as `file:line: real clock in test; pin a fake clock or inject now`; exit 1 on findings, 2 and `COULD_NOT_CHECK` on an unreadable file, `clock-lint: allow` as the per-line escape. The pre-push template runs it warn-only on the pushed range, so installed repos get it with no setup. Doctrine: the future-clock run in `verification-handback.md` **Done means verified**; review lens in `testing-situational.md`.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/verification-handback.md 58477→59102 future-clock run bullet
+size-budget-raise: .claude/skills/deep-code-review/references/testing-situational.md 40032→40355 real-clock review lens sentence
+
+### Fixed
+- `train_land.sh`: when `BROWSER_CMD` fails and `BASELINE_FAILS` is unset, the failing ids are re-run alone at the base (via `RERUN_CMD`, `TEST=<id>`, twice). Ids that also fail there print `BASE RED: <n> pre-existing: ids` and no longer block the train; only new failures do. Without `RERUN_CMD` behavior is unchanged and a fix hint is printed. The header now states `BROWSER_CMD` must be the affected specs plus smoke, never the full suite (field case: a 17-PR train ran a full suite against a base already failing 110 tests and merged nothing for two days).
+
 ## [1.564.0] — 2026-10-09
 
 ### Added
