@@ -709,10 +709,15 @@ class Train:
         for i, m in enumerate(members):
             why = self.still_ready(m)
             posted = not why and self.post_status(m, "success")
-            why = why or self.merge_one(m)
+            try:
+                why = why or self.merge_one(m)
+            except BaseException:  # interrupted or crashed between vouch and merge: never leave success on an unmerged head
+                if posted:
+                    self.post_status(m, "error") or self.post_status(m, "error")
+                raise
             if why:
-                if posted:  # overwrite the vouch: this head did not land
-                    self.post_status(m, "error")
+                if posted:  # overwrite the vouch: this head did not land (one retry; a failed post is a loud WARN)
+                    self.post_status(m, "error") or self.post_status(m, "error")
                 self.park(m, why)
                 self.state["members"] = []
                 self.save()
