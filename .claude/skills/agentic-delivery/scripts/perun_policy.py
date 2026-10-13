@@ -82,7 +82,7 @@ def validate(raw: dict) -> dict:
         elif k == "release_every":  # publish a GitHub release every Nth minor version (land-release.sh publish)
             ok = isinstance(v, int) and not isinstance(v, bool) and v >= 1
         elif k == "auto_update_pr_base":  # '' = origin/HEAD; else a plain branch name (no option-like or `..` names)
-            ok = isinstance(v, str) and (v == "" or (re.fullmatch(r"[A-Za-z0-9._/-]+", v) is not None and v[0] not in "-/" and ".." not in v))
+            ok = isinstance(v, str) and (v == "" or (re.fullmatch(r"[A-Za-z0-9._/-]+", v) is not None and v[0] not in "-/" and v[-1] != "/" and ".." not in v and "//" not in v and v != "HEAD"))
         elif k in ("auto_update", "auto_update_pr"):
             ok = v in ON_OFF
         elif k in DIMS:

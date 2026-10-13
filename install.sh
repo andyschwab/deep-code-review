@@ -654,29 +654,31 @@ fi
 
 [[ -z "${OPLAYER_PRE:-}" ]] || rm -f "${OPLAYER_PRE}"
 
-# Record the flags so scripts/update-installed.sh can replay this install. Machine-local flags (they only shape
-# this machine's settings.local.json / policy) go to an untracked .dcr-install-flags.local so a committed record
-# never replays one person's choice on another clone; pack-selection flags stay in the tracked file.
+# Record the flags so scripts/update-installed.sh can replay this install. Flags that add capability or reduce
+# safety (operating layer on, sandbox off) are machine-local and go to an untracked .dcr-install-flags.local so a committed record
+# never replays one person's choice on another clone. Pack flags and the conservative opt-outs
+# (--no-auto-update, --no-operating-layer) stay tracked so a team-wide opt-out travels.
 mkdir -p "${TARGET_DIR}/.claude"
 LOCAL_FLAGS="${TARGET_DIR}/.claude/.dcr-install-flags.local"
 { skip=0
   for a in "$@"; do
     if [[ "${skip}" -eq 1 ]]; then skip=0; continue; fi
     case "${a}" in --tracker-project|--tracker|--tracker-project=*|--tracker=*) [[ "${a}" == *=* ]] || skip=1; continue ;; esac
-    case "${a}" in --with-operating-layer|--apply-operating-layer|--no-operating-layer|--no-sandbox|--no-auto-update) continue ;; esac
+    case "${a}" in --with-operating-layer|--apply-operating-layer|--no-sandbox) continue ;; esac
     [[ "${a}" == -* ]] && printf '%s\n' "${a}"
   done
   # tracker flags replay as single-token --opt=value lines (the marker is one arg per line)
   [[ -n "${TRACKER_PROJECT}" ]] && printf -- '--tracker-project=%s\n--tracker=%s\n' "${TRACKER_PROJECT}" "${TRACKER}"
   true; } > "${TARGET_DIR}/.claude/.dcr-install-flags"
 for a in "$@"; do
-  case "${a}" in --with-operating-layer|--apply-operating-layer|--no-operating-layer|--no-sandbox|--no-auto-update) printf '%s\n' "${a}" ;; esac
+  case "${a}" in --with-operating-layer|--apply-operating-layer|--no-sandbox) printf '%s\n' "${a}" ;; esac
 done > "${LOCAL_FLAGS}"
 if [[ -s "${LOCAL_FLAGS}" ]]; then  # keep the local record out of git without touching a tracked .gitignore
   _ex="$(git -C "${TARGET_DIR}" rev-parse --git-path info/exclude 2>/dev/null || true)"
   [[ -z "${_ex}" || "${_ex}" == /* ]] || _ex="${TARGET_DIR}/${_ex}"
-  if [[ -n "${_ex}" ]] && ! grep -qxF '.claude/.dcr-install-flags.local' "${_ex}" 2>/dev/null; then
-    { mkdir -p "$(dirname "${_ex}")" && printf '.claude/.dcr-install-flags.local\n' >> "${_ex}"; } 2>/dev/null || true
+  _pat="/$(git -C "${TARGET_DIR}" rev-parse --show-prefix 2>/dev/null || true).claude/.dcr-install-flags.local"
+  if [[ -n "${_ex}" ]] && ! grep -qxF "${_pat}" "${_ex}" 2>/dev/null; then
+    { mkdir -p "$(dirname "${_ex}")" && printf '%s\n' "${_pat}" >> "${_ex}"; } 2>/dev/null || true
   fi
 else
   rm -f "${LOCAL_FLAGS}"

@@ -186,7 +186,7 @@ class AutoUpdatePrTests(unittest.TestCase):
         import perun_policy
         self.assertEqual(perun_policy.validate({})["auto_update_pr_base"], "")
         self.assertEqual(perun_policy.validate({"auto_update_pr_base": "release/1.x"})["auto_update_pr_base"], "release/1.x")
-        for bad in ("-x", "a..b", "a b", 1, None):
+        for bad in ("-x", "a..b", "a b", 1, None, "HEAD", "a//b", "a/"):
             with self.assertRaises(ValueError):
                 perun_policy.validate({"auto_update_pr_base": bad})
 

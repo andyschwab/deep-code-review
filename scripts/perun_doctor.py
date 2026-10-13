@@ -80,8 +80,13 @@ def settings_env(repo):
 
 def flag_words(repo):
     """Flags from the tracked record plus the untracked machine-local one."""
-    return [w for n in (".dcr-install-flags", ".dcr-install-flags.local")
-            for w in ((repo / ".claude" / n).read_text().split() if (repo / ".claude" / n).is_file() else [])]
+    out = []
+    for n in (".dcr-install-flags", ".dcr-install-flags.local"):
+        f = repo / ".claude" / n
+        # update-installed.sh honors these three only from the local file
+        out += [w for w in (f.read_text().split() if f.is_file() else [])
+                if n.endswith(".local") or w not in ("--apply-operating-layer", "--with-operating-layer", "--no-sandbox")]
+    return out
 
 
 def check(repo, home):
