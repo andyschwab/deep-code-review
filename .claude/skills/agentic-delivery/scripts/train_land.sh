@@ -101,8 +101,9 @@ if [ $rc -eq 0 ]; then git checkout -q --detach "$REMOTE/$BASE_BRANCH"; break; f
 BR="BROWSER RED: union $U fails browser specs (see $LOG.browser); nothing landed"
 [ -n "${RERUN_CMD:-}" ] || { git checkout -q --detach "$REMOTE/$BASE_BRANCH"; echo "$BR" >&2
   [ -n "${BASELINE_FAILS:-}" ] || echo "hint: set RERUN_CMD (TEST=<id>) so failures already red on the base are detected and ignored; keep BROWSER_CMD to affected specs + smoke, not the full suite" >&2; exit 1; }
-NORM="bash $HERE/train_flake.sh --norm"  # the one id normalizer: emit and match share it
-sed -nE 's/^FAIL +//p' "$LOG.browser" | $NORM >"$LOG.fails"; $NORM <"${BASELINE_FAILS:-/dev/null}" >"$LOG.baseline"
+norm() { bash "$HERE/train_flake.sh" --norm; }  # the one id normalizer: emit and match share it
+sed -nE 's/^FAIL +//p' "$LOG.browser" | norm >"$LOG.fails"
+if [ -r "${BASELINE_FAILS:-/dev/null}" ]; then norm <"${BASELINE_FAILS:-/dev/null}" >"$LOG.baseline"; else : >"$LOG.baseline"; fi
 pre=0
 if :; then  # base-red guard: an id (not already in BASELINE_FAILS) that also fails twice alone on the base is pre-existing
   renew; git checkout -q --detach "$B"; : >"$LOG.pre"
@@ -119,7 +120,7 @@ if :; then  # base-red guard: an id (not already in BASELINE_FAILS) that also fa
     grep -vxFf "$LOG.pre" "$LOG.fails" >"$LOG.new" || true; mv "$LOG.new" "$LOG.fails"
   fi
 fi
-renew; t=0; RERUN_CMD=$RERUN_CMD FLAKE_INVOCATION=${FLAKE_INVOCATION:-$BROWSER_CMD} bash "$HERE/train_flake.sh" "$LOG.fails" "${BASELINE_FAILS:-/dev/null}" >"$LOG.flake" || t=$?
+renew; t=0; RERUN_CMD=$RERUN_CMD FLAKE_INVOCATION=${FLAKE_INVOCATION:-$BROWSER_CMD} bash "$HERE/train_flake.sh" "$LOG.fails" "$LOG.baseline" >"$LOG.flake" || t=$?
 git checkout -q --detach "$REMOTE/$BASE_BRANCH"  # isolated re-runs above ran at the union; bisect below starts from the base
 cat "$LOG.flake"
 # Landable only when at least one NEW failure was listed and every new one re-ran and classified FLAKE: a red run with no

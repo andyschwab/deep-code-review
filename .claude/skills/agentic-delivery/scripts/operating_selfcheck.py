@@ -232,14 +232,23 @@ def _gh_json(path: str):
     import subprocess
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import gh_rest
-    args = ["gh", "api", path]
+    args = ["gh", "api", "--paginate", path]
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=30)
         rc, out, err = gh_rest.fallback(args, p.returncode, p.stdout, p.stderr)
     except (OSError, subprocess.SubprocessError) as e:
         return 1, None, str(e)
-    try:
-        return rc, json.loads(out) if rc == 0 else None, err
+    if rc != 0:
+        return rc, None, err
+    try:  # --paginate prints back-to-back JSON values: merge arrays, keep a lone object
+        dec, i, vals = json.JSONDecoder(), 0, []
+        while i < len(out):
+            if out[i].isspace():
+                i += 1
+                continue
+            v, i = dec.raw_decode(out, i)
+            vals.append(v)
+        return 0, ([x for v in vals for x in v] if vals and all(isinstance(v, list) for v in vals) else vals[0] if vals else []), ""
     except ValueError:
         return 1, None, "unparseable gh output"
 
@@ -251,20 +260,19 @@ def train_gate_line(base: str, gh=_gh_json) -> str:
     (404 on protection, no ruleset naming it) -> WARN. Any other failure (auth, network, no gh) -> COULD_NOT_CHECK, never green.
     """
     slug = "{owner}/{repo}"
-    rc, data, err = gh(f"repos/{slug}/branches/{base}/protection/required_status_checks")
+    rc, data, err = gh(f"repos/{slug}/branches/{base}/protection/required_status_checks?per_page=100")
     named = rc == 0 and TRAIN_CTX in ((data or {}).get("contexts") or []) + [c.get("context") for c in (data or {}).get("checks") or []]
-    if not named:
-        rc2, rules, err2 = gh(f"repos/{slug}/rules/branches/{base}")
-        if rc2 != 0:
-            return f"train-gate: COULD_NOT_CHECK (cannot read protection/rulesets for {base}: {err2.strip()[:80] or err.strip()[:80]})"
+    rc2, rules, err2 = gh(f"repos/{slug}/rules/branches/{base}?per_page=100")
+    if rc2 == 0 and not named:
         named = any(TRAIN_CTX == c.get("context") for r in rules or [] if r.get("type") == "required_status_checks"
                     for c in (r.get("parameters") or {}).get("required_status_checks") or [])
-        if not named and rc != 0 and "404" not in err:
-            return f"train-gate: COULD_NOT_CHECK (cannot read protection for {base}: {err.strip()[:80]})"
     if named:
-        return f"train-gate: PRESENT ({base} requires {TRAIN_CTX})"
-    return (f"WARN: train-gate: {base} does not require the {TRAIN_CTX} status -- an agent can self-merge past the train; "
-            "add it as a required check (references/merge-queue-worktrees.md)")
+        return f"train-gate: PRESENT ({base} requires a status named {TRAIN_CTX}; matched by name only, the app/source is not verified)"
+    if rc != 0 or rc2 != 0:  # 404/403/network on either read: absence cannot be proven
+        why = (err if rc != 0 else err2).strip()[:80]
+        return f"train-gate: COULD_NOT_CHECK (cannot read protection/rulesets for {base}: {why})"
+    return (f"WARN: train-gate: {base} does not require a status named {TRAIN_CTX} (name-only match) -- an agent can self-merge "
+            "past the train; add it as a required check (references/merge-queue-worktrees.md)")
 
 
 def main(argv: list | None = None) -> int:
@@ -409,10 +417,13 @@ def _selftest() -> int:
             return lambda path: (rc, data, err)
         case("train-gate-classic-ok", train_gate_line("main", stub(0, {"contexts": [TRAIN_CTX]})).startswith("train-gate: PRESENT"), True)
         rs = [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": TRAIN_CTX}]}}]
-        seq = iter([(1, None, "HTTP 404"), (0, rs, "")])
-        case("train-gate-ruleset-ok", train_gate_line("main", lambda p: next(seq)).startswith("train-gate: PRESENT"), True)
-        seq = iter([(1, None, "HTTP 404"), (0, [], "")])
-        case("train-gate-unprotected-warns", train_gate_line("main", lambda p: next(seq)).startswith("WARN: train-gate"), True)
+        def two(a, b):
+            seq = iter([a, b])
+            return lambda p: next(seq)
+        case("train-gate-ruleset-ok", train_gate_line("main", two((1, None, "HTTP 404"), (0, rs, ""))).startswith("train-gate: PRESENT"), True)
+        case("train-gate-both-read-not-named-warns", train_gate_line("main", two((0, {"contexts": []}, ""), (0, [], ""))).startswith("WARN: train-gate"), True)
+        case("train-gate-404-protection-is-could-not-check", train_gate_line("main", two((1, None, "HTTP 404"), (0, [], ""))).startswith("train-gate: COULD_NOT_CHECK"), True)
+        case("train-gate-rules-403-is-could-not-check", train_gate_line("main", two((0, {"contexts": []}, ""), (1, None, "HTTP 403"))).startswith("train-gate: COULD_NOT_CHECK"), True)
         case("train-gate-other-check-warns", train_gate_line("main", lambda p: (0, {"contexts": ["ci"]} if "protection" in p else [], "")).startswith("WARN"), True)
         case("train-gate-unknown-not-green", train_gate_line("main", stub(1, None, "HTTP 403")).startswith("train-gate: COULD_NOT_CHECK"), True)
 

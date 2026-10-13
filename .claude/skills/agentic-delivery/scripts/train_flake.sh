@@ -50,6 +50,7 @@ if [ "${1:-}" = --record ]; then
 fi
 [ $# -ge 1 ] && [ -n "${RERUN_CMD:-}" ] || { echo "usage: RERUN_CMD=... train_flake.sh <failed-ids> [baseline-ids]" >&2; exit 2; }
 [ -r "$1" ] || { echo "could not check: failed-ids file '$1' is missing or unreadable (a missing list is not 'no failures')" >&2; exit 2; }
+[ -z "${2:-}" ] || [ -r "$2" ] || { echo "could not check: baseline file '$2' is unreadable (refusing to treat it as empty)" >&2; exit 2; }
 runs=${FLAKE_RUNS:-3} need=${FLAKE_REAL_AT:-2} real=0
 case $runs$need in ''|*[!0-9]*) echo "train_flake: FLAKE_RUNS/FLAKE_REAL_AT must be integers" >&2; exit 2 ;; esac
 [ "$runs" -ge 1 ] && [ "$need" -ge 1 ] && [ "$need" -le "$runs" ] || { echo "train_flake: need 1 <= FLAKE_REAL_AT <= FLAKE_RUNS" >&2; exit 2; }
