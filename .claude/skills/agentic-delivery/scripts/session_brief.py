@@ -70,6 +70,12 @@ def version_line(repo: Path):
     return f"perun {have} < {latest.strip()} on origin/main; update: bash {src}/scripts/update-installed.sh {repo}"
 
 
+def committed_line(repo: Path):
+    """WARN when the Perun copy committed on the default branch is older than the working tree's (local refs only)."""
+    import perun_auto_update
+    return perun_auto_update.behind_warn(repo)
+
+
 def worktrees(repo: Path):
     """`[(path, branch)]` from `git worktree list --porcelain` (detached worktrees have branch None)."""
     out, cur = [], None
@@ -158,7 +164,7 @@ def brief(repo: Path) -> list:
     """The ≤3 report lines for `repo`; each section is independent and fails silent."""
     lines = []
     _deadline[0] = time.monotonic() + BUDGET
-    for fn in (merge_line, version_line, hygiene_line, priority_line):
+    for fn in (merge_line, version_line, committed_line, hygiene_line, priority_line):
         if time.monotonic() >= _deadline[0]:
             break  # budget spent: skip the remaining sections
         try:

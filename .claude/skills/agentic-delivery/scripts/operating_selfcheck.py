@@ -55,6 +55,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 PROTOCOL_ONLY = (
     "model-and-effort-routing-doctrine",
@@ -256,6 +257,13 @@ def main(argv: list | None = None) -> int:
     except (ImportError, ValueError, OSError) as e:
         print(f"heavy-slots: COULD_NOT_CHECK ({e})")
     warn = sandbox_gh_warn(args.settings)
+    if warn:
+        print(warn)
+    try:
+        import perun_auto_update
+        warn = perun_auto_update.behind_warn(Path(args.project).resolve())
+    except Exception:
+        warn = None
     if warn:
         print(warn)
     return 0
