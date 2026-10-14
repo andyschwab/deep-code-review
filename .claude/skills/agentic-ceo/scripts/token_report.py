@@ -77,7 +77,8 @@ numbers are not understated. `--top N` lists the N costliest lanes (default
 
 MAIN CONTEXT PER TURN
 ---------------------
-Per main turn, context = input_tokens + cache_read. The report prints the
+Per main turn, context = input + both cache-write splits + cache_read (the
+same sum as a lane's startup tokens). The report prints the
 average, the first-third vs last-third averages (trend, needs >= 3 turns),
 and flags `HANDOFF` when the last-third average (the average when < 3 turns)
 exceeds 400000: write a handoff note and start a fresh session. JSON key:
@@ -334,9 +335,12 @@ def sum_turns(turns: list) -> dict:
 
 def model_stats(turns: list):
     """(majority model, {model: turn count}, {model: totals}); the synthetic placeholder model is ignored."""
-    names = [t.get("model") for t in turns if t.get("model") and t["model"] != "<synthetic>"]
-    counts = dict(Counter(names).most_common())
-    by_model = {m: sum_turns([t for t in turns if t.get("model") == m]) for m in counts}
+    def name(t):
+        return t.get("model") or "unknown"  # a turn with no model is its own bucket, never dropped
+
+    kept = [t for t in turns if name(t) != "<synthetic>"]
+    counts = dict(Counter(name(t) for t in kept).most_common())
+    by_model = {m: sum_turns([t for t in kept if name(t) == m]) for m in counts}
     return (next(iter(counts), None), counts, by_model)
 
 
@@ -374,7 +378,7 @@ def price(by_model: dict, rates):
         return (None, [])
     usd, missing = 0.0, []
     for model, tot in by_model.items():
-        match = max((k for k in rates if str(model).startswith(k)), key=len, default=None)
+        match = None if model == "unknown" else max((k for k in rates if str(model).startswith(k)), key=len, default=None)
         if match is None:
             missing.append(model)
             continue
@@ -392,7 +396,7 @@ def merge_by_model(maps: list) -> dict:
 
 def main_context(turns: list) -> dict:
     """Average input+cache_read per main turn, first/last-third trend, handoff flag."""
-    ctx = [t["input_tokens"] + t["cache_read"] for t in turns]
+    ctx = [t["input_tokens"] + t["cache_write_5m"] + t["cache_write_1h"] + t["cache_read"] for t in turns]
     if not ctx:
         return {"avg": 0, "first_third": None, "last_third": None, "handoff": False,
                 "threshold": CONTEXT_HANDOFF_THRESHOLD}
@@ -723,7 +727,7 @@ def render_text(report: dict) -> str:
     if report["main_turns"]:
         trend = f" first-third={x['first_third']} last-third={x['last_third']}" if x["first_third"] is not None else ""
         hand = f"  <-- HANDOFF >{x['threshold']}: write a handoff note and start fresh" if x["handoff"] else ""
-        lines.append(f"Main context/turn (input+cacheR): avg={x['avg']}{trend}{hand}")
+        lines.append(f"Main context/turn (input+cacheW+cacheR): avg={x['avg']}{trend}{hand}")
     flag = "  <-- FLAG >20%" if report["orchestration_flag"] else ""
     lines.append(f"Orchestration share (main/(main+subagents)): {report['orchestration_share'] * 100:.1f}%{flag}")
     if report["orchestration_flag"]:
@@ -1152,6 +1156,17 @@ def _selftest() -> int:
             rc_empty = main(["--session", sess, "--since", "2099-01-01T00:00:00Z"])
         check("empty-window-warns-with-span", rc_empty == OK and "matched no turns" in err.getvalue()
               and "2026-01-01" in err.getvalue(), err.getvalue())
+        # review fixes: context counts cache writes; a model-less turn is an UNPRICED "unknown" bucket
+        mc = main_context(extract_turns([json.loads(mturn("c1", "2026-01-01T00:00:00Z", None, {
+            "input_tokens": 10, "cache_creation": {"ephemeral_5m_input_tokens": 20, "ephemeral_1h_input_tokens": 30},
+            "cache_read_input_tokens": 40, "output_tokens": 5}))]))
+        check("context-per-turn-sums-input-writes-and-reads", mc["avg"] == 100, str(mc))
+        nm = [{"model": None, **ZERO_USAGE, "input_tokens": 7}, {"model": "<synthetic>", **ZERO_USAGE, "input_tokens": 9}]
+        _m, nm_counts, nm_by = model_stats(nm)
+        check("model-less-turn-bucketed-synthetic-skipped", nm_counts == {"unknown": 1} and nm_by["unknown"]["raw_tokens"] == 7,
+              str(nm_counts))
+        check("unknown-bucket-is-UNPRICED-even-with-an-unknown-rate-row",
+              price(nm_by, {"unknown": rates["model-big"]}) == (None, ["unknown"]), "")
         check("window-boundary-with-fraction-keeps-turn", build_report(
             sess, parse_timestamp("2026-01-01T00:05:00.5Z"))["main_turns"] == 1, "")
 
