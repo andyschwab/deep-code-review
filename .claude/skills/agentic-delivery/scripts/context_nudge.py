@@ -44,7 +44,7 @@ def check(payload):
     """The nudge line for this hook payload, or None. Writes the growth stamp when it fires."""
     limit = int(os.environ.get("PERUN_CONTEXT_NUDGE_TOKENS") or 250_000)
     size = context_size(payload["transcript_path"])
-    if size is None or size < limit:
+    if size is None:
         return None
     root = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "perun" / "context-nudge"
     stamp = root / str(payload.get("session_id") or "unknown").replace("/", "_")
@@ -52,7 +52,11 @@ def check(payload):
         last = int(stamp.read_text())
     except (OSError, ValueError):
         last = 0
-    if size < last + STEP:
+    if size < last:  # context shrank (/compact or /clear): restart the growth baseline
+        root.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(str(size))
+        last = size
+    if size < limit or size < last + STEP:
         return None
     root.mkdir(parents=True, exist_ok=True)
     stamp.write_text(str(size))
@@ -103,6 +107,10 @@ def _selftest():
         res.append(("silent-within-50k-growth", check(pl) is None))
         write(310_000)
         res.append(("fires-again-after-50k-growth", check(pl) is not None))
+        write(80_000)
+        res.append(("silent-after-compact", check(pl) is None))
+        write(270_000)
+        res.append(("fires-after-compact-regrowth", check(pl) is not None))
         os.environ["PERUN_CONTEXT_NUDGE_TOKENS"] = "1000"
         res.append(("env-threshold-other-session", check({"transcript_path": tr, "session_id": "t"}) is not None))
         res.append(("garbage-stdin-exit-0-silent", _run("not json") == (0, "")))

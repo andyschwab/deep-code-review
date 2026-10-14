@@ -642,7 +642,7 @@ if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 ]]; then
 
 What changed in ${TARGET_DIR}:
   1. Skills copied to .claude/skills (+ .cursor, .agents); any existing copy moved to <host>/skill-backups/.
-  2. .claude/settings.local.json: operating-layer hooks (PreToolUse incl. heavy_gate.py, SessionStart session_brief.py + auto-update, UserPromptSubmit auto-update, SubagentStart, SubagentStop), env, and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
+  2. .claude/settings.local.json: operating-layer hooks (PreToolUse incl. heavy_gate.py + lane_resume_nudge.py, PostToolUse lane_cap.py, SessionStart session_brief.py + auto-update, UserPromptSubmit context_nudge.py + auto-update, SubagentStart, SubagentStop), env (incl. LANE_TOOL_CAP=250), and the model pin ${OPLAYER_MODEL_NOTE} merged in; previous file saved as .bak.<timestamp>.
      Skills and permissions apply to open sessions without a restart; a hook change (new entries, or old relative paths upgraded to "\$CLAUDE_PROJECT_DIR" paths) and a model change reach already-running sessions only after a restart.
      Auto-update: that hook runs release code from the Perun remote in the background (newest vX.Y.Z tag, at most every 6h).
      Opt out: re-run install.sh with --no-auto-update, or set "auto_update": "off" in .perun/policy.json.
