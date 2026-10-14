@@ -55,7 +55,9 @@ def _git(repo, *args, timeout=3):
 
 
 def _vtuple(v):
-    return tuple(int(x) for x in v.strip().split(".") if x.isdigit())
+    """Numeric core of a version, padded to 3 parts ("1.2" == "1.2.0"); a prerelease/build suffix is dropped; () if none."""
+    t = tuple(int(x) for x in re.split(r"[-+]", v.strip(), maxsplit=1)[0].split(".") if x.isdigit())
+    return t + (0,) * (3 - len(t)) if t else ()
 
 
 def version_line(repo: Path):
@@ -224,6 +226,13 @@ def brief(repo: Path) -> list:
             l = None
         if l:
             lines.append(l)
+    return _cap(lines)
+
+
+def _cap(lines):
+    """≤3 lines; a trailing drift line keeps a reserved slot, so the other lines yield to it."""
+    if lines and lines[-1].startswith("Perun copies differ"):
+        return lines[:-1][:2] + lines[-1:]
     return lines[:3]
 
 
@@ -260,6 +269,12 @@ def _selftest() -> int:
         mk(r2, ".claude/skills", "growth-analytics", "1.10.0")
         mk(h2, ".claude/skills", "growth-analytics", "1.9.0")
         assert "global 1.9.0 < project .claude 1.10.0" in copy_drift_line(h2, r2)  # numeric, not string, order
+    d = "Perun copies differ: x"
+    assert _cap(["a", "b", "c", d]) == ["a", "b", d]  # drift keeps its slot
+    assert _cap(["a", "b", "c"]) == ["a", "b", "c"] and _cap([d]) == [d] and _cap([]) == []
+    assert _vtuple("1.2") == _vtuple("1.2.0") == (1, 2, 0)
+    assert _vtuple("1.2.0-beta") == (1, 2, 0) and _vtuple("1.10.0+b5") > _vtuple("1.9.9")
+    assert _vtuple("oops") == () and _vtuple("") == ()
     print("session_brief selftest ok")
     return 0
 
