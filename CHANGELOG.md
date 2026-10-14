@@ -3,6 +3,14 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.575.0] — 2026-10-15
+
+### Changed
+- deep-code-review: `scripts/fixtures/bench-results.md` records the 2026-10-14 head-to-head with popular review prompts (all F1 ties) and three variants that were measured and not shipped: the compact card alone, a halved SKILL.md, and a remove-only refute pass.
+
+### Changed
+- `lane_guard.py wait` takes `--progress FILE` (and `--progress-every SECS`, default 900) and keeps one liveness line in FILE while waiting. The lane preamble now says: hand back one line plus the path of a committed details file, use `--progress` for long waits, and on a sandbox push/network failure commit and hand back branch plus sha instead of retrying.
+
 ## [1.574.0] — 2026-10-14
 
 ### Added
