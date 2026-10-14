@@ -1,0 +1,3 @@
+### Added
+- agentic-delivery: `env_lint.py [--base REF] [FILES]` flags test files that read an environment variable with no default (`os.environ[X]`, `os.environ.get(X)`, `os.getenv(X)`, `process.env.X`) unless the test sets it in scope (monkeypatch.setenv, patch.dict(os.environ), vi.stubEnv, an assignment). Such tests pass in the author's shell and fail on a runner that exports its own class or slot variables. `env-lint: allow` is the per-line escape. `preflight.py` runs it as an advisory step next to `clock_lint.py`.
+- agentic-delivery: `references/unattended-trackers.md` gains a rule: post one status update per milestone and move tracker state only at the final state, since connectors return the whole issue per write.
