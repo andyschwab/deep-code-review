@@ -33,8 +33,15 @@ SET = re.compile(r"monkeypatch\.(?:setenv|delenv)|patch\.dict\(\s*(?:os\.environ
 NAME = re.compile(r"""(?:os\.(?:environ\[|environ\.get\(|getenv\()|process\.env(?:\.|\[))\s*['"]?(\w+)""")
 
 
+GUARD = {  # truthiness guards (`if os.getenv(X):`, `not os.getenv(X)`, `if (process.env.X)`, `process.env.X ? a : b`) are no dependency
+    "py": re.compile(r"\b(?:if|elif|while|not)\s+(?:not\s+)?os\.(?:environ\.get|getenv)\([^(),]*\)(?=\s*(?::|$|\)|\band\b|\bor\b|\belse\b))"),
+    "js": re.compile(r"\b(?:if|while)\s*\(\s*!*\s*process\.env(?:\.\w+|\[[^\]]*\])\s*\)|!\s*process\.env(?:\.\w+|\[[^\]]*\])(?=\s*(?:\)|&&|\|\||;|$))"
+                     r"|process\.env(?:\.\w+|\[[^\]]*\])\s*\?(?!\?)")}
+
+
 def hit(lang, c):
-    """True when code line `c` (strings blanked) reads an env var with no default."""
+    """True when code line `c` (strings blanked) reads an env var with no default and not as a bare truthiness guard."""
+    c = GUARD[lang].sub("", c)
     if lang == "js":
         return bool(JS.search(c))
     for m in PY.finditer(c):
@@ -117,6 +124,11 @@ def selftest():
         ("a.spec.js", "beforeEach(() => { process.env = { ...old }; });\nit('a', () => { process.env.X; });\n", 0),
         ("a.spec.js", "it('a', () => { delete process.env.X; if (process.env.X === 'a') {} });\n", 1),
         ("a.test.js", "it('a', () => { log('T', process.env.TERM || '[none]'); });\n", 0),  # fallback after a long name
+        ("test_a.py", "def env():\n    yield 1\n    if os.getenv('X'):\n        del os.environ['X']\n", 0),  # uvicorn fixture cleanup
+        ("test_a.py", "def test_x():\n    if not os.environ.get('X'):\n        return\n    ok = 'X' in os.environ\n", 0),
+        ("test_a.py", "def test_x():\n    if os.getenv('X') == '1':\n        pass\n    assert os.getenv('X')\n", 2),
+        ("a.test.ts", "it('a', () => { if (process.env.X) {} if (!process.env.Y) {} const v = process.env.Z ? 1 : 2; });\n", 0),
+        ("a.test.ts", "it('a', () => { if (process.env.X === 'a') {} });\n", 1),
         ("test_g.go","x := os.Getenv(\"X\")\n", 0),
     ]
     for name, src, want in cases:
