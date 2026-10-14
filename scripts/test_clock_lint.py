@@ -38,7 +38,7 @@ class ClockLint(unittest.TestCase):
         self.assertEqual(lint(self.put("d.test.mjs", "Date.now()\n"))[0], 1)
         self.assertEqual(lint(self.put("e.py_x/test_e.py", "def test_a():\n    now = datetime.now()\n"))[0], 1)
         self.assertEqual(lint(self.put("test_f.py", "@mock.patch('time.sleep')\ndef test_a(s):\n    time.time()\n"))[0], 1)
-        p = self.put("app.py", "datetime.now()\n")
+        p = self.put("app.rb", "Time.now\n")  # py/js non-test files are scanned for date bombs, not skipped
         self.assertEqual(lint(p), (0, "SKIP %s: not a test file\n" % p))
 
     def test_each_language(self):
