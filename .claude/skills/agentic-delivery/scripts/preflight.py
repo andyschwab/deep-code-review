@@ -12,7 +12,7 @@ CONFIG is JSON, gates in order:
 .preflight-times.json, keep it gitignored) and the 3 slowest gates of this run print last, to show what to make cheap.
 Output, one line per gate: PASS | FAIL (exit N) | TIMEOUT | COULD_NOT_RUN (command not startable) | SKIPPED.
 Exit: 0 all ran and passed; 1 any FAIL/TIMEOUT; 3 any COULD_NOT_RUN or SKIPPED with no FAIL; 2 bad config.
-After the gates, `clock_lint.py --base origin/main` runs as an advisory step (`WARN clock_lint ...` lines; no exit effect; silently skipped when origin/main or a repo is absent).
+After the gates, `clock_lint.py` and `env_lint.py` (`--base origin/main`) run as advisory steps (`WARN clock_lint ...` / `WARN env_lint ...` lines; no exit effect; silently skipped when origin/main or a repo is absent).
 A gate that cannot start is never a pass. Timeouts use subprocess timeout only: the direct child is killed, but
 grandchildren it spawned are NOT (no process-group kill); keep gate commands single-process or self-limiting.
 """
@@ -84,13 +84,13 @@ def selftest():
     print("selftest ok")
 
 
-def clock_advisory(base="origin/main"):
-    """Advisory lines from clock_lint.py (real-clock reads, date-literal time bombs) on files changed vs `base`.
+def clock_advisory(base="origin/main", tool="clock_lint.py"):
+    """Advisory lines from clock_lint.py (real-clock reads, date-literal time bombs; or env_lint.py via `tool`) on files changed vs `base`.
     [] (silently) when not in a repo, `base` is missing, or clock_lint cannot start/finishes late; never raises."""
     try:
         if subprocess.run(["git", "rev-parse", "--verify", "-q", base], capture_output=True).returncode:
             return []
-        p = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "clock_lint.py"),
+        p = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), tool),
                             "--base", base, "--deadline", "5"], capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -133,8 +133,9 @@ def main(argv=None):
     except (OSError, TypeError, ValueError) as e:
         print(f"WARN: preflight cache not written: {e}", file=sys.stderr)
     sys.stdout.flush()
-    for line in clock_advisory():
-        print(f"WARN clock_lint {line}")
+    for tool in ("clock_lint", "env_lint"):
+        for line in clock_advisory(tool=tool + ".py"):
+            print(f"WARN {tool} {line}")
     top = sorted((r for r in res if r[1] != "SKIPPED"), key=lambda r: -r[2])[:3]
     print("slowest: " + ", ".join(f"{n} {sec:.1f}s" for n, _, sec, _ in top))
     st = {s for _, s, _, _ in res}

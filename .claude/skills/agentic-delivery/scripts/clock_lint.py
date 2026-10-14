@@ -90,10 +90,12 @@ def aliases(lang, text):
     return []
 
 
-def scan(path, text):
-    """Return [(line_no, line)] of unpinned real-clock reads in `text`."""
+def scan(path, text, hit=None, fake=FAKE, allow=ALLOW):
+    """Return [(line_no, line)] of unpinned real-clock reads in `text`. env_lint.py reuses this with its own
+    `hit(lang, code_line)` read test, `fake` marker regex and `allow` escape."""
     lang = EXT[path.rsplit(".", 1)[-1]]
     rx = re.compile("|".join([READS[lang]] + aliases(lang, text)))
+    hit = hit or (lambda _l, c: rx.search(c))
     lines, st = text.split("\n"), [False]
     cl = [code(lang, l, st) for l in lines]
     starts = [i for i, l in enumerate(lines) if re.search(BLOCK[lang], l)]
@@ -104,7 +106,7 @@ def scan(path, text):
     first = starts[0] if starts else len(lines)
     glob, ok = False, set()
     for k, (a, b) in enumerate(spans):
-        if any(FAKE.search(cl[i]) and not IMPORT.match(lines[i]) for i in range(a, b)):
+        if any(fake.search(cl[i]) and not IMPORT.match(lines[i]) for i in range(a, b)):
             ok.add(k)
             glob = glob or b <= first or bool(re.search(GLOBAL[lang], "\n".join(lines[a:min(b, a + 4)]), re.M))
     if glob:
@@ -114,8 +116,8 @@ def scan(path, text):
         if k in ok:
             continue
         for i in range(a, b):
-            if not rx.search(cl[i]) or COMMENT.match(lines[i]) or ALLOW in lines[i] \
-                    or (i and ALLOW in lines[i - 1] and COMMENT.match(lines[i - 1])):
+            if not hit(lang, cl[i]) or COMMENT.match(lines[i]) or allow in lines[i] \
+                    or (i and allow in lines[i - 1] and COMMENT.match(lines[i - 1])):
                 continue
             out.append((i + 1, lines[i]))
     return out

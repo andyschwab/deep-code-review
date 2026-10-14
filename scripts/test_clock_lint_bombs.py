@@ -55,7 +55,7 @@ class PreflightWiring(unittest.TestCase):
             try:
                 self.assertEqual(preflight.clock_advisory(), [])
                 self.assertEqual(preflight.clock_advisory("no-such-ref"), [])
-                self.assertIn("clock_advisory()", inspect.getsource(preflight.main))  # wired into the default run
+                self.assertIn("clock_advisory(", inspect.getsource(preflight.main))  # wired into the default run
             finally:
                 os.chdir(cwd)
 

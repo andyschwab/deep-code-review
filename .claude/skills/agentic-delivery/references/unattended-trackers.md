@@ -519,3 +519,8 @@ category (docs, CI, security, tooling, API) remains, its titles simply lacking t
 - The intra-queue companion to the every-queue rule above: even one queue has categories a filter can hide.
 - **🚩 tell:** a "what is next / terminus" decision driven by a title / keyword grep over the backlog rather than
   a full enumeration bucketed by label / type.
+
+## Tracker connectors return the whole issue per write — post one status update per milestone
+
+Each tracker state change returns the full issue (about 1.5k tokens) and every later turn re-reads it. Post one
+status update per milestone and move the issue state only at the final state; batch the rest into that update.
