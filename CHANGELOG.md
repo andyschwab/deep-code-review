@@ -3,6 +3,31 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.573.0] — 2026-10-14
+
+### Added
+- `clock_lint.py` now also flags date-literal time bombs in Python and JS/TS files, test or not: a hard-coded sunset or expiry date (`SUNSET = date(2026, 10, 14)`, `"2026-10-14"`) compared with a real-clock read, directly or through the constant it is assigned to. Output is `file:line: date literal compared with real clock; expires <date>`, tagged `(URGENT: Nd)` within 30 days of `--today` and `(EXPIRED)` once past. Findings count toward the exit code only with `--strict`. A pinned fake clock in the file or `clock-lint: allow` exempts. New `--today` injects the date; self-checks never read the real clock.
+- `preflight.py` always runs `clock_lint.py --base origin/main` after its gates as an advisory step, so the warnings appear without any setup. It never changes the preflight exit code.
+
+### Added
+- `context_nudge.py` (UserPromptSubmit) prints one line suggesting a fresh session from a short handoff note when the main context passes 250k tokens, then only per 50k of growth; `lane_resume_nudge.py` (PreToolUse `Agent|Task`) advises resuming an earlier same-domain lane with SendMessage instead of paying a new lane's startup. Both are advisory, fail open, have `--selftest`, and are wired by `--apply-operating-layer`.
+
+### Changed
+- The operating-layer template now wires `lane_cap.py` as a PostToolUse hook and sets `LANE_TOOL_CAP=250` (checkpoint at 80%, stop at the cap; normal lanes use 50 to 160 tool calls, field runaways ran 300 to 3,300). Per-type `LANE_TOOL_CAP_<TYPE>` overrides still win; existing env values are kept on merge.
+size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 7053→7703 documents the context, lane-resume and lane-cap operating-layer hooks
+
+### Added
+
+- `session_brief.py` (SessionStart hook) now warns with one line when the same Perun skill has different `version:` values across the global `~/.claude/skills` and the project's `.claude/skills`, `.cursor/skills` and `.agents/skills`, so a stale project copy no longer runs silently. Silent when copies agree; missing locations and unparsable versions are skipped. `--selftest` covers positives, negatives, missing dirs and unparsable versions.
+
+### Added
+- `token_report.py` shows each lane's model (majority plus counts) and `meta.json` effort when recorded, totals by model for main and subagents, a main context-per-turn line (average, first-third vs last-third trend, handoff flag above 400k), and a cheaper-route hint when orchestration share exceeds 20%.
+- `token_report.py --rates TSV` prices main, subagents and each lane from a user-supplied rate card (no prices ship with the tool; without it cost reads `UNPRICED`); `--top N` sets how many lanes are listed (0 = all).
+- Lanes still running (no handback, no `end_turn`) are marked `in-flight` and counted, so mid-session spend is not understated.
+
+### Fixed
+- `token_report.py --since`: a timestamp with fractional seconds of other than 3 or 6 digits, or a `+0000` offset, failed to parse on older Pythons and silently dropped its turn, so one window could look empty while a nearby one did not; a zone-less `--since` is now local time, two turns without timestamps no longer crash the sort, and an empty window prints the transcript's time span on stderr.
+
 ## [1.572.0] — 2026-10-14
 
 ### Added
