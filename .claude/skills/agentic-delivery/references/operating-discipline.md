@@ -38,7 +38,12 @@ latest main (update this checkout first). The applied layer also wires `scripts/
 on SessionStart and UserPromptSubmit: at most every 6h, detached, it replays the same flags from the
 newest release tag, skipping (and logging why) on a merge/train lock or an edited managed file; policy
 `auto_update: off` or `install.sh --no-auto-update` disables it. Skills and settings live-reload, so no
-session restart is needed.
+session restart is needed. Two advisory cost hooks ride along: `scripts/context_nudge.py` (UserPromptSubmit) prints one line
+suggesting a fresh session from a short handoff note once the main context passes 250k tokens
+(`PERUN_CONTEXT_NUDGE_TOKENS`), again only per 50k of growth; `scripts/lane_resume_nudge.py` (PreToolUse `Agent|Task`)
+advises resuming an earlier same-domain lane with SendMessage instead of paying a new lane's startup re-read. Neither
+ever blocks, and both fail open. The layer also wires `scripts/lane_cap.py` (PostToolUse) with `LANE_TOOL_CAP=250`:
+a lane is told to checkpoint at 80% and stop at the cap; `LANE_TOOL_CAP_<TYPE>` overrides per lane type.
 
 `scripts/operating_selfcheck.py [--settings F] [--skill-root D]` reports, per item above,
 `PRESENT`, `MISSING`, or `COULD_NOT_CHECK <why>` — the three settings-backed items (1's injector,

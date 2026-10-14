@@ -4017,7 +4017,7 @@ fi
 
 # vacuous_test_gate + preflight: planted-RED selftests (vacuous/skipped specs FAIL, missing = COULD_NOT_CHECK;
 # all cheap gates run, unstartable gate = COULD_NOT_RUN).
-for sc in vacuous_test_gate preflight; do
+for sc in vacuous_test_gate preflight session_brief; do
   if python3 "$ROOT/.claude/skills/agentic-delivery/scripts/$sc.py" --selftest >/dev/null 2>&1; then
     record 0 "$sc: --selftest passes"
   else
@@ -4150,6 +4150,22 @@ if python3 "$ROOT/.claude/skills/deep-code-review/scripts/partition_diff.py" --s
   record 0 "partition_diff: --selftest passes"
 else
   record 1 "partition_diff: --selftest passes"
+fi
+
+# context_nudge / lane_resume_nudge: advisory cost hooks; selftests cover thresholds, growth stamp, overlap, fail-open.
+for nudge in context_nudge lane_resume_nudge; do
+  if python3 "$ROOT/.claude/skills/agentic-delivery/scripts/$nudge.py" --selftest >/dev/null 2>&1; then
+    record 0 "$nudge: --selftest passes"
+  else
+    record 1 "$nudge: --selftest passes"
+  fi
+done
+# the operating-layer template wires both hooks
+if grep -q 'context_nudge.py' "$ROOT/.claude/skills/agentic-delivery/templates/operating-layer.settings.json" \
+   && grep -q 'lane_resume_nudge.py' "$ROOT/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"; then
+  record 0 "operating-layer template wires context_nudge + lane_resume_nudge"
+else
+  record 1 "operating-layer template wires context_nudge + lane_resume_nudge"
 fi
 
 # ===========================================================================
