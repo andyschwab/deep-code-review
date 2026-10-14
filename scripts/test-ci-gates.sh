@@ -4144,6 +4144,14 @@ else
   record 1 "rules: the real repo has no new unenforced hard rule"
 fi
 
+# partition_diff: deterministic whole-file diff split; selftest covers byte-for-byte reproduction,
+# line accounting, odd paths, CRLF, empty/malformed input.
+if python3 "$ROOT/.claude/skills/deep-code-review/scripts/partition_diff.py" --selftest >/dev/null 2>&1; then
+  record 0 "partition_diff: --selftest passes"
+else
+  record 1 "partition_diff: --selftest passes"
+fi
+
 # ===========================================================================
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a
