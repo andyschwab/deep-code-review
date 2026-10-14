@@ -34,7 +34,8 @@ NAME = re.compile(r"""(?:os\.(?:environ\[|environ\.get\(|getenv\()|process\.env(
 
 
 GUARD = {  # truthiness guards (`if os.getenv(X):`, `not os.getenv(X)`, `if (process.env.X)`, `process.env.X ? a : b`) are no dependency
-    "py": re.compile(r"\b(?:if|elif|while|not)\s+(?:not\s+)?os\.(?:environ\.get|getenv)\([^(),]*\)(?=\s*(?::|$|\)|\band\b|\bor\b|\belse\b))"),
+    "py": re.compile(r"\b(?:if|elif|while|not)\s+(?:not\s+)?os\.(?:environ\.get|getenv)\([^(),]*\)(?=\s*(?::|$|\)|\band\b|\bor\b|\belse\b))"
+                     r"|os\.(?:environ\.get|getenv)\([^(),]*\)\s+is\s+(?:not\s+)?None\b"),
     "js": re.compile(r"\b(?:if|while)\s*\(\s*!*\s*process\.env(?:\.\w+|\[[^\]]*\])\s*\)|!\s*process\.env(?:\.\w+|\[[^\]]*\])(?=\s*(?:\)|&&|\|\||;|$))"
                      r"|process\.env(?:\.\w+|\[[^\]]*\])\s*\?(?!\?)")}
 
@@ -53,8 +54,8 @@ def hit(lang, c):
             if c[i] == "," and depth == 1:
                 break
             i += 1
-        else:
-            if not re.match(r"\s*or\b", c[i:]):
+        else:  # depth > 0: the call continues on the next line, so a default may follow; unknown, do not flag
+            if not depth and not re.match(r"\s*or\b", c[i:]):
                 return True
     return False
 
@@ -129,6 +130,9 @@ def selftest():
         ("test_a.py", "def test_x():\n    if os.getenv('X') == '1':\n        pass\n    assert os.getenv('X')\n", 2),
         ("a.test.ts", "it('a', () => { if (process.env.X) {} if (!process.env.Y) {} const v = process.env.Z ? 1 : 2; });\n", 0),
         ("a.test.ts", "it('a', () => { if (process.env.X === 'a') {} });\n", 1),
+        ("test_a.py", "def test_x():\n    v = os.environ.get(\n        'X', 'd')\n    w = os.getenv(\n        'Y')\n", 0),  # multi-line call: unknown
+        ("test_a.py", "def test_x():\n    a = os.environ.get('X') is None\n    b = os.getenv('Y') is not None\n    c = 1 if os.environ.get('Z') else 2\n", 0),
+        ("test_a.py", "def test_x():\n    v = os.environ.get('X')\n    w = os.environ['Y']\n    f(os.getenv('Z'))\n", 3),
         ("test_g.go","x := os.Getenv(\"X\")\n", 0),
     ]
     for name, src, want in cases:
