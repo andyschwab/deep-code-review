@@ -491,7 +491,22 @@ def _port_listening(port):
     return True
 
 
-def check_wait(pids, ports, files, timeout=300.0, interval=1.0, settle=30.0):
+def _write_progress(path, elapsed, pending):
+    """Overwrite `path` with one liveness line: UTC time, elapsed seconds, what is still pending.
+
+    Lets a parent read a long lane's state from a known file instead of waiting on interim notices.
+    Write errors are swallowed: progress is advisory and must never fail the wait itself.
+    """
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(f"{stamp} waiting {elapsed:.0f}s; pending: {', '.join(pending) or 'none'}\n")
+    except OSError:
+        pass
+
+
+def check_wait(pids, ports, files, timeout=300.0, interval=1.0, settle=30.0, progress=None,
+               progress_every=900.0):
     """Wait, bounded by `timeout` seconds, until every pid/port/file target is finished (see WAIT MODE).
 
     A --pid must already be running when this is called, else it is never trusted as "will finish" —
@@ -503,7 +518,8 @@ def check_wait(pids, ports, files, timeout=300.0, interval=1.0, settle=30.0):
 
     Returns (code, one line): OK when all finished, COULD_NOT_CHECK naming what still runs (or was never
     confirmed alive/listening), REFUSED on bad input. Side-effects: none beyond reading process, socket,
-    and file state.
+    and file state, plus, when `progress` names a file, overwriting it with one line (`_write_progress`) at
+    the first check and then every `progress_every` seconds while anything is pending.
     """
     if not (pids or ports or files):
         return REFUSED, "LANE_GUARD REFUSE: wait needs targets; name at least one --pid, --port, or --file"
@@ -528,6 +544,7 @@ def check_wait(pids, ports, files, timeout=300.0, interval=1.0, settle=30.0):
     deadline = now + timeout
     sizes = {}
     seen_listening = {p: False for p in ports}
+    start, next_progress = now, now
     while True:
         now = time.monotonic()
         pending = [f"pid {p} running" for p in pids if _pid_running(p)]
@@ -552,8 +569,11 @@ def check_wait(pids, ports, files, timeout=300.0, interval=1.0, settle=30.0):
             return COULD_NOT_CHECK, (f"LANE_GUARD COULD_NOT_CHECK: {named} never observed listening within "
                                       f"{settle_bound:g}s settle window; a port that never once listened cannot "
                                       f"be trusted as 'finished'")
+        if progress and pending and now >= next_progress:
+            _write_progress(progress, now - start, pending)
+            next_progress = now + progress_every
         if not pending:
-            done = [f"pid {p}" for p in pids] + [f"port {p}" for p in ports] + [f"file {f}" for f in files]
+            done =[f"pid {p}" for p in pids] + [f"port {p}" for p in ports] + [f"file {f}" for f in files]
             return OK, f"LANE_GUARD OK: background work finished ({', '.join(done)})"
         if now >= deadline:
             return COULD_NOT_CHECK, (f"LANE_GUARD COULD_NOT_CHECK: still running after {timeout:g}s: "
@@ -576,8 +596,12 @@ def _main_wait(argv):
     parser.add_argument("--settle", type=float, default=30.0,
                         help="seconds a --port gets to start listening at least once before 'not listening' "
                              "counts as done, capped at --timeout (default 30)")
+    parser.add_argument("--progress", help="file to overwrite with one liveness line while waiting")
+    parser.add_argument("--progress-every", type=float, default=900.0,
+                        help="seconds between --progress writes (default 900)")
     args = parser.parse_args(argv)
-    code, line = check_wait(args.pid, args.port, args.file, args.timeout, max(args.interval, 0.05), args.settle)
+    code, line = check_wait(args.pid, args.port, args.file, args.timeout, max(args.interval, 0.05), args.settle,
+                            args.progress, max(args.progress_every, 0.05))
     print(line)
     return code
 
@@ -1013,6 +1037,17 @@ def _selftest_wait(expect):
             longer.kill()
             longer.wait()
             short.wait()
+        note = os.path.join(tmp, ".lane-progress")
+        busy = subprocess.Popen(["sleep", "30"])
+        try:
+            check_wait([busy.pid], [], [], timeout=0.3, interval=0.05, progress=note, progress_every=0.1)
+            with open(note, encoding="utf-8") as handle:
+                text = handle.read()
+            ok = text.count("\n") == 1 and f"pid {busy.pid} running" in text and "waiting" in text
+            expect("wait-progress-file-one-line", (OK if ok else REFUSED, text.rstrip("\n")), OK, "")
+        finally:
+            busy.kill()
+            busy.wait()
         free = socket.socket()
         free.bind(("127.0.0.1", 0))
         never_bound_port = free.getsockname()[1]
