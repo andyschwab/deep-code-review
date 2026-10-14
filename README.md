@@ -91,6 +91,17 @@ same cost, and both together found 58%. No method beat plain repeated passes at 
 Perun ships the splitter and this recipe so the trade is explicit; it does not claim a
 smarter reviewer.
 
+**Against other review skills, measured 2026-10-14.** On 37 of the same bug-fix cases
+(`claude-sonnet-5-5`, read-only file tools, same day, same scorer), Perun was compared with
+three widely used, locally runnable review instructions: obra/superpowers
+`requesting-code-review`, the `code-reviewer` agent from Anthropic's pr-review-toolkit plugin,
+and the `code-reviewer` agent from wshobson/agents. The pass mark was written down before the
+run: "better" only if the F1 difference's 95% interval stays above 0. Result: a tie with all
+three. Every arm caught the same share of known bugs (29.7%); F1 was 0.442 for Perun against
+0.430, 0.451 and 0.422. Perun's findings were real more often than a plain prompt's (86%
+against 73%) and wshobson's (72%); the pr-review-toolkit agent reported fewer findings and
+was the most precise (93%, a tie with Perun). Perun cost $0.20 per case against $0.14 to $0.16.
+
 - **Shorter instructions to read.** AI tools charge by the *token* (a piece of a word).
   The instructions the assistant must read before each review shrank by
   [19%](CHANGELOG.md) (release 1.501.0, counted as characters divided by 4).
