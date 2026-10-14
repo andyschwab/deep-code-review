@@ -3,6 +3,15 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.572.0] — 2026-10-14
+
+### Added
+- `partition_diff.py` splits a large unified diff into deterministic whole-file review chunks (packed to a changed-line budget, optional per-hunk split, binary/lockfile/generated files listed in `skipped`, never dropped) so any agent or orchestrator can fan out a review.
+
+### Changed
+- `method-situational.md` records the measured large-diff recipe (one pass finds about a third of known bugs; repeated or chunked passes raise it) and routes `partition_diff.py`; README reports the same numbers.
+size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 39581→40813 measured large-diff recipe
+
 ## [1.571.0] — 2026-10-13
 
 README states the tools-enabled benchmark result (50 cases, mid-tier model): +4.7 points of recall over a plain prompt with the same tools, F1 a tie, about twice the cost; three further levers tested and not shipped.
