@@ -12,7 +12,10 @@ Lines (each skipped when its input is missing; nothing is fetched from the netwo
      branch is not seen as merged) and dev servers listening with a cwd inside this repo's
      worktrees (lsof, skipped when missing or denied), each with a copy-paste report/cleanup
      command that points at clean_finished.sh / reap_own.sh. This hook removes and stops nothing.
-  3. the top-ranked item in PRIORITIES.md (queue_guard.ranked_ids; claim status not checked
+  3. `Perun copies differ: ...`: the SKILL.md `version:` of each Perun skill in ~/.claude/skills and the
+     git root's .claude/.cursor/.agents skills dirs disagree (a stale project copy shadows a newer global one).
+     One line total, silent when consistent or unparsable; reads only those files.
+  4. the top-ranked item in PRIORITIES.md (queue_guard.ranked_ids; claim status not checked
      offline).
 Time: all subprocess calls share a 5s budget (BUDGET); once spent, the rest are skipped.
 Output: one JSON object with `additionalContext` (report lines plus the fixed HOST_RULES from subagent_start_inject.py, always) and, when there are report lines, `systemMessage` (shown to the user).
@@ -20,8 +23,10 @@ Any error ends the hook silently with exit 0.
 """
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -50,7 +55,9 @@ def _git(repo, *args, timeout=3):
 
 
 def _vtuple(v):
-    return tuple(int(x) for x in v.strip().split(".") if x.isdigit())
+    """Numeric core of a version, padded to 3 parts ("1.2" == "1.2.0"); a prerelease/build suffix is dropped; () if none."""
+    t = tuple(int(x) for x in re.split(r"[-+]", v.strip(), maxsplit=1)[0].split(".") if x.isdigit())
+    return t + (0,) * (3 - len(t)) if t else ()
 
 
 def version_line(repo: Path):
@@ -160,11 +167,57 @@ def merge_line(repo: Path):
     return r.stdout.strip() or None
 
 
+PERUN_SKILLS = ("agentic-ceo", "agentic-delivery", "business-ops", "communication-structure", "contribution",
+                "deep-code-review", "growth-analytics", "idea-critic", "positioning", "product-discovery",
+                "product-output-safety")
+_VER = re.compile(r"^\s*version:\s*[\"']?(\d[^\"'\s]*)", re.M)
+
+
+def _skill_version(skill_md: Path):
+    """`(tuple, text)` of the frontmatter `version:` in a SKILL.md; None when missing or unparsable."""
+    try:
+        parts = skill_md.read_text().split("---", 2)
+    except (OSError, ValueError):
+        return None
+    m = _VER.search(parts[1]) if len(parts) == 3 else None
+    return (_vtuple(m.group(1)), m.group(1)) if m and _vtuple(m.group(1)) else None
+
+
+def copy_drift_line(home: Path, root: Path):
+    """One line naming the first Perun skill whose copies (global vs project dirs) differ in version.
+
+    Missing locations and unparsable versions are skipped; two locations resolving to one dir
+    (cwd is home) count once. None when every copy found agrees."""
+    where = [("global", home / ".claude/skills")]
+    where += [(f"project {d.split('/')[0]}", root / d / "skills") for d in (".claude", ".cursor", ".agents")]
+    drift = []
+    for name in PERUN_SKILLS:
+        found, seen = [], set()
+        for label, d in where:
+            key = (d / name).resolve()
+            v = None if key in seen else _skill_version(d / name / "SKILL.md")
+            seen.add(key)
+            if v:
+                found.append((v[0], v[1], label))
+        if len({f[0] for f in found}) > 1:
+            found.sort(key=lambda f: (f[0], f[2] == "global"))  # newest last; global wins ties
+            drift.append(f"{name} {found[0][2]} {found[0][1]} < {found[-1][2]} {found[-1][1]}")
+    if not drift:
+        return None
+    more = f" (+{len(drift) - 1} more skills)" if len(drift) > 1 else ""
+    return f"Perun copies differ: {drift[0]}{more} — run the updater or update-installed.sh"
+
+
+def drift_line(repo: Path):
+    top = _git(repo, "rev-parse", "--show-toplevel")
+    return copy_drift_line(Path.home(), Path(top.strip()) if top else repo)
+
+
 def brief(repo: Path) -> list:
     """The ≤3 report lines for `repo`; each section is independent and fails silent."""
     lines = []
     _deadline[0] = time.monotonic() + BUDGET
-    for fn in (merge_line, version_line, committed_line, hygiene_line, priority_line):
+    for fn in (merge_line, version_line, committed_line, hygiene_line, priority_line, drift_line):
         if time.monotonic() >= _deadline[0]:
             break  # budget spent: skip the remaining sections
         try:
@@ -173,10 +226,62 @@ def brief(repo: Path) -> list:
             l = None
         if l:
             lines.append(l)
+    return _cap(lines)
+
+
+def _cap(lines):
+    """≤3 lines; a trailing drift line keeps a reserved slot, so the other lines yield to it."""
+    if lines and lines[-1].startswith("Perun copies differ"):
+        return lines[:-1][:2] + lines[-1:]
     return lines[:3]
 
 
+def _selftest() -> int:
+    def mk(base, rel, name, ver):
+        d = Path(base, rel, name)
+        d.mkdir(parents=True)
+        d.joinpath("SKILL.md").write_text(f"---\nname: {name}\nmetadata:\n  version: {ver}\n---\nbody\n")
+
+    with tempfile.TemporaryDirectory() as t:
+        h, r = Path(t, "home"), Path(t, "repo")
+        h.mkdir()
+        r.mkdir()
+        n = "deep-code-review"
+        assert copy_drift_line(h, r) is None  # missing dirs
+        mk(h, ".claude/skills", n, '"1.572.0"')
+        assert copy_drift_line(h, r) is None  # one location only
+        mk(r, ".cursor/skills", n, "1.572.0")
+        assert copy_drift_line(h, r) is None  # equal
+        mk(r, ".agents/skills", n, "'1.563.0'")
+        want = f"Perun copies differ: {n} project .agents 1.563.0 < global 1.572.0 — run the updater or update-installed.sh"
+        assert copy_drift_line(h, r) == want, copy_drift_line(h, r)
+        mk(r, ".claude/skills", "idea-critic", "1.1.0")
+        mk(h, ".claude/skills", "idea-critic", "1.2.0")
+        assert copy_drift_line(h, r).endswith("(+1 more skills) — run the updater or update-installed.sh")
+        mk(r, ".claude/skills", "positioning", "oops")
+        mk(h, ".claude/skills", "positioning", "1.2.0")
+        assert "positioning" not in copy_drift_line(h, r)  # unparsable version skipped
+        mk(r, ".claude/skills", "not-perun", "1.0.0")
+        mk(h, ".claude/skills", "not-perun", "2.0.0")
+        assert "not-perun" not in copy_drift_line(h, r)  # foreign skills ignored
+        assert copy_drift_line(h, h) is None  # cwd is home: one dir counted once
+        h2, r2 = Path(t, "h2"), Path(t, "r2")
+        mk(r2, ".claude/skills", "growth-analytics", "1.10.0")
+        mk(h2, ".claude/skills", "growth-analytics", "1.9.0")
+        assert "global 1.9.0 < project .claude 1.10.0" in copy_drift_line(h2, r2)  # numeric, not string, order
+    d = "Perun copies differ: x"
+    assert _cap(["a", "b", "c", d]) == ["a", "b", d]  # drift keeps its slot
+    assert _cap(["a", "b", "c"]) == ["a", "b", "c"] and _cap([d]) == [d] and _cap([]) == []
+    assert _vtuple("1.2") == _vtuple("1.2.0") == (1, 2, 0)
+    assert _vtuple("1.2.0-beta") == (1, 2, 0) and _vtuple("1.10.0+b5") > _vtuple("1.9.9")
+    assert _vtuple("oops") == () and _vtuple("") == ()
+    print("session_brief selftest ok")
+    return 0
+
+
 def main() -> int:
+    if "--selftest" in sys.argv[1:]:
+        return _selftest()
     try:
         try:
             cwd = json.load(sys.stdin).get("cwd")
