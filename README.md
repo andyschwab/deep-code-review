@@ -83,6 +83,14 @@ did not help or made results worse; none shipped. Plainly: on small bug-fix diff
 a little better than a plain prompt at finding bugs on the mid-tier model and no better on
 the strongest one. Its clear advantage is far fewer false alarms than `/code-review`.
 
+**Large changes, measured 2026-10-14.** On 78 real change ranges of about 490 changed lines
+across 14 files, one review pass found 31% of the known bugs, with or without Perun's method
+(27.5% against 25% on the first 40 cases, a tie). What raised that number was spending more:
+five independent passes found 47%, a chunked review (`partition_diff.py`) found 46% at the
+same cost, and both together found 58%. No method beat plain repeated passes at equal cost.
+Perun ships the splitter and this recipe so the trade is explicit; it does not claim a
+smarter reviewer.
+
 - **Shorter instructions to read.** AI tools charge by the *token* (a piece of a word).
   The instructions the assistant must read before each review shrank by
   [19%](CHANGELOG.md) (release 1.501.0, counted as characters divided by 4).
