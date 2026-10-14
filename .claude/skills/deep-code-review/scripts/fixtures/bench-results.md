@@ -1,6 +1,34 @@
 # Review benchmark results
 
-## 2026-10-12: paired run, strict MCP (current)
+## 2026-10-14: against popular review skills, plus three cost and precision variants (current)
+
+Same harness as the 2026-10-12 run below (Sonnet `claude-sonnet-5-5`, strict MCP, repo access with Read, Grep and Glob, change applied at HEAD), 37 of its 39 cases (two cases' repositories could not be rebuilt), one run per case. Every rule was written down before the run. "Precision" is the share of findings the verifier judged real. "Strict recall" matches findings against the known bug with no model in the loop.
+
+| Reviewer | Recall (adjudicated) | Strict recall | Precision | F1 | Review cost |
+|---|---|---|---|---|---|
+| Plain "review this diff" prompt | 0.297 | 0.351 | 0.728 | 0.422 | $0.098 |
+| Perun (v1.573.0) | 0.297 | 0.324 | 0.862 | 0.442 | $0.136 |
+| obra/superpowers requesting-code-review | 0.297 | 0.405 | 0.775 | 0.430 | $0.096 |
+| Anthropic pr-review-toolkit code-reviewer | 0.297 | 0.324 | 0.933 | 0.451 | $0.090 |
+| wshobson/agents code-reviewer | 0.297 | 0.405 | 0.724 | 0.422 | $0.097 |
+
+- **Bug finding is a tie.** Every F1 difference between Perun and the others has a 95% interval that includes 0. All five reviewers caught the bug in 11 of 37 cases; which cases differed by reviewer.
+- **Precision:** Perun is above the plain prompt and wshobson (intervals exclude 0) and below the Anthropic toolkit (not distinguishable).
+- **Cost:** a Perun review costs about 1.5 times the toolkit's and about 1.4 times the others'. About two-thirds of the gap is the larger cached prompt prefix (SKILL.md); the rest is longer output.
+
+Variants tried the same day, none shipped:
+
+| Variant | Result | Why it was not shipped |
+|---|---|---|
+| `references/compact-mode.md` alone as the instructions (2 KB instead of SKILL.md) | precision 0.567, recall 0.324, $0.177 per case with verifier | Precision fell 0.295 below full Perun (interval -0.413 to -0.184) and 0.162 below the plain prompt. The full SKILL.md is what buys precision. |
+| SKILL.md cut to 11 KB, full-repo material moved to a reference | precision 0.880, recall 0.324, review $0.130 | Only 4% cheaper (bar was 20%), and the precision interval (-0.077 to +0.113) was too wide to show it did not get worse. |
+| An extra pass that only removes findings it cannot confirm | precision 0.97 on paper | The pass and the grader are the same model, so it mostly pre-applies the grader. Judge-free strict recall fell from 0.324 to 0.270. |
+
+A follow-up on 21 cases never used before, judged by `claude-opus-5-5` (a different model from the reviewers), also tied the toolkit on precision: Perun plus the remove-only pass 0.881, toolkit 0.886, difference -0.005 (interval -0.106 to +0.085). On those cases Perun alone matched more known bugs than the toolkit (0.429 against 0.238; exploratory, not a pre-registered claim). Pooled with the 37 cases above (58 in all), that gap is +0.069 with an interval of -0.017 to +0.172: a tie. Perun also reports about 50% more findings, which raises strict matches by itself.
+
+**Reading.** Measured on bug finding alone, Perun ties the best popular review prompt and costs more. Its measured edges are fewer false alarms than a plain prompt, plus the delivery tooling and gates the other review prompts do not ship. Do not re-run the three variants above expecting a different answer; a new idea needs fresh cases and a judge from a different model.
+
+## 2026-10-12: paired run, strict MCP (previous)
 
 BLUF: on 39 held-out real bug fixes Perun (one pass) beat a plain prompt on recall by +0.103 (verifier-judged, interval 0.000 to +0.231), a borderline result. Against `/code-review` it matched recall (+0.000) with verified precision +0.502 and F1 +0.238 (n = 34). Model `claude-sonnet-5-5`, `--strict-mcp-config` on every call, same day, same cases, same verifier. Recall adjudicated = verifier-judged; recall strict = fixed text match; verified precision = findings the verifier confirmed real; F1 = harmonic mean of adjudicated recall and verified precision. Intervals: paired bootstrap, 10000 case resamples, seed 1.
 
