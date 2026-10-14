@@ -16,12 +16,17 @@ Files: explicit FILES (a non-test path prints `SKIP file: not a test file`), els
 (git diff REF...HEAD or REF...--head, added/modified, paths resolved from the repo top), else every tracked
 file. Test files: test_*.py, *_test.py, *.test.*/*.spec.* (js/ts/mjs/cjs), __tests__/, tests/, *_test.go,
 test*.sh, *.bats.
+Also (py/js, any file, test or not): `file:line: date literal compared with real clock; expires <date>` for a hard-coded
+date (`SUNSET = date(2026, 10, 14)`, `"2026-10-14"`) compared with a real-clock read on its line or via the constant it is
+assigned to; within 30 days of `--today` (default: real today) it is tagged `(URGENT: Nd)`, past it `(EXPIRED)`. These
+count toward the exit code only with `--strict`; a pinned fake clock anywhere in the file or the allow escape exempts.
 Output: `file:line: real clock in test; pin a fake clock or inject now`. Escape: `clock-lint: allow` in a comment
 on the same line or on a comment-only line above. Exit 0 clean, 1 findings, 2 COULD_NOT_CHECK (unreadable file,
 git failure or `--deadline` exceeded (checked per file; the pre-push hook passes 5); printed, never silent; 2 only when there are no findings).
 Limits: line regexes and indentation/keyword block detection, not a parser; a clock read built by string
 concatenation is not seen; a fake clock anywhere in a test block exempts that whole block. Read-only.
 """
+import datetime
 import os
 import re
 import subprocess
@@ -51,6 +56,10 @@ IMPORT = re.compile(r"^\s*(import\b|from\s+\S+\s+import\b|.*\brequire\()")
 ALLOW = "clock-lint: allow"
 COMMENT = re.compile(r"^\s*(#|//|\*|/\*)")
 MSG = "real clock in test; pin a fake clock or inject now"
+ISO = re.compile(r"(?<![\d-])(20\d\d)-(\d\d)-(\d\d)(?!\d)|\b(?:datetime|date)\(\s*(20\d\d)\s*,\s*(\d\d?)\s*,\s*(\d\d?)\b")
+NAME = re.compile(r"^\s*(?:export\s+)?(?:const\s+|let\s+|var\s+)?([A-Za-z_]\w*)\s*(?::[^=]+)?=(?!=)")
+CMP = re.compile(r"<=|>=|==|!=|(?<![-=])>|<|\b(?:isBefore|isAfter|isSameOrBefore|isSameOrAfter)\b")
+URGENT_DAYS = 30
 
 
 def code(lang, line, st):
@@ -112,6 +121,41 @@ def scan(path, text):
     return out
 
 
+def bombs(path, text, today):
+    """[(line_no, date, days_left)] of date literals (SUNSET = date(2026,10,14), "2026-10-14") compared with a real-clock
+    read, on the literal's own line or on another line using the constant it is assigned to. py/js only; any file
+    (test or not); a pinned fake clock anywhere in the file, comment-only lines and `clock-lint: allow` exempt.
+    Sorted soonest first; days_left <= URGENT_DAYS is urgent. `today` is injected."""
+    lang = EXT.get(path.rsplit(".", 1)[-1])
+    if lang not in ("py", "js"):
+        return []
+    rx = re.compile("|".join([READS[lang]] + aliases(lang, text)))
+    lines, st = text.split("\n"), [False]
+    cl = [code(lang, l, st) for l in lines]
+    if any(FAKE.search(c) and not IMPORT.match(l) for c, l in zip(cl, lines)):
+        return []
+
+    def cmp_read(c):  # a real-clock read and a comparison in the same expression (line)
+        return bool(rx.search(c) and CMP.search(c))
+
+    out = []
+    for i, l in enumerate(lines):
+        if COMMENT.match(l) or ALLOW in l or (i and ALLOW in lines[i - 1] and COMMENT.match(lines[i - 1])):
+            continue
+        for m in ISO.finditer(l):
+            try:
+                d = datetime.date(*map(int, [g for g in m.groups() if g]))
+            except ValueError:
+                continue
+            nm = NAME.match(l)
+            nm = nm.group(1) if nm and len(nm.group(1)) >= 3 else None
+            if cmp_read(cl[i]) or (nm and any(j != i and re.search(r"\b%s\b" % nm, cl[j]) and cmp_read(cl[j])
+                                              for j in range(len(lines)))):
+                out.append((i + 1, d, (d - today).days))
+                break
+    return sorted(out, key=lambda t: t[2])
+
+
 def files(root, base, head, args):
     if args:
         return args
@@ -126,8 +170,9 @@ def files(root, base, head, args):
     return [os.path.join(top, f) for f in p.stdout.split("\n") if f]
 
 
-def run(root, base, args, head="HEAD", deadline=None):
+def run(root, base, args, head="HEAD", deadline=None, today=None, strict=False):
     bad = cant = 0
+    today = today or datetime.date.today()
     end = time.monotonic() + deadline if deadline is not None else None
     try:
         paths = files(root, base, head, args)
@@ -139,7 +184,8 @@ def run(root, base, args, head="HEAD", deadline=None):
             print("COULD_NOT_CHECK deadline exceeded before %s" % f)
             return 1 if bad else 2
         rel = f if args else os.path.relpath(os.path.realpath(f), os.path.realpath(root))
-        if not TEST_RE.search(f.replace(os.sep, "/")) or f.rsplit(".", 1)[-1] not in EXT:
+        is_test = TEST_RE.search(f.replace(os.sep, "/")) and f.rsplit(".", 1)[-1] in EXT
+        if not is_test and EXT.get(f.rsplit(".", 1)[-1]) not in ("py", "js"):
             if args:
                 print("SKIP %s: not a test file" % f)
             continue
@@ -149,6 +195,12 @@ def run(root, base, args, head="HEAD", deadline=None):
         except OSError as e:
             print("COULD_NOT_CHECK %s: %s" % (rel, e.strerror or e))
             cant += 1
+            continue
+        for n, d, left in bombs(f, text, today):
+            print("%s:%d: date literal compared with real clock; expires %s%s" % (
+                rel, n, d, " (URGENT: %dd)" % left if 0 <= left <= URGENT_DAYS else " (EXPIRED)" if left < 0 else ""))
+            bad += strict
+        if not is_test:
             continue
         for n, _ in scan(f, text):
             print("%s:%d: %s" % (rel, n, MSG))
@@ -198,14 +250,39 @@ def selftest():
     for name, src, want in cases:
         got = len(scan(name, src)) if TEST_RE.search(name) else 0
         assert got == want, (name, src, got, want)
+    t = datetime.date(2026, 10, 14)  # injected "today": the self-check never reads the real clock
+    bomb = [
+        ("g.py", "SUNSET = date(2026, 10, 20)\ndef ok():\n    return date.today() < SUNSET\n", [(1, 6)]),
+        ("g.py", 'if datetime.now() > datetime(2027, 3, 1):\n    pass\n', [(1, 138)]),
+        ("g.ts", 'const SUNSET = "2026-09-01";\nexport const live = () => Date.now() < Date.parse(SUNSET);\n', [(1, -43)]),
+        ("g.py", 'x = "2026-10-20"\n', []),  # literal never compared with a clock
+        ("g.py", "SUNSET = date(2026, 10, 20)\nOTHER = date.today()\n", []),
+        ("g.py", "SUNSET = date(2026, 10, 20)  # clock-lint: allow\nok = date.today() < SUNSET\n", []),
+        ("g.py", "# SUNSET = date(2026, 10, 20) date.today()\n", []),
+        ("test_g.py", "@freeze_time('2026-10-14')\ndef test_x():\n    assert date.today() < date(2026, 10, 20)\n", []),
+        ("g.py", "SUNSET = date(2026, 13, 45)\nok = date.today() < SUNSET\n", []),
+        ("g.go", 'S = "2026-10-20"\nt := time.Now()\n', []),
+        ("g.py", 'created = "2020-01-01"\nprint(datetime.now())\n', []),  # past fixture near a read, no comparison
+        ("g.py", 'row = {"created": "2020-01-01", "at": datetime.now()}\n', []),
+        ("g.py", 'SUNSET = date(2026, 10, 20)\nlog(SUNSET, date.today())\n', []),  # same line, but no comparison
+        ("g.py", 'DAY = date(2026, 10, 20)\nok = date.today() < DAYS\n', []),  # bare-word prefix is not the constant
+        ("g.py", 'D = date(2026, 10, 20)\nok = date.today() < D\n', []),  # name shorter than 3 chars
+        ("g.py", 'created = "2020-01-01"\nstale = created < datetime.now()\n', [(1, -2478)]),  # actually compared
+    ]
+    for name, src, want in bomb:
+        got = [(n, left) for n, _, left in bombs(name, src, t)]
+        assert got == want, (name, src, got, want)
     print("clock_lint selftest ok")
 
 
 def main(argv):
     if argv == ["--selftest"]:
         return selftest()
-    root, base, head, deadline = ".", None, "HEAD", None
-    for opt in ("--root", "--base", "--head", "--deadline"):
+    root, base, head, deadline, today = ".", None, "HEAD", None, None
+    strict = "--strict" in argv
+    if strict:
+        argv.remove("--strict")
+    for opt in ("--root", "--base", "--head", "--deadline", "--today"):
         if opt in argv:
             i = argv.index(opt)
             if i + 1 >= len(argv):
@@ -215,8 +292,14 @@ def main(argv):
             if opt == "--root": root = v
             elif opt == "--base": base = v
             elif opt == "--deadline": deadline = float(v)
+            elif opt == "--today":
+                try:
+                    today = datetime.date.fromisoformat(v)
+                except ValueError:
+                    print("clock_lint: --today needs YYYY-MM-DD, got %r" % v, file=sys.stderr)
+                    return 2
             else: head = v
-    return run(root, base, argv, head, deadline)
+    return run(root, base, argv, head, deadline, today, strict)
 
 
 if __name__ == "__main__":
