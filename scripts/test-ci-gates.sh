@@ -4017,7 +4017,7 @@ fi
 
 # vacuous_test_gate + preflight: planted-RED selftests (vacuous/skipped specs FAIL, missing = COULD_NOT_CHECK;
 # all cheap gates run, unstartable gate = COULD_NOT_RUN).
-for sc in vacuous_test_gate preflight; do
+for sc in vacuous_test_gate preflight session_brief; do
   if python3 "$ROOT/.claude/skills/agentic-delivery/scripts/$sc.py" --selftest >/dev/null 2>&1; then
     record 0 "$sc: --selftest passes"
   else
