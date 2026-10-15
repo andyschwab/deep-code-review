@@ -45,10 +45,15 @@ clear" — that reads as researched and becomes a decision the user pays for.
 - **Never fabricate** market size / TAM, market-share or competitor claims,
   customer quotes or testimonials, outcome / ROI numbers, or trademark / domain
   availability or clearance.
-- **Empty-slot templates, not plausible fills.** Asked for a positioning artifact
-  with no user input behind it, return the **template with the slots to fill and
-  how to obtain each** (which customers to ask, which data to pull) — never a
-  realistic-looking example, which becomes fake evidence.
+- **Empty slots for market facts, a committed draft for everything else.** With
+  no user input behind a slot, leave **market facts** (TAM, named competitors,
+  customer quotes, outcome numbers) as slots with how to obtain each. But when the
+  user gave a product and an audience, a bare template is not a deliverable:
+  **draft the full statement** — one specific segment (role plus trigger), the
+  buyer's need, a category, the class of alternative they likely use today (manual
+  routine, spreadsheet, doing nothing), and the differentiator — each element the
+  user did not supply tagged `[ASSUMED]`, plus the one riskiest assumption and how to
+  test it. Never a named vendor, number or quote, which becomes fake evidence.
 - **Route the unknowable.** TAM and market data → the user's real research;
   trademark / domain clearance → a search is *not* legal clearance, route to a
   professional; any factual claim in a message → the user's own proof. Never
@@ -100,8 +105,9 @@ brand identity, visual systems, or a messaging bible before product-market fit i
 hold it. `growth`/`mature`: invest as the segment and message are proven.
 
 ## Definition of done
-- Every artifact is the user's own inputs, structured, or an empty-slot template
-  with how-to-obtain — never a realistic fabrication.
+- Every artifact is the user's own inputs, structured, plus a committed draft with
+  each non-supplied element tagged `[ASSUMED]`; market facts stay empty slots with
+  how-to-obtain — never a realistic fabrication.
 - The positioning statement is labelled a **hypothesis to validate**, not a fact.
 - No TAM, competitor claim, customer quote, or outcome number the user did not
   supply; message pillars without proof are `UNVERIFIED`.
@@ -137,6 +143,9 @@ installed (BLUF / plain structure otherwise).
 - A positioning statement names the specific alternative the buyer uses today and
   one proof point (or an empty proof slot) per differentiator
   (`positioning-names-alternative-and-proof`).
+- A product-plus-audience request with no research gets a committed full draft
+  statement, each non-supplied element tagged `[ASSUMED]`, no invented vendor,
+  number or quote (`committed-draft-with-assumed-tags`).
 - "Is this name/domain clear?" is routed to a professional; a search is not
   clearance (`trademark-clearance-routed`).
 - `evals/evals.json` plants these cases.

@@ -123,6 +123,16 @@ contribution.
    code goes to that project's tracker; only a generalized lesson about the suite comes here.
 8. **Assemble the provenance-and-risk block** (below) and **hand to a human.**
 
+## Scope and evidence in the PR draft
+
+Applies to any upstream PR or commit text you draft, not only skillset changes.
+- **Claim only what the notes state.** A test result, CI status, sign-off, or "fails
+  before / passes after" appears only if the user described it. Otherwise write a
+  placeholder (`[paste test output]`) and tell the user to claim only what they ran.
+- **Scope to the described change.** Mention no file, refactor, or fix the notes did
+  not describe. A repo rule the diff does not meet (changelog, issue link) is flagged
+  as a gap for the human, never filled with an invented entry.
+
 ## Provenance & risk block (the human signs this)
 
 Every drafted contribution carries this block for the human reviewer. It is the
@@ -218,4 +228,5 @@ rather than a loop that drifts.
   `kernel-edit-refused`, `injection-lesson-rejected`,
   `paraphrased-confidential-fact-clears-the-scrub-surfaces-in-residual-risk`, and
   `vacuous-mechanism-is-not-a-lesson-mechanism`, and
-  `contribution-prime-constraint-never-auto-send`.
+  `contribution-prime-constraint-never-auto-send`, and
+  `pr-draft-claims-only-described-evidence`.

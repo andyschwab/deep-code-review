@@ -116,6 +116,9 @@ earns its keep.
 - An experiment read-out names its **pre-committed design** (a fixed N/duration or a valid
   sequential rule) plus a **primary and a guardrail** metric; a peeked mid-test result is never
   reported as a win.
+- The answer ends with a **this-week step**: two or three concrete actions naming the exact
+  event, cohort, query or test design, and the result that would change the decision. "Share
+  your data and I will help" is not a step; an unsupplied number stays `UNVERIFIED`.
 - The identifier seam and PII routing are stated, not restated from
   `observability.md` / `privacy-compliance.md`.
 
@@ -156,4 +159,7 @@ product-analytics vs ops-observability identifier seam is described in
 - Rising signups with flat weekly-active users is read as a retention/activation
   leak; the funnel is diagnosed bottom-up (retention before acquisition), not by
   scaling ad spend (`diagnose-retention-before-pouring-in-acquisition`).
+- A retention read ends with named events/cohorts to pull this week and the result that
+  would change the decision, not a request for more data
+  (`ends-with-a-this-week-step-not-a-data-request`).
 - `evals/evals.json` plants these cases.
