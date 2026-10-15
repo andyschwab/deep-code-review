@@ -4169,6 +4169,20 @@ else
 fi
 
 # ===========================================================================
+# drive-to-goal: the rule, both spend modes, and the override knob must stay in
+# the lane preamble and operating-discipline.md (and the perun-run override).
+_dtg=1
+for f in .claude/skills/agentic-delivery/templates/lane-preamble.md .claude/skills/agentic-delivery/references/operating-discipline.md; do
+  grep -qF 'Drive to the goal (first rule)' "$ROOT/$f" \
+    && grep -qF 'Default: be cautious about spend and report spend to the owner' "$ROOT/$f" \
+    && grep -qF 'Maximum pace:' "$ROOT/$f" \
+    && grep -qF 'do not pause for approval inside any granted budget' "$ROOT/$f" \
+    && grep -qF 'set tokens maximize' "$ROOT/$f" \
+    && grep -qF 'counts as the grant for the human-gate push' "$ROOT/$f" || _dtg=0
+done
+grep -qF 'is such a grant for push and merge only' "$ROOT/commands/perun-run.md" || _dtg=0
+if [ "$_dtg" -eq 1 ]; then record 0 "drive-to-goal: rule, two spend modes and override present"; else record 1 "drive-to-goal: rule, two spend modes and override present"; fi
+
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
 # above wrote outside $WORK. A regression here means some case dropped a
 # fixture into the real checkout instead of $WORK — exactly the kind of
