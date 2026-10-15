@@ -76,11 +76,11 @@ with tempfile.TemporaryDirectory() as t:
     res = m.merge([dict(r) for r in rows], root=t)
     ids = [f["id"] for f in res["findings"]]
     assert ids == ["b", "d", "e", "s"], ids
-    assert res["dropped"] == {"ungrounded": 2, "duplicate": 2, "over_cap": 0}, res["dropped"]
+    assert res["dropped"] == {"low_confidence": 0, "ungrounded": 2, "duplicate": 2, "over_cap": 0}, res["dropped"]
     assert res["findings"][0]["evidence"] == ["db.py:9", "db.py:5"]
     cap = m.merge([dict(r) for r in rows], cap=1, root=t)
     assert [f["id"] for f in cap["findings"]] == ["b", "s"] and cap["dropped"]["over_cap"] == 2
-    assert m.merge([]) == {"findings": [], "dropped": {"ungrounded": 0, "duplicate": 0, "over_cap": 0}}, "NONE is valid"
+    assert m.merge([]) == {"findings": [], "dropped": {"low_confidence": 0, "ungrounded": 0, "duplicate": 0, "over_cap": 0}}, "NONE is valid"
 
     # far-apart same title stays 2; punctuation-only titles fall back to the id; equal severity keeps the first
     far = m.merge([G("a.py:1", id="n1", severity="High", title="Same"), G("a.py:900", id="n2", severity="High", title="Same")], root=t)
@@ -92,4 +92,8 @@ with tempfile.TemporaryDirectory() as t:
     # schema severities: Blocker ranks first, Nit last
     sv = m.merge([G("a.py:1", id="n", severity="Nit", title="n"), G("a.py:100", id="l", severity="Low", title="l"), G("a.py:200", id="b", severity="Blocker", title="b")], root=t)
     assert [f["id"] for f in sv["findings"]] == ["b", "l", "n"], sv
+    # confidence floor: < 80 dropped before grounding, >= 80 and unscored rows kept, bool is not a score
+    cf = m.merge([G("a.py:1", id="lo", severity="High", title="lo", confidence=25), G("a.py:100", id="hi", severity="High", title="hi", confidence=80),
+                  G("a.py:200", id="none", severity="High", title="none"), G("a.py:300", id="b", severity="High", title="b", confidence=True)], root=t)
+    assert sorted(f["id"] for f in cf["findings"]) == ["b", "hi", "none"] and cf["dropped"]["low_confidence"] == 1, cf
 print("test_finding_gates: all passed")

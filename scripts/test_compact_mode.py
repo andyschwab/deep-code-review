@@ -18,6 +18,12 @@ class CompactMode(unittest.TestCase):
         self.assertTrue(t.startswith("Read this when the model running this skill is not Claude"))
         self.assertIn("SKILL.md stays the source of truth", t.splitlines()[1])
 
+    def test_confidence_floor(self):
+        t = (SK / "references/compact-mode.md").read_text()
+        self.assertIn("Report only >= 80", t)
+        self.assertIn('"confidence"', t)
+        self.assertNotIn("unverified:", t)
+
     def test_bench_data(self):
         self.assertTrue((ROOT / "docs/bench/xmodel2-summary.md").is_file())
         self.assertIn("bench/xmodel2-summary.md", (ROOT / "docs/host-safety.md").read_text())
