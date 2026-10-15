@@ -21,6 +21,8 @@ ok()  { printf '%s\n' "$2" >"$W/ok/$1.txt"; }
 hit aws_akia   "id=AKIA""ZZZZZZZZZZZZZZZZ"
 hit aws_asia   "id=ASIA""ZZZZZZZZZZZZZZZZ"
 hit gh_pat     "t=gh""p_${A}"
+hit gh_pat_y   "t=gh""p_y${A}"
+hit gh_pat_z   "t=gh""p_z${A}"
 hit gh_fine    "t=github""_pat_${B}_abcdefghij"
 hit slack_hook "u=https://hooks.slack"".com/services/T0ABCDEFGH/B0ABCDEFGH/${B:0:24}"
 hit slack_bot  "t=xox""b-1234567890-abcdefghij"
