@@ -4180,7 +4180,7 @@ for f in .claude/skills/agentic-delivery/templates/lane-preamble.md .claude/skil
     && grep -qF 'set tokens maximize' "$ROOT/$f" \
     && grep -qF 'counts as the grant for the human-gate push' "$ROOT/$f" || _dtg=0
 done
-grep -qF 'is such a grant' "$ROOT/commands/perun-run.md" || _dtg=0
+grep -qF 'is such a grant for push and merge only' "$ROOT/commands/perun-run.md" || _dtg=0
 if [ "$_dtg" -eq 1 ]; then record 0 "drive-to-goal: rule, two spend modes and override present"; else record 1 "drive-to-goal: rule, two spend modes and override present"; fi
 
 # hermeticity sentinel (own lane, appended at the end by convention): nothing
