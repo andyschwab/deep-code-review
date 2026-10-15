@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory() as t:
     sv = m.merge([G("a.py:1", id="n", severity="Nit", title="n"), G("a.py:100", id="l", severity="Low", title="l"), G("a.py:200", id="b", severity="Blocker", title="b")], root=t)
     assert [f["id"] for f in sv["findings"]] == ["b", "l", "n"], sv
     # confidence floor: < 80 dropped before grounding, >= 80 and unscored rows kept, bool is not a score
-    cf = m.merge([G("a.py:1", id="lo", severity="High", title="lo", confidence=25), G("a.py:100", id="hi", severity="High", title="hi", confidence=80),
-                  G("a.py:200", id="none", severity="High", title="none"), G("a.py:300", id="b", severity="High", title="b", confidence=True)], root=t)
+    cf = m.merge([G("a.py:1", id="lo", severity="High", title="lo", confidence_score=25), G("a.py:100", id="hi", severity="High", title="hi", confidence_score=80),
+                  G("a.py:200", id="none", severity="High", title="none"), G("a.py:300", id="b", severity="High", title="b", confidence_score=True)], root=t)
     assert sorted(f["id"] for f in cf["findings"]) == ["b", "hi", "none"] and cf["dropped"]["low_confidence"] == 1, cf
 print("test_finding_gates: all passed")

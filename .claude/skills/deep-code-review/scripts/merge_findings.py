@@ -3,7 +3,7 @@
 
 Purpose: cut review noise. Inputs are findings files; every gap row is re-checked here with finding_ground_check.check (any
 caller-supplied `grounded` flag is overwritten, so it cannot bypass the gate; --root/--ref as there).
-Steps: drop gap rows whose numeric `confidence` is below 80 (MIN_CONF; rows without one pass); drop ungrounded gap rows; dedupe by (file of first evidence, `mechanism`, falling back to the
+Steps: drop gap rows whose numeric `confidence_score` is below 80 (MIN_CONF; rows without one pass, and the string `confidence` tier is never read); drop ungrounded gap rows; dedupe by (file of first evidence, `mechanism`, falling back to the
 normalized title, then the id) when first-evidence lines are within 10, keeping the highest-severity row
 (the first on a tie) and unioning evidence; rank Blocker>Critical>High>Medium>Low>Nit/Info (stable); keep the top
 --cap (default 20). Strength rows pass through uncapped. Output: {"findings": [...], "dropped":
@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from finding_ground_check import check, parse  # noqa: E402
 
 NEAR = 10  # same file+mechanism merges only when first-evidence lines are within this many lines
-MIN_CONF = 80  # compact-mode.md: report only findings scored >= 80 that this change causes a real failure
+MIN_CONF = 80  # method.md anti-slop / compact-mode.md: report only findings scored >= 80 that this change causes a real failure
 SEV = {"blocker": -1, "critical": 0, "high": 1, "medium": 2, "low": 3, "nit": 4, "info": 4}
 
 
@@ -38,7 +38,7 @@ def merge(rows, cap=20, root=".", ref=None):
         if f.get("polarity", "gap") != "gap":
             strengths.append(f)
             continue
-        c = f.get("confidence")
+        c = f.get("confidence_score")
         if isinstance(c, (int, float)) and not isinstance(c, bool) and c < MIN_CONF:
             drop["low_confidence"] += 1
             continue

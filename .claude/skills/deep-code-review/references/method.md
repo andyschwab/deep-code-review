@@ -508,6 +508,9 @@ owner action is not a finding. Drop or demote to Nit/Info:
 - a missing community-health file on a **private** repo with no outside
   contributors (already batched in `docs-and-dx.md`);
 - restyling, renaming, or "consider maybe" with no defect;
+- **a gap finding scored below 80.** Score each 0-100 for "this change causes a real, reachable failure": 25 for
+  pre-existing issues, hypothetical callers or style; 80 for a trace verified on a normal path. Report only ≥80;
+  log the rest in the coverage ledger as `declined: <reason>`;
 - a second copy of a fact the project's own gate already enforces and the
   review already confirmed green;
 - a **settled nit** the team has already seen and declined — kept in a committed, path-scoped

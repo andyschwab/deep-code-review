@@ -21,7 +21,7 @@ class CompactMode(unittest.TestCase):
     def test_confidence_floor(self):
         t = (SK / "references/compact-mode.md").read_text()
         self.assertIn("Report only >= 80", t)
-        self.assertIn('"confidence"', t)
+        self.assertIn('"confidence_score"', t)
         self.assertNotIn("unverified:", t)
 
     def test_bench_data(self):
