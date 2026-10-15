@@ -3,6 +3,27 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.576.0] — 2026-10-15
+
+### Changed
+- The full DIFF method (`method.md` Phase 4 anti-slop) now scores each gap finding 0-100 for "this change causes a real, reachable failure" (25 for pre-existing issues, hypothetical callers or style; 80 for a trace verified on a normal path), reports only 80 or more, and logs the rest in the coverage ledger as `declined: <reason>`.
+- `machine-report.md` gains an optional integer `confidence_score` (0-100). The numeric field is named apart from the existing string tier `confidence` (CONFIRMED, CORROBORATED, PLAUSIBLE, unverified), which is unchanged. `merge_findings.py` and the compact card use `confidence_score`, so the floor never reads a tier as a score.
+- The DIFF quick-path now says to batch all reads in one turn.
+
+size-budget-raise: .claude/skills/deep-code-review/SKILL.md 23735→23764 batch-reads note
+size-budget-raise: .claude/skills/deep-code-review/references/machine-report.md 11250→11543 confidence_score field
+size-budget-raise: .claude/skills/deep-code-review/references/method.md 42880→43171 confidence floor rule
+size-budget-raise: .claude/skills/deep-code-review/references/compact-mode.md 2140→2146 confidence_score rename
+
+### Changed
+- The compact review card (the method for small diffs) now scores each finding 0-100 for "this change causes a real, reachable failure" and reports only scores of 80 or more; pre-existing issues, hypothetical callers and style score 25. It reads the code a finding depends on instead of emitting "unverified:" findings, and it no longer pushes the reviewer to find at least one bug. On the 2026-10-14 bench the card's precision was 0.567 against 0.862 for the full skill and 0.933 for a rival that uses the same 80-point floor.
+- `merge_findings.py` drops gap rows whose numeric `confidence` is below 80 and counts them as `dropped.low_confidence`; rows without a score pass unchanged.
+
+size-budget-raise: .claude/skills/deep-code-review/references/compact-mode.md 2067→2140 confidence floor and schema field
+
+### Changed
+- New first rule, "Drive to the goal", in the lane preamble and `operating-discipline.md`: a task ends only when the outcome is met and verified; waiting means starting the next independent item; when blocked, create the next lever. Two spend modes: cautious and reported by default, and under an explicit owner request for maximum pace, deliver without pausing for approval inside any granted budget (this outranks token economy, lane and heavy-slot caps, `HOLD` waits and "critical work only"). An explicit owner instruction in the session is the grant for the push step in `/perun-run`; lift the caps with `perun_policy.py set tokens maximize` and `set local_cpu maximize`.
+
 ## [1.575.0] — 2026-10-15
 
 ### Changed
