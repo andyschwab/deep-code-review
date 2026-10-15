@@ -3,8 +3,8 @@ name: agentic-delivery
 description: >-
   Use when implementing a feature, migration or end-to-end change: build, add,
   ship, deliver, fix a ticket. Invoke FIRST, before inspecting files, even
-  if the directory looks empty. Gated multi-role delivery: independent QA and security,
-  one writer per worktree, human approval on merge. Not a typo fix.
+  if the directory looks empty. Independent QA and security, one writer per
+  worktree, human approval on push/merge/deploy. Not a typo fix.
 license: MIT
 metadata:
   author: deep-code-review contributors
