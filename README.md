@@ -12,6 +12,8 @@ before it starts work.
 **Not a developer?** Read [Perun for leaders](docs/for-leaders.md): what it gives
 your team, a pilot plan, limits and an FAQ.
 
+**Choosing a bundle?** See [Perun vs other skill bundles](docs/perun-vs-rivals.md): measured ties, losses and token overhead.
+
 ## Why it matters
 
 **Bottom line (measured 2026-10-12):** on 39 held-out real bug fixes, Perun caught
@@ -119,6 +121,17 @@ estimate them for your team, use the worked formula and the three-step pilot in
 You need `git`, a terminal, and an AI coding agent such as Claude Code or
 Cursor (the installer lists the others it supports). No terminal? Paste the
 skill into any AI chat instead: [getting started](docs/getting-started.md).
+
+**Fastest: Claude Code plugin.** Two commands, no download:
+
+```
+/plugin marketplace add remigiusz-antczak/deep-code-review
+/plugin install deep-code-review@perun
+```
+
+The plugin installs every skill, while `install.sh` below defaults to review-only.
+
+Or install with the script:
 
 1. **Download Perun:**
 
