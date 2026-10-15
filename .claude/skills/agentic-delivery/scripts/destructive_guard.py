@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """PreToolUse(Bash) hook: deny a destructive host command before it runs. Never executes the command.
 
-BEST-EFFORT defense in depth, not a boundary. The OS sandbox (`sandbox.enabled`, set by
-`install.sh --apply-operating-layer`) is the boundary: operating-discipline item 8
-(`references/operating-discipline.md`, "Safety rules": never run a delete or kill on a host, never `rm -rf`
-a variable-built path). Text matching cannot see variables holding a command, aliases, scripts, `g=git; $g ...`
-or interpreter code built at run time; this guard catches the honest and the common-wrapper mistakes only.
+BEST-EFFORT and STRING-LEVEL: it catches common honest mistakes and common wrappers. It is NOT a security
+boundary. The OS sandbox (`sandbox.enabled`, set by `install.sh --apply-operating-layer`) is the boundary:
+operating-discipline item 8 (`references/operating-discipline.md`, "Safety rules": never run a delete or kill
+on a host, never `rm -rf` a variable-built path). Known-uncovered: interpreter APIs (`subprocess`, `exec`,
+`system` on built strings), IFS and brace-expansion tricks, variables holding a command, aliases, scripts,
+`g=git; $g ...` and exotic wrappers.
 
 Parsing (pure stdlib, text only): backslash-newline joined, heredoc bodies and here-strings set aside, shlex
 tokens, split into segments on newline, `;`, `&&`, `||`, `|`, parens. Redirections (`>f`, `2>/dev/null`, `<x`)
@@ -17,11 +18,15 @@ only for the flags that really take one (`sudo -u/-g/-C/-D/-h/-p/-r/-t/-U`, `env
 (`-c`, `-lc`) recurse into STR. argv0 becomes its basename (`/bin/rm` -> `rm`). Every `$(...)` and backtick
 body is scanned recursively. Quoted text is one token, so `grep "rm -rf" docs/` is not a hit. Text fed to a
 shell or interpreter (`echo|printf ... | sh`, `<<<`, heredoc) is scanned as a command or interpreter body.
+A pipeline whose LAST command is a shell/interpreter with no script argument (`| sh`, `| (bash)`, `| python3 -`)
+is denied outright when an earlier stage is echo/printf/cat/tee/`base64 -d` or a heredoc, as is `bash <(...)`,
+`source <(...)` and `source|bash /dev/stdin` (the relayed text cannot be vetted).
 
 Denies (exit 2, one-line reason with the safe alternative on stderr; the host blocks the call):
 - `rm -r` (also `--rec*`) on a `$VAR`/backtick path, any glob or brace list/range, `.`, `..`, `/`, `//`, `~`,
-  `$HOME`, an absolute path within 2 components of `/` after normalizing `..`, or (under `xargs`) a `{}`/`%`
-  placeholder or no explicit target;
+  `$HOME`, any `..` target, an absolute path within 2 components of `/` or under `/Users/*`, `/home/*`, `/usr`,
+  `/etc`, `/var`, `/opt` at any depth (after normalizing), or (under `xargs`, incl. custom `-I/-J/-i/--replace`
+  placeholders, carried into nested `sh -c` bodies) a placeholder or no explicit target;
 - `git reset --hard`, `git clean -f*` (not with -n), `git push` force/delete/mirror/`+ref`/`:ref`/glob refspec
   (not `--force-with-lease`), `git checkout|switch -f|--discard-changes`, `git checkout|restore` of the whole
   tree (`.`, `./`, `*`, `:/`, `:(top)`; not `restore --staged` only), `git branch -D`, `git stash clear|drop`:
@@ -37,20 +42,14 @@ Denies (exit 2, one-line reason with the safe alternative on stderr; the host bl
   non-literal command.
 Everything else is allowed.
 
-Escape hatch (explicit owner grant, no prompt): a line `destructive-guard-allow: <full command>` in the
-committed `CLAUDE.md` (HEAD of the project repo, `$CLAUDE_PROJECT_DIR`). It counts only when the commit that
-introduced that line (`git blame`) is authored by an email in DCR_OWNER_EMAIL, has no Co-authored-by trailer
-and carries a GOOD signature (`%G?` == G; `git commit -S`). `git config dcr.owner` is NOT an owner source here
-(any local process can edit it). No signature, no owner env, an uncommitted line or any git error means no
-grant. The command must equal the line after whitespace normalization, EXACTLY, not as a substring. The agent
-never authors a grant (`SKILL.md` Human gates, **Standing grant**).
+No in-repo grant or allow list: anything an agent can write, an agent can forge. When the owner really wants a
+denied command, the owner runs it themselves with the `!` prefix in Claude Code (the block message says so).
 
 Never crashes. Unparseable stdin, a non-string command, a shlex failure or any internal error falls back to
 a regex scan of the raw text for the same destructive classes: block on a hit, otherwise allow (a guard that
 errors closed would wedge every session; one that errors open on a hit would be trivial to evade).
-Side effects: none beyond read-only `git show|blame` for the grant. `--selftest` runs assertions.
+Side effects: none. `--selftest` runs assertions.
 """
-import importlib.util
 import json
 import os
 import posixpath
@@ -60,7 +59,7 @@ import sys
 
 KW = ("{", "}", "if", "then", "else", "elif", "fi", "while", "until", "do", "done", "!", "coproc")
 # wrapper -> short flags that take a value (only these consume the next token)
-VAL = {"env": "uCS", "sudo": "ugCDhprtU", "doas": "uC", "nice": "n", "timeout": "sk", "xargs": "adEILnPsI",
+VAL = {"env": "uCS", "sudo": "ugCDhprtU", "doas": "uC", "nice": "n", "timeout": "sk", "xargs": "adEILnPsIJSR",
        "stdbuf": "ioe", "ionice": "cnpPu", "time": "fo", "exec": "a", "caffeinate": "tw", "flock": "wEc",
        "command": "", "builtin": "", "nohup": "", "setsid": "", "chronic": "", "busybox": ""}
 LONGVAL = ("--user", "--group", "--chdir", "--host", "--prompt", "--role", "--type", "--other-user", "--unset",
@@ -126,14 +125,20 @@ def _rm(args, ph):
         return "rm -r with targets from xargs. List them first (`ls`), then `rm` the exact paths"
     for t in tg:
         n = posixpath.normpath(re.sub("/+", "/", t) or ".")
-        if re.search(r"[$`*?\[]|\{[^}]*(?:,|\.\.)", t) or (ph and any(p in t for p in ph if p)) or n == "." or _far(t):
-            return f"rm -r on `{t}` (variable, glob, placeholder, `.`, root, home or near-root). Delete an exact, quoted in-project path, or use a container/VM"
+        if re.search(r"[$`*?\[]|\{[^}]*(?:,|\.\.)", t) or (ph and any(p in t for p in ph if p)) or n == "." or _far(t) \
+                or n.startswith("..") or re.match(r"/(Users|home|usr|etc|var|opt)/", n):
+            return f"rm -r on `{t}` (variable, glob, placeholder, `.`, `..`, root, home or system path). Delete an exact, quoted in-project path, or use a container/VM"
     return ""
 
 
 def _git(a):
     i = 0
     while i < len(a) and a[i].startswith("-"):
+        m = re.match(r"alias\.[^=]+=(!?)(.*)", a[i + 1]) if a[i] == "-c" and i + 1 < len(a) else None
+        if m:  # an alias definition carrying a destructive command
+            r = check(m.group(2) if m.group(1) else "git " + m.group(2), 1)
+            if r:
+                return r
         i += 2 if a[i] in GIT_OPT_VAL else 1
     if i >= len(a):
         return ""
@@ -147,7 +152,7 @@ def _git(a):
     dele = has("--delete") or any("d" in t for t in flags)
     if sub == "reset" and has("--hard"):
         return "git reset --hard discards work. Use `git stash` or `git reset --soft`/`--mixed`"
-    if sub == "clean" and force and not (has("--dry-run") or any("n" in t for t in flags)):
+    if sub == "clean" and (force or any(x.startswith("--f") for x in longs)) and not (has("--dry-run") or any("n" in t for t in flags)):
         return "git clean -f deletes untracked files. Preview with `git clean -n`, delete exact paths"
     if sub == "push" and (force or dele or has("--mirror") or any(
             not t.startswith("-") and (t.startswith(("+", ":")) or ":+" in t or "*" in t) for t in r)):
@@ -155,7 +160,8 @@ def _git(a):
     if sub in ("checkout", "switch") and (force or has("--discard-changes")):
         return "git checkout/switch -f discards uncommitted changes. Use `git stash` or name the exact file"
     if sub in ("checkout", "restore") and any(_tree(t) for t in r if not t.startswith("-")) \
-            and not (sub == "restore" and has("--staged") and not has("--worktree")):
+            and not (sub == "restore" and (has("--staged") or any("S" in t for t in flags))
+                     and not (has("--worktree") or any("W" in t for t in flags))):
         return "whole-tree git checkout/restore discards uncommitted changes. Use `git stash` or name the exact file"
     if sub == "branch" and (any(_bundle(t, "D") for t in r) or (force and dele)):
         return "git branch -D deletes an unmerged branch. Use `git branch -d` (refuses if unmerged)"
@@ -191,12 +197,14 @@ def _cmd(name, a, ph):
             if t in ("-exec", "-execdir", "-ok"):
                 k = next((m for m in range(j + 1, len(a)) if a[m] in (";", "+")), len(a))
                 sub = a[j + 1:k]
-                if sub and os.path.basename(sub[0]) in ("rm", "shred"):
+                u = _unwrap(sub)[0]  # sudo/env/nice rm
+                if u < len(sub) and os.path.basename(sub[u]) in ("rm", "shred"):
                     return "find -exec rm. List with `find ... -print` first, then remove exact paths"
                 r = check(" ".join(shlex.quote(x) for x in sub), 1)
                 if r:
                     return r
-    if name == "dd" and any(t.startswith("of=/dev/") and t[3:] not in SAFE_DEV for t in a):
+    if name == "dd" and any(t.startswith("of=") and (lambda p: p.startswith("/dev/") and p not in SAFE_DEV)(
+            posixpath.normpath(re.sub("/+", "/", t[3:]) or ".")) for t in a):
         return "dd to a device. Write to a file image, or do it in a VM"
     if name.startswith("mkfs"):
         return "mkfs formats a device. Do it in a VM, never on the host"
@@ -238,7 +246,9 @@ def _unwrap(seg):
                 if t == "--":
                     break
                 if t.startswith("--"):
-                    if b == "env" and t.startswith("--split-string="):
+                    if b == "xargs" and t.startswith("--replace"):
+                        ph.append(t.split("=", 1)[1] if "=" in t else "{}")
+                    elif b == "env" and t.startswith("--split-string="):
                         nested = t.split("=", 1)[1]
                     elif "=" not in t and t in LONGVAL:
                         if b == "env" and t == "--split-string" and i < len(seg):
@@ -246,12 +256,15 @@ def _unwrap(seg):
                         i += 1
                     continue
                 for k, ch in enumerate(t[1:], 1):
+                    if b == "xargs" and ch == "i":  # -i[REPL], optional joined value, default {}
+                        ph.append(t[k + 1:] or "{}")
+                        break
                     if ch in vals:
                         val = t[k + 1:] or (seg[i] if i < len(seg) else "")
                         i += 0 if t[k + 1:] else 1
                         if (b == "env" and ch == "S") or (b == "flock" and ch == "c"):
                             nested = val
-                        if b == "xargs" and ch == "I":
+                        if b == "xargs" and ch in "IJ":
                             ph.append(val)
                         break
             if b in ("timeout", "flock") and i < len(seg):
@@ -300,8 +313,10 @@ def _fallback(cmd):
     return "destructive pattern in unparseable command (regex fallback)" if any(p.search(cmd) for p in FALLBACK) else ""
 
 
-def check(cmd, _depth=0):
-    """Return a one-line reason `cmd` is destructive, or '' (parse errors use the regex fallback)."""
+def check(cmd, _depth=0, _ph=None):
+    """Return a one-line reason `cmd` is destructive, or '' (parse errors use the regex fallback).
+
+    `_ph`: xargs placeholders inherited by a nested `sh -c` body."""
     cmd = cmd.replace("\\\n", "")
     if _depth > MAXDEPTH:
         return _fallback(cmd)
@@ -320,33 +335,39 @@ def check(cmd, _depth=0):
         r = check(b, _depth + 1)
         if r:
             return r
-    segs, ops, hs, skip = [[]], [""], [None], None
+    segs, ops, hs, hd, skip = [[]], [""], [None], [False], None
     for t in toks:
         if re.fullmatch(r"[;&|()<>\n]+", t):
+            if t == "(" and not segs[-1] and ops[-1] == "|":
+                continue  # `| (sh)`: stay in the pipeline
             if re.search(r"[;|()\n]", t) or not re.search(r"[<>]", t):
                 segs.append([])
                 hs.append(None)
+                hd.append(False)
                 ops.append("|" if t in ("|", "|&") else "<(" if "<(" in t else "")
                 skip = None
             else:  # redirection: the next token is its target; the command continues
                 if segs[-1] and segs[-1][-1].isdigit():
                     segs[-1].pop()
                 skip = "hs" if t.endswith("<<<") else "t"
+                hd[-1] = hd[-1] or "<<" in t
         elif skip:
             if skip == "hs":
                 hs[-1] = t
             skip = None
         else:
             segs[-1].append(t)
-    fetch, prev, feed = False, "", None  # fetch: curl/wget earlier in the pipeline; feed: echo/printf text
-    for seg, op, here in zip(segs, ops, hs):
+    # fetch: curl/wget earlier in the pipeline; feed: echo/printf text; src: an earlier stage relays text
+    fetch, prev, feed, src = False, "", None, False
+    for n, (seg, op, here) in enumerate(zip(segs, ops, hs)):
         if not seg:
             continue
         if op != "|":
-            fetch, feed = False, None
+            fetch, feed, src = False, None, False
         i, ph, nested = _unwrap(seg)
+        ph = ph or _ph
         if nested:
-            r = check(nested, _depth + 1)
+            r = check(nested, _depth + 1, ph)
             if r:
                 return r
         if i >= len(seg):
@@ -354,50 +375,34 @@ def check(cmd, _depth=0):
         name, a = os.path.basename(seg[i]), seg[i + 1:]
         r = _cmd(name, a, ph)
         if not r and name == "eval":
-            r = check(" ".join(a), _depth + 1)
+            r = check(" ".join(a), _depth + 1, ph)
         if not r and name in SHELLS + ("su",):
             for j, t in enumerate(a[:-1]):
                 if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", t):
-                    r = check(a[j + 1], _depth + 1)
+                    r = check(a[j + 1], _depth + 1, ph)
                     break
+        last = n + 1 >= len(segs) or ops[n + 1] != "|"
+        if not r and op == "|" and src and last and (name in SHELLS or INTERP.match(name)) \
+                and all(t.startswith("-") for t in a):
+            r = "text relayed into a shell/interpreter cannot be vetted. Write it to a file, read it, then run it"
+        if not r and name in SHELLS + ("source", ".") and "/dev/stdin" in a:
+            r = "shell reading /dev/stdin cannot be vetted. Write it to a file, read it, then run it"
+        if not r and op == "<(" and prev in SHELLS + ("source", "."):
+            r = "shell/source fed by process substitution cannot be vetted. Write it to a file, read it, then run it"
         if not r and here is not None:
             r = _feed(name, here)
         if not r and op == "|" and feed:
             r = next((x for x in (_feed(name, f) for f in feed) if x), "")
         if not r and op == "|" and fetch and (name in SHELLS or INTERP.match(name)):
             r = "curl/wget piped to a shell/interpreter. Download, read it, then run it"
-        if not r and op == "<(" and name in ("curl", "wget") and prev in SHELLS + ("source", "."):
-            r = "remote script sourced through process substitution. Download, read it, then run it"
         if r:
             return r
+        src = src or hd[n] or name in ("echo", "printf", "cat", "tee") or (
+            name == "base64" and any(re.fullmatch(r"-[A-Za-z]*d[A-Za-z]*|--decode", t) for t in a))
         fetch = fetch or name in ("curl", "wget")
         feed = ([" ".join(a)] + a) if name in ("echo", "printf") else None  # joined, and each arg (printf FORMAT ARG)
         prev = name
     return ""
-
-
-def _granted(cmd):
-    """True when a signed, owner-authored, committed `destructive-guard-allow:` line equals `cmd` (whitespace-normalized)."""
-    try:
-        owners = [e.strip().strip("<>").casefold() for e in re.split(r"[,\s]+", os.environ.get("DCR_OWNER_EMAIL", "")) if e.strip()]
-        if not owners:
-            return False
-        here = os.path.dirname(os.path.abspath(__file__))
-        spec = importlib.util.spec_from_file_location("focus_gate", os.path.join(here, "focus_gate.py"))
-        fg = importlib.util.module_from_spec(spec)
-        sys.modules["focus_gate"] = fg  # its dataclasses need the module registered
-        spec.loader.exec_module(fg)
-        git = fg.real_git(os.environ.get("CLAUDE_PROJECT_DIR") or ".")
-        want = " ".join(cmd.split())
-        for n, ln in enumerate(git(["show", "HEAD:CLAUDE.md"]).splitlines(), 1):
-            m = re.match(r"\s*destructive-guard-allow:\s*(.+?)\s*$", ln)
-            if m and " ".join(m.group(1).split()) == want:
-                sha = git(["blame", "--porcelain", "-L", f"{n},{n}", "HEAD", "--", "CLAUDE.md"]).split()[0]
-                if fg._owner_problem(git, sha, owners, True) == "":  # owner email, no Co-authored-by, %G? == G
-                    return True
-    except Exception:
-        pass
-    return False
 
 
 def selftest():
@@ -437,10 +442,9 @@ def main():
         why = check(cmd)
     except Exception:
         why = _fallback(cmd)
-    if why and not _granted(cmd):
-        print(f"Blocked destructive command ({why}). Best-effort guard; the OS sandbox is the boundary. To allow it, the "
-              "owner commits a signed (`git commit -S`) `destructive-guard-allow: <exact command>` line to CLAUDE.md "
-              "with an author email listed in DCR_OWNER_EMAIL.", file=sys.stderr)
+    if why:
+        print(f"Blocked destructive command ({why}). Best-effort guard. Owner: to run it anyway, type the "
+              "command yourself with the `!` prefix in Claude Code.", file=sys.stderr)
         return 2
     return 0
 

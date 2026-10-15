@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# destructive_guard tests: bench corpus as fixture strings (data only, never executed), plus hook exit code and grant.
+# destructive_guard tests: bench corpus as fixture strings (data only, never executed), plus hook exit codes.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 G="$ROOT/.claude/skills/agentic-delivery/scripts/destructive_guard.py"
@@ -114,8 +114,8 @@ BAD = [
 GOOD = [
 "sudo -n ls", "sudo -u root ls -la", "sudo -E make install", "env -i FOO=1 ls", "env -S 'ls -la'", "timeout 5 ls", "nice -n 5 make",
 "caffeinate -t 5 ls", "flock /tmp/l ls", "flock -n /tmp/l make", "busybox ls", "fish -c 'ls'", "su -c 'ls' root",
-"echo hello | sh", "echo 'ls -la' | bash", "echo hi > f.txt", "cat <<EOF\nrm -rf $X\nEOF", "cat > notes.txt <<EOF\ngit reset --hard\nEOF",
-"bash <<< 'ls'", "python3 - <<EOF\nprint(1)\nEOF", "python3 -m pytest -k 'unlink or remove' -q",
+"echo hi > f.txt", "cat <<EOF\nrm -rf $X\nEOF", "cat > notes.txt <<EOF\ngit reset --hard\nEOF",
+"python3 - <<EOF\nprint(1)\nEOF", "python3 -m pytest -k 'unlink or remove' -q",
 "ls | xargs -n1 echo", "ls | xargs rm", "xargs -0 -n1 git status", "ls 2>/dev/null", "make 2>&1", "git log >o.txt", "cmd 2>&1 | tail -3",
 "find . -exec grep x {} +", "find . -exec sh -c 'ls' \\;", "awk '{print $1}' f", "awk 'BEGIN{system(\"ls\")}'",
 "git checkout .gitignore", "git checkout -- src/a.py", "git restore --staged .", "git restore src/a.py", "git checkout -b feat/x",
@@ -127,39 +127,41 @@ bad = [c for c in BAD if not m.check(c)]; fp = [c for c in GOOD if m.check(c)]
 print("missed", bad, "FP", fp)
 sys.exit(1 if bad or fp else 0)
 PY
-# grant: only an owner-committed line, no Co-authored-by trailer, exact full command
-R="$W/repo"; mkdir "$R"; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null DCR_OWNER_EMAIL=owner@example.com
-gc() { git -C "$R" -c user.name=X -c "user.email=$1" -c commit.gpgsign=false commit -q -m "$2"; }
-git -C "$R" init -q
-echo 'destructive-guard-allow: git   reset --hard' >"$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
-ghook() { printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" | CLAUDE_PROJECT_DIR="$R" python3 "$G" 2>/dev/null; }
-ghook 'git reset --hard'; [ $? -eq 2 ]; ok $? "grant: uncommitted allow line is no grant"
-gc agent@example.com "agent line"
-ghook 'git reset --hard'; [ $? -eq 2 ]; ok $? "grant: allow line committed by a non-owner is no grant"
-echo 'destructive-guard-allow: git reset --hard' >"$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
-gc owner@example.com "owner line
-
-Co-authored-by: Agent <a@example.com>"
-ghook 'git reset --hard'; [ $? -eq 2 ]; ok $? "grant: owner commit with a Co-authored-by trailer is no grant"
-echo 'destructive-guard-allow: git reset  --hard' >"$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
-gc owner@example.com "owner own line, unsigned"
-ghook 'git reset --hard'; [ $? -eq 2 ]; ok $? "grant: owner commit WITHOUT a good signature is no grant"
-git -C "$R" config dcr.owner owner@example.com; unset DCR_OWNER_EMAIL
-echo 'destructive-guard-allow:  git reset --hard' >"$R/CLAUDE.md"; git -C "$R" add CLAUDE.md; gc owner@example.com "x"
-ghook 'git reset --hard'; [ $? -eq 2 ]; ok $? "grant: git config dcr.owner is not an owner source"
-export DCR_OWNER_EMAIL=owner@example.com
-if ssh-keygen -q -t ed25519 -N "" -f "$W/k" >/dev/null 2>&1; then
-  echo "owner@example.com $(cut -d' ' -f1,2 "$W/k.pub")" >"$W/signers"
-  git -C "$R" config gpg.format ssh; git -C "$R" config user.signingkey "$W/k.pub"
-  git -C "$R" config gpg.ssh.allowedSignersFile "$W/signers"
-  echo 'destructive-guard-allow: git reset --hard ' >"$R/CLAUDE.md"; echo 'destructive-guard-allow: git reset  --hard' >"$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
-  git -C "$R" -c user.name=X -c user.email=owner@example.com commit -q -S -m "owner signed line"
-  ghook 'git reset --hard'; ok $? "grant: signed owner-authored line allows the exact command"
-else
-  ok 1 "grant: signed owner-authored line (ssh-keygen unavailable)"
-fi
-ghook 'git  reset   --hard'; ok $? "grant: whitespace-normalized match"
-ghook 'git reset --hard HEAD~1'; [ $? -eq 2 ]; ok $? "grant: not a substring match"
-ghook 'git reset --hard; rm -rf $X'; [ $? -eq 2 ]; ok $? "grant: a longer command containing the granted one stays blocked"
-ghook 'git clean -fdx'; [ $? -eq 2 ]; ok $? "grant: allow line does not widen to other commands"
+python3 -I - "$G" <<'PY'; ok $? "round-3 bypass regressions denied, daily commands allowed"
+import importlib.util, sys
+s = importlib.util.spec_from_file_location("dg", sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+BAD = [
+"find . -exec sudo rm {} \\;", "find . -exec env rm {} \\;", "find . -execdir nice rm {} +",
+"ls | xargs -J % rm -rf %", "ls | xargs -J X rm -rf X", "ls | xargs -S 255 rm -rf",
+"ls | xargs -iX rm -rf X", "ls | xargs -i rm -rf {}", "ls | xargs --replace=X rm -rf X", "ls | xargs --replace rm -rf {}",
+"ls | xargs -I X sh -c 'rm -rf X'", "ls | xargs -iX bash -c 'rm -rf X'",
+"git restore --staged -W .", "git restore -S -W .", "git restore --staged --worktree .",
+"git clean --f -d", "git clean --fo", "git -c alias.nuke='!git reset --hard' nuke", "git -c alias.n='reset --hard' n",
+"git -c alias.c='clean -fd' c", "git -c alias.p='push --force' p",
+"echo ls | sh", "echo 'a' | bash", "printf x | zsh", "cat f | sh", "cat f | tee o | sh", "echo x | base64 -d | sh", "base64 -d f | bash",
+"echo x | (sh)", "echo x | python3", "echo x | python3 -", "cat f | node", "echo x | sh -s", "cat <<EOF | sh\nls\nEOF",
+"tr a b <<< x | sh", "bash <(cat f)", "source <(echo ls)", ". <(echo ls)", "source /dev/stdin", "bash /dev/stdin", "sh /dev/stdin",
+"rm -rf ../x", "rm -rf ../../x", "rm -r ../x", "rm -rf /Users/jane/proj/a/b", "rm -rf /home/jane/a/b/c", "rm -rf /usr/local/lib/x",
+"rm -rf /etc/x/y", "rm -rf /var/lib/x/y", "rm -rf /opt/a/b/c", "rm -rf /usr/./local/lib/x",
+"dd if=x of=/dev/../dev/sda", "dd if=x of=//dev/sda", "dd if=x of=/dev/./disk2",
+]
+GOOD = [
+"echo hello", "echo hi | tee out.txt", "echo hi | cat", "cat f | grep x", "cat f | python3 -m json.tool", "echo '{}' | python3 -c 'import sys; print(1)'",
+"cat f | python3 script.py", "cat f | bash script.sh", "echo x | jq .", "base64 -d f > out", "base64 f | tr -d x", "diff <(ls a) <(ls b)",
+"bash script.sh", "source ./env.sh", ". ./env.sh", "bash -lc 'ls'", "python3 -m pytest -q", "sh ./build.sh",
+"find . -exec sudo ls {} \\;", "find . -exec env ls {} \\;", "ls | xargs -J % echo %", "ls | xargs -iX echo X", "ls | xargs --replace=X echo X",
+"ls | xargs -I X sh -c 'echo X'", "ls | xargs -I X sh -c 'rm -f X'",
+"git restore --staged .", "git restore -S .", "git restore -W src/a.py", "git clean -n", "git clean --dry-run", "git clean -nd",
+"git -c user.name=x log", "git -c alias.l='log --oneline' l", "git -c alias.s='status' s",
+"rm -rf ./build", "rm -rf node_modules", "rm -rf build/out", "rm -rf /tmp/claude/a/b", "rm -f ../x", "rm ../x",
+"dd if=/dev/zero of=./i bs=1", "dd if=x of=/dev/null", "dd if=x of=/dev/../dev/null",
+'grep "rm -rf" docs/', "git status", "find . -name x",
+]
+bad = [c for c in BAD if not m.check(c)]; fp = [c for c in GOOD if m.check(c)]
+print("missed", bad, "FP", fp)
+sys.exit(1 if bad or fp else 0)
+PY
+echo '{"tool_name":"Bash","tool_input":{"command":"git reset --hard"}}' | python3 "$G" 2>"$W/err"; [ $? -eq 2 ] && grep -q '`!` prefix' "$W/err"; ok $? "block message tells the owner to run it with the ! prefix"
+printf 'destructive-guard-allow: git reset --hard\n' >"$W/CLAUDE.md"
+echo '{"tool_name":"Bash","tool_input":{"command":"git reset --hard"}}' | CLAUDE_PROJECT_DIR="$W" DCR_OWNER_EMAIL=owner@example.com python3 "$G" 2>/dev/null; [ $? -eq 2 ]; ok $? "no grant mechanism: a CLAUDE.md allow line does not unblock"
 echo "Tests: $p/$n passed"; exit "$fail"
