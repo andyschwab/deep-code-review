@@ -1,6 +1,6 @@
 # Perun vs other skill bundles
 
-**Bottom line.** On finding bugs, Perun ties the other review skills we measured: all five reviewers caught the known bug in the same 11 of 37 cases. Perun's measured edges are fewer false alarms than a plain prompt or wshobson, and the smallest always-loaded footprint of the bundles we counted. It loses on cost per review (about 1.4 to 1.5 times), on adoption (the rivals below show 24k to 181k stars), and on runtime tooling, connectors and templates. Choose Perun for gated delivery, no-fabrication rules and a published benchmark; choose a rival for breadth, a runtime or ready-made templates.
+**Bottom line.** On finding bugs, Perun ties the other review skills we measured: all five reviewers caught the known bug in the same 11 of 37 cases. Perun's measured edges are fewer false alarms than a plain prompt or wshobson, and the smallest always-loaded footprint of the bundles we counted. It loses on cost per review (about 1.4 to 1.5 times), on adoption (each rival below has far more GitHub stars), and on runtime tooling, connectors and templates. Choose Perun for gated delivery, no-fabrication rules and a published benchmark; choose a rival for breadth, a runtime or ready-made templates.
 
 Verified 2026-10-15. Rival pages were read that day; star counts come from rendered GitHub pages, one source each, and no last-commit dates were available, so recency is unverified for every rival. Perun's own star count was not measured.
 
