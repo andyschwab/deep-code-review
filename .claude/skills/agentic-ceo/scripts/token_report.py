@@ -86,7 +86,12 @@ exceeds 400000: write a handoff note and start a fresh session. JSON key:
 
 PRICING (--rates TSV)
 ---------------------
-No prices ship with this tool. Pass your own rate card as a TSV, USD per 1M
+Without `--rates`, the built-in `DEFAULT_RATES` table (official pricing page,
+read on `RATES_DATE`, logged in `docs/standards-index.md`) prices the report
+and the cost line says "priced with default rates as of <date>". Default rows
+match a model id exactly or with a `-YYYYMMDD` suffix; any other model (and
+tiered Haiku 5.5) stays UNPRICED, never guessed. `--rates` replaces the table.
+Rate card TSV, USD per 1M
 tokens, one row per model, `#` comments and blank lines skipped:
 
   model<TAB>input<TAB>cache_write_5m<TAB>cache_write_1h<TAB>cache_read<TAB>output
@@ -95,8 +100,12 @@ A transcript model id matches the row whose model is its longest prefix
 (`claude-x` prices `claude-x-20260101`). With `--rates`, the report prints
 dollar cost for main, subagents and each listed lane; a model with no row is
 named as UNPRICED and its tokens add nothing to the dollar figure (so the
-figure is a floor). Without `--rates` the cost line reads `UNPRICED`. A bad
-rates file exits 2. JSON: `cost_usd` (`null` without rates).
+figure is a floor). A bad rates file exits 2. JSON: `cost_usd`, `rates`
+(`null` cost only when `build_report` is called with `rates=None`).
+
+NESTED SPEND: `usage.iterations[]` entries whose type is not `message` (e.g.
+`advisor_message`, billed on their own model and absent from the top-level
+usage) are booked as extra turns on that model, in main and lanes alike.
 
 ORCHESTRATION SHARE
 --------------------
@@ -185,6 +194,22 @@ ERROR = 2
 CACHE_READ_MULT = 0.1
 CACHE_WRITE_5M_MULT = 1.25
 CACHE_WRITE_1H_MULT = 2.0
+# Built-in USD-per-1M rates (input, 5m write, 1h write, cache read, output), read from the
+# official pricing page on RATES_DATE (see docs/standards-index.md). Haiku 5.5 (tiered by prompt
+# size) and retired models are omitted on purpose: no row = UNPRICED, never a guess. --rates overrides.
+RATES_DATE = "2026-10-15"
+DEFAULT_RATES = {
+    m: dict(zip(("input_tokens", "cache_write_5m", "cache_write_1h", "cache_read", "output_tokens"), p))
+    for m, p in {
+        "claude-fable-5-1": (10, 12.5, 20, 0.25, 50), "claude-fable-5": (10, 12.5, 20, 1, 50),
+        "claude-opus-5-5": (4, 5, 8, 0.2, 20),
+        **{m: (5, 6.25, 10, 0.5, 25) for m in
+           ("claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5")},
+        "claude-sonnet-5-5": (2, 2.5, 4, 0.1, 10), "claude-sonnet-5": (2, 2.5, 4, 0.2, 10),
+        "claude-sonnet-4-6": (3, 3.75, 6, 0.3, 15), "claude-sonnet-4-5": (3, 3.75, 6, 0.3, 15),
+        "claude-haiku-4-5": (1, 1.25, 2, 0.1, 5),
+    }.items()
+}
 ORCHESTRATION_FLAG_THRESHOLD = 0.20
 CONTEXT_HANDOFF_THRESHOLD = 400_000
 
@@ -254,7 +279,10 @@ def parse_timestamp(value, local=False):
 
 def _turn_usage(entry: dict) -> dict:
     """Extract the flat usage shape this tool works in from one assistant entry."""
-    usage = (entry.get("message") or {}).get("usage") or {}
+    return _flat((entry.get("message") or {}).get("usage") or {})
+
+
+def _flat(usage: dict) -> dict:
     cache_creation = usage.get("cache_creation") or {}
     w5 = cache_creation.get("ephemeral_5m_input_tokens") or 0
     w1 = cache_creation.get("ephemeral_1h_input_tokens") or 0
@@ -296,12 +324,22 @@ def extract_turns(entries: list) -> list:
         if existing is None or rank >= existing["_rank"]:
             grouped[key] = {"_rank": rank, "timestamp": ts, "model": (entry.get("message") or {}).get("model"),
                             **_turn_usage(entry)}
+            # Nested spend (e.g. advisor_message) bills on its own model and is NOT in the top-level
+            # usage: each non-"message" iteration becomes its own flagged turn below.
+            grouped[key]["_iters"] = [i for i in usage.get("iterations") or []
+                                      if isinstance(i, dict) and i.get("type") != "message"]
         if key not in order:
             order.append(key)
-    turns = [grouped[k] for k in order]
+    turns = []
+    for k in order:
+        g = grouped[k]
+        turns.append(g)
+        turns += [{"timestamp": g["timestamp"], "model": i.get("model"), "iter": True, **_flat(i)}
+                  for i in g["_iters"]]
     turns.sort(key=lambda t: (t["timestamp"] is None, t["timestamp"] or datetime.min.replace(tzinfo=timezone.utc)))
     for t in turns:
         t.pop("_rank", None)
+        t.pop("_iters", None)
     return turns
 
 
@@ -378,7 +416,11 @@ def price(by_model: dict, rates):
         return (None, [])
     usd, missing = 0.0, []
     for model, tot in by_model.items():
-        match = None if model == "unknown" else max((k for k in rates if str(model).startswith(k)), key=len, default=None)
+        # Default rows match exactly or with a -YYYYMMDD suffix (claude-opus-5 must not price a future
+        # claude-opus-5-6); user rows keep the documented longest-prefix rule.
+        ok = (lambda k: re.fullmatch(re.escape(k) + r"(-\d{8})?", str(model))) if rates is DEFAULT_RATES \
+            else (lambda k: str(model).startswith(k))
+        match = None if model == "unknown" else max((k for k in rates if ok(k)), key=len, default=None)
         if match is None:
             missing.append(model)
             continue
@@ -396,7 +438,8 @@ def merge_by_model(maps: list) -> dict:
 
 def main_context(turns: list) -> dict:
     """Average input+cache_read per main turn, first/last-third trend, handoff flag."""
-    ctx = [t["input_tokens"] + t["cache_write_5m"] + t["cache_write_1h"] + t["cache_read"] for t in turns]
+    ctx = [t["input_tokens"] + t["cache_write_5m"] + t["cache_write_1h"] + t["cache_read"]
+           for t in turns if not t.get("iter")]
     if not ctx:
         return {"avg": 0, "first_third": None, "last_third": None, "handoff": False,
                 "threshold": CONTEXT_HANDOFF_THRESHOLD}
@@ -567,12 +610,13 @@ def build_report(session_path: str, since, top: int = 5, rates=None) -> dict:
         "session": session_path,
         "since": since.isoformat() if since else None,
         "main": main_totals,
-        "main_turns": len(main_turns),
+        "main_turns": sum(1 for t in main_turns if not t.get("iter")),
         "main_span": [stamps[0].isoformat(), stamps[-1].isoformat()] if stamps else None,
         "main_context": main_context(main_turns),
         "main_models": main_models,
         "main_by_model": main_by_model,
         "subagents_by_model": sub_by_model,
+        "rates": None if rates is None else f"default as of {RATES_DATE}" if rates is DEFAULT_RATES else "--rates file",
         "cost_usd": None if rates is None else {
             "main": cost["main"][0], "main_unpriced": cost["main"][1],
             "subagents": cost["subagents"][0], "subagents_unpriced": cost["subagents"][1],
@@ -722,7 +766,8 @@ def render_text(report: dict) -> str:
     else:
         lines.append(f"Cost: main {_usd(c['main'], c['main_unpriced'])} "
                      f"subagents {_usd(c['subagents'], c['subagents_unpriced'])} "
-                     f"total {_usd(c['total'], c['unpriced_models'])}")
+                     f"total {_usd(c['total'], c['unpriced_models'])}"
+                     + (f" (priced with default rates as of {RATES_DATE})" if report["rates"] != "--rates file" else ""))
     x = report["main_context"]
     if report["main_turns"]:
         trend = f" first-third={x['first_third']} last-third={x['last_third']}" if x["first_third"] is not None else ""
@@ -763,7 +808,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--budget", nargs="?", const="", metavar="TSV",
                    help="gate mode: exit 1 with one line per breached cap (optional TSV overrides defaults)")
     p.add_argument("--top", type=int, default=5, metavar="N", help="lanes to list (default 5, 0 = all)")
-    p.add_argument("--rates", metavar="TSV", help="user-supplied USD-per-1M rates; without it cost is UNPRICED")
+    p.add_argument("--rates", metavar="TSV", help="USD-per-1M rates TSV; overrides the built-in default rate table")
     p.add_argument("--selftest", action="store_true")
     return p
 
@@ -787,7 +832,7 @@ def main(argv=None) -> int:
             print(f"token_report.py: could not parse --since value: {args.since}", file=sys.stderr)
             return ERROR
 
-    rates = None
+    rates = DEFAULT_RATES
     if args.rates:
         try:
             rates = load_rates(args.rates)
@@ -1169,6 +1214,23 @@ def _selftest() -> int:
               price(nm_by, {"unknown": rates["model-big"]}) == (None, ["unknown"]), "")
         check("window-boundary-with-fraction-keeps-turn", build_report(
             sess, parse_timestamp("2026-01-01T00:05:00.5Z"))["main_turns"] == 1, "")
+        # nested advisor spend (usage.iterations) is counted on its own model; "message" iterations are not
+        adv = os.path.join(tmp, "adv.jsonl")
+        with open(adv, "w", encoding="utf-8") as fh:
+            fh.write(mturn("v1", "2026-01-01T00:00:00Z", "claude-opus-4-8", {
+                "input_tokens": 4, "output_tokens": 10, "iterations": [
+                    {"type": "message", "input_tokens": 4, "output_tokens": 10},
+                    {"type": "advisor_message", "model": "claude-opus-5", "input_tokens": 1000, "output_tokens": 50}]}))
+        arep = build_report(adv, None, 5, DEFAULT_RATES)
+        check("iterations-advisor-tokens-counted", arep["main"]["input_tokens"] == 1004
+              and arep["main"]["output_tokens"] == 60 and arep["main_turns"] == 1, str(arep["main"]))
+        check("iterations-booked-on-advisor-model", set(arep["main_by_model"]) == {"claude-opus-4-8", "claude-opus-5"}, "")
+        check("default-rates-price-exact-and-dated-ids", price({"claude-opus-5": sum_turns([{**ZERO_USAGE, "input_tokens": 1_000_000}]),
+              "claude-opus-5-20261231": sum_turns([{**ZERO_USAGE, "input_tokens": 1_000_000}])}, DEFAULT_RATES) == (10.0, []), "")
+        check("default-rates-never-guess-unknown-or-prefix-model",
+              price({"claude-opus-5-6": sum_turns([{**ZERO_USAGE, "input_tokens": 1}])}, DEFAULT_RATES) == (None, ["claude-opus-5-6"]), "")
+        check("default-rates-labelled-in-text", f"priced with default rates as of {RATES_DATE}" in render_text(arep), render_text(arep))
+        check("rates-file-overrides-default-no-label", "default rates" not in render_text(build_report(adv, None, 5, rates)), "")
 
     if failures:
         for f in failures:
