@@ -3,6 +3,11 @@
 Fill `<angle-bracket>` placeholders before pasting. Every rule below is a hard
 default for this lane, not a suggestion.
 
+## Drive to the goal (first rule)
+- A task ends only when the requested outcome is met and verified. Waiting on a job, gate, budget or answer means you start the next independent item. When everything is blocked, create the next lever: measure, research, ask peers, build the zero-cost part. The only stops are "goal met with evidence" or "every path needs the owner", handed back as one batched question.
+- Two spend modes. Default: be cautious about spend and report spend to the owner. Maximum pace: once the owner has asked to proceed at maximum pace or speed ("max speed", "keep going", "push", deliver everything, don't worry about budget, or a granted budget), do not stop until you have delivered what was asked. Meeting the goal then outranks token and cost discipline, the model-tier economy, lane and heavy-slot caps, `HOLD`/`FULL` retry waits and "critical work only". Spend what is needed (more lanes, stronger models, extra passes), report spend as you go, and do not pause for approval inside any granted budget.
+- An explicit owner instruction in the current session overrides throttle defaults and counts as the grant for the human-gate push (quote it with its date in the record). To lift the caps run `python3 .claude/skills/agentic-delivery/scripts/perun_policy.py set tokens maximize` and `... set local_cpu maximize`.
+
 ## Identity & isolation
 - First command: `python3 .claude/skills/agentic-delivery/scripts/lane_guard.py --expect-branch <branch>`. Refusal → stop; hand back the `LANE_GUARD REFUSE:` line plus changed files.
 - Resuming after a hold or a pause: re-read the shared record/backlog file for any new standing rule before continuing prior work — a rule posted mid-hold lives there, not in chat.
@@ -31,7 +36,7 @@ default for this lane, not a suggestion.
 - Board posts only through `python3 .claude/skills/agentic-delivery/scripts/board_post.py --repo <owner/name> --issue <issue> --type <CLAIM|RELEASE|HANDOFF|BLOCKER> ...` — typed posts, never free-form chat to a shared board.
 
 ## Verification
-- Before a heavy local command (full test suite, build, browser run): `python3 .claude/skills/agentic-delivery/scripts/host_probe.py --lane-type heavy`; `HOLD` means wait a minute and retry, at most 3 times, then proceed and say so; `COULD_NOT_CHECK` means proceed and say so. Then take the machine-wide lease: `python3 .claude/skills/agentic-delivery/scripts/perun_policy.py heavy-acquire` (exit 1 `FULL` means other sessions fill the `heavy-slots` count: same wait-and-retry, at most 3 times, then proceed and say so) and run `heavy-release` when the command ends; leases from dead pids or older than 2h are ignored.
+- Before a heavy local command (full test suite, build, browser run): `python3 .claude/skills/agentic-delivery/scripts/host_probe.py --lane-type heavy`; `HOLD` means wait a minute and retry, at most 3 times, then proceed and say so (under maximum pace proceed at once and say so); `COULD_NOT_CHECK` means proceed and say so. Then take the machine-wide lease: `python3 .claude/skills/agentic-delivery/scripts/perun_policy.py heavy-acquire` (exit 1 `FULL` means other sessions fill the `heavy-slots` count: same wait-and-retry, at most 3 times, then proceed and say so) and run `heavy-release` when the command ends; leases from dead pids or older than 2h are ignored.
 - No "done" without evidence: a test id, an exact sha, or a file path — never a bare assertion.
 - Parked/handback claim: `python3 .claude/skills/agentic-delivery/scripts/lane_guard.py handback --sha <sha> --base <dispatch-base> --branch <branch> --cite <path> --artifact-root <dir>` (one `--cite` per committed evidence file; absolute artifacts must sit under `--artifact-root`). A refusal means not parked.
 - Deployed/served claim: `python3 .claude/skills/agentic-delivery/scripts/surface_check.py served --url <url> --expect-sha <sha> ...`.
