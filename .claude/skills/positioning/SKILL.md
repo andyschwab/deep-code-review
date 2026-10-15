@@ -69,6 +69,18 @@ that [key benefit]; unlike [alternative], it [differentiator].* Every bracket is
 the user's input or a flagged unknown — never a fabricated segment, benefit, or
 competitor. Label it explicitly as a hypothesis to validate.
 
+**Specific, not generic.** A statement a rival could sign is not positioning.
+- *Segment:* a nameable buyer in a situation (role, trigger event), not a
+  demographic or "teams".
+- *Alternative:* the concrete thing that buyer uses **today** (a named tool, a
+  spreadsheet, a manual routine, doing nothing) — asked of real buyers, never
+  assumed. "Unlike the competition" is a blank, not an answer.
+- *Differentiator:* each one pairs with **one proof point** the user supplies, and
+  states what it costs the buyer to give up the alternative. A differentiator with
+  no proof is `UNVERIFIED — needs proof`.
+- *Test:* swap in a rival's name; if the sentence still reads true, it is not
+  differentiated yet.
+
 ### 3. Message house
 One core message, a few supporting pillars, and **proof under each pillar**. Proof
 points are the user's real evidence (a shipped capability, a measured result the
