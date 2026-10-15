@@ -179,6 +179,9 @@ specific figure or URL (repo convention; nothing added to
   notes, never invented scores (`no-invented-scores`).
 - "Do we have PMF?" from a conversation is not answered "yes"; it requires
   survey + retention data or returns `UNVERIFIED` (`pmf-not-declared-from-chat`).
+- Each riskiest assumption gets its cheapest test with a numeric kill threshold
+  slot the owner fills, never an invented number
+  (`assumption-test-has-numeric-kill-threshold`).
 - A build request on an untested riskiest assumption returns a refusal
   naming the assumption + the cheap test (`riskiest-assumption-gate`).
 - A market-size / competitor-fact request is routed, not fabricated

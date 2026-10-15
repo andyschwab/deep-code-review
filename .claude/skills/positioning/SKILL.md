@@ -134,6 +134,9 @@ installed (BLUF / plain structure otherwise).
   asserted truth (`positioning-is-a-hypothesis`).
 - A request for customer quotes / outcome stats with no data is refused with slots,
   never fabricated (`no-invented-quotes-or-outcomes`).
+- A positioning statement names the specific alternative the buyer uses today and
+  one proof point (or an empty proof slot) per differentiator
+  (`positioning-names-alternative-and-proof`).
 - "Is this name/domain clear?" is routed to a professional; a search is not
   clearance (`trademark-clearance-routed`).
 - `evals/evals.json` plants these cases.
