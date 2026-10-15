@@ -1,10 +1,10 @@
 # Perun vs other skill bundles
 
-**Bottom line.** Measured 2026-10-15 against named rivals: Perun beat its rival skill on 6 of 8 held-out pairs (win rates 0.75 to 1.00, n=10 each, 95% CI lower bound above 0.5) and was not shown superior on 2 (business-ops 0.70, product-output-safety 0.55). It routed a request to the right skill on 24 of 30 prompts against 10 of 30 for Superpowers and for no pack; that is a re-run after tuning on the same 30 prompts (the first run scored 16 of 30 and missed its 85% bar), n=1 per prompt, and Superpowers ran without its hooks. On bug finding it ties every reviewer measured (recall 0.297 for all five, n=37). On review precision, the small-diff method with the confidence floor (shipped from 1.576) scored .978 against .933 for the Anthropic toolkit (n=37, difference CI [-.029, +.114]); pooled over n=62 it is .951 against .912, CI [-.018, +.098], so the lead is not significant. The earlier full method scored .862, below the toolkit. It cost 1.25 to 1.42 times as much per review as the rivals with the earlier full method (the confidence-floor method costs about the same as the toolkit: $.134 against $.142 per case); on adoption, and on runtime tooling. Every number below comes from small samples, a same-vendor judge, and scenarios we wrote ourselves except the held-out set; read the caveats in each row.
+**Bottom line.** Mixed, and the strongest claim is narrow. (1) Skills: measured 2026-10-15, Perun beat its rival skill on 6 of 8 held-out pairs (win rates 0.75 to 1.00, n=10 each, 95% CI lower bound above 0.5) and was not shown superior on 2 (business-ops 0.70, product-output-safety 0.55). Routing: 24 of 30 prompts correct against 10 of 30 for Superpowers and for no pack, but that is a re-run after tuning on the same 30 prompts (the first run scored 16 of 30 and missed its 85% bar), n=1 per prompt, and Superpowers ran without its hooks. (2) Code review, patch-only, 43 public cases, measured 2026-10-16: Perun's small-diff method trades recall for precision and ties on F1. Against the Anthropic pr-review-toolkit its precision is .780 against .644 (+.137, CI [+.032, +.247], significant) and its recall is .488 against .628 (-.140, CI [-.256, -.047], significantly worse). Three variants meant to recover the recall failed on a held-out half (n=22, F1 -.036, CI [-.194, +.095]). On the earlier 37-case run every reviewer tied on bug recall (.297, n=37); the earlier precision lead (.951 against .912 pooled, n=62, CI [-.018, +.098]) was not significant, so treat the 2026-10-16 run as the current precision number and do not read Perun as finding more bugs. (3) Host safety: the destructive-command guard (shipped in 1.580.0) blocked 30 of 32 dangerous command strings against 19 of 32 for claude-code-safety-net and 13 of 32 for hooks-mastery, with 0 of 30 false positives (Perun was at 11 of 32 before the guard). It is a best-effort string check, not a security boundary: three adversarial reviews found residual bypasses (interpreter APIs, IFS and brace tricks, exotic wrappers), rated medium, and the OS sandbox is the boundary. (4) Test quality: Perun's vacuous-test gate caught 2 of 20 vacuous tests, far behind mutation testing (17 of 20), eslint-plugin-jest (5 of 20) and ruff (3 of 20); a static pass to close that gap is in progress and is not shipped. Perun also costs more per review than the rivals with the earlier full method (1.25 to 1.42 times; the confidence-floor method costs about the same as the toolkit, $.134 against $.142 per case), and it trails on adoption and runtime tooling. Every number below comes from small samples, a same-vendor judge, and scenarios we wrote ourselves except the held-out set; read the caveats in each row.
 
 **How to read the evidence.** (1) The judge is the same vendor family as the generator, so shared biases are not controlled. (2) Scenarios were written by the Perun side, except the held-out set, which Opus wrote from each skill's public purpose only; held-out n=10 per pair gives a CI about 0.3 wide, so only large effects pass. (3) Several rivals cover adjacent scope (contribution, product-output-safety, communication, business-ops, growth) and were run without their tools or references. (4) "FAIL" means not shown superior, not inferior. (5) Rows marked "tuned" were edited after Perun saw those scenarios and are optimistic.
 
-Verified 2026-10-15. Rival pages were read that day; star counts come from rendered GitHub pages, one source each, and no last-commit dates were available, so recency is unverified for every rival. Perun's own star count was not measured.
+Verified 2026-10-15 (rival pages, skill pairs, routing, delivery, secrets) and 2026-10-16 (H7 to H9). Rival pages were read on the 15th; star counts come from rendered GitHub pages, one source each, and no last-commit dates were available, so recency is unverified for every rival. Perun's own star count was not measured.
 
 ## Head-to-head results (measured 2026-10-15)
 
@@ -86,6 +86,54 @@ CF is the compact card plus a confidence floor of 80, a pre-registered experimen
 
 Findings: CF 81 against 102 for the toolkit, at $0.151 against $0.167 per case (pooled). The compact card alone (no floor) was worse: precision .567. A refute pass, a second pass and a slim skill all failed their pre-registered gates and were not shipped.
 
+### H7. Review, patch-only head-to-head, small-diff method against Anthropic toolkit (2026-10-16)
+
+CF is Perun's small-diff method (the compact card with the confidence floor); TK is the Anthropic pr-review-toolkit code-reviewer. 43 public cases committed under `scripts/eval-fixtures/bench/train`, reviewer sees `change.patch` only, Sonnet `claude-sonnet-5-5` as reviewer, Opus `claude-opus-5-5` as blind verifier, one run per case, no cases dropped, spend $3.50. Precision is verified good findings over findings; recall is adjudicated bugs credited over bugs. These levels are not comparable with the 37-case tables above (different corpus, patch-only, different verifier).
+
+| Metric | CF | TK | Difference [95% CI] | Verdict |
+|---|---|---|---|---|
+| Findings | 41 (32 good) | 73 (47 good) | | |
+| Precision (n=43 cases) | .780 | .644 | +.137 [+.032, +.247] | Perun significantly better |
+| Adjudicated recall (n=43 cases, 43 bugs) | .488 (21 credited) | .628 (27 credited) | -.140 [-.256, -.047] | Perun significantly worse |
+
+The pre-registered primary (precision) was met; the secondary (recall not worse) was not, so the pre-registered verdict is FAIL. Plainly: Perun trades recall for precision. It raises more trustworthy findings per finding, but surfaces fewer of the real bugs.
+
+Recall-recovery attempt (CF60, CFDIFF, CFHUNT; chosen on a 21-case tune half, then scored on the other 22 cases, spend $6.38). The chosen variant CFHUNT against TK on that held-out half:
+
+| Metric (n=22) | CFHUNT | TK | Difference [95% CI] | Verdict |
+|---|---|---|---|---|
+| Precision | .789 | .636 | +.153 [-.021, +.359] | Not significant |
+| Recall | .455 | .591 | -.136 [-.273, .000] | Not shown worse; lower bound is exactly 0 |
+| F1 | .577 | .613 | -.036 [-.194, +.095] | Tie; interval includes 0 |
+
+No variant recovered the recall (pre-registered PASS false), so this result gives no reason to adopt any of them. On this half the original CF scored F1 .526 against TK's .613 (-.087, CI [-.243, +.037]). Result: a tie on F1, with a different trade-off. One model, one run per case, same-vendor verifier, 43 cases from public repositories; a half of 22 gives wide intervals.
+
+### H8. Host safety, destructive-command guard (shipped 1.580.0)
+
+32 dangerous command strings and 30 benign ones, run through each tool's check; blocked means refused before execution. Intervals are Wilson 95%, computed here from the counts.
+
+| Tool | Blocked of 32 dangerous [95% CI] | False positives of 30 benign |
+|---|---|---|
+| Perun destructive guard (1.580.0) | 30 [.799, .983] | 0 [0, .114] |
+| claude-code-safety-net | 19 [.423, .745] | not reported |
+| hooks-mastery | 13 [.255, .577] | not reported |
+| Perun before the guard | 11 [.204, .517] | not reported |
+
+The guard is a best-effort string check, not a security boundary. Three adversarial reviews found residual bypasses (interpreter APIs such as `subprocess` and `exec`, IFS and brace-expansion tricks, exotic wrappers), rated medium. The OS sandbox is the boundary; keep it on. A 32-string corpus is small, so the lead over the rivals is indicative.
+
+### H9. Test quality, vacuous-test detection
+
+A 40-test corpus with 20 vacuous tests (the other 20 are not vacuous). Counts are vacuous tests caught; intervals are Wilson 95%, computed here.
+
+| Detector | Caught of 20 [95% CI] |
+|---|---|
+| Mutation testing | 17 [.640, .948] |
+| eslint-plugin-jest | 5 [.112, .469] |
+| ruff | 3 [.052, .360] |
+| Perun vacuous-test gate | 2 [.028, .301] |
+
+Perun loses here: its gate catches about as few as the cheapest linters, and mutation testing is far ahead. A static pass to improve this is in progress and is not shipped; no result is claimed for it.
+
 ## 1. Review quality (measured, 2026-10-14)
 
 Sonnet `claude-sonnet-5-5`, 37 cases, one run per case, same harness and verifier for every arm. Full method and caveats: [`bench-results.md`](../.claude/skills/deep-code-review/scripts/fixtures/bench-results.md).
@@ -145,7 +193,10 @@ What each bundle puts in front of the model every session: skill, command and ag
 | Need | Pick |
 |---|---|
 | Review skill, lowest cost per review | Anthropic pr-review-toolkit or obra/superpowers ($0.090 to $0.096 against Perun's $0.136; same bug recall) |
-| Fewest false alarms and gated delivery, accepting 1.4 to 1.5 times the review cost | Perun |
+| Fewest false alarms per finding and gated delivery, accepting fewer bugs found than the toolkit (recall .488 against .628, patch-only) | Perun small-diff method |
+| Most bugs found per review (recall .628 against .488, patch-only) | Anthropic pr-review-toolkit |
+| Blocking common destructive shell mistakes (not a security boundary) | Perun destructive guard (30 of 32 strings); keep the OS sandbox on |
+| Catching vacuous tests | Mutation testing (17 of 20), not Perun's gate (2 of 20) |
 | Smallest always-loaded footprint for a full install | Perun (921 tokens) |
 | Browser QA and one-command ship | gstack |
 | Largest catalog | wshobson/agents, installed per plugin to avoid its 31,892-token full footprint |
@@ -157,6 +208,8 @@ Perun's own docs warn against running it alongside superpowers on one repository
 ## What was not measured
 
 - Judge independence: every skill comparison used a judge from the same vendor family as the generator. No different-vendor judge was run.
+- Destructive guard: 32-string corpus; no real-agent transcripts, and residual bypasses are known.
+- Vacuous-test gate: one 40-test corpus; the in-progress static pass is unmeasured and unshipped.
 - Delivery on multi-lane work: the fixtures were small, so coordination across lanes and budget gates were not tested.
 - Sections 3 and 4 compare documented features only.
 - Bundle token counts are static estimates, not API usage. No rival bundle was executed.
