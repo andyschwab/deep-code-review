@@ -82,7 +82,7 @@ plugin manifest (`.claude-plugin/plugin.json`) ships every skill.
 ```bash
 # no accidental identifiers/secrets (tune the pattern to real risks; a hit is a
 # lead to triage, not necessarily a secret — but never commit an uncleared hit)
-grep -rInE 'AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' . \
+grep -rInE '(^|[^A-Za-z0-9])(AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|[sr]k_live_[A-Za-z0-9]{24,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----' . \
   --exclude-dir=.git && echo "BLOCK: potential secret" || echo "clean"
 # every reference file is routed from SKILL.md
 for f in .claude/skills/deep-code-review/references/*.md; do
