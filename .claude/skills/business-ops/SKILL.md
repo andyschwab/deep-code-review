@@ -66,6 +66,17 @@ contribution margin, burn, runway, break-even.
   options and their trade-offs on the user's own data; the model choice and the number stay the
   user's (apply-don't-direct, above). Never fabricate a survey result or a "market" price.
 
+- **End Lane A with a decision aid, not bare math.** Real figures stay the user's slots; the
+  structure around them does not. Give (1) a one-line read of the result ("payback is N months, so ...");
+  (2) the formula with the user's slots filled in and the one input that flips the answer
+  (`break-even price = cost per seat ÷ (1 − target margin)`); (3) decision thresholds named as
+  rules of thumb the user accepts or replaces, never as facts about their market (e.g. "if
+  LTV:CAC < 3 or payback > 12 months, fix before spending more"); (4) a next step doable this week,
+  phrased "if X, consider Y", such as testing a price on new signups only or instrumenting CAC.
+  For Lane R, add what the user can do before the professional call: the facts and documents to
+  bring and which item is time-sensitive. An answer that only says "it depends / ask a professional"
+  fails the reader.
+
 ## Lane R — regulation-dependent (route, never conclude)
 
 Legal (entity choice, contracts, IP, terms), tax (what is owed, where, when),
@@ -167,4 +178,7 @@ otherwise).
   (EU) 2022/2555) + its risk-management-measure and incident-reporting-readiness
   leads, and routes in-scope / essential-vs-important / reporting-authority / timelines to
   counsel, never concluding it binds (`design-time-eu-nis2-name-and-route-entity-cybersecurity`).
+- A pricing / unit-economics ask ends with a one-line read, the break-even or flip input, thresholds
+  labelled rules of thumb, and a this-week "if X, consider Y" step, with the user's figures left as
+  slots (`lane-a-ends-with-decision-aid-thresholds-and-a-next-step`).
 - `evals/evals.json` plants these cases.

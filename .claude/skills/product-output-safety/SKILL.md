@@ -57,6 +57,13 @@ empty inventory is not a pass — it is an unfilled inventory.
 - **Test the outputs, not just the code.** Build output-harm evals (adversarial
   prompts, edge-case inputs, red-team probes) the same way this suite gates its
   own refusal behavior. Reuse the eval discipline in `deep-code-review`.
+- **Make the plan runnable: one test row per inventoried harm.** Each row names the probe set
+  (inputs, a known-bad positive control, a known-good negative control, sliced by subgroup or
+  segment), the metric, a pass threshold, and the stop condition that blocks launch or triggers
+  rollback, plus a probe budget and who reviews failures. Thresholds are owner-set slots; propose
+  zero tolerance for failures of a gated irreversible action and never invent a "typical" rate.
+  Sweep the harms specific to how outputs are produced as well: prompt injection via retrieved or
+  user-supplied content, leakage of other users' or private data, and excess agency.
 - **Report residual risk; never fabricate a clearance metric.** A bias, accuracy,
   or hallucination rate that was not measured is `UNVERIFIED` — give the eval to
   run and how to read it, never an invented "0% bias" or "99.9% accurate".
@@ -192,4 +199,7 @@ follows `communication-structure` if installed (BLUF / plain structure otherwise
   render confidence as a **defined coarse tier** (each tier defined), never a bare
   percentage that implies an uncalibrated precision and invites over-trust
   (`confidence-as-defined-tier-not-model-number`).
+- A harm inventory is followed by one test row per harm (probe set with positive and negative
+  controls, metric, owner-set threshold, stop condition), plus injection, data-leakage and excess-agency
+  checks, never a bare "test for bias" (`one-runnable-test-row-per-harm-with-stop-condition`).
 - `evals/evals.json` plants these cases.
