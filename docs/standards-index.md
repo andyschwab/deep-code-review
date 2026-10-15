@@ -1427,3 +1427,23 @@ fact).
 | Claude Council (skill) | https://github.com/amgadelgamal/claude-council | Four Claude persona subagents, anonymized peer critique, chairman synthesis; all members Claude, no stated evidence rule. Fetched + verified 2026-10-13. |
 
 By name, not fetched (no URL): Du et al. multi-agent debate (abstract only read); Huang et al. on debate vs self-consistency at equal response count (search summary only).
+
+## Verified by direct fetch (2026-10-15) — rival comparison (`docs/perun-vs-rivals.md`)
+
+Pages read 2026-10-15; star counts are from the rendered page, single source, no commit dates shown.
+
+| Source | URL | What was confirmed |
+|---|---|---|
+| obra/superpowers | https://github.com/obra/superpowers | Skill bundle; plugin-marketplace install. Star count not cited. Verified 2026-10-15. |
+| garrytan/gstack | https://github.com/garrytan/gstack | About 136.5k stars; role skills, `/qa`, `/ship`. Verified 2026-10-15. |
+| wshobson/agents | https://github.com/wshobson/agents | 40.8k stars; 94 plugins, 185 skills, 202 agents, 105 commands. Verified 2026-10-15. |
+| SuperClaude | https://github.com/SuperClaude-Org/SuperClaude_Framework | 23.9k stars. Verified 2026-10-15. |
+| anthropics/skills | https://github.com/anthropics/skills | 181.3k stars. Verified 2026-10-15. |
+| anthropics/knowledge-work-plugins | https://github.com/anthropics/knowledge-work-plugins | 29.7k stars; slash commands and MCP connectors. Verified 2026-10-15. |
+| phuryn/pm-skills | https://github.com/phuryn/pm-skills | 27.1k stars; 69 skills. Verified 2026-10-15. |
+| coreyhaines31/marketingskills | https://github.com/coreyhaines31/marketingskills | 54.8k stars. Verified 2026-10-15. |
+| blader/humanizer | https://github.com/blader/humanizer | 57.2k stars; 26 detection patterns. Verified 2026-10-15. |
+| hardikpandya/stop-slop | https://github.com/hardikpandya/stop-slop | 18.0k stars; 5-dimension score. Verified 2026-10-15. |
+| conorbronsdon/avoid-ai-writing | https://github.com/conorbronsdon/avoid-ai-writing | 5.0k stars; 0-100 detector script. Verified 2026-10-15. |
+| promptfoo/promptfoo | https://github.com/promptfoo/promptfoo | 26.0k stars; evals and red-team scans. Verified 2026-10-15. |
+| Claude Code agent teams | https://code.claude.com/docs/en/agent-teams | Experimental, off by default; task list, mailbox, hooks; documented limits. Verified 2026-10-15. |
