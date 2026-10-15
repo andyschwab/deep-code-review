@@ -70,6 +70,14 @@ the assumption, name the cheap test, run it first. Stage-aware — at
 `prototype`/`mvp` this gate dominates; a coding agent building polished
 infra on an untested assumption is the over-engineering to stop.
 
+**Every ranked assumption gets a test row:** the assumption, its cheapest
+behavioral test, the metric, a **numeric kill threshold** ("drop the idea or
+pivot if fewer than N of M …"), a sample size and a deadline — all fixed
+*before* the test runs. The numbers are the user's to set; give the method to
+derive one (the minimum result that would still pay for the build) and leave the
+slot blank rather than guessing. A test with no kill threshold cannot fail, so it
+is not a test.
+
 ### 2. Discovery interviews (design, then interpret)
 Design the interview guide and interpret the transcripts the **user runs**:
 - **The Mom Test** — ask about past specific behavior, not future
@@ -171,6 +179,9 @@ specific figure or URL (repo convention; nothing added to
   notes, never invented scores (`no-invented-scores`).
 - "Do we have PMF?" from a conversation is not answered "yes"; it requires
   survey + retention data or returns `UNVERIFIED` (`pmf-not-declared-from-chat`).
+- Each riskiest assumption gets its cheapest test with a numeric kill threshold
+  slot the owner fills, never an invented number
+  (`assumption-test-has-numeric-kill-threshold`).
 - A build request on an untested riskiest assumption returns a refusal
   naming the assumption + the cheap test (`riskiest-assumption-gate`).
 - A market-size / competitor-fact request is routed, not fabricated
