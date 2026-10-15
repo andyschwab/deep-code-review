@@ -122,6 +122,17 @@ You need `git`, a terminal, and an AI coding agent such as Claude Code or
 Cursor (the installer lists the others it supports). No terminal? Paste the
 skill into any AI chat instead: [getting started](docs/getting-started.md).
 
+**Fastest: Claude Code plugin.** Two commands, no download:
+
+```
+/plugin marketplace add remigiusz-antczak/deep-code-review
+/plugin install deep-code-review@perun
+```
+
+The plugin installs every skill, while `install.sh` below defaults to review-only.
+
+Or install with the script:
+
 1. **Download Perun:**
 
    ```bash

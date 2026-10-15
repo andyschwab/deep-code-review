@@ -1447,3 +1447,9 @@ Pages read 2026-10-15; star counts are from the rendered page, single source, no
 | conorbronsdon/avoid-ai-writing | https://github.com/conorbronsdon/avoid-ai-writing | 5.0k stars; 0-100 detector script. Verified 2026-10-15. |
 | promptfoo/promptfoo | https://github.com/promptfoo/promptfoo | 26.0k stars; evals and red-team scans. Verified 2026-10-15. |
 | Claude Code agent teams | https://code.claude.com/docs/en/agent-teams | Experimental, off by default; task list, mailbox, hooks; documented limits. Verified 2026-10-15. |
+
+## Verified by direct fetch (2026-10-15) — Claude Code plugin install (`README.md` Quick start)
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| Claude Code, Create a marketplace | https://code.claude.com/docs/en/plugin-marketplaces | `/plugin marketplace add <path>` registers a marketplace; `<owner>/<repo>` is the GitHub form; install id is `<plugin-name>@<marketplace-name>`; in a session `/plugin install name@marketplace` opens the plugin details panel where you install. Fetched + verified 2026-10-15. |
