@@ -3,6 +3,23 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.577.0] — 2026-10-15
+
+### Changed
+
+- `agentic-delivery` description now names build intents (build, add, ship, deliver, fix a ticket) and says to invoke it before inspecting files, even in an empty directory. In a 30-prompt routing run (N=1, claude-sonnet-5-5, near-empty directory), build prompts invoked the skill 1/10 before and 10/10 after; review stayed 7/10 and non-code moved 8/10 to 7/10. Adds an `evals.json` case.
+
+### Changed
+- positioning: statements name the specific segment, the alternative buyers use today, and one proof point per differentiator.
+- idea-critic: every attack ends with one concrete next action and the result that would resolve it.
+- product-discovery: every ranked assumption gets a test row with a numeric kill threshold, sample size and deadline set before the run.
+
+### Fixed
+- agentic-ceo `token_report.py` now counts nested `usage.iterations[]` spend (e.g. advisor calls, booked on their own model), which it previously dropped (about 3% of tokens, 8-12% of cost on advisor-heavy sessions).
+
+### Changed
+- agentic-ceo `token_report.py` prices out of the box with a built-in default rate table (official pricing page, 2026-10-15) and labels the cost "priced with default rates as of 2026-10-15"; `--rates` overrides it and unknown models stay UNPRICED.
+
 ## [1.576.0] — 2026-10-15
 
 ### Changed
