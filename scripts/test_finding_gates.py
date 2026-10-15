@@ -96,4 +96,6 @@ with tempfile.TemporaryDirectory() as t:
     cf = m.merge([G("a.py:1", id="lo", severity="High", title="lo", confidence_score=25), G("a.py:100", id="hi", severity="High", title="hi", confidence_score=80),
                   G("a.py:200", id="none", severity="High", title="none"), G("a.py:300", id="b", severity="High", title="b", confidence_score=True)], root=t)
     assert sorted(f["id"] for f in cf["findings"]) == ["b", "hi", "none"] and cf["dropped"]["low_confidence"] == 1, cf
+    full = m.merge([G("a.py:1", id="pre", severity="High", title="pre", confidence_score=25)], root=t, floor=False)
+    assert [f["id"] for f in full["findings"]] == ["pre"] and full["dropped"]["low_confidence"] == 0, "FULL scope keeps pre-existing findings"
 print("test_finding_gates: all passed")
