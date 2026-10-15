@@ -1427,3 +1427,9 @@ fact).
 | Claude Council (skill) | https://github.com/amgadelgamal/claude-council | Four Claude persona subagents, anonymized peer critique, chairman synthesis; all members Claude, no stated evidence rule. Fetched + verified 2026-10-13. |
 
 By name, not fetched (no URL): Du et al. multi-agent debate (abstract only read); Huang et al. on debate vs self-consistency at equal response count (search summary only).
+
+## Verified by direct fetch (2026-10-15) — Claude Code plugin install (`README.md` Quick start)
+
+| Standard / source | URL | What was confirmed |
+|---|---|---|
+| Claude Code, Create a marketplace | https://code.claude.com/docs/en/plugin-marketplaces | `/plugin marketplace add <path>` registers a marketplace; `<owner>/<repo>` is the GitHub form; install id is `<plugin-name>@<marketplace-name>`; in a session `/plugin install name@marketplace` opens the plugin details panel where you install. Fetched + verified 2026-10-15. |
