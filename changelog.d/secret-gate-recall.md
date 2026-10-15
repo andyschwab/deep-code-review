@@ -1,2 +1,0 @@
-### Fixed
-- privacy gate: the committed banlist now catches PGP private key blocks, GitHub fine-grained tokens, Slack webhooks, Stripe live keys, Google API keys, and quoted hard-coded credentials, plus international phone numbers and US SSNs. Token and key patterns carry word boundaries so look-alike identifiers and x-filled placeholders no longer match. On a 20-leak/20-decoy planted corpus recall rose from 9/20 to 17/20 with 1 false positive (the public AWS documentation example key).
