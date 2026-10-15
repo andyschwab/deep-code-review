@@ -3895,6 +3895,13 @@ else
   record 1 "ops edge cases: clean_finished/land_train/prefile_check/pipe_mask_guard"; tail -5 "$WORK/ops-edge.log"
 fi
 
+# secret gate recall/precision: own per-feature file (scripts/test-secret-gate-recall.sh), one case here.
+if bash "$ROOT/scripts/test-secret-gate-recall.sh" >"$WORK/secret-recall.log" 2>&1; then
+  record 0 "secret gate: banlist catches common token/key/PII shapes, spares placeholders"
+else
+  record 1 "secret gate: banlist catches common token/key/PII shapes, spares placeholders"; tail -5 "$WORK/secret-recall.log"
+fi
+
 # loop templates: own per-feature file (scripts/test-loop-templates.sh), one case here.
 if bash "$ROOT/scripts/test-loop-templates.sh" >"$WORK/loop-templates.log" 2>&1; then
   record 0 "loop templates: scripts exist, >=20 min, installed, routed"
