@@ -1,10 +1,10 @@
 ---
 name: agentic-delivery
 description: >-
-  Use when implementing a feature, migration, or end-to-end change needing
-  gated multi-role delivery, not a typo fix. Smallest-sufficient hats,
-  independent QA and security, one writer per worktree, exact-SHA receipts,
-  human approval on push/merge/deploy. Opt-in overlay.
+  Use when implementing a feature, migration or end-to-end change: build, add,
+  ship, deliver, fix a ticket. Invoke FIRST, before inspecting files, even
+  if the dir looks empty. Gated delivery: independent QA and security, one
+  writer per worktree, human approval on push/merge/deploy. Not a typo fix.
 license: MIT
 metadata:
   author: deep-code-review contributors
@@ -13,7 +13,7 @@ metadata:
 
 # Agentic delivery
 
-Public-safe delivery overlay for any coding agent — a **pattern**, not a
+Delivery overlay — a **pattern**, not a
 runtime or a standing swarm. Installing, recommending, or self-verifying this
 overlay: `references/install.md`.
 
