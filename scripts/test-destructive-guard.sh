@@ -77,6 +77,56 @@ bad = [c for c in BAD if not m.check(c)]; fp = [c for c in GOOD if m.check(c)]
 print("missed", bad, "FP", fp)
 sys.exit(1 if bad or fp else 0)
 PY
+python3 -I - "$G" <<'PY'; ok $? "round-2 bypass regressions denied, daily commands allowed"
+import importlib.util, sys
+s = importlib.util.spec_from_file_location("dg", sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+BAD = [
+# 1 option tables, env -S
+"sudo -n rm -rf $X", "sudo -u root rm -rf $X", "sudo -E rm -rf $X", "env -i rm -rf $X", "env -u A rm -rf $X",
+"env -S 'rm -rf $X'", "env --split-string='rm -rf $X'", "doas rm -rf $X",
+# 2 continuation
+"rm \\\n-rf $X", "git reset \\\n--hard",
+# 3 leading redirections
+">o rm -rf $X", "2>/dev/null rm -rf $X", "</dev/null rm -rf $X", "rm >o -rf $X",
+# 4 fed text
+"echo 'rm -rf $X' | sh", "printf '%s' 'rm -rf $X' | bash", "echo 'rm -rf $X' | zsh", "echo 'import shutil; shutil.rmtree(p)' | python3",
+"bash <<< 'rm -rf $X'", "sh <<< \"git reset --hard\"", "bash <<EOF\nrm -rf $X\nEOF", "python3 - <<EOF\nimport shutil\nshutil.rmtree(p)\nEOF",
+# 5 xargs
+"ls | xargs rm -rf", "ls | xargs -I{} rm -rf {}", "ls | xargs -I % rm -rf %", "ls | xargs -n1 rm -rf /usr", "ls | xargs -I X rm -rf X",
+# 6 wrappers and shells
+"caffeinate rm -rf $X", "flock /tmp/l rm -rf $X", "flock -n /tmp/l rm -rf $X", "flock /tmp/l -c 'rm -rf $X'", "su -c 'rm -rf $X' root",
+"fish -c 'rm -rf $X'", "busybox sh -c 'rm -rf $X'", "busybox rm -rf $X", "ash -c 'rm -rf $X'", "dash -c 'rm -rf $X'",
+# 7 find -exec shell
+"find . -exec sh -c 'rm -rf $X' \\;", "find . -execdir bash -c 'git reset --hard' \\;",
+# 8 awk
+"awk 'BEGIN{system(\"rm -rf \" x)}'", "gawk '{system($0)}' f", "awk 'BEGIN{system(\"git reset --hard\")}'",
+# 9 whole tree
+"git checkout .", "git checkout ./", "git checkout -- *", "git checkout -- :/", "git checkout -- ':(top)'", "git restore .", "git restore :/",
+"git restore --worktree .", "git checkout HEAD -- .", "git restore ./.",
+# 10 git prefixes and refspecs
+"git reset --ha", "git push --mir", "git push --forc", "git push --del origin x", "git clean --forc -d", "git stash push; git stash drop",
+"git stash --keep-index clear", "git push origin 'refs/*:refs/*'", "git push origin +HEAD:main", "git push origin HEAD:+main",
+"git switch -f main", "git switch --discard-changes main", "git switch --discard main",
+# 11 rm braces and normalize
+"rm -rf {a,b}", "rm -rf {1..3}", "rm -rf /usr/../etc", "rm -rf /tmp/x/../..", "rm -rf ./../..", "rm -rf /./usr", "rm -rf a/..",
+"rm --rec /usr", "rm --recursive $X",
+]
+GOOD = [
+"sudo -n ls", "sudo -u root ls -la", "sudo -E make install", "env -i FOO=1 ls", "env -S 'ls -la'", "timeout 5 ls", "nice -n 5 make",
+"caffeinate -t 5 ls", "flock /tmp/l ls", "flock -n /tmp/l make", "busybox ls", "fish -c 'ls'", "su -c 'ls' root",
+"echo hello | sh", "echo 'ls -la' | bash", "echo hi > f.txt", "cat <<EOF\nrm -rf $X\nEOF", "cat > notes.txt <<EOF\ngit reset --hard\nEOF",
+"bash <<< 'ls'", "python3 - <<EOF\nprint(1)\nEOF", "python3 -m pytest -k 'unlink or remove' -q",
+"ls | xargs -n1 echo", "ls | xargs rm", "xargs -0 -n1 git status", "ls 2>/dev/null", "make 2>&1", "git log >o.txt", "cmd 2>&1 | tail -3",
+"find . -exec grep x {} +", "find . -exec sh -c 'ls' \\;", "awk '{print $1}' f", "awk 'BEGIN{system(\"ls\")}'",
+"git checkout .gitignore", "git checkout -- src/a.py", "git restore --staged .", "git restore src/a.py", "git checkout -b feat/x",
+"git push --force-with-lease origin f", "git push origin feat/x:feat/x", "git stash push -m wip", "git stash pop", "git stash list",
+"git switch main", "git switch -c feat/y", "git clean --dry-run -d", "git clean -nd", "git reset --soft HEAD~1", "git branch --list",
+"rm -rf build/out", "rm -rf node_modules", "rm -rf ./build", "rm -rf /tmp/claude/a/b", "rm -f a b", "rm a/../b",
+]
+bad = [c for c in BAD if not m.check(c)]; fp = [c for c in GOOD if m.check(c)]
+print("missed", bad, "FP", fp)
+sys.exit(1 if bad or fp else 0)
+PY
 # grant: only an owner-committed line, no Co-authored-by trailer, exact full command
 R="$W/repo"; mkdir "$R"; export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null DCR_OWNER_EMAIL=owner@example.com
 gc() { git -C "$R" -c user.name=X -c "user.email=$1" -c commit.gpgsign=false commit -q -m "$2"; }
@@ -92,8 +142,22 @@ gc owner@example.com "owner line
 Co-authored-by: Agent <a@example.com>"
 ghook 'git reset --hard'; [ $? -eq 2 ]; ok $? "grant: owner commit with a Co-authored-by trailer is no grant"
 echo 'destructive-guard-allow: git reset  --hard' >"$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
-gc owner@example.com "owner own line"
-ghook 'git reset --hard'; ok $? "grant: owner-committed line allows the exact command"
+gc owner@example.com "owner own line, unsigned"
+ghook 'git reset --hard'; [ $? -eq 2 ]; ok $? "grant: owner commit WITHOUT a good signature is no grant"
+git -C "$R" config dcr.owner owner@example.com; unset DCR_OWNER_EMAIL
+echo 'destructive-guard-allow:  git reset --hard' >"$R/CLAUDE.md"; git -C "$R" add CLAUDE.md; gc owner@example.com "x"
+ghook 'git reset --hard'; [ $? -eq 2 ]; ok $? "grant: git config dcr.owner is not an owner source"
+export DCR_OWNER_EMAIL=owner@example.com
+if ssh-keygen -q -t ed25519 -N "" -f "$W/k" >/dev/null 2>&1; then
+  echo "owner@example.com $(cut -d' ' -f1,2 "$W/k.pub")" >"$W/signers"
+  git -C "$R" config gpg.format ssh; git -C "$R" config user.signingkey "$W/k.pub"
+  git -C "$R" config gpg.ssh.allowedSignersFile "$W/signers"
+  echo 'destructive-guard-allow: git reset --hard ' >"$R/CLAUDE.md"; echo 'destructive-guard-allow: git reset  --hard' >"$R/CLAUDE.md"; git -C "$R" add CLAUDE.md
+  git -C "$R" -c user.name=X -c user.email=owner@example.com commit -q -S -m "owner signed line"
+  ghook 'git reset --hard'; ok $? "grant: signed owner-authored line allows the exact command"
+else
+  ok 1 "grant: signed owner-authored line (ssh-keygen unavailable)"
+fi
 ghook 'git  reset   --hard'; ok $? "grant: whitespace-normalized match"
 ghook 'git reset --hard HEAD~1'; [ $? -eq 2 ]; ok $? "grant: not a substring match"
 ghook 'git reset --hard; rm -rf $X'; [ $? -eq 2 ]; ok $? "grant: a longer command containing the granted one stays blocked"
