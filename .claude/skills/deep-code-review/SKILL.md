@@ -54,7 +54,7 @@ non-file-capable model also paste the `references/*.md` for the archetype.
 
 **DIFF quick-path** — diff ≤300 changed lines (`git diff --shortstat`) and no
 blast-radius 🚩: method = `compact-mode.md` only. Read no other reference; run
-affected tests only (import graph), full suite once before land. Any 🚩 or
+affected tests only (import graph), full suite once before land; batch all reads in one turn. Any 🚩 or
 >300 lines → full DIFF method (`method.md`).
 
 **Archetype → load map** (`ARCHETYPE` from the first-response block):

@@ -160,6 +160,9 @@ Field rules, beyond the comments above:
   re-verified), `PLAUSIBLE` (unit-reported, not lead-verified — never silently
   promoted), `unverified` (with `resolves_with` naming the artifact that would
   settle it).
+- **`confidence_score`** (optional integer 0-100, distinct from the string tier `confidence`):
+  odds that this change causes a real, reachable failure (`method.md` anti-slop). `merge_findings.py`
+  drops gap rows below 80 in DIFF scope only (top-level `scope` absent or `DIFF…`); absent or non-numeric passes, and the tier is never read as a score.
 - **`fix` is required on every `gap` row**; "investigate" is not a fix. A fix
   whose mechanism was never reproduced carries `mechanism_unproven: true` and
   the finding stays open.
