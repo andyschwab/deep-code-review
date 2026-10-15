@@ -3,7 +3,7 @@
 
 Purpose: cut review noise. Inputs are findings files; every gap row is re-checked here with finding_ground_check.check (any
 caller-supplied `grounded` flag is overwritten, so it cannot bypass the gate; --root/--ref as there).
-Steps: drop gap rows whose numeric `confidence_score` is below 80 (MIN_CONF; DIFF scope only: skipped when any input's top-level `scope` is FULL/FILE; rows without one pass, and the string `confidence` tier is never read); drop ungrounded gap rows; dedupe by (file of first evidence, `mechanism`, falling back to the
+Steps: drop gap rows whose numeric `confidence_score` is below 80 (MIN_CONF; DIFF scope only: skipped when any input's top-level `scope` is FULL/FILE; `confidence: unverified` leads exempt; rows without one pass, and the string `confidence` tier is never read); drop ungrounded gap rows; dedupe by (file of first evidence, `mechanism`, falling back to the
 normalized title, then the id) when first-evidence lines are within 10, keeping the highest-severity row
 (the first on a tie) and unioning evidence; rank Blocker>Critical>High>Medium>Low>Nit/Info (stable); keep the top
 --cap (default 20). Strength rows pass through uncapped. Output: {"findings": [...], "dropped":
@@ -39,7 +39,7 @@ def merge(rows, cap=20, root=".", ref=None, floor=True):
             strengths.append(f)
             continue
         c = f.get("confidence_score")
-        if floor and isinstance(c, (int, float)) and not isinstance(c, bool) and c < MIN_CONF:
+        if floor and f.get("confidence") != "unverified" and isinstance(c, (int, float)) and not isinstance(c, bool) and c < MIN_CONF:
             drop["low_confidence"] += 1
             continue
         f["grounded"], f["ground_reason"] = check(f, root, ref)  # never trust a caller-supplied flag
@@ -99,7 +99,7 @@ def main(argv):
             floor = floor and str(d.get("scope") or "DIFF").upper().startswith("DIFF")  # FULL/FILE keep pre-existing findings
             rows += d["findings"]
             cov.update(d.get("coverage") or {})
-    except (OSError, ValueError, KeyError, TypeError) as e:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
         print(f"merge_findings: cannot read findings: {type(e).__name__}", file=sys.stderr)
         return 2
     out = merge(rows, cap, root, ref, floor)
