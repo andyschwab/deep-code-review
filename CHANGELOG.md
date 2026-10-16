@@ -3,6 +3,15 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.580.0] — 2026-10-16
+
+### Added
+- agentic-delivery: `destructive_guard.py`, a PreToolUse(Bash) hook wired by the operating layer. It is a best-effort, string-level check that catches common honest mistakes; it is NOT a security boundary. The OS sandbox is the boundary (operating-discipline item 8). It never runs the command; it unwraps `bash -c`, `env`, `sudo`, `xargs`, `timeout`, `flock`, `su -c`, `busybox`, `/bin/rm`, shell keywords and braces, `$(...)` and backtick bodies, heredocs and here-strings, then denies `rm -r` on variable, glob, `..`, root, home and system paths, `git reset --hard`, `git clean -f`, force/delete/mirror push, whole-tree `git checkout|restore`, `git branch -D`, `git stash drop|clear`, `git -c alias.*=` definitions of those, `find -delete|-exec rm`, `dd` to a device, `mkfs`, `chmod -R /`, `curl | sh`, text relayed into a shell or interpreter (`echo | sh`, `base64 -d | sh`, `bash <(...)`, `source /dev/stdin`), kill-by-pattern and interpreter one-liners that delete, each with a safe alternative. A parse failure falls back to a regex scan (block on a hit). On the 32-command bench corpus it blocks 30 (was 11) with 0 of 30 false positives. Tests: `scripts/test-destructive-guard.sh`.
+- Known-uncovered: interpreter APIs (`subprocess`, `exec`), IFS and brace-expansion tricks, variables holding a command, aliases, scripts and exotic wrappers.
+- There is deliberately no allow list or grant: anything an agent can write, an agent can forge. The block message tells the owner to run the command themselves with the `!` prefix in Claude Code.
+
+size-budget-raise: .claude/skills/agentic-delivery/references/operating-discipline.md 9020→9310 destructive_guard pointer in the safety rules
+
 ## [1.579.0] — 2026-10-15
 
 ### Changed

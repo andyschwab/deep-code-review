@@ -3873,6 +3873,13 @@ else
   record 1 "host safety: install warns per host, selfcheck reports per-host sandbox status"; tail -8 "$WORK/host-safety.log"
 fi
 
+# destructive guard: own per-feature file (scripts/test-destructive-guard.sh), one case here.
+if bash "$ROOT/scripts/test-destructive-guard.sh" >"$WORK/destructive-guard.log" 2>&1; then
+  record 0 "destructive guard: bench corpus recall >= 28/32, FP <= 1/30, owner allow line"
+else
+  record 1 "destructive guard: bench corpus recall >= 28/32, FP <= 1/30, owner allow line"; tail -8 "$WORK/destructive-guard.log"
+fi
+
 # sandbox by default: own per-feature file (scripts/test-sandbox-default.sh), one case here.
 if bash "$ROOT/scripts/test-sandbox-default.sh" >"$WORK/sandbox-default.log" 2>&1; then
   record 0 "sandbox default: operating layer sets sandbox + deny rules, selfcheck flags off"
