@@ -44,11 +44,12 @@
 #   DCR_DERIVED_NUMBERS     ON BY DEFAULT. Set to 0 to turn off (any value other
 #                           than unset, 0, or 1 fails closed). Runs derived_numbers.py
 #                           over the repo's tracked *.md files: a number bound to a
-#                           command with `<!-- derived: CMD -->N` must equal the
-#                           command's output (a stale "N tests" fails). It runs the
-#                           commands written in your docs, so review marker commands
-#                           like CI scripts. A repo with no markers passes. Fix a
-#                           failure with `python3 <skill>/scripts/derived_numbers.py --fix`.
+#                           counter with `<!-- derived: COUNTER ARGS -->N` must equal
+#                           the counter's result (a stale "N tests" fails). Counters
+#                           are a fixed allowlist computed in Python (files, lines,
+#                           grep-count, json-len); doc text is never run as a shell
+#                           command. A repo with no markers passes. Fix a failure with
+#                           `python3 <skill>/scripts/derived_numbers.py --fix`.
 #
 # OPT-IN gates (off unless the flag is exactly 1; any value other than unset,
 # 0, or 1 fails closed).
@@ -277,8 +278,8 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2b) derived_numbers — a doc number bound to a source command must equal the
-#     command's output. ON by default (a repo with no markers passes); set
+# 2b) derived_numbers — a doc number bound to a counter must equal the
+#     counter's result. ON by default (a repo with no markers passes); set
 #     DCR_DERIVED_NUMBERS=0 to turn off. Its selftest runs in section 3.
 # ---------------------------------------------------------------------------
 case "${DCR_DERIVED_NUMBERS:-1}" in

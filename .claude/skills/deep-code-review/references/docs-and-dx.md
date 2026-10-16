@@ -302,12 +302,12 @@ re-runs it instead of trusting a frozen number. Verify at source; the cache is a
 lead, not the truth.
 
 When a doc must state the number (a README's "N skills", "N tests"), bind it to its
-source command with `scripts/derived_numbers.py`: write
-`<!-- derived: COMMAND -->N` and the gate fails when `N` differs from the command's
-single-integer output; `--fix` rewrites the claim. `scripts/dcr-gates.sh` runs it by
-default (`DCR_DERIVED_NUMBERS=0` turns it off). Use `\|` for a pipe inside a table
-cell. Choose commands whose output is stable on a clean checkout, and remember the
-gate runs the commands your docs hold, so review them like CI scripts.
+counter with `scripts/derived_numbers.py`: write `<!-- derived: COUNTER ARGS -->N`
+(`files GLOB`, `lines PATH`, `grep-count PATTERN PATH`, `json-len PATH KEY`) and the
+gate fails when `N` differs from the counter's result; `--fix` rewrites the claim.
+`scripts/dcr-gates.sh` runs it by default (`DCR_DERIVED_NUMBERS=0` turns it off).
+Counters are a fixed list computed in Python, never a shell, so a doc cannot run code
+in CI; paths stay inside the repo and never follow a symlink.
 
 **Audit persisted knowledge** (a memory store, an `AGENTS.md`, a runbook) for
 three decay modes — each a finding:

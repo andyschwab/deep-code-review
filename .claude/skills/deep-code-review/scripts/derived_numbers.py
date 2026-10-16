@@ -1,135 +1,246 @@
 #!/usr/bin/env python3
-"""derived_numbers.py — a number in a doc may be bound to the command that derives it.
+"""derived_numbers.py — a number in a doc may be bound to the counter that derives it.
 
 WHY THIS EXISTS
 A doc that says "11 skills" or "412 tests" is true the day it is written and
-stale the day the count moves. This gate binds such a claim to a deterministic
-source command with an inline marker, so CI fails when the claim drifts and
-`--fix` rewrites it.
+stale the day the count moves. This gate binds such a claim to a counter with an
+inline marker, so CI fails when the claim drifts and `--fix` rewrites it.
 
 MARKER (in any tracked *.md file)
-  Perun ships <!-- derived: ls -d .claude/skills/*/SKILL.md \\| wc -l -->11 skills
-The marker is an HTML comment `<!-- derived: COMMAND -->` followed immediately
-by the claimed integer (digits, optional thousands commas). COMMAND runs with
-`sh -c` from the repo root (stdin closed, 60 s timeout). Its trimmed stdout must
-be one integer. Write `\\|` for `|` so the command survives inside a markdown
-table cell (it is unescaped before running). Markers inside fenced code blocks
-and inline `code` spans are ignored, so a doc can show the syntax.
+  Perun ships <!-- derived: files .claude/skills/*/SKILL.md -->11 skills
+The marker is an HTML comment `<!-- derived: COUNTER ARGS -->` followed
+immediately by the claimed integer (digits, optional thousands commas; a
+trailing comma, period or decimal part is not part of the number).
 
-FINDINGS (each exit 1; none are silently skipped)
-  drift          claimed number differs from the command's output
-  command failed non-zero exit, timeout, or output that is not one integer
+COUNTERS (a fixed allowlist, computed in Python; no shell, no subprocess of doc
+text, no network)
+  files GLOB              tracked files matching GLOB (`*` and `?` stay inside a
+                          directory, `**` crosses directories)
+  lines PATH              lines in PATH
+  grep-count PATTERN PATH lines of PATH containing PATTERN (a literal substring,
+                          not a regex; PATTERN may hold spaces, PATH is the last word)
+  json-len PATH KEY       length of the list or object at KEY (dotted; a list
+                          index is a number) in the JSON file PATH
+Every PATH is repo-relative, with no `..`, and neither it nor any directory on
+the way may be a symlink. An unknown counter or bad arguments is a finding and
+nothing runs. `\\|` in a marker stands for `|`.
+Markers in fenced code, indented code and inline code spans are ignored, so a
+doc can show the syntax. Files without `<!--`, symlinks and vendored directories
+(node_modules, vendor, dist, build, venv, ...) are skipped.
+
+FINDINGS (each exits 1; none are silently skipped)
+  drift          claimed number differs from the counter's result
+  bad marker     unknown counter, bad arguments, unsafe or unreadable path
   no number      a marker with no integer right after it
 Zero markers is a pass (a fresh install has none).
 
-SIDE EFFECTS / TRUST
-Runs the commands written in the repo's own docs, with the caller's
-privileges. Review marker commands in a PR like any CI script. `--fix` edits
-only the claimed number in place, and only when the command succeeded.
+SIDE EFFECTS
+Reads files; runs only `git ls-files` to list tracked files. `--fix` rewrites only
+the claimed number, byte-for-byte otherwise (line endings and encoding kept),
+via a temp file and an atomic replace, and never when the marker is a finding.
 
 USAGE
   python3 derived_numbers.py [--fix] [--selftest] [ROOT]
-Exit codes: 0 ok (or fixed); 1 drift or failing marker; 2 usage or selftest failure.
+Exit codes: 0 ok (or fixed); 1 drift or bad marker; 2 usage or selftest failure.
 """
+import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-MARK = re.compile(r"<!--\s*derived:\s*(.+?)\s*-->(\d[\d,]*)?")
-CODE_SPAN = re.compile(r"`[^`\n]*`")
-FENCE = re.compile(r"^\s*(```|~~~)")
+MARK = re.compile(r"<!--\s*derived:\s*(.+?)\s*-->(?:(\d{1,3}(?:,\d{3})+|\d+)(?![\d]|[.,]\d))?")
+CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)")
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+INDENT = re.compile(r"^(?: {4}|\t)")
+VENDORED = {"node_modules", "vendor", "third_party", "dist", "build", "venv", ".venv", "site-packages", ".git"}
+MAX_BYTES = 10_000_000
+COUNTERS = ("files", "lines", "grep-count", "json-len")
 
 
-def md_files(root):
+def tracked(root):
+    """Repo-relative posix paths of tracked files; a plain walk (no symlink follow) outside git."""
     try:
-        out = subprocess.run(["git", "-C", str(root), "ls-files", "*.md"], capture_output=True, text=True, check=True).stdout
-        return [root / p for p in out.splitlines()]
-    except (OSError, subprocess.CalledProcessError):  # not a git checkout
-        return [p for p in root.rglob("*.md") if ".git" not in p.parts]
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True).stdout
+        return [p for p in out.decode("utf-8", "surrogateescape").split("\0") if p]
+    except (OSError, subprocess.CalledProcessError):
+        found = []
+        for dp, dns, fns in os.walk(root):
+            dns[:] = [d for d in dns if d != ".git"]
+            found += [os.path.relpath(os.path.join(dp, f), root).replace(os.sep, "/") for f in fns]
+        return found
 
 
-def derive(cmd, root, cache):
-    """Return (int, None) or (None, reason); one run per distinct command."""
-    if cmd not in cache:
-        try:
-            r = subprocess.run(["sh", "-c", cmd], cwd=root, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
-            out = r.stdout.strip()
-            if r.returncode:
-                cache[cmd] = (None, f"command failed (exit {r.returncode})")
-            elif not re.fullmatch(r"\d+", out):
-                cache[cmd] = (None, f"output is not one integer: {out[:40]!r}")
-            else:
-                cache[cmd] = (int(out), None)
-        except (OSError, subprocess.TimeoutExpired) as e:
-            cache[cmd] = (None, f"command failed ({type(e).__name__})")
-    return cache[cmd]
+def safe_file(root, rel):
+    """Resolve a repo-relative PATH to a regular file; ValueError if unsafe."""
+    parts = rel.split("/")
+    if not rel or "\\" in rel or any(p in ("", ".", "..") for p in parts):
+        raise ValueError(f"unsafe path {rel!r}")
+    cur = root
+    for p in parts:
+        cur = cur / p
+        if cur.is_symlink():
+            raise ValueError(f"path {rel!r} goes through a symlink")
+    if not cur.is_file():
+        raise ValueError(f"{rel!r} is not a file")
+    if cur.stat().st_size > MAX_BYTES:
+        raise ValueError(f"{rel!r} is over {MAX_BYTES} bytes")
+    return cur
+
+
+def glob_re(g):
+    out, i = [], 0
+    while i < len(g):
+        if g.startswith("**", i):
+            out.append(".*")
+            i += 2
+            continue
+        out.append("[^/]*" if g[i] == "*" else "[^/]" if g[i] == "?" else re.escape(g[i]))
+        i += 1
+    return re.compile("".join(out))
+
+
+def count(spec, root, files):
+    """Evaluate one counter spec to an int; ValueError on an unknown counter or bad arguments."""
+    toks = spec.split(None, 1)
+    name, rest = (toks[0], toks[1] if len(toks) > 1 else "") if toks else ("", "")
+    if name not in COUNTERS:
+        raise ValueError(f"unknown counter {name!r} (allowed: {', '.join(COUNTERS)}); nothing was run")
+    if name == "files":
+        if not rest or " " in rest or rest.startswith("/") or ".." in rest.split("/"):
+            raise ValueError("files takes one repo-relative GLOB")
+        rx = glob_re(rest)
+        return sum(1 for f in files if rx.fullmatch(f) and not (root / f).is_symlink())
+    if name == "lines":
+        if not rest or " " in rest:
+            raise ValueError("lines takes one PATH")
+        return len(safe_file(root, rest).read_bytes().splitlines())
+    if name == "grep-count":
+        if len(rest.split()) < 2:
+            raise ValueError("grep-count takes PATTERN PATH")
+        pattern, path = rest.rsplit(None, 1)
+        text = safe_file(root, path).read_bytes().decode("utf-8", "surrogateescape")
+        return sum(1 for ln in text.splitlines() if pattern in ln)
+    if len(rest.split()) != 2:
+        raise ValueError("json-len takes PATH KEY")
+    path, key = rest.split()
+    try:
+        node = json.loads(safe_file(root, path).read_bytes())
+        for k in key.split("."):
+            node = node[int(k)] if isinstance(node, list) else node[k]
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        raise ValueError(f"json-len: cannot read {key!r} in {path!r} ({type(e).__name__})")
+    if not isinstance(node, (list, dict)):
+        raise ValueError(f"json-len: {key!r} is not a list or object")
+    return len(node)
+
+
+def md_files(root, files):
+    for rel in files:
+        p = root / rel
+        if rel.endswith(".md") and not VENDORED & set(rel.split("/")) and not p.is_symlink() and p.is_file():
+            yield rel, p
 
 
 def scan(root, fix=False):
     """Return (findings, claims). With fix, rewrite drifted numbers in place."""
-    cache, bad, n = {}, [], 0
-    for path in md_files(root):
-        if not path.is_file():
+    files = tracked(root)
+    bad, n = [], 0
+    for rel, path in md_files(root, files):
+        data = path.read_bytes()
+        if b"<!--" not in data:
             continue
-        lines = path.read_text(encoding="utf-8").split("\n")
-        fenced, changed = False, False
+        text = data.decode("utf-8", "surrogateescape")
+        lines = text.split("\n")  # a CRLF keeps its \r at the line end, so it round-trips
+        fence, prev_indented, prev_blank, changed = None, False, True, False
         for i, line in enumerate(lines):
-            if FENCE.match(line):
-                fenced = not fenced
+            stripped = line.rstrip("\r")
+            f = FENCE.match(stripped)
+            if fence:
+                if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= fence[1] and not f.group(2).strip():
+                    fence = None
                 continue
-            if fenced or "<!--" not in line:
+            if f and not (f.group(1)[0] == "`" and "`" in f.group(2)):
+                fence = (f.group(1)[0], len(f.group(1)))
+                continue
+            # ponytail: a 4-space line after a blank or code line is code; an indented list continuation
+            # is skipped too (upgrade to a real list parser if a marker is ever needed there)
+            indented = bool(INDENT.match(stripped)) and (prev_blank or prev_indented)
+            prev_blank, prev_indented = not stripped.strip(), indented
+            if indented or "<!--" not in line:
                 continue
             blank = CODE_SPAN.sub(lambda m: " " * len(m.group()), line)  # same offsets, spans hidden
             for m in reversed(list(MARK.finditer(blank))):
                 n += 1
-                where = f"{path.relative_to(root)}:{i + 1}"
-                cmd = line[m.start(1):m.end(1)].replace("\\|", "|")
+                where = f"{rel}:{i + 1}"
+                spec = line[m.start(1):m.end(1)].replace("\\|", "|")
                 if m.group(2) is None:
-                    bad.append(f"{where}: no number right after the marker for `{cmd}`")
+                    bad.append(f"{where}: no number right after the marker for `{spec}`")
                     continue
-                want, why = derive(cmd, root, cache)
-                if why:
-                    bad.append(f"{where}: `{cmd}`: {why}")
+                try:
+                    want = count(spec, root, files)
+                except ValueError as e:
+                    bad.append(f"{where}: bad marker `{spec}`: {e}")
                     continue
                 got = int(m.group(2).replace(",", ""))
                 if got == want:
                     continue
                 if fix:
                     new = f"{want:,}" if "," in m.group(2) else str(want)
-                    line = line[:m.start(2)] + new + line[m.end(2):]
-                    lines[i], changed = line, True
+                    lines[i] = line = line[:m.start(2)] + new + line[m.end(2):]
+                    changed = True
                 else:
-                    bad.append(f"{where}: drift: doc says {got}, `{cmd}` prints {want}")
+                    bad.append(f"{where}: drift: doc says {got}, `{spec}` gives {want}")
         if changed:
-            path.write_text("\n".join(lines), encoding="utf-8")
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".derived-")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write("\n".join(lines).encode("utf-8", "surrogateescape"))
+                shutil.copymode(path, tmp)
+                os.replace(tmp, path)
+            except BaseException:
+                os.unlink(tmp)
+                raise
     return bad, n
 
 
 def selftest():
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
+        for name in ("a.txt", "b.txt"):
+            (root / name).write_text("x\ny\n")
+        (root / "data.json").write_text('{"k": {"items": [1, 2, 3]}}')
         doc = root / "a.md"
 
         def run(text, fix=False):
-            doc.write_text(text, encoding="utf-8")
+            doc.write_bytes(text if isinstance(text, bytes) else text.encode())
             return scan(root, fix)
 
-        ok = "<!-- derived: echo 3 -->3 things\n"
+        ok = "<!-- derived: files *.txt -->2 things\n"
         assert run(ok) == ([], 1), "matching claim passes"
-        bad, _ = run("<!-- derived: echo 3 -->2 things\n")
-        assert len(bad) == 1 and "drift: doc says 2" in bad[0], bad
-        assert run("<!-- derived: echo 3 -->2 x\n", fix=True)[0] == [] and doc.read_text() == "<!-- derived: echo 3 -->3 x\n", "fix rewrites"
-        assert run("| <!-- derived: echo 3 \\| cat -->9 |\n", fix=True)[0] == [] and "-->3 |" in doc.read_text(), "escaped pipe in table"
-        assert run("<!-- derived: echo 1234 -->9\n", fix=True)[0] == [] and "-->1234\n" in doc.read_text()
-        assert run("<!-- derived: echo 1234 -->1,000\n", fix=True)[0] == [] and "-->1,234\n" in doc.read_text(), "commas kept"
-        assert "failed" in run("<!-- derived: exit 4 -->3\n")[0][0], "failing command"
-        assert "not one integer" in run("<!-- derived: echo hi -->3\n")[0][0], "non-integer output"
-        assert "no number" in run("<!-- derived: echo 3 --> things\n")[0][0], "marker without number"
-        failed, _ = run("<!-- derived: exit 4 -->3\n", fix=True)
-        assert failed and doc.read_text() == "<!-- derived: exit 4 -->3\n", "fix never edits on command failure"
-        assert run("`<!-- derived: echo 3 -->9`\n```\n<!-- derived: echo 3 -->9\n```\n") == ([], 0), "code is ignored"
+        bad, _ = run("<!-- derived: files *.txt -->5 things\n")
+        assert len(bad) == 1 and "drift: doc says 5" in bad[0], bad
+        assert run("<!-- derived: files *.txt -->5 x\n", fix=True)[0] == [] and doc.read_text() == ok.replace("things", "x"), "fix rewrites"
+        assert run("<!-- derived: lines a.txt -->0 | <!-- derived: json-len data.json k.items -->0\n", fix=True)[0] == []
+        assert doc.read_text() == "<!-- derived: lines a.txt -->2 | <!-- derived: json-len data.json k.items -->3\n"
+        assert run("<!-- derived: grep-count y a.txt -->0\n", fix=True)[0] == [] and "-->1\n" in doc.read_text()
+        assert run("<!-- derived: files *.txt -->2, and 3.5 more\n")[0] == [], "trailing comma is not the number"
+        assert "no number" in run("<!-- derived: files *.txt -->3.5 more\n")[0][0], "a decimal is not an integer claim"
+        assert run("<!-- derived: lines a.txt -->1,000\n", fix=True)[0] == [] and "-->2\n" in doc.read_text()
+        crlf = run(b"a\r\n<!-- derived: files *.txt -->9\r\nb\r\n", fix=True)
+        assert crlf[0] == [] and doc.read_bytes() == b"a\r\n<!-- derived: files *.txt -->2\r\nb\r\n", "CRLF kept"
+        assert run(b"caf\xe9 <!-- derived: files *.txt -->9\n", fix=True)[0] == [] and doc.read_bytes() == b"caf\xe9 <!-- derived: files *.txt -->2\n", "non-UTF-8 kept"
+        for evil in ("touch PWNED", "files *.txt; touch PWNED", "$(touch PWNED)", "lines ../a.txt", "lines /etc/passwd", "grep-count x"):
+            b, _ = run(f"<!-- derived: {evil} -->1\n")
+            assert len(b) == 1 and "bad marker" in b[0], (evil, b)
+        assert not (root / "PWNED").exists() and not Path("PWNED").exists(), "nothing was executed"
+        (root / "link.txt").symlink_to(root / "a.txt")
+        assert "symlink" in run("<!-- derived: lines link.txt -->2\n")[0][0], "symlink refused"
+        assert run("```\n<!-- derived: files *.txt -->9\n```\n````md\n```\n<!-- derived: files *.txt -->9\n```\n````\n"
+                   "`<!-- derived: files *.txt -->9`\n``a ` <!-- derived: files *.txt -->9 ``\n\n    <!-- derived: files *.txt -->9\n") == ([], 0), "code ignored"
         assert run("no markers\n") == ([], 0), "zero markers pass"
     print("derived_numbers selftest ok")
 
