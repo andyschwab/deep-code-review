@@ -25,7 +25,7 @@ case "$tmo" in ''|*[!0-9]*) echo "review_checks: --timeout must be an integer" >
 git rev-parse --verify -q "$base^{commit}" >/dev/null || { echo "review_checks: unresolvable base '$base'" >&2; exit 2; }
 cd "$(git rev-parse --show-toplevel)"
 
-raw=$(mktemp) out=$(mktemp)
+raw=$(mktemp "${TMPDIR:-/tmp}/review-raw.XXXXXX") out=$(mktemp "${TMPDIR:-/tmp}/review-out.XXXXXX")
 trap 'rm -f "$raw" "$out"' EXIT
 files=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD)
 rc=0

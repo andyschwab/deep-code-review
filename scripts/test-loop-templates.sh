@@ -22,7 +22,7 @@ done < <(grep -ohE '(/loop|every) [0-9]+ ?m' "$L"/*.md | grep -oE '[0-9]+')
 grep -qE '/loop [0-9]+s|every [0-9]+ ?(s|sec)' "$L"/*.md && bad "seconds-level interval"
 
 # installed by --with-delivery
-dest="$(mktemp -d)"
+dest="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-loops.XXXXXX")"
 trap 'rm -rf "$dest"' EXIT
 bash "$ROOT/install.sh" --with-delivery "$dest" >/dev/null 2>&1
 for n in coordinator peer cleanup; do

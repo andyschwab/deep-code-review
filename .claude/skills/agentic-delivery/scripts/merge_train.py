@@ -764,7 +764,7 @@ class Train:
 
         Uses a throwaway index, never the working tree. A setup failure raises ForgeError.
         """
-        script = ('d=$(mktemp -d) || exit 3; trap \'rm -rf "$d"\' EXIT; '
+        script = ('d=$(mktemp -d "${TMPDIR:-/tmp}/merge-train.XXXXXX") || exit 3; trap \'rm -rf "$d"\' EXIT; '
                   'GIT_INDEX_FILE="$d/index" git read-tree "$1" || exit 3; '
                   'GIT_INDEX_FILE="$d/index" git apply --cached --check -R "$2" 2>/dev/null')
         fd, path = tempfile.mkstemp(prefix="keystone-", suffix=".patch")

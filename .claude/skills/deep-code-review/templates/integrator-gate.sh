@@ -259,7 +259,7 @@ main() {
 selftest() {
   local failures=0
   local tmp
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/integrator-gate.XXXXXX")"
   trap 'rm -rf "${tmp}"' RETURN
 
   local calls="${tmp}/calls.log"

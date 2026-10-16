@@ -2,7 +2,7 @@
 # update-installed.sh on a pre-marker install: infers flags from installed skills, writes the marker, says so.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-uii.XXXXXX")"; trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/h/scripts" "$W/h/.claude/skills/deep-code-review" "$W/t/.claude/skills/"{deep-code-review,agentic-delivery,idea-critic}
 cp "$ROOT/scripts/update-installed.sh" "$W/h/scripts/"
 echo 1.0.0 >"$W/h/.claude/skills/deep-code-review/VERSION"
