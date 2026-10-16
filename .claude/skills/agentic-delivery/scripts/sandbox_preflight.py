@@ -35,6 +35,7 @@ Codex docs listed in docs/standards-index.md (fetched 2026-10-16). `/sandbox exc
 Code's own sandbox error text but is not on the docs pages checked, so the advice leads with the documented key.
 """
 import argparse
+import functools
 import json
 import os
 import re
@@ -49,7 +50,10 @@ import destructive_guard  # noqa: E402  (sibling module: every advised allow rul
 GATE = re.compile(r"^(test|tests|e2e|integration|coverage|lint|check|checks|typecheck|type-check|types|format|fmt|"
                   r"verify|validate|ci|precommit|pre-commit|presubmit|prepush|pre-push|gate)(?![a-z0-9])", re.I)
 BUILD = re.compile(r"^(build|compile|bundle)(?![a-z0-9])", re.I)
-SHIP = re.compile(r"^(release|publish|deploy|ship|version|tag|upload)(?![a-z0-9])", re.I)
+# a release/publish/deploy/push word in a unit's NAME or in any line of its BODY (including the units it runs)
+# makes it needs-approval, never allow-listed: `ci:publish`, `check-deploy`, a gate script that runs `npm publish`
+SHIP = re.compile(r"(?<![a-z0-9])(?:publish|deploy|release|push|ship|upload)(?![a-z0-9])|^(?:version|tag)(?![a-z0-9])", re.I)
+RMR = re.compile(r"\brm\s+(?:-\S+\s+)*-\w*[rR]")  # any recursive rm in a body: destructive_guard allows `rm -rf build`, an allow rule must not
 HOOKS = {"pre-commit": "git commit *", "commit-msg": "git commit *", "prepare-commit-msg": "git commit *",
          "pre-push": "git push *"}
 INTERP = {".sh": "bash", ".bash": "bash", ".py": "python3", ".js": "node", ".mjs": "node", ".cjs": "node", ".ts": None}
@@ -107,6 +111,9 @@ STAY = (
     "the ! prefix.",
     "Writes outside the repo: the sandbox allows only the working directory and $TMPDIR; allowWrite above names only "
     "literal paths the scripts write. Nothing else is widened, and other repos are never granted.",
+    "An allow rule on a make target, npm script or script file trusts the repo's content: Claude can edit that file and run "
+    "it under the rule. Each body line (and the units it runs) was checked against destructive_guard.py, a recursive rm "
+    "and release words today; read the files before you apply the rules.",
     "Commands in excludedCommands run outside the sandbox with your full access and prompt on each run (no allow rule "
     "is advised); Claude can edit an excluded script in the repo and run it, so read it before you approve.",
     "gh pr create, gh pr merge, gh api, gh release: not allow-listed (gh runs unsandboxed with your credentials); they prompt.",
@@ -121,7 +128,7 @@ HOSTS = (
 )
 
 
-SAFE = re.compile(r"[\w.:@+/-]+")  # a repo-chosen name that may become part of a rule: no space, quote, `*` or shell syntax
+SAFE = re.compile(r"(?!.*\.\.)[\w.:@+/-]+")  # a repo-chosen name that may become part of a rule: no space, quote, `*`, `..` or shell syntax
 
 
 def _clean(s):
@@ -168,21 +175,22 @@ def _remote(repo):
     return name, m.group(1).lower(), not url.startswith(("http://", "https://"))
 
 
-def _unit(label, kind, name, entries, lines, run=None, run_code=None, deps=(), code=False):
+def _unit(label, kind, name, entries, lines, run=None, run_code=None, deps=(), code=False, key=""):
     """One thing the agent can run (or git runs for it); `entries` are the commands the agent types for it, `run`
-    and `run_code` match another unit's text (shell, or a script's code) that runs this one."""
+    and `run_code` match another unit's text (shell, or a script's code) that runs this one (`key` is a substring
+    every such text contains: a cheap prefilter)."""
     hits, writes = {}, set()
     for ln in lines:
         if not code or SPAWN.search(ln):
-            for key, rx in RX["code" if code else "shell"].items():
-                if key not in hits and rx.search(ln):
-                    hits[key] = (label, _clean(ln[:90]))
+            for risk, rx in RX["code" if code else "shell"].items():
+                if risk not in hits and rx.search(ln):
+                    hits[risk] = (label, _clean(ln[:90]))
         if not code:
             if "db" not in hits and DBURL.search(ln):
                 hits["db"] = (label, _clean(ln[:90]))
             writes |= {(m.replace("${HOME}", "~").replace("$HOME", "~"), label) for m in WRITE.findall(ln)}
     return NS(label=label, kind=kind, name=name, entries=entries, lines=lines, run=run, run_code=run_code,
-              deps=set(deps), hits=hits, writes=writes, code=code)
+              deps=set(deps), hits=hits, writes=writes, code=code, key=key)
 
 
 def _makefile(repo):
@@ -210,10 +218,10 @@ def _units(repo):
         if isinstance(cmd, str) and SAFE.fullmatch(name):
             ents = [f"{pm} run {name} *"] + ([f"{pm} {name} *"] if name in ("test", "start") and pm != "bun" else [])
             us.append(_unit(f"package.json scripts.{name}", "npm", name, ents, [cmd],
-                            re.compile(CMD + rf"(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?{re.escape(name)}(?![\w:.-])")))
+                            re.compile(CMD + rf"(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?{re.escape(name)}(?![\w:.-])"), key=name))
     for t, (deps, recipe) in _makefile(repo).items():
         us.append(_unit(f"Makefile:{t}", "make", t, [f"make {t} *"], recipe,
-                        re.compile(CMD + rf"(?:make|\$[({{]MAKE[)}}])\s+(?:-\S+\s+)*{re.escape(t)}(?![\w.-])"), deps=deps))
+                        re.compile(CMD + rf"(?:make|\$[({{]MAKE[)}}])\s+(?:-\S+\s+)*{re.escape(t)}(?![\w.-])"), deps=deps, key=t))
     hooks_path = _git(repo, "config", "core.hooksPath").strip()
     hook_dirs = {".githooks", ".husky", ".git/hooks"} | ({hooks_path} if SAFE.fullmatch(hooks_path)
                                                          and not hooks_path.startswith("/") and ".." not in hooks_path else set())
@@ -229,27 +237,59 @@ def _units(repo):
                 us.append(_unit(rel, "script", f.stem, ents, _lines(_text(f)),
                                 re.compile(CMD + r"(?:(?:ba)?sh\s+|python3?\s+|node\s+|source\s+|\.\s+)?(?:\./)?"
                                            + re.escape(rel) + r"(?![\w.-])"),
-                                re.compile(re.escape(rel) + r"(?![\w.-])"), code=f.suffix in CODE))
+                                re.compile(re.escape(rel) + r"(?![\w.-])"), code=f.suffix in CODE, key=rel))
     return us
 
 
-def _spread(us):
-    """A unit that runs a risky unit is risky too: its typed command is what an exclusion has to match."""
+def _edges(us):
+    """{id(u): [units u runs]}: a make dependency, an npm pre/post script, or text that runs the other unit."""
     text = {id(u): "\n".join(u.lines) for u in us}
-    queue = [u for u in us if u.hits or u.writes]
-    while queue:
-        v = queue.pop()
-        for u in us:
-            if u is v:
-                continue
+    out = {id(u): [] for u in us}
+    for u in us:
+        for v in us:
             rx = v.run_code if u.code else v.run
-            runs = ((u.kind == v.kind == "make" and v.name in u.deps) or (rx and rx.search(text[id(u)]))
-                    or (u.kind == v.kind == "npm" and v.name in (f"pre{u.name}", f"post{u.name}")))
-            new = {k: o for k, o in v.hits.items() if k not in u.hits}
-            if runs and (new or v.writes - u.writes):
-                u.hits.update(new)
-                u.writes |= v.writes
-                queue.append(u)
+            if v is not u and ((u.kind == v.kind == "make" and v.name in u.deps)
+                               or (rx and v.key in text[id(u)] and rx.search(text[id(u)]))
+                               or (u.kind == v.kind == "npm" and v.name in (f"pre{u.name}", f"post{u.name}"))):
+                out[id(u)].append(v)
+    return out
+
+
+def _spread(us, edges):
+    """A unit that runs a risky unit is risky too: its typed command is what an exclusion has to match."""
+    changed = True
+    while changed:
+        changed = False
+        for u in us:
+            for v in edges[id(u)]:
+                new = {k: o for k, o in v.hits.items() if k not in u.hits}
+                if new or v.writes - u.writes:
+                    u.hits.update(new)
+                    u.writes |= v.writes
+                    changed = True
+
+
+def _body(u, edges):
+    """Every line `u` runs: its own and those of all units it runs, transitively."""
+    seen, todo, out = set(), [u], []
+    while todo:
+        w = todo.pop()
+        if id(w) not in seen:
+            seen.add(id(w))
+            out += w.lines
+            todo += edges[id(w)]
+    return out
+
+
+@functools.lru_cache(maxsize=None)
+def _body_bad(line):
+    """True when destructive_guard blocks this body line, or it is a recursive rm (the guard allows `rm -rf build`);
+    a guard error counts as bad (skip, don't guess). The allow rule matches the typed command only, so the repo
+    file the command runs is judged line by line here."""
+    try:
+        return bool(destructive_guard.check(line)) or bool(RMR.search(line))
+    except Exception:  # noqa: BLE001
+        return True
 
 
 def _list(x):
@@ -333,7 +373,8 @@ def analyze(repo, home=None, platform=None):
     """
     repo, home, mac = Path(repo), Path(home) if home else Path.home(), (platform or sys.platform) == "darwin"
     us = _units(repo)
-    _spread(us)
+    edges = _edges(us)
+    _spread(us, edges)
     eff, remote = _effective(repo, home), _remote(repo)
     allow, exclude, writes, domains = set(), set(), set(), set()
     why, stay, ship, binding = [], [], set(), False  # why: (entries it explains or (), text)
@@ -352,10 +393,15 @@ def analyze(repo, home=None, platform=None):
                 why.append((tuple(u.entries), f"exclude {' and '.join(repr(e) for e in u.entries)}: {RISKS[k][1]} "
                                               f"[{origin}: {line}]{tail}"))
         base = "" if u.kind == "hook" else u.name
-        if u.entries and SHIP.match(base):
+        body = _body(u, edges) if u.entries else []
+        if u.entries and u.kind != "hook" and (SHIP.search(base) or any(SHIP.search(ln) for ln in body)):
             ship |= set(u.entries)
         elif u.entries and not bad and (GATE.match(base) or BUILD.match(base)):
-            allow |= set(u.entries)
+            ln = next((x for x in body if _body_bad(x)), None)
+            if ln:
+                stay.append(f"{u.entries[0]}: not allow-listed, {u.label} runs {_clean(ln[:90])!r}, which is destructive")
+            else:
+                allow |= set(u.entries)
         for path, origin in sorted(u.writes):
             if path.startswith("../"):
                 stay.append(f"{origin} writes {path}: another directory or repo; never granted")
@@ -370,7 +416,9 @@ def analyze(repo, home=None, platform=None):
         if u.kind == "script" and u.entries and u.entries[0] in allow and GATE.match(u.name):
             fam.setdefault((u.entries[0].split()[0], u.label.rsplit("/", 1)[0], GATE.match(u.name).group(1).lower()), []).append(u)
     for (interp, d, word), group in fam.items():
-        if len(group) >= 4:
+        # a prefix rule also matches every sibling it names, so it needs each file under the prefix to be vetted
+        siblings = [u for u in us if u.kind == "script" and u.label.startswith(f"{d}/{word}")]
+        if len(group) >= 4 and ".." not in d + word and len(siblings) == len(group):
             allow = (allow - {e for u in group for e in u.entries}) | {f"{interp} {d}/{word}*"}
             why.append(((f"{interp} {d}/{word}*",), f"allow '{interp} {d}/{word}*': {len(group)} gate scripts share the "
                                                     "prefix, so the rule is broader than each file"))

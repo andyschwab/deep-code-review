@@ -57,6 +57,23 @@ class ReplyBudget(unittest.TestCase):
         self.assertEqual(self.run_hook("Stop", "Done. Run:\n" + cmds), "")
         self.assertEqual(self.run_hook("UserPromptSubmit"), "")
 
+    def over_budget(self, msg):
+        self.assertEqual(self.run_hook("Stop", msg), "")
+        return "over budget" in self.run_hook("UserPromptSubmit")
+
+    def test_a_deliverable_in_one_fence_cannot_hide(self):
+        self.assertTrue(self.over_budget("Done.\n```\n" + "x" * 11000 + "\n```"))
+
+    def test_an_unclosed_fence_counts_as_prose(self):
+        self.assertTrue(self.over_budget("Done.\n```\n" + "\n".join(f"line {i}" for i in range(8))))
+        self.assertFalse(self.over_budget("Done.\n```\nls"))  # short unclosed fence is still within budget
+
+    def test_a_wall_of_bang_lines_cannot_hide(self):
+        self.assertTrue(self.over_budget("\n".join(f"! git push origin feature/branch-{i:03d}-x" for i in range(100))))
+
+    def test_closed_fence_and_few_bang_lines_still_fit(self):
+        self.assertFalse(self.over_budget("Run:\n! ls\n! pwd\n```\nmake test\n```"))
+
     def test_strict_mode_still_blocks_and_records_nothing(self):
         out = self.run_hook("Stop", LONG, TERSE_MODE="block")
         self.assertEqual(json.loads(out)["decision"], "block")

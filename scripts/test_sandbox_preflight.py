@@ -211,6 +211,58 @@ class Behaviour(Base):
         self.assertNotIn("ev il", text)
         self.assertEqual(sp.analyze(repo, self.home, "darwin")["snippet"]["permissions"]["allow"], ["Bash(npm run build *)"])
 
+    def allow_of(self, name, files):
+        repo = make_repo(self.tmp / name, files, None)
+        r = sp.analyze(repo, self.home, "darwin")
+        return {x[5:-1] for x in r["snippet"]["permissions"].get("allow", [])}, " ".join(r["stay"])
+
+    def test_release_words_in_name_or_body_are_never_allowed(self):
+        scripts = {"ci:publish": "changeset publish", "check-deploy": "vercel --prod", "build": "tsc",
+                   "verify": "npm run ci:publish", "test": "vitest run && npm publish", "lint": "eslint ."}
+        allow, stay = self.allow_of("ship", {"package.json": json.dumps({"scripts": scripts})})
+        self.assertEqual(allow, {"npm run build *", "npm run lint *"})  # verify runs ci:publish; test runs npm publish
+        for cmd in ("npm run ci:publish *", "npm run check-deploy *", "npm run verify *", "npm run test *"):
+            self.assertIn(cmd, stay)  # listed as needing approval
+        self.assertIn("need your approval", stay)
+
+    def test_a_make_target_that_force_pushes_is_not_allowed(self):
+        allow, stay = self.allow_of("mk1", {"Makefile": "verify:\n\tgit push --force origin main\nlint:\n\truff check .\n"})
+        self.assertNotIn("make verify *", allow)
+        self.assertIn("make lint *", allow)
+        self.assertIn("make verify *", stay)  # needs approval (a push word); never allowed
+        allow, stay = self.allow_of("mk3", {"Makefile": "verify:\n\tgit reset --hard origin/main\n"})
+        self.assertNotIn("make verify *", allow)
+        self.assertIn("make verify *: not allow-listed, Makefile:verify runs 'git reset --hard origin/main'", stay)
+
+    def test_recursive_rm_in_a_body_is_not_allowed_even_though_the_guard_allows_it(self):
+        self.assertEqual(destructive_guard.check("rm -rf build"), "")
+        allow, stay = self.allow_of("mk2", {"Makefile": "test:\n\trm -rf build\n\tpytest\ncheck: test\n"})
+        self.assertFalse({"make test *", "make check *"} & allow)  # check runs test through its dependency
+        self.assertIn("rm -rf build", stay)
+
+    def test_script_file_and_npm_body_with_destructive_lines_are_not_allowed(self):
+        allow, stay = self.allow_of("sc", {"scripts/test-a.sh": "rm -rf build\n", "scripts/test-b.sh": "echo ok\n",
+                                           "package.json": json.dumps({"scripts": {"lint": "git reset --hard && eslint ."}})})
+        self.assertEqual(allow, {"bash scripts/test-b.sh *"})
+        self.assertIn("scripts/test-a.sh", stay)
+
+    def test_dotdot_names_are_never_part_of_a_rule(self):
+        files = {f"scripts/test-{n}.sh": "echo ok\n" for n in "abcd"}
+        files["scripts/test..x.sh"] = "echo ok\n"
+        allow, _ = self.allow_of("dd", files)
+        self.assertEqual(allow, {"bash scripts/test*"})
+        self.assertFalse([a for a in allow if ".." in a])
+
+    def test_prefix_rule_is_not_used_when_a_sibling_was_rejected(self):
+        files = {f"scripts/test-{n}.sh": "echo ok\n" for n in "abcd"}
+        files["scripts/test-evil.sh"] = "rm -rf build\n"
+        allow, _ = self.allow_of("sib", files)
+        self.assertEqual(allow, {f"bash scripts/test-{n}.sh *" for n in "abcd"})
+
+    def test_output_says_an_allow_rule_trusts_the_repos_content(self):
+        repo = make_repo(self.tmp / "trust", NODE, None)
+        self.assertIn("trusts the repo's content", sp.advise(repo, self.home, "darwin"))
+
     def test_outside_writes(self):
         files = {"package.json": json.dumps({"scripts": {"build": "tsc && cp dist/a.js ~/.cache/acme/a.js && "
                                                                    "echo k > ~/.ssh/key && cp x ../other/x"}})}
