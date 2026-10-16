@@ -16,6 +16,7 @@
 # Base-red guard: when BROWSER_CMD fails, BASELINE_FAILS is unset and RERUN_CMD is set, each failing id is re-run alone at BASE_SHA
 # (train_flake.sh --base: FLAKE_REAL_AT (default FLAKE_RUNS) of FLAKE_RUNS failures, each printing `FAIL <id>` so a test absent on the base is NOT excused); those are pre-existing ("BASE RED: <n> pre-existing: ids") and never block, only new failures do.
 # A FLAKE-only red lands only when every flaked id also fails >= 1 of FLAKE_RUNS solo runs on the base; one that passes N of N there is CANT (exit 3).
+# FLAKE_LEDGER_DIR=<dir> (flake_ledger.py): an id on its active quarantine list that re-runs as a flake is reported `quarantined-flake`, does not block, and skips the base check.
 # Flake triage (see train_flake.sh; BROWSER_CMD must print `FAIL <id>` per failure and `FAILURES <n>`): RERUN_CMD (TEST=<id>), BASELINE_FAILS (ids failing on the base); LOCK_TIMEOUT_MIN (30), PUSH_WAIT_SECS (600).
 # Exit: 0 landed, 1 base/browser red or lock held, 2 usage/refused, 3 no GREEN union or CANT (nothing landed; CANT = a real browser failure
 # not attributed: not re-failing alone, pre-existing on the base, or not pinned to a culprit PR; flaky-only bisects print FLAKY, never blame).
@@ -35,6 +36,14 @@ HERE=$(cd "$(dirname "$0")" && pwd) GH=${GH:-$(dirname "$0")/gh_rest.py}
 . "$HERE/_clean_union.sh"
 . "$HERE/_dirty_guard.sh"
 echo "train_land: this lands to $BASE_BRANCH: if the host classifier denies the merge, stop and park for the owner; do not retry or route around." >&2
+# Flake ledger (FLAKE_LEDGER_DIR, flake_ledger.py): refuse a dir the code under test can write (under this worktree or git toplevel), read the quarantine
+# list ONCE NOW (before VERIFY_CMD/BROWSER_CMD/RERUN_CMD run PR code) into an unexported shell variable (never a file), and keep the path out of the
+# environment of everything but train_flake.sh, which gets the list on stdin. Same-uid code can still read the path by other means: see flake_ledger.py (KNOWN CEILING).
+led=${FLAKE_LEDGER_DIR:-}; unset FLAKE_LEDGER_DIR FLAKE_QUARANTINE_JSON _flq
+if [ -n "$led" ]; then
+  python3 "$HERE/flake_ledger.py" --dir "$led" guard >&2 || exit 2
+  _flq=$(cat "$led/quarantine.json" 2>/dev/null) || _flq=
+fi
 require_clean_tree . || exit 2
 # .perun/policy.json: PERUN_JOBS (parallelism from local_cpu) and PERUN_GITHUB_ACTIONS reach VERIFY_CMD and
 # BROWSER_CMD. github_actions=off: this script never waits on or re-runs CI (it has no CI wait at all), and
@@ -121,17 +130,21 @@ if :; then  # base-red guard: an id (not already in BASELINE_FAILS) that also fa
     grep -vxFf "$LOG.pre" "$LOG.fails" >"$LOG.new" || true; mv "$LOG.new" "$LOG.fails"
   fi
 fi
-renew; t=0; RERUN_CMD=$RERUN_CMD FLAKE_INVOCATION=${FLAKE_INVOCATION:-$BROWSER_CMD} bash "$HERE/train_flake.sh" "$LOG.fails" "$LOG.baseline" >"$LOG.flake" || t=$?
+renew; t=0; printf '%s' "${_flq:-}" | FLAKE_LEDGER_DIR=$led FLAKE_QUARANTINE_STDIN=1 RERUN_CMD=$RERUN_CMD FLAKE_INVOCATION=${FLAKE_INVOCATION:-$BROWSER_CMD} bash "$HERE/train_flake.sh" "$LOG.fails" "$LOG.baseline" >"$LOG.flake" || t=$?
 git checkout -q --detach "$REMOTE/$BASE_BRANCH"  # isolated re-runs above ran at the union; bisect below starts from the base
 cat "$LOG.flake"
 # Landable only when at least one NEW failure was listed and every new one re-ran and classified FLAKE: a red run with no
 # attributable new failure (empty list, baseline-only, crash before any FAIL line) never lands.
 newn=$(grep -vxFf "$LOG.baseline" "$LOG.fails" 2>/dev/null | grep -c . || true)
 flk=$(grep -c '^FLAKE ' "$LOG.flake" || true)
+# quarantined-flake (FLAKE_LEDGER_DIR, see train_flake.sh): an actively quarantined id that re-ran alone as a flake; it counts toward newn like a
+# FLAKE but is exempt from the base check below. Expired entries and consistent failures never get this label (they stay FLAKE or REAL).
+qf=$(grep -c '^quarantined-flake ' "$LOG.flake" || true)
+[ "$qf" -eq 0 ] || echo "quarantined-flake: $qf non-blocking: $(sed -nE 's/^quarantined-flake (.*) \(failed [0-9]+ of [0-9]+ alone\)$/\1/p' "$LOG.flake" | paste -sd' ' -)" >&2
 # The runner must also print "FAILURES <n>" (its own count): missing, or more than the listed FAIL lines = an unlisted crash.
 listed=$(( $(grep -c . "$LOG.fails" || true) + pre )); rn=$(sed -nE 's/^FAILURES +([0-9]+) *$/\1/p' "$LOG.browser" | tail -1)
 if [ "$t" -eq 0 ] && [ -n "$rn" ] && [ "$rn" -le "$listed" ]; then
-  if [ "$newn" -ge 1 ] && [ "$flk" -eq "$newn" ]; then
+  if [ "$newn" -ge 1 ] && [ "$((flk + qf))" -eq "$newn" ]; then
     # A FLAKE lands only if the test is also flaky on the base (fails >= 1 of FLAKE_RUNS there): an intermittent regression
     # also passes a solo re-run now and then, and would otherwise land. Passing N of N on the base = CANT: park, no blame, no land.
     renew; git checkout -q --detach "$B"
@@ -140,7 +153,9 @@ if [ "$t" -eq 0 ] && [ -n "$rn" ] && [ "$rn" -le "$listed" ]; then
       [ "$br" -ne 125 ] || { git checkout -q --detach "$REMOTE/$BASE_BRANCH"; echo "fresh store or FLAKE_SETUP_CMD failed re-running $id on the base; nothing landed" >&2; exit 1; }
       [ "$br" -eq 0 ] || { git checkout -q --detach "$REMOTE/$BASE_BRANCH"; echo "CANT: flake $id never fails on the base, so it may be an intermittent regression; no PR blamed, nothing landed" >&2; exit 3; }
     done < <(sed -nE 's/^FLAKE (.*) \(failed [0-9]+ of [0-9]+ alone\)$/\1/p' "$LOG.flake")
-    echo "browser failures were flakes only, each also flaky on the base; landing" >&2; break
+    [ "$qf" -eq 0 ] || echo "$qf quarantined (base not checked)" >&2
+    [ "$flk" -eq 0 ] || echo "browser failures were flakes only, each also flaky on the base; landing" >&2
+    [ "$flk" -gt 0 ] || echo "browser failures were quarantined flakes only; landing" >&2; break
   fi
   if [ "$newn" -eq 0 ] && [ "$pre" -ge 1 ]; then echo "browser failures all pre-existing on the base; landing" >&2; break; fi
 fi
