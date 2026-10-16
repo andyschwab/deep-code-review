@@ -21,7 +21,7 @@ before it starts work. The suite covers:
 **Not a developer?** Read [Perun for leaders](docs/for-leaders.md): what it gives
 your team, a pilot plan, limits and an FAQ.
 
-**Choosing a bundle?** See [Perun vs other skill bundles](docs/perun-vs-rivals.md): measured ties, losses and token overhead.
+**Choosing a bundle?** See [Perun vs other skill bundles](docs/perun-vs-rivals.md): measured ties, losses and token overhead. Rivals and gaps per capability: [capability matrix](docs/capability-matrix.md).
 
 ## Why it matters
 
