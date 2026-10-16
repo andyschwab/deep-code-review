@@ -173,7 +173,7 @@ Bench: a 6-PR fixture (two independent greens, two PRs that conflict on one file
 | Regression that is clean on the base, landed as a "flake" at a 2/3 per-run failure rate | 0 of 300, against 73 of 300 under the old rule | Stubbed solo re-runs; 0 is by construction when the test never fails on the base. Cost: a genuinely flaky test that is also flaky on the base still lands 210 of 300 (70%) |
 | Per-tree verdict cache | Saved 0 test runs on this fixture: no cache hit in any of the 4 logs (10, 10, 11 and 10 test runs) | No tree was rebuilt identically in this fixture, so this says nothing about workloads that verify the same tree twice. The unit test does show a hit on a rebuilt union |
 
-Reproduce the flake and regression numbers with `bash scripts/test-train-flake-rate.sh` (16 passed, 0 failed; log in `docs/bench/merge-train-1584/flake-rate.log`).
+Reproduce the flake and regression numbers with `bash scripts/test-train-flake-rate.sh` (16 passed, 0 failed; log in `docs/bench/merge-train-1584/flake-rate.txt`).
 
 ## 1. Review quality (measured, 2026-10-14)
 
