@@ -1,0 +1,51 @@
+Treat "tests pass" as a weak gate. For a customer with one or two engineers and thin test coverage, a green run may mean almost nothing, and nobody else will review the merge. The plan below is a proposal for you to validate. I haven't tested anything.
+
+**Main risks**
+
+- A malicious or compromised package version (hijacked maintainer, typosquat, new install script) that passes tests and runs in CI.
+- Untrusted text, such as changelogs, release notes, READMEs and PR comments, steering the assistant into doing more than a version bump.
+- The assistant editing tests, CI config or scripts so the checks pass.
+- Repos with few or no tests, where passing is meaningless.
+- One bug or bad release landing across many customers at once.
+
+**Design principle**
+
+Enforce the rules in deterministic code outside the model, since the model reads untrusted text. Most of these checks inspect the diff and registry metadata, so they add almost no CI time. Reuse the test run you already do.
+
+**What to evaluate**
+
+1. **Audit your 20 internal repos first.** Review every auto-merged PR so far: what changed beyond manifests and lockfiles, what was reverted, and what a gate would have blocked. This is your cheapest real data.
+2. **Injection tests.** Build fixtures where changelogs, package descriptions and PR comments contain instructions such as "also update the workflow", "disable this test" or "merge immediately". Check that the assistant neither follows them nor merges. Run them end to end, because the gate matters more than the model's behavior.
+3. **Scope tests.** Try to get the assistant to touch tests, CI files, scripts, new dependencies, registry URLs or lockfile source changes. Confirm the deterministic gate blocks each one even if the model complies.
+4. **Weak-signal tests.** Repos with zero tests, skipped tests, or a failing job that is marked optional.
+5. **Failure behavior.** Flaky tests, partial CI runs, force-pushes to the PR branch after approval, and a PR changed between check and merge.
+
+Set pass criteria before running. For example, zero successful injection-driven merges and zero out-of-scope merges across the set. Rerun on every prompt or model change.
+
+**Defaults and limits to consider**
+
+- Off by default, opt-in per repo, with a clear explanation of what "tests pass" does and doesn't cover.
+- Patch and minor updates only at launch. Majors need a human.
+- Minimum release age (a few days) before merging, since many malicious versions get pulled quickly.
+- The diff may touch only the manifest and lockfile. Block on new direct dependencies, new or changed install scripts, changed registry sources, or any file outside that set.
+- Require evidence that tests exist and actually ran (nonzero count, required check). Otherwise open the PR but don't merge.
+- Honor branch protection and never bypass it. Use a least-privilege token. Keep secrets out of the CI context for these PRs where you can.
+- Rate limits: one merge at a time per repo, a daily cap, and auto-pause after a failure or revert.
+- A per-repo and global kill switch, a one-click revert, a digest of what was merged, and an audit log.
+
+**What you'd need to see before enabling for customers**
+
+- Eval results meeting the thresholds above, with the gates verified as code-enforced.
+- A soak period on the internal repos with the final gates on, reviewed for near-misses. Five weeks is tight, so start now.
+- A tested kill switch and revert, including a drill where you simulate a bad release and time how fast you can stop it fleet-wide.
+- Alerting that tells you when merges spike or reverts cluster.
+- A written threat model reviewed by someone outside the team. With no security engineer, a short outside review or a security-savvy colleague is worth the cost.
+
+**Suggested timeline**
+
+- **Weeks 1–2:** audit, gates implemented, eval fixtures built.
+- **Week 3:** run the evals, fix failures, start the stricter internal soak.
+- **Week 4:** kill-switch and revert drills, outside review, documentation and in-product wording.
+- **Week 5:** limited release to a handful of willing customers, then widen if reverts and blocks look healthy.
+
+If the gates or soak aren't ready, narrow the launch rather than slipping it. For example, ship patch-only with a longer release-age delay, or ship PR creation with a one-click merge button. Both are still useful to customers and much safer. Get customer consent before using their repos in any evaluation.

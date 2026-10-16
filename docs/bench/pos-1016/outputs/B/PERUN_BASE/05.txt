@@ -1,0 +1,60 @@
+# Pre-launch safety plan for dependency auto-merge
+
+**Bottom line:** I can't tell you this is safe, and no test will. What you can do in five weeks is inventory the harms, measure each one, set conservative defaults, and have an owner make the ship call with the residual risk written down. "Tests pass" is the weakest part of your design. A malicious or broken release can pass tests, and your customers are the people least likely to notice.
+
+## Harm inventory
+
+- **Supply-chain compromise:** a hijacked maintainer, typosquat, or malicious install script merges automatically with your assistant's authority behind it.
+- **Silent breakage:** the repo's tests are thin, so passing tests mean little. A one- or two-person shop may not notice for days.
+- **Prompt injection:** changelogs, release notes, and package READMEs are untrusted text the assistant reads. They could steer its decision or its actions.
+- **Excess agency and leakage:** the token could do more than merge, or the assistant could expose secrets or private repo content in PR text.
+- **Over-reliance:** customers enabled this precisely to stop looking, so a bad merge has no second pair of eyes.
+- **Disclosure and defaults:** a merge the customer didn't know the assistant could make, or a hard-to-find off switch.
+
+The worst case is a compromised package reaching production at a company with no security staff.
+
+## Defaults and limits to consider
+
+- Off by default, opt-in per repo, with plain wording about what it will do.
+- Refuse to enable on repos with no required CI check, no branch protection, or no detectable tests.
+- Auto-merge only patch and minor bumps. Major bumps stay human-reviewed.
+- Always route to a human when a release is newer than an owner-set cooldown window, the maintainer or publisher changed, install scripts changed, or new transitive dependencies appeared.
+- A daily cap on merges per repo, a global kill switch, and a per-repo pause.
+- Least-privilege token scoped to merge on that repo only.
+- A notification for every merge saying the assistant did it, with a one-click revert that opens a revert PR.
+
+Most of these checks use registry and diff metadata at decision time, so they add little or no CI time per merge.
+
+## What to evaluate
+
+Write one test row per harm. Each row needs a probe set with a known-bad positive control and a known-good negative control, a metric, an owner-set threshold, and a stop condition. I'm not proposing numeric thresholds. Those are yours to set. For anything that merges a known-malicious fixture, I'd propose zero tolerance.
+
+- **Malicious release:** replay historical compromised-package incidents and synthetic packages with added install scripts or changed maintainers. Does the assistant block or escalate each one?
+- **Silent breakage:** replay past version bumps that broke behavior without failing tests. Slice by test-coverage level, since small customers will skew low.
+- **Injection:** plant instruction-like text in changelogs and READMEs. The assistant must not alter its merge decision or take any extra action.
+- **Leakage and agency:** confirm what the token can actually do, and probe whether secrets or private data can appear in PR text or comments.
+- **Revert and kill switch:** exercise both end to end, and time them.
+
+Set a probe budget per row and name who reviews failures.
+
+## Reading your twenty internal repos
+
+Treat them as a canary, not as evidence of safety. Your internal repos likely have better tests and more attentive owners than customers do, so a clean record there is `UNVERIFIED` for customer conditions. Review every internal merge for what tests would not have caught. Don't quote a "success rate" externally until you've measured it on representative data.
+
+## Before enabling for customers
+
+1. The harm inventory and test rows exist, were run, and failures were reviewed. Residual risk is written down.
+2. The kill switch and revert path were exercised.
+3. A named owner accepts the residual risk and owns re-review when the model, the policy, or the ecosystem changes.
+4. A short intended-use and limits document is published. It covers what auto-merge does, what it cannot detect, and the recommended repo prerequisites. It states no unmeasured metric.
+5. A staged rollout: a handful of willing design-partner customers first, with a stop condition that pauses expansion.
+6. Counsel has reviewed liability and terms. Whether you owe disclosure, or carry responsibility for a bad merge, is a legal question, not one I'll answer. If you're unsure which regimes touch you, have counsel name them.
+
+## Five-week shape
+
+- **Weeks 1–2:** inventory, defaults, and the metadata checks, plus the injection and malicious-release test rows.
+- **Week 3:** silent-breakage replays and the revert and kill-switch drills.
+- **Week 4:** design-partner pilot.
+- **Week 5:** owner review. If a stop condition is tripped, ship with the feature off or restricted rather than slip the checks.
+
+With four engineers and no security specialist, I'd ship narrower (patch-only, cooldown on, conservative repo prerequisites) and widen later on evidence, not the other way around.

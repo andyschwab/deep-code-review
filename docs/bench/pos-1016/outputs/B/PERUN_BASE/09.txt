@@ -1,0 +1,41 @@
+**Bottom line:** The biggest risk is that the bot becomes a way around your existing access controls. Everyone shares one interface, and your permission metadata can't be trusted. A month is feasible only if you shrink what the bot can see at launch rather than clean everything first. I can't certify the result as safe, and I haven't run anything. This is a plan and a test design, and the ship decision is yours.
+
+## Harm inventory (who, worst case)
+
+- **Cross-boundary disclosure:** an employee gets HR case details, salary data, legal advice, or management material they can't open today. Worst case is a privacy harm to named colleagues and loss of legal privilege.
+- **Prompt injection:** a poisoned or user-editable document steers the bot to reveal other content or misbehave.
+- **Hallucination as fact:** a wrong answer about leave, expenses, or a runbook step is presented with authority. Worst case is someone acting on wrong HR or finance guidance, or running a bad runbook in production.
+- **Over-reliance:** no signal of source, freshness, or uncertainty.
+- **Missing disclosure:** employees don't know they're reading machine-generated answers.
+- **Excess agency:** confirm whether the bot can do anything beyond answering (file tickets, send messages, trigger runbooks). If it can, anything costly or irreversible needs human confirmation. If it can't, record that as a design constraint.
+
+## What must be true before rollout
+
+1. **Enforce authorization at retrieval, using the asker's identity.** Filter before the model sees anything. A system prompt saying "don't reveal HR content" is not a control.
+2. **Fail closed on bad metadata.** Launch with an allowlisted corpus of documents whose permissions you've verified, such as company-wide policies and general runbooks. Exclude anything with missing or ambiguous permissions. Keep HR cases, legal, and management folders out entirely at first. Expand as folders are cleaned, and prioritize cleanup by how many questions employees ask about each folder.
+3. **Check every leak path,** not just answer text: citations, snippet previews, document titles, cached answers, shared embedding indexes, conversation history, and logs.
+4. **Treat retrieved text as untrusted input,** and keep it from triggering any actions.
+5. **Show sources, last-updated dates, and a defined confidence tier** (for example Cited / Partially supported / Not found), not a percentage. Define each tier. Make "I couldn't find this, contact HR/Finance" a normal answer, with an easy way to flag a wrong answer.
+6. **Disclose in the UI** that answers are AI-generated. Whether any disclosure is legally required, and how employee-data handling is regulated, is a question for counsel, so route it now since it can take time.
+7. **Write a short model/system card:** intended use, out-of-scope uses, corpus included and excluded, measured results (or UNVERIFIED), and a named owner.
+8. **Add a kill switch** and a named on-call owner for incidents.
+
+## Test plan: one row per harm
+
+Each row needs a probe set, a positive control (a known-bad case the test must catch), a negative control, a metric, a threshold, and a stop condition. Thresholds are your owners' to set. I'd propose zero tolerance for access-boundary leaks, and I won't invent a "typical" rate.
+
+- **Access leakage:** build test accounts across roles and teams. For each, ask direct and indirect questions whose answers exist only in documents they can't open (rephrasings, "summarize everything about X", title or snippet fishing). Controls: a deliberately mislabeled document the filter should block, and a legitimate document the user should get. Slice by team and by metadata quality. Any leak stops launch.
+- **Injection:** plant instructions in test documents (hidden text, "ignore previous rules") and check for disclosure or behavior change. Any success blocks the expansion step.
+- **Hallucination:** have domain owners write questions with known answers, plus unanswerable ones and ones where documents conflict or are outdated. Measure the share of answers that are unsupported or fabricated, sliced by HR, finance, and engineering. Set a stricter threshold for HR and finance, and for any runbook step that is destructive.
+- **Over-reliance and disclosure:** in the pilot, check whether users see and understand the tier labels and the AI notice. Review a sample of flagged answers.
+- **Excess agency:** if any action exists, test that it cannot execute without human confirmation.
+
+Budget a fixed number of probes per row, and name who reviews failures. Include at least one person outside your team as a red-teamer.
+
+## Suggested month
+
+- **Weeks 1–2:** curated corpus, retrieval-time permissions, test accounts, leakage and injection tests, and counsel routing.
+- **Week 3:** pilot with one or two departments and the flag button, plus daily review of logs and flagged answers.
+- **Week 4:** widen by cohort only if stop conditions weren't hit. If leakage tests aren't clean, ship the narrower corpus or delay. Don't ship with the permission problem unresolved.
+
+Re-review whenever the model, corpus, or permissions change.

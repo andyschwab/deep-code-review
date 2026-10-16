@@ -1,0 +1,50 @@
+# Pre-launch safety review plan: Acme Wellness routine and meal-plan generator
+
+**Bottom line:** I can't tell you the feature is safe, and neither can anything your team runs. This plan produces a harm inventory, measured results and a residual-risk report, and the ship decision is your owner's. The biggest gap is that you generate diet and exercise plans for people with conditions you never ask about, with no clinician on staff. I'd narrow the launch before anything else.
+
+## Harm inventory (worst realistic case)
+
+- **Unsafe content for at-risk members:** exercise intensity for cardiac or pregnant users, or carbohydrate and meal-timing guidance for diabetics on medication (hypoglycemia), delivered as confident advice.
+- **Eating-disorder harm:** restrictive plans, calorie or weight-loss framing, or compensatory exercise for someone with a history of disordered eating.
+- **Hallucination as fact:** invented nutrition claims, or "safe for you" statements the evidence can't support.
+- **Over-reliance:** no stated limits, no easy override, and no sign that a plan is machine-generated.
+- **Bias:** body-size, age, sex or cultural assumptions in plans.
+- **Deceptive patterns:** pushing a plan past a safety prompt.
+- **Data and agency:** health details leaking across users, prompt injection through free-text fields, and the generator acting beyond "suggest."
+
+## Decisions to make in week 1
+
+1. **Narrow the launch.** The riskiest shipped behavior is serving a standard plan to someone in a high-risk group. I'd add a short screening step covering the conditions you named, plus an "I'm not sure / prefer not to say" option. A flagged user does not get a generated plan. They get general guidance and a prompt to talk to their clinician. Whether you can ask about health status at all is a legal question, so start it now (see Routing).
+2. **Gate in code, not in the prompt.** Limits and refusal rules live in the service the model calls, so the model can't talk its way past them. They are probed with fixture accounts, never real members. Decide who owns the rule list.
+3. **Pick a tiered confidence display.** Don't show raw percentages. Use defined coarse tiers, with a written definition for each.
+
+## Test plan: one row per harm
+
+Each row needs a probe set, a positive control (a known-bad case that must be caught), a negative control (a known-good case that must pass), a metric, an owner-set threshold, and a stop condition. Slice results by condition, age, sex and body size.
+
+- **Flagged-condition routing:** profiles for each named condition, including edge cases like gestational diabetes, "history of" phrasing and evasive answers. The metric is the share of flagged profiles that still receive a standard plan. Propose zero tolerance, and any failure blocks launch.
+- **ED-sensitive content:** adversarial profiles asking for fast weight loss, very low intake or extra cardio. The stop condition is any restrictive output reaching a flagged or ambiguous profile.
+- **Hallucination and claims:** check nutrition and medical claims against a source list your team assembles. Treat any "safe for you" wording as a failure.
+- **Bias:** compare plan intensity and framing across demographic slices.
+- **Injection, leakage and excess agency:** hostile text in free-text fields, probes for other users' data, and attempts to make the system do more than suggest.
+
+Zero failures in n probes only bounds the true rate at roughly 3/n at 95% confidence, so size n to your tolerance. Repeat runs, because outputs vary. Dogfooding colleagues are not representative, and any ground truth built from internal opinion is biased. Nobody has measured rates yet, so every rate is `UNVERIFIED` until you run these.
+
+## Who to talk to
+
+- **A clinician, as a consultant rather than a hire.** Options include a registered dietitian, an eating-disorder specialist, an OB or cardiology advisor, or a university or nonprofit reviewer, paid per review. Their hours are the scarce resource, so spend them on the flagged-condition rules and the ED row, not on every output. If you can't get one, say so in the residual-risk report and narrow the launch further.
+- **Counsel.** Raise these questions: Does collecting health status trigger health-data privacy rules? Is a diet or exercise recommendation a health claim or a regulated advisory? Does any AI-disclosure rule apply? What rules govern minors? Also ask about consumer-protection and advertising rules, and about the EU AI Act if you have EU members. Bring your data flows and your user-research findings. Counsel decides what applies and when, not me.
+
+## Schedule (roughly 2026-10-16 to 11-27)
+
+- **Weeks 1–2:** harm inventory, screening design, legal questions to counsel, clinician outreach, rule list written.
+- **Weeks 2–3:** build gates and eval sets, with the flagged-routing and ED rows first.
+- **Weeks 3–4:** run evals, fix failures, clinician review of rules and sample outputs.
+- **Weeks 4–5:** shadow mode (outputs logged, not shown), then a small staged rollout with a kill switch.
+- **Week 6:** model card (intended use, out-of-scope uses, subgroup results, limits, owner), residual-risk report, go/no-go.
+
+**If time runs short, ship narrower:** workout-only, or generic guidance without meal plans, behind the screening gate. Don't compress the flagged-condition and ED rows.
+
+## Before shipping
+
+Name an owner for each harm, a monitoring owner after launch, and the trigger for re-review (model, prompt or data change). Ship a plain "AI-generated, not medical advice" disclosure as a control, while counsel decides whether it's legally required.

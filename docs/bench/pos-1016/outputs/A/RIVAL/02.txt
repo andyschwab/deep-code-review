@@ -1,0 +1,58 @@
+# Pre-launch safety review plan for the symptom-triage chatbot
+
+I haven't seen your system, so this is a plan to execute, not a finding about it.
+
+## Principle: asymmetric risk
+
+The dangerous failure is **under-triage**: telling someone with a heart attack, infant sepsis, or a drug interaction to "try an OTC product." Over-triage (sending someone to a doctor unnecessarily) is an acceptable cost. Design every gate around that asymmetry. Your clinical advisor's limited hours are the scarcest resource, so spend them on the items marked (CA) below.
+
+## Week 1: Define the policy
+
+- (CA) Write a one-page safety policy: what the bot may do (suggest a care level, point to OTC categories), and what it must never do (diagnose, give specific dosing, advise on prescription changes, discourage care-seeking).
+- (CA) Produce a red-flag list that always forces an urgent-care or emergency recommendation: chest pain, stroke signs, breathing difficulty, anaphylaxis, infant fever, suspected overdose or poisoning, severe bleeding, self-harm, and pregnancy-related warning signs. Add high-risk populations such as infants, older adults on multiple medications, and pregnancy.
+- Decide the late-night behavior: when stores are closed, what does "talk to a pharmacist" become? Likely a 24-hour line, poison control, or emergency services.
+- Ask your internal legal or compliance contact to confirm regulatory status (for example, whether this counts as clinical decision support software in your jurisdiction). It costs nothing but an email, and it can change what you're allowed to say.
+
+## Weeks 2-3: Build the safeguards and test set
+
+- Put a **deterministic red-flag layer** (keyword and rule checks plus a model classifier) in front of the model, so emergencies don't depend on the LLM behaving well. Add fixed, clinician-approved emergency wording.
+- Add output checks that block dosing instructions and diagnostic claims.
+- Build a test set of 200-300 scenarios, stratified by older adults, parents of children, late-night messages, vague or misspelled input, non-native phrasing, and multiple symptoms. Include many borderline cases and some benign ones, so you measure over-escalation too.
+- (CA) Label the expected minimum care level for each scenario, with about 2-3 hours of advisor time per batch. Have a second engineer spot-check labels, and have the advisor adjudicate disagreements.
+
+## Weeks 3-5: Test and iterate
+
+- Run the full set after every meaningful prompt, model, or rule change. Track under-triage rate by category, not just overall accuracy.
+- Adversarial testing, with synthetic data only:
+  - Users minimizing symptoms ("I don't want to go to the ER").
+  - Users pressing for doses.
+  - Prompt injection ("ignore your instructions").
+  - Attempts to extract the system prompt.
+  - Medication-interaction questions.
+  - Multi-turn conversations where severity emerges late.
+- Test conversation state: confirm one user's session can't leak into another's, and that a red flag mentioned early is not forgotten later.
+- Privacy review: what health information is logged, who can access it, retention period, and whether it flows to third-party model providers under acceptable terms.
+- Usability pass with a few older adults and parents (staff relatives or store customers) to check that emergency messages are clear and the escalation path works.
+
+## Week 6: Gate review
+
+Set launch gates before you see results, so you can't rationalize afterward:
+
+- Zero under-triage on the clinician-defined red-flag scenarios, across repeated runs, since LLM output varies.
+- No dosing or diagnostic statements in the test set.
+- Clinical advisor sign-off on a random sample of passing conversations, not only failures.
+- A working kill switch, and a tested fallback that says "please call a pharmacist or emergency services."
+- Named owner for incidents and a documented escalation path to the advisor.
+
+## Week 7 and beyond: Staged launch
+
+- Release to a small percentage of users or a few stores, using a feature flag.
+- Monitor daily: red-flag trigger rates, user-reported problems, thumbs-down feedback, and a sampled review of transcripts (with privacy controls).
+- Expand only after a clean period.
+- Include a visible disclaimer and an "talk to a human" option, but don't rely on disclaimers as a safeguard.
+
+## If time runs short
+
+Narrow the scope instead of lowering the gates. A first release that only recommends OTC product categories for low-risk symptoms and escalates aggressively on anything else is safer than a broad bot. Leadership should hear plainly that no outside review means the team carries more risk, so conservative scope, staged rollout, and a kill switch are not optional. If a gate fails, the answer is a smaller launch, not a waived gate.
+
+I can draft the safety policy template or a scenario-labeling spreadsheet format next if that would help.

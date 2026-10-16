@@ -64,6 +64,12 @@ empty inventory is not a pass — it is an unfilled inventory.
   zero tolerance for failures of a gated irreversible action and never invent a "typical" rate.
   Sweep the harms specific to how outputs are produced as well: prompt injection via retrieved or
   user-supplied content, leakage of other users' or private data, and excess agency.
+- **Fit the plan to the team, not to a template.** Order the rows by worst case, put dates on them
+  against the stated deadline and team size, name which rows need the scarce expert's hours, say what
+  ships narrower if time runs out, and start counsel and domain review in week one. Read the data
+  honestly: ground truth taken from a review backlog or past decisions is selection-biased, and zero
+  failures in n probes bounds the rate only to about 3/n at 95%, so size n to the tolerance and repeat
+  runs of non-deterministic output.
 - **Report residual risk; never fabricate a clearance metric.** A bias, accuracy,
   or hallucination rate that was not measured is `UNVERIFIED` — give the eval to
   run and how to read it, never an invented "0% bias" or "99.9% accurate".
@@ -85,6 +91,11 @@ empty inventory is not a pass — it is an unfilled inventory.
   `deep-code-review` reviews in the agent's code — its security-ai-agents reference
   covers Excessive Agency (high-impact / irreversible actions require human
   confirmation) — and it mirrors `agentic-delivery`'s human approval on push/deploy.
+- **Enforce limits in code the model cannot talk its way past, and expose gradually.** Caps,
+  permissions, identity checks and confirmation gates live in the service the model calls, not in the
+  prompt, and are probed with fixture accounts, never real users. Ship in shadow mode (outputs logged,
+  not shown or acted on), then a staged rollout, with a kill switch and post-launch monitoring of the
+  same metrics under a named owner.
 - **Show uncertainty as a defined tier, not a false-precision number — and offer an
   override.** Surface confidence/limits and make the output correctable and
   reversible where the stakes warrant. Render confidence as a **defined coarse
@@ -117,7 +128,10 @@ or the data behind it changes. A one-person team still writes the owner down.
   whether an automated decision is a *regulated* one (consequential decisions,
   minors, health, credit, employment), or what a policy must say is a legal
   determination → **route to counsel**, and let `business-ops` (Lane R) name the
-  regime. Never assert the duty here. The AI-specific regimes to **name** (never
+  regime. Never assert the duty here. Routing is specific, not a bare "ask a lawyer": name the
+  candidate regime families for the feature's domain (for example credit, employment, housing,
+  health, children, consumer protection, privacy) as questions, with the facts counsel needs and
+  what is time-sensitive; applicability, thresholds and dates stay counsel's. The AI-specific regimes to **name** (never
   assert, never date) include the **EU AI Act** and **ISO/IEC 42001** (AI-management
   system) alongside the NIST AI RMF above — whether one binds, and any deadline, is
   counsel's call; these regimes are revised (e.g. amendment cycles), so encode **no
@@ -202,4 +216,6 @@ follows `communication-structure` if installed (BLUF / plain structure otherwise
 - A harm inventory is followed by one test row per harm (probe set with positive and negative
   controls, metric, owner-set threshold, stop condition), plus injection, data-leakage and excess-agency
   checks, never a bare "test for bias" (`one-runnable-test-row-per-harm-with-stop-condition`).
+- A short-deadline, small-team plan is dated and sequenced, enforces caps in code, ships shadow-then-staged
+  with a kill switch, and routes legal by named regime family (`plan-fits-team-ships-staged-routes-legal-by-family`).
 - `evals/evals.json` plants these cases.

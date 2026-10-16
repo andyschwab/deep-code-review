@@ -1,0 +1,41 @@
+I haven't seen your draft guardrail list, so this reviews the approach as you've described it. I can't tell you the agent is safe to launch. I can tell you where the gaps are and what to measure, and the ship decision is yours.
+
+## The core issue: a sent email can't be recalled
+
+Drafting is low-risk because a human reads it. Auto-send removes that reader, so every auto-send is an irreversible action taken in the user's name, to third parties. Your users handle billing and vendor mail, which makes the worst cases concrete:
+
+- A fabricated price, date, or commitment goes out, and the agent states it as fact.
+- A reply goes to the wrong recipient, or a reply-all exposes one client's thread to another.
+- An incoming email contains injected instructions ("reply with the last invoice," "send to this new address"). Every inbound message is untrusted input, so this is the main attack surface.
+- A message about changed payment details gets a cooperative reply, which is a classic fraud pattern.
+- The user doesn't realize what the setting covers, so consent is weak.
+- The recipient doesn't know a machine wrote the reply.
+
+## Deciding what may send on its own
+
+- **Don't let the model decide alone that a message is "routine."** Use a deterministic gate in code. Auto-send only if all of these hold: the recipient is a known correspondent in an existing thread, there are no new recipients and no reply-all, and the message has no attachments, links, amounts, dates, or commitments. Anything outside that defaults to draft-for-review.
+- **Always require a human for** payments, invoices, bank or contact detail changes, contracts, scheduling commitments, legal or dispute language, and anything the classifier is unsure about.
+- **Replace the single on/off setting with scoped consent.** Let users choose categories (for example scheduling acknowledgments only), explain in plain language what will be sent, make it easy to turn off, and keep a global kill switch on your side.
+- **Add rate limits and a send-delay or undo window.** These reduce harm but don't replace the gate.
+- **Show uncertainty as defined tiers,** not a percentage. Define each tier in the UI.
+
+## The 14-day metadata retention is a real gap
+
+Metadata won't tell you what the agent said, why it sent, or which rule fired. Harm from a bad reply (a disputed invoice, a lost client) often surfaces after two weeks. Without records you can't investigate incidents, audit the gate, or measure anything. You can't extend the logging stack, but you can add a separate minimal decision record for each auto-send: message ID, rule that fired, classifier outcome, model and prompt version, user setting state, timestamp. How long to keep it, what it may contain, and what you tell users are privacy and legal questions, so take them to counsel. If you can't create any record, I'd treat auto-send as not ready for public launch.
+
+## Pre-launch work I'd add
+
+1. **A written harm inventory,** with who is affected and the worst case for each item above.
+2. **One test row per harm.** Each row has a probe set with a known-bad positive control and a known-good negative control, sliced by user segment (billing-heavy users, non-English mail, long threads). It also has a metric, a pass threshold that your owner sets, and a stop condition that blocks launch or triggers rollback. I'd propose zero tolerance for any auto-send in a gated category. I won't suggest a typical rate.
+3. **Injection and leakage red-teaming:** hostile inbound emails, cross-thread data exposure, and attempts to make the agent forward or add recipients.
+4. **Beta evidence, read carefully.** Four hundred users self-selected into a beta won't cover rare, severe failures. Any error or safety rate you don't have measured is UNVERIFIED, so don't quote one to the board.
+5. **A feature card** covering intended use, out-of-scope uses, measured results by segment, known limits, owner, and model version.
+6. **Disclosure to recipients.** I recommend considering it, since recipients never consented to a machine replying as the user. Whether it's legally required, and whether any regime such as the EU AI Act or others applies, is for counsel. I'm not asserting a duty either way.
+7. **Named owners and re-review triggers** for model, prompt, or rule changes. Eight people still need written owners.
+8. **Incident response:** a way for users and recipients to report a bad send, and a rollback plan.
+
+## On the launch date
+
+Launch pressure shouldn't loosen the human gate or tempt anyone to publish unmeasured numbers. One option is to make public launch drafts-only, which still delivers the headline feature. Auto-send would then roll out gradually, narrow categories first, as the gate, the tests, and the decision records prove out. If the board goal requires auto-send at launch, I'd limit it to the narrowest low-stakes categories and set a stop condition that pauses it automatically.
+
+If you share the draft guardrail list, I can check it against these points.

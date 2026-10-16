@@ -1,0 +1,5 @@
+### Changed
+- product-output-safety: plans are now fitted to the stated deadline and team (ordered by worst case, dated, expert hours named, counsel review started in week one), limits are enforced in the service rather than the prompt, exposure is gradual (shadow mode, staged rollout, kill switch, post-launch monitoring), data caveats are stated (selection-biased ground truth, zero failures in n probes bounds the rate to about 3/n), and legal routing names candidate regime families and what to bring to counsel without asserting applicability, thresholds or dates. One new eval, `plan-fits-team-ships-staged-routes-legal-by-family`.
+- `docs/perun-vs-rivals.md` H1b: preregistered re-test on two fresh held-out sets against the promptfoo red-team setup skill. The rubric judge gave 1.000, a rubric-free judge gave 0.150 (before the edit, set A) and 0.400 [0.200, 0.650] (after, fresh set B), so product-output-safety is still not shown superior. Spend $6.22; assets in `docs/bench/pos-1016/`.
+
+size-budget-raise: .claude/skills/product-output-safety/SKILL.md 13405→14933 fit-to-team, staged exposure, regime-family routing
