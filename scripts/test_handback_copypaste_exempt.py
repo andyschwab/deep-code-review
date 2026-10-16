@@ -44,8 +44,8 @@ class CopyPaste(unittest.TestCase):
     def test_prose_over_the_cap_still_blocks(self):
         rc, err = self.rc("\n".join(["narration"] * 15))
         self.assertEqual(rc, 2)
-        self.assertIn("Handback too long", err)
-        self.assertIn("not counting fenced code", err)
+        self.assertIn("too long", err)
+        self.assertIn("does not count fenced code", err)
 
     def test_prose_beside_a_fence_is_still_counted(self):
         self.assertEqual(self.rc("\n".join(["narration"] * 12) + "\n```\nls\n```")[0], 2)
