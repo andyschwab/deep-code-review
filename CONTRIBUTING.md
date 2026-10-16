@@ -36,6 +36,9 @@ Parallel lanes must not bump the version: each one claims "main + 1" and all but
   for an unlanded PR (`scripts/regen-unlanded.sh`; the size ratchet still compares the rebuilt rows to
   main), and the land commit carries them and is checked byte-for-byte. Register a new test by adding
   `scripts/ci-tests.d/<slug>.sh` (one command line), not a line in `ci.yml`.
+  `bash scripts/ci-gates.sh fragments --config scripts/size-budgets.tsv changelog.d` checks the fragment's marker
+  lines and headings (the pre-commit and pre-push hooks, land and CI run it), so a malformed fragment fails your
+  commit instead of the release.
 - **Land:** on the branch, run `bash scripts/land-release.sh`. Under a lock it merges `origin/main`
   (generated-file conflicts are regenerated, anything else aborts), stamps the next minor across the
   lockstep set, folds the fragments into `CHANGELOG.md`, regenerates, and commits. Push and merge as
