@@ -29,7 +29,7 @@ Kiro, or similar).
 
 ```bash
 git clone --depth 1 https://github.com/protocol/perun.git
-cd deep-code-review && shasum -a 256 -c SHA256SUMS   # Linux: sha256sum -c SHA256SUMS
+cd perun && shasum -a 256 -c SHA256SUMS   # Linux: sha256sum -c SHA256SUMS
 ./install.sh --recommend /path/to/your/project       # optional: see a suggested pack, writes nothing
 ./install.sh /path/to/your/project                   # review only (the default)
 ```

@@ -159,7 +159,7 @@ Or install with the script:
    and `.agents` folders ([`install.sh`](install.sh)):
 
    ```bash
-   deep-code-review/install.sh /path/to/your/project
+   perun/install.sh /path/to/your/project
    ```
 
 3. **Ask your agent to review a real file you care about.** Type
@@ -170,7 +170,7 @@ Or install with the script:
    below); it confirms Perun is installed and working:
 
    ```bash
-   python3 deep-code-review/scripts/perun_doctor.py /path/to/your/project
+   python3 perun/scripts/perun_doctor.py /path/to/your/project
    ```
 
 What step 2 prints (shortened; your version and paths will differ). The last
@@ -180,7 +180,7 @@ line names the check in step 4:
 installed: deep-code-review 1.535.0 (@ 84acfb19) -> your-project/.claude/skills/deep-code-review
 safety: Claude Code: OS sandbox is off by default; set sandbox.enabled=true (or run /sandbox) and keep allowUnsandboxedCommands=false. https://code.claude.com/docs/en/sandboxing
 Perun installed 1 skill(s) into 3 tool folder(s) of your-project.
-Next, run this one command to confirm it works: python3 deep-code-review/scripts/perun_doctor.py your-project
+Next, run this one command to confirm it works: python3 perun/scripts/perun_doctor.py your-project
 ```
 
 The "safety" line is the sandbox setting to switch on for that agent. The "3

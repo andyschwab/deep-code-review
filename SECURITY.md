@@ -14,7 +14,7 @@ Verified path:
 ```bash
 git clone --branch vX.Y.Z --depth 1 \
   https://github.com/protocol/perun.git
-cd deep-code-review
+cd perun
 # optional: sha256sum -c SHA256SUMS
 ./install.sh /path/to/your/project
 ```
