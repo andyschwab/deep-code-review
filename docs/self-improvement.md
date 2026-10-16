@@ -37,7 +37,7 @@ because the two kinds of axis fail differently:
   script rather than in `evals.json`, the layer can change or be removed without
   touching skill content or bumping a version.
 - **Soft axes — LLM-judge, decorrelated.** Whether a *behavioral* lens actually
-  changes model behavior needs a model to judge it — the other ~60 evals' behavioral
+  changes model behavior needs a model to judge it — the remaining evals' behavioral
   expectations are specification today, not executed. **Planned:** issue #61, the
   live eval runner (the "next slice of the eval-harness work" named in
   `scripts/eval_predicates.py`). When it is built it must use a cheap, decorrelated
