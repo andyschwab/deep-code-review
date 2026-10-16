@@ -314,10 +314,12 @@ cmd_version() {
   # The plugin manifest must carry the same version (land-release.sh stamps it); the marketplace entry
   # must carry none, because plugin.json silently wins when both are set.
   local pj="$root/.claude-plugin/plugin.json" mj="$root/.claude-plugin/marketplace.json"
-  if [ -f "$pj" ]; then
-    [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$pj" 2>/dev/null)" = "$ver" ] \
-      || die "version: .claude-plugin/plugin.json version does not equal $ver"
-  fi
+  local hm
+  for hm in "$pj" "$root/.codex-plugin/plugin.json" "$root/gemini-extension.json"; do
+    [ -f "$hm" ] || continue
+    [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$hm" 2>/dev/null)" = "$ver" ] \
+      || die "version: ${hm#"$root"/} version does not equal $ver"
+  done
   if [ -f "$mj" ] && grep -q '"version"' "$mj"; then
     die "version: marketplace.json must not set a version (plugin.json is the single source)"
   fi

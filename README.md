@@ -131,6 +131,12 @@ skill into any AI chat instead: [getting started](docs/getting-started.md).
 
 The plugin installs every skill, while `install.sh` below defaults to review-only.
 
+Other hosts, one native command each:
+
+- **Codex:** `codex plugin marketplace add remigiusz-antczak/deep-code-review`, then `codex plugin add deep-code-review@perun` (smoke-tested against a local checkout).
+- **Gemini CLI:** `gemini extensions install https://github.com/remigiusz-antczak/deep-code-review` (loads `AGENTS.md` as context only; not smoke-tested, the CLI is not installed here).
+- **GitHub Copilot CLI:** `copilot plugin marketplace add remigiusz-antczak/deep-code-review`; Copilot also reads the shipped `.claude-plugin/marketplace.json` (not smoke-tested).
+
 Or install with the script:
 
 1. **Download Perun:**

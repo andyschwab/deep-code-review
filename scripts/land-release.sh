@@ -8,7 +8,7 @@
 # Land mode (no flag), run on the lane branch at merge time, serialized by a lock under the git common
 # dir (shared by every worktree): merges origin/main (generated-file conflicts are resolved by
 # regenerating; any other conflict aborts), takes the next minor version from main's VERSION, stamps the
-# lockstep set (3 VERSION files, 3 SKILL.md metadata.version, plugin.json), folds every fragment into
+# lockstep set (3 VERSION files, 3 SKILL.md metadata.version, the Claude and Codex plugin.json, gemini-extension.json), folds every fragment into
 # CHANGELOG.md under a new heading, deletes the fragments, regenerates, and makes one commit. Push/merge
 # is the caller's. A lane that lands second just re-runs this: no rebump by hand, no force-push.
 #
@@ -119,7 +119,9 @@ for s in $SKILLS; do
   echo "$ver" >"$d/VERSION"
   sed -E "s/^(  version: \")[0-9.]+(\")/\1$ver\2/" "$d/SKILL.md" >"$d/SKILL.md.new" && mv "$d/SKILL.md.new" "$d/SKILL.md"
 done
-sed -E "s/^(  \"version\": \")[0-9.]+(\")/\1$ver\2/" .claude-plugin/plugin.json >p.new && mv p.new .claude-plugin/plugin.json
+for m in .claude-plugin/plugin.json .codex-plugin/plugin.json gemini-extension.json; do   # host manifests, one version
+  sed -E "s/^(  \"version\": \")[0-9.]+(\")/\1$ver\2/" "$m" >p.new && mv p.new "$m"
+done
 
 { printf '## [%s] — %s\n\n' "$ver" "${RELEASE_DATE:-$(date +%F)}"
   for f in "${frags[@]}"; do cat "$f"; echo; done
@@ -128,6 +130,6 @@ awk 'NR==FNR{r=r $0 "\n"; next} !d && /^## /{printf "%s", r; d=1} {print}' relea
 mv CHANGELOG.new CHANGELOG.md; rm release.new
 git rm -q "${frags[@]}"
 regen
-git add -A CHANGELOG.md .claude-plugin .claude/skills SHA256SUMS scripts/size-budgets.tsv
+git add -A CHANGELOG.md .claude-plugin .codex-plugin gemini-extension.json .claude/skills SHA256SUMS scripts/size-budgets.tsv
 git commit -q -m "release: $ver (stamped at land time)"
 echo "land-release: $ver"
