@@ -48,6 +48,29 @@ class LegacyMarkerTests(unittest.TestCase):
     def test_version_is_read_from_frontmatter_not_body(self):
         self.assertEqual(au.legacy_marker(legacy_install(self.tmp)), {"version": "1.2.0", "remote": str(self.remote)})
 
+    def test_unclosed_frontmatter_is_not_scanned_for_version(self):
+        proj = legacy_install(self.tmp, '---\nname: deep-code-review\n# body, no closing fence\nversion: "1.2.0"\n')
+        self.assertIsNone(au.legacy_marker(proj))
+        self.assertEqual(au.run(proj), 0)
+        self.assertFalse((proj / ".claude/ran").exists())
+        self.assertIn("skip: no readable install marker", self.log())
+
+    def test_foreign_cache_clone_origin_is_a_skip(self):
+        other = fake_remote(self.tmp / "other")
+        src = au.cache() / "src"
+        subprocess.run(["git", "clone", "-q", "--no-checkout", str(other), str(src)], check=True, capture_output=True)
+        proj = legacy_install(self.tmp)
+        self.assertEqual(au.run(proj), 0)
+        self.assertFalse((proj / ".claude/ran").exists())
+        self.assertIn("is not the canonical remote", self.log())
+
+    def test_canonical_cache_clone_origin_updates(self):
+        src = au.cache() / "src"
+        subprocess.run(["git", "clone", "-q", "--no-checkout", str(self.remote), str(src)], check=True, capture_output=True)
+        proj = legacy_install(self.tmp)
+        self.assertEqual(au.run(proj), 0)
+        self.assertEqual((proj / ".claude/ran").read_text().strip(), "1 v1.10.0")
+
     def test_legacy_already_newest_is_up_to_date(self):
         proj = legacy_install(self.tmp, FRONT.replace("1.2.0", "1.10.0"))
         self.assertEqual(au.run(proj), 0)
