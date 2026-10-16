@@ -18,12 +18,18 @@ that the committed-version WARN compares against (a base missing on origin skips
 (`off` skips it; a value the user already set is never overridden either way). `release_every` takes an integer >= 1 (default 1): `land-release.sh publish` releases only when the minor is a multiple of it.
 `role` takes `off|ceo|ceo-strict` (default `off`; `ceo strict` is read as `ceo-strict`): whether ceo_altitude_guard.py warns (`ceo`) or
 blocks (`ceo-strict`) when the MAIN session hand-edits source or tests; a subagent is never touched. Env `PERUN_ROLE` overrides it for one process.
+`ci` takes `local-first|cloud|auto` (default `auto`): where the gates run. `local-first`: agents run every gate locally before the push
+(the cached pre-push gate), push each PR once, and never push, re-run or poll to see whether hosted CI passes; hosted CI stays a
+cheap required backstop. `cloud`: hosted CI is the gate. `auto`: local-first when `github_actions` is `off`, else the verdict of
+deep-code-review's `ci_cost_advisor.py --decide` (a public repo, or one inside the free minutes: cloud; a private one using at least
+half its included minutes: local-first), and cloud when that script is missing or fails.
 
   perun_policy.py get <dim>      print the value (a number prints as a number)
   perun_policy.py show           print the whole effective policy as JSON
   perun_policy.py set <dim> <value>  validate, write `.perun/policy.json` (created if absent), print the policy
   perun_policy.py check <dim> <value>  validate one pair, write nothing
   perun_policy.py skip-ci        print `[skip ci]` when github_actions is off, else nothing
+  perun_policy.py ci             print the effective CI mode, `local-first` or `cloud` (reason on stderr; see resolve_ci())
   perun_policy.py lanes          parallel-lane count from local_cpu (see lanes())
   perun_policy.py heavy-slots    heavy-command concurrency = max(2, free cores) (see heavy_slots())
   perun_policy.py heavy-acquire [--kind light]  take a machine-wide heavy lease (exit 0 + prints pid) or exit 1 when full;
@@ -48,6 +54,7 @@ MODES = ("efficient", "maximize", "off")
 SHARE = ("auto", "ask", "off")
 ON_OFF = ("on", "off")
 REVIEW = ("warn", "enforce", "off")
+CI = ("local-first", "cloud", "auto")
 ROLES = ("off", "ceo", "ceo-strict")
 
 
@@ -85,7 +92,7 @@ def load(path: Path | None = None) -> dict:
 
 def validate(raw: dict) -> dict:
     """Defaults overlaid with `raw`; ValueError on an unknown key or a bad value."""
-    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on", "auto_update_pr": "on", "auto_update_pr_base": "", "review_gate": "warn", "release_every": 1, "auto_compact": "on", "role": "off"}
+    pol: dict = {d: "efficient" for d in DIMS} | {"share_learnings": "ask", "auto_update": "on", "auto_update_pr": "on", "auto_update_pr_base": "", "review_gate": "warn", "release_every": 1, "auto_compact": "on", "role": "off", "ci": "auto"}
     for k, v in raw.items():
         if k == "share_learnings":
             ok = v in SHARE
@@ -94,6 +101,8 @@ def validate(raw: dict) -> dict:
             ok = v in ROLES
         elif k == "review_gate":
             ok = v in REVIEW
+        elif k == "ci":
+            ok = v in CI
         elif k == "release_every":  # publish a GitHub release every Nth minor version (land-release.sh publish)
             ok = isinstance(v, int) and not isinstance(v, bool) and v >= 1
         elif k == "auto_update_pr_base":  # '' = origin/HEAD; else a plain branch name (no option-like or `..` names)
@@ -135,6 +144,24 @@ def set_value(dim: str, value: str) -> dict:
         raise
     os.replace(tmp, path)
     return pol
+
+
+def resolve_ci(pol: dict, advisor: Path | None = None) -> tuple[str, str]:
+    """(mode, reason): the effective CI mode, `local-first` or `cloud`. An explicit `ci` wins. `auto` is local-first when
+    `github_actions` is off (`$PERUN_GITHUB_ACTIONS` overrides, as in skip-ci), else the verdict of the sibling skill's
+    `ci_cost_advisor.py --decide` run in the cwd (`advisor` overrides the path); cloud, the status quo, when that script is
+    absent, fails or takes over 30s. Side effects: that run may send one HEAD request to github.com (cached 24h)."""
+    if pol["ci"] != "auto":
+        return pol["ci"], f"policy ci={pol['ci']}"
+    if os.environ.get("PERUN_GITHUB_ACTIONS", pol["github_actions"]) == "off":
+        return "local-first", "auto: github_actions=off"
+    adv = advisor or Path(__file__).resolve().parents[2] / "deep-code-review" / "scripts" / "ci_cost_advisor.py"
+    try:
+        r = subprocess.run([sys.executable, str(adv), "--decide"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return "cloud", "auto: ci_cost_advisor.py unavailable"
+    out = r.stdout.strip()
+    return (out, "auto: " + r.stderr.strip()) if r.returncode == 0 and out in ("local-first", "cloud") else ("cloud", "auto: ci_cost_advisor.py failed")
 
 
 def token_cap(n: int, tokens) -> int:
@@ -363,6 +390,11 @@ def main(argv: list) -> int:
             return 0
         if argv == ["skip-ci"]:
             print("[skip ci]" if os.environ.get("PERUN_GITHUB_ACTIONS", pol["github_actions"]) == "off" else "")
+            return 0
+        if argv == ["ci"]:
+            mode, why = resolve_ci(pol)
+            print(mode)
+            print(f"perun_policy: ci={mode} ({why})", file=sys.stderr)
             return 0
         if argv == ["lanes"]:
             import host_probe  # lazy: host_probe imports this module

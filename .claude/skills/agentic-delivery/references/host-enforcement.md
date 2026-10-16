@@ -277,7 +277,9 @@ local run already showed. "Every gate" is the quick tier; the full suite runs
 once, at the blocking gate, and a second full local run pays only above the
 break-even red rate `pipeline_profile.py profile` prints
 (`pipeline-optimizer.md`). Mechanisms, not just prose: `ci_cost_lint.py`
-(`deep-code-review/scripts/`) flags a rerun-prone workflow; `token_report.py
+(`deep-code-review/scripts/`) flags a rerun-prone workflow and `ci_cost_advisor.py`
+prices it (a public repo on standard runners is free) and prints a local-first patch
+(policy `ci: local-first|cloud|auto`); `token_report.py
 --budget` (`agentic-ceo/scripts/`) catches a poll/re-push loop's spend;
 `merge_train.py refresh` (`merge-operations.md`) defaults to printing local
 merge-and-push commands per PR, never `gh pr update-branch`, unless
