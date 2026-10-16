@@ -24,7 +24,10 @@ with "To run autonomously, add:" holding ONLY what those settings do not already
 Excluded commands get no allow rule: they prompt on each run, because Claude can edit an excluded script and run it
 outside the sandbox. Every allow rule is checked against destructive_guard.py (a sample call, `*` replaced by an
 argument): one the guard blocks is dropped and reported, so nothing advised for allowing is something the guard
-blocks. `analyze()` returns the data and `advise()` the text; perun_doctor.py and install.sh print it.
+blocks. FAIL CLOSED on repo-editable units: a make target, npm script or shell script gets an allow rule only when its
+whole body (with its make dependencies and npm pre/post scripts) resolves to known-safe leaf commands (the test
+runner, linter or typechecker binary itself); anything else (make/npm/pnpm/yarn/bun calls, sh/bash/node/python of a
+repo file, `cd`, `$`, `;`, a pipe, a continuation, an inline recipe) is listed as needs-approval. `analyze()` returns the data and `advise()` the text; perun_doctor.py and install.sh print it.
 
 Precision over recall: a tool counts only at a command position (line start, after `&&` `;` `|` `$(` `then`, after
 sudo/env/npx/yarn, or as the first element of a subprocess/exec call in a .py/.js/.ts script), never inside a path,
@@ -35,7 +38,6 @@ Codex docs listed in docs/standards-index.md (fetched 2026-10-16). `/sandbox exc
 Code's own sandbox error text but is not on the docs pages checked, so the advice leads with the documented key.
 """
 import argparse
-import functools
 import json
 import os
 import re
@@ -53,7 +55,13 @@ BUILD = re.compile(r"^(build|compile|bundle)(?![a-z0-9])", re.I)
 # a release/publish/deploy/push word in a unit's NAME or in any line of its BODY (including the units it runs)
 # makes it needs-approval, never allow-listed: `ci:publish`, `check-deploy`, a gate script that runs `npm publish`
 SHIP = re.compile(r"(?<![a-z0-9])(?:publish|deploy|release|push|ship|upload)(?![a-z0-9])|^(?:version|tag)(?![a-z0-9])", re.I)
-RMR = re.compile(r"\brm\s+(?:-\S+\s+)*-\w*[rR]")  # any recursive rm in a body: destructive_guard allows `rm -rf build`, an allow rule must not
+# FAIL CLOSED: an allow rule is advised for a repo-editable unit (make target, npm script, shell script) only when its
+# whole body resolves to known-safe leaf commands: the test runner, linter or typechecker binary itself with plain
+# arguments (one `&&` between leaves is fine). No make/npm/pnpm/yarn/bun call, no sh/bash/node/python of a repo file,
+# no cd, `$`, `;`, pipe, redirect, quote or continuation: those are needs-approval, however harmless they look.
+LEAF = re.compile(r"(?:[A-Z][A-Z0-9_]*=[\w./:-]+\s+)*(?:pytest|python3?\s+-m\s+(?:pytest|unittest|mypy)|ruff\s+(?:check|format\s+--check)|"
+                  r"mypy|flake8|black\s+--check|eslint|tsc|vitest|jest|prettier\s+--check|biome\s+(?:check|lint|ci)|"
+                  r"go\s+(?:test|vet)|cargo\s+(?:test|clippy|check|fmt\s+--check)|rspec|phpunit|shellcheck)(?:\s+[\w./:=,@+*-]+)*")
 HOOKS = {"pre-commit": "git commit *", "commit-msg": "git commit *", "prepare-commit-msg": "git commit *",
          "pre-push": "git push *"}
 INTERP = {".sh": "bash", ".bash": "bash", ".py": "python3", ".js": "node", ".mjs": "node", ".cjs": "node", ".ts": None}
@@ -112,8 +120,8 @@ STAY = (
     "Writes outside the repo: the sandbox allows only the working directory and $TMPDIR; allowWrite above names only "
     "literal paths the scripts write. Nothing else is widened, and other repos are never granted.",
     "An allow rule on a make target, npm script or script file trusts the repo's content: Claude can edit that file and run "
-    "it under the rule. Each body line (and the units it runs) was checked against destructive_guard.py, a recursive rm "
-    "and release words today; read the files before you apply the rules.",
+    "it under the rule. Rules are advised only where the whole body resolved to known-safe test, lint or typecheck "
+    "commands today; read the files before you apply them.",
     "Commands in excludedCommands run outside the sandbox with your full access and prompt on each run (no allow rule "
     "is advised); Claude can edit an excluded script in the repo and run it, so read it before you approve.",
     "gh pr create, gh pr merge, gh api, gh release: not allow-listed (gh runs unsandboxed with your credentials); they prompt.",
@@ -219,9 +227,11 @@ def _units(repo):
             ents = [f"{pm} run {name} *"] + ([f"{pm} {name} *"] if name in ("test", "start") and pm != "bun" else [])
             us.append(_unit(f"package.json scripts.{name}", "npm", name, ents, [cmd],
                             re.compile(CMD + rf"(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?{re.escape(name)}(?![\w:.-])"), key=name))
+    mk_open = bool(re.search(r"^-?include\b", _text(repo / "Makefile") + _text(repo / "GNUmakefile") + _text(repo / "makefile"), re.M))
     for t, (deps, recipe) in _makefile(repo).items():
         us.append(_unit(f"Makefile:{t}", "make", t, [f"make {t} *"], recipe,
                         re.compile(CMD + rf"(?:make|\$[({{]MAKE[)}}])\s+(?:-\S+\s+)*{re.escape(t)}(?![\w.-])"), deps=deps, key=t))
+        us[-1].open = mk_open  # an include can redefine any recipe: nothing in this Makefile is resolved
     hooks_path = _git(repo, "config", "core.hooksPath").strip()
     hook_dirs = {".githooks", ".husky", ".git/hooks"} | ({hooks_path} if SAFE.fullmatch(hooks_path)
                                                          and not hooks_path.startswith("/") and ".." not in hooks_path else set())
@@ -281,15 +291,22 @@ def _body(u, edges):
     return out
 
 
-@functools.lru_cache(maxsize=None)
-def _body_bad(line):
-    """True when destructive_guard blocks this body line, or it is a recursive rm (the guard allows `rm -rf build`);
-    a guard error counts as bad (skip, don't guess). The allow rule matches the typed command only, so the repo
-    file the command runs is judged line by line here."""
-    try:
-        return bool(destructive_guard.check(line)) or bool(RMR.search(line))
-    except Exception:  # noqa: BLE001
-        return True
+def _leaf(line):
+    """A body line made only of known-safe leaf commands (see LEAF), joined by `&&` at most, with no `..`."""
+    return ".." not in line and all(LEAF.fullmatch(p.strip()) for p in line.split("&&"))
+
+
+def _safe(u, by, seen=()):
+    """Is the unit's WHOLE body resolved to known-safe leaves? Make dependencies and npm pre/post scripts must resolve
+    to safe units too; a script written in code (py/js/ts), an open Makefile (include) or an unknown dependency
+    (including an inline `target: ; cmd` recipe, whose text lands in the dependency list) is not safe."""
+    if id(u) in seen or getattr(u, "open", False) or u.code or u.kind == "hook" or not all(_leaf(ln) for ln in u.lines):
+        return False
+    if u.kind == "npm" and not u.lines:
+        return False
+    kids = ([by.get(("make", d)) for d in u.deps] if u.kind == "make"
+            else [by[("npm", p)] for p in (f"pre{u.name}", f"post{u.name}") if ("npm", p) in by])
+    return all(k is not None and _safe(k, by, seen + (id(u),)) for k in kids)
 
 
 def _list(x):
@@ -376,7 +393,8 @@ def analyze(repo, home=None, platform=None):
     edges = _edges(us)
     _spread(us, edges)
     eff, remote = _effective(repo, home), _remote(repo)
-    allow, exclude, writes, domains = set(), set(), set(), set()
+    by = {(u.kind, u.name): u for u in us if u.kind in ("npm", "make")}
+    allow, exclude, writes, domains, unresolved = set(), set(), set(), set(), set()
     why, stay, ship, binding = [], [], set(), False  # why: (entries it explains or (), text)
 
     for u in us:
@@ -397,11 +415,10 @@ def analyze(repo, home=None, platform=None):
         if u.entries and u.kind != "hook" and (SHIP.search(base) or any(SHIP.search(ln) for ln in body)):
             ship |= set(u.entries)
         elif u.entries and not bad and (GATE.match(base) or BUILD.match(base)):
-            ln = next((x for x in body if _body_bad(x)), None)
-            if ln:
-                stay.append(f"{u.entries[0]}: not allow-listed, {u.label} runs {_clean(ln[:90])!r}, which is destructive")
-            else:
+            if _safe(u, by):
                 allow |= set(u.entries)
+            else:
+                unresolved |= set(u.entries)
         for path, origin in sorted(u.writes):
             if path.startswith("../"):
                 stay.append(f"{origin} writes {path}: another directory or repo; never granted")
@@ -453,6 +470,10 @@ def analyze(repo, home=None, platform=None):
     if binding and not mac:
         why.append(((), "local port: Linux/WSL2 needs no setting for a server and client inside one command; a command "
                         "that must reach a server started outside the sandbox has to be excluded"))
+    if unresolved:
+        stay.append("needs approval, not allow-listed (the body is not fully resolved to known-safe test, lint or typecheck "
+                    "commands: it calls make/npm/a shell, node or python file, or uses `;`, `$`, a pipe or a continuation): "
+                    + ", ".join(sorted(unresolved)))
     if ship:
         stay.append("release or deploy commands found here need your approval and are not allow-listed: " + ", ".join(sorted(ship)))
 

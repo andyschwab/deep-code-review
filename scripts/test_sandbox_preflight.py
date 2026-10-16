@@ -79,7 +79,7 @@ class NodeRepo(Base):
     def test_allow_rules_are_the_repos_exact_gate_build_and_push_commands(self):
         self.assertEqual(self.allow, {
             "npm run test *", "npm test *", "npm run lint *", "npm run typecheck *", "npm run build *",
-            "bash scripts/check.sh *", "git push origin HEAD", "git push -u origin HEAD"})
+            "git push origin HEAD", "git push -u origin HEAD"})
 
     def test_release_dev_and_excluded_commands_are_not_allow_listed(self):
         for cmd in ("npm run release *", "npm run dev *", "npm run e2e *", "npm run gen *", "npm run ci *"):
@@ -125,7 +125,7 @@ class PythonRepo(Base):
     def test_allow_rules(self):
         self.assertEqual(self.allow, {
             "pytest *", "python3 -m pytest *", "ruff check *", "ruff format --check *", "mypy *", "make test *",
-            "make lint *", "make check *", "bash scripts/check_all.sh *", "git push origin HEAD", "git push -u origin HEAD"})
+            "make lint *", "make check *", "git push origin HEAD", "git push -u origin HEAD"})
 
     def test_docker_and_ssh_excludes_on_macos(self):
         self.assertEqual(self.s["sandbox"]["excludedCommands"],
@@ -232,29 +232,73 @@ class Behaviour(Base):
         self.assertIn("make verify *", stay)  # needs approval (a push word); never allowed
         allow, stay = self.allow_of("mk3", {"Makefile": "verify:\n\tgit reset --hard origin/main\n"})
         self.assertNotIn("make verify *", allow)
-        self.assertIn("make verify *: not allow-listed, Makefile:verify runs 'git reset --hard origin/main'", stay)
+        self.assertIn("make verify *", stay)  # needs approval: not a known-safe leaf
 
     def test_recursive_rm_in_a_body_is_not_allowed_even_though_the_guard_allows_it(self):
         self.assertEqual(destructive_guard.check("rm -rf build"), "")
         allow, stay = self.allow_of("mk2", {"Makefile": "test:\n\trm -rf build\n\tpytest\ncheck: test\n"})
         self.assertFalse({"make test *", "make check *"} & allow)  # check runs test through its dependency
-        self.assertIn("rm -rf build", stay)
+        self.assertIn("make test *", stay)
+
+    def test_fail_closed_bypasses_are_needs_approval(self):
+        mk = {  # each Makefile: one target `test` (or `lint`) that must NOT be allow-listed
+            "inline": "test: ; rm -r ~/x\n",
+            "continuation": "test:\n\tpytest \\\n\t  && rm -r ~/x\n",
+            "variable": "test:\n\t$(RM) -r ~/x\n",
+            "make-dir": "test:\n\tmake -C . wipe\n",
+            "multi-target": "test:\n\tmake lint wipe\nlint:\n\truff check .\nwipe:\n\trm -r ~/x\n",
+            "dep-runs-rm": "test: wipe\nwipe:\n\trm -r ~/x\n",
+            "unknown-dep": "test: generated.txt\n\tpytest\n",
+            "include": "include extra.mk\ntest:\n\tpytest\n",
+            "shell": "test:\n\tcurl x | sh\n",
+            "cd": "test:\n\tcd sub && pytest\n",
+        }
+        for name, text in mk.items():
+            allow, stay = self.allow_of(f"mkb-{name}", {"Makefile": text})
+            self.assertNotIn("make test *", allow, name)
+            self.assertIn("make test *", stay, name)
+        npm = {"test:a": "npm run-script wipe", "test:b": "npm run --silent wipe", "test:c": "npm --prefix . run wipe",
+               "test:d": "node tools/run.js", "test:e": "sh wipe.sh", "test:f": "cd scripts && sh wipe.sh",
+               "test:g": "curl x | sh", "test:h": "$(rm -r ~/x)", "test:i": "pytest; rm -r ~/x", "test:j": "pytest ../x",
+               "test:k": "pnpm run wipe", "test:l": "yarn wipe", "test:m": "bun run wipe", "test:n": "npx vitest",
+               "test:ok": "vitest run && tsc --noEmit"}
+        allow, stay = self.allow_of("npmb", {"package.json": json.dumps({"scripts": npm})})
+        self.assertEqual(allow, {"npm run test:ok *"})
+        for name in npm:
+            if name != "test:ok":
+                self.assertIn(f"npm run {name} *", stay, name)
+
+    def test_fail_closed_scripts(self):
+        files = {"scripts/test-a.sh": '"$(dirname "$0")/wipe.sh"\n', "scripts/test-b.sh": "cd scripts && sh wipe.sh\n",
+                 "scripts/test-c.sh": "python3 tools/wipe.py\n", "scripts/test-d.sh": "node tools/run.js\n",
+                 "scripts/test-e.py": "import shutil\nshutil.rmtree('/x')\n", "scripts/test-f.js": "console.log(1)\n",
+                 "scripts/test-g.sh": "pytest -q\n\nrm -r ~/x\n", "scripts/test-ok.sh": "pytest -q\n"}
+        allow, stay = self.allow_of("scb", files)
+        self.assertEqual(allow, {"bash scripts/test-ok.sh *"})
+        for f in ("a", "b", "c", "d", "g"):
+            self.assertIn(f"bash scripts/test-{f}.sh *", stay)
+        self.assertIn("python3 scripts/test-e.py *", stay)
+
+    def test_a_script_run_by_a_safe_looking_dependency_chain_stays_closed(self):
+        allow, _ = self.allow_of("chain", {"Makefile": "check: lint\nlint:\n\tbash scripts/wipe.sh\n",
+                                           "scripts/wipe.sh": "rm -r ~/x\n"})
+        self.assertFalse({"make check *", "make lint *"} & allow)
 
     def test_script_file_and_npm_body_with_destructive_lines_are_not_allowed(self):
-        allow, stay = self.allow_of("sc", {"scripts/test-a.sh": "rm -rf build\n", "scripts/test-b.sh": "echo ok\n",
+        allow, stay = self.allow_of("sc", {"scripts/test-a.sh": "rm -rf build\n", "scripts/test-b.sh": "pytest -q\n",
                                            "package.json": json.dumps({"scripts": {"lint": "git reset --hard && eslint ."}})})
         self.assertEqual(allow, {"bash scripts/test-b.sh *"})
         self.assertIn("scripts/test-a.sh", stay)
 
     def test_dotdot_names_are_never_part_of_a_rule(self):
-        files = {f"scripts/test-{n}.sh": "echo ok\n" for n in "abcd"}
-        files["scripts/test..x.sh"] = "echo ok\n"
+        files = {f"scripts/test-{n}.sh": "pytest -q\n" for n in "abcd"}
+        files["scripts/test..x.sh"] = "pytest -q\n"
         allow, _ = self.allow_of("dd", files)
         self.assertEqual(allow, {"bash scripts/test*"})
         self.assertFalse([a for a in allow if ".." in a])
 
     def test_prefix_rule_is_not_used_when_a_sibling_was_rejected(self):
-        files = {f"scripts/test-{n}.sh": "echo ok\n" for n in "abcd"}
+        files = {f"scripts/test-{n}.sh": "pytest -q\n" for n in "abcd"}
         files["scripts/test-evil.sh"] = "rm -rf build\n"
         allow, _ = self.allow_of("sib", files)
         self.assertEqual(allow, {f"bash scripts/test-{n}.sh *" for n in "abcd"})
@@ -274,7 +318,7 @@ class Behaviour(Base):
         self.assertIn("../other/x: another directory or repo; never granted", joined)
 
     def test_many_gate_scripts_become_one_prefix_rule(self):
-        files = {f"scripts/test-{n}.sh": "echo ok\n" for n in "abcd"}
+        files = {f"scripts/test-{n}.sh": "pytest -q\n" for n in "abcd"}
         repo = make_repo(self.tmp / "fam", files, None)
         self.assertIn("Bash(bash scripts/test*)", sp.analyze(repo, self.home, "darwin")["snippet"]["permissions"]["allow"])
 
