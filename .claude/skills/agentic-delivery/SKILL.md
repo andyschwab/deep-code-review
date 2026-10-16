@@ -38,6 +38,8 @@ chat may be terse.
 | Slow pipeline (hooks, CI, merge wait) | `references/pipeline-optimizer.md`; `scripts/pipeline_profile.py map` first |
 | Verify or relay a lane's result | `references/verification-handback.md` |
 | New machine or new fleet | `references/operating-discipline.md` first: always-on layer entry point, `install.sh --with-operating-layer` snippet, `scripts/operating_selfcheck.py` |
+| Use when you need a PR's state | `scripts/pr_state.py <n>`: head, checks, review, behind, train; exit 0 green, 1 red, 2 pending |
+| Use when committing a changelog fragment | `.githooks/pre-commit` runs `scripts/ci-gates.sh fragments`: marker and heading rules |
 
 ---
 
@@ -107,8 +109,7 @@ stronger tier): `references/fanout-host-sizing.md` **Escalate a lane**.
 **Ready-queue sweep on every trigger; review gate** — `scripts/review_gate.py`, `references/merge-queue-worktrees.md`.
 
 **Worked-lesson ledger** — seven themed files, indexed one line each in
-`references/fast-agentic-delivery.md`. Open `references/verification-handback.md`
-when verifying or relaying a lane's result; `references/dev-env-ownership.md`
+`references/fast-agentic-delivery.md`. Open `references/dev-env-ownership.md`
 when a lane serves a dev server, re-runs a generator or ratchet, or shares files
 under an ownership map; `references/unattended-trackers.md` when closing tracker
 issues or running a multi-hour work loop; `references/work-tracking.md` when a
@@ -186,7 +187,7 @@ lane's own *executor* runs at, by work type and stage, is
 type and stage** — the two lists are complementary, read both before
 dispatching a lane.
 
-**Operational readiness — incidents and continuity (bus factor = 1).** The
+**Operational readiness — incidents and continuity.** The
 binder that must exist *before* the system is on fire or the solo operator is
 gone: `references/incident-response.md` — **read it when** drafting an incident
 runbook (detect→triage→contain→eradicate→recover→review), severity levels,
@@ -195,15 +196,14 @@ dead-man reminders, or a succession note. It reuses the blameless
 `references/template-postmortem.md`; **breach notification routes to G2 + counsel, never
 asserted here**, and executing any notification or succession is the owner's.
 
-**Support & feedback operations (the compounding solo time-drain).** When the
+**Support & feedback operations.** When the
 product has users filing tickets: `references/support-ops.md` — **read it when**
 building an intake/triage taxonomy, an SLA, canned-response drafts, or the
 ticket→work-item loop. **Hard gate:** never auto-send an external reply or make
 a promise/refund/commitment — every outward reply is owner-approved, the same
 gate this skill applies to push/deploy.
 
-**Multi-session / peer coordination (independent sessions, no shared
-conductor).** Two or more agent sessions coordinating over a shared async
+**Multi-session / peer coordination.** Two or more agent sessions coordinating over a shared async
 channel instead of one orchestrator's own lanes:
 `references/multi-session-coordination.md` — **read it when** designing a
 claim/lock registry (an announcement comment is not an atomic claim: the claim is a token whose second create fails, e.g. `O_CREAT|O_EXCL`; the registry row only records the winner), a pre-write collision probe, a peer-liveness check, a
@@ -211,8 +211,7 @@ shared-board reader, pushing a house comms/review default down to spawned
 subagents, retracting your own in-flight lane, or any peer trigger in that
 file's **Routed triggers** (broadcast asks, crossed splits, merge-holds, shared budgets).
 
-**Unattended / autonomous operating mode (an overnight or multi-hour autonomous
-run).** When this skill runs as a **continuous loop over a backlog** rather than
+**Unattended / autonomous operating mode.** When this skill runs as a **continuous loop over a backlog** rather than
 one feature at a time: `references/unattended-operating-mode.md` — **read it when**
 starting or shaping an unattended / overnight autonomous run. It composes
 `deep-code-review` (review), `idea-critic` (decision), and this skill's gates
@@ -222,7 +221,7 @@ offset recurring loops runs it. A **loop, not a standing swarm**.
 
 **A work item's own completion is G7, not G8.** Once a lane's change is
 integrated (G7), the work item it closes is done; G8 Release is a separate,
-later, **owner-gated** action on a different clock, often batched across many
+later, **owner-gated** action, often batched across many
 G7s. Never park a G7-complete item as "blocked on deploy" — land it, close it,
 and name G8 as downstream and pending.
 
