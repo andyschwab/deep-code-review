@@ -3818,6 +3818,20 @@ else
   record 1 "train base-red guard: pre-existing browser failures excused, new ones block"; tail -8 "$WORK/train-red-base.log"
 fi
 
+# train flake rate: own per-feature file (scripts/test-train-flake-rate.sh), one case here.
+if bash "$ROOT/scripts/test-train-flake-rate.sh" >"$WORK/train-flake-rate.log" 2>&1; then
+  record 0 "train flake rate: all-N REAL rule, per-tree verdict cache, gate backoff, keystone TMPDIR"
+else
+  record 1 "train flake rate: all-N REAL rule, per-tree verdict cache, gate backoff, keystone TMPDIR"; tail -8 "$WORK/train-flake-rate.log"
+fi
+
+# train flake-on-base: own per-feature file (scripts/test-train-flake-base.sh), one case here.
+if bash "$ROOT/scripts/test-train-flake-base.sh" >"$WORK/train-flake-base.log" 2>&1; then
+  record 0 "train flake-on-base: a FLAKE lands only if the test also fails on the base, else CANT"
+else
+  record 1 "train flake-on-base: a FLAKE lands only if the test also fails on the base, else CANT"; tail -8 "$WORK/train-flake-base.log"
+fi
+
 # peer pains: own per-feature file (scripts/test-peer-pains-2.sh), one case here.
 if bash "$ROOT/scripts/test-peer-pains-2.sh" >"$WORK/peer-pains-2.log" 2>&1; then
   record 0 "peer pains: train CANT rule, no unchecked-as-zero status, NOT CHECKED briefs"
