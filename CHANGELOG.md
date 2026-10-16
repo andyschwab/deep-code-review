@@ -3,6 +3,14 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.581.0] — 2026-10-16
+
+### Added
+- `scripts/mutation_changed.py` runs mutation testing on the lines a diff changed, using a mutation tool the project already has (mutmut 3.x for Python, verified against 3.8.0; Stryker for JS/TS, not yet verified). It prints `SURVIVED <file>:<line>: <mutation>` for changed code that no test catches. Advisory unless `--strict`; it never installs anything and prints `COULD_NOT_CHECK` with an install hint when no tool or config is present. Mutation testing caught 17 of 20 vacuous tests in the 2026-10-15 comparison, against 5 of 20 for the static pass, so this is the strong check where it matters. Real-tool smoke run (n=3): both vacuous tests left survivors on the changed lines, and the genuine test left none.
+
+### Added
+- `scripts/vacuous_test_gate.py` gains a static pass, ADVISORY by default (`--strict` makes it fail the gate). It reads each changed Python or JS/TS test file and prints `VACUOUS <path>:<line>: <pattern>` for a test that runs but cannot fail: a test that calls nothing beyond scaffolding, a constant or tautological assert, a mock asserted after the test itself called it, an assertion swallowed by try/except, an early return before the asserts, an empty `pytest.raises` block, or `expect()` with no matcher. Stdlib only, no model cost; the run-report check still gates exactly as before. Measured honestly: on a held-out set written without sight of the detector it catches 5 of 20 vacuous tests with 0 of 20 false positives, and on the test suites of three popular open-source projects it flags 0.22 per 100 tests (all weak, none wrong). That is level with eslint-plugin-jest (5/20) and ahead of ruff (3/20) on the earlier corpus, but far behind mutation testing (17/20). Use mutation testing on changed lines when catching vacuous tests matters. Development fixtures: 15/20 with 0/20 false positives (`scripts/test_vacuous_static.py`).
+
 ## [1.580.0] — 2026-10-16
 
 ### Added
