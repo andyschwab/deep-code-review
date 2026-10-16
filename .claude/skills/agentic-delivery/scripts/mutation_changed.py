@@ -21,8 +21,11 @@ HINT = {"python": "pip install mutmut  (3.x; configure [tool.mutmut] source_path
 
 def run(cmd, cwd, timeout):
     """-> (returncode, output, timed_out). Kills the whole process group on timeout."""
-    p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         text=True, start_new_session=True)
+    try:
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, start_new_session=True)
+    except OSError:  # missing or non-executable binary (npx, a bad --mutmut path): advisory COULD_NOT_CHECK
+        return 127, "", False
     try:
         out, _ = p.communicate(timeout=max(timeout, 1))
         return p.returncode, out, False
@@ -30,8 +33,6 @@ def run(cmd, cwd, timeout):
         os.killpg(p.pid, signal.SIGKILL)
         out, _ = p.communicate()
         return -9, out or "", True
-    except FileNotFoundError:
-        return 127, "", False
 
 
 def changed_lines(diff):
@@ -184,7 +185,9 @@ def main(argv=None, cwd=None):
     if a.selftest:
         return selftest()
     cwd = cwd or "."
-    rc, diff, _ = run(["git", "diff", "--unified=0", f"{a.base}...HEAD"], cwd, 60)
+    # Pin the diff format so user config (noprefix, mnemonicPrefix, color, external diff, quoted paths) can't break parsing.
+    rc, diff, _ = run(["git", "-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff",
+                       "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", f"{a.base}...HEAD"], cwd, 60)
     if rc:
         print(f"COULD_NOT_CHECK: git diff {a.base}...HEAD failed: {diff.strip()[-200:]}")
         return 0
