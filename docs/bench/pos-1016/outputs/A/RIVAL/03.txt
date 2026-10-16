@@ -1,0 +1,37 @@
+I haven't seen your draft list, so this reviews the approach as you've described it. Please check it against your document.
+
+**Deciding what may be sent without asking**
+
+The core question is whether the decision is made by deterministic code or by the model. The model should propose; a gate outside the model should decide. Some principles:
+
+- **Use an allowlist of action classes, not a blocklist of bad topics.** Auto-send only what you've positively defined, such as scheduling confirmations, receipt acknowledgments, and "got it, will reply by Friday." Everything else goes to draft-for-approval.
+- **Treat every incoming message as attacker-controlled.** Your users receive mail from strangers by design. Hidden HTML text, quoted threads, forwarded content, and attachments can all carry instructions. The gate must not depend on the model resisting injection.
+- **Constrain the send mechanically.** Examples: reply only to the original sender, no new recipients or cc/bcc, no attachments, no links not already in the thread, and no content drawn from other threads. That last rule blocks exfiltration through a "routine" reply.
+- **Don't rely on model confidence scores** as the approval threshold. They are poorly calibrated.
+- **Exclude money by default.** Billing and vendor mail is where business email compromise lives: changed bank details, "confirming payment sent," invoice approvals. Freelancers are prime targets. Anything involving payment details, pricing, contracts, deadlines, or commitments should require approval, and the default for new categories should be off.
+- **Make the setting granular.** A single on/off switch for "send routine replies" will be interpreted very differently by different users. Per-category opt-in is safer and gives you data.
+- **Add brakes:** an undo/delay window (say 30–60 seconds), per-user daily send caps, loop detection against auto-responders, and a server-side kill switch you can flip without a client release.
+
+**The 14-day metadata limit**
+
+This is your biggest structural gap. Many email harms surface late: a fraudulent invoice reply may be noticed weeks afterward. With only metadata for 14 days, you may be unable to reconstruct what the agent saw, why it acted, or who else was affected. Options within the constraint:
+
+- Design a decision-trace record that is metadata, not content: trigger message ID, action class, gate rules fired, recipients, model/prompt version, and a content hash. Check with whoever owns the logging stack whether this fits the existing metadata category, and whether a separate audit store is a smaller change than extending retention.
+- Make the user's own mailbox the durable record: label or folder every auto-sent message, with a visible activity log in the product.
+- Plan incident response around the window. Know who watches for anomalies daily, and what you can do when a report arrives on day 20.
+- Beta evidence also expires. Decide now what you'll preserve (with user consent, or synthetic and redacted) for evaluation sets and launch decisions.
+
+**Pre-launch work that's likely missing**
+
+1. **Adversarial testing on a synthetic inbox with seeded fixtures.** Cover injection via body, hidden text, headers, attachments, and calendar invites; canary data planted in other threads to test exfiltration; lookalike-sender and payment-change scenarios; and multi-message threads. Judge results by what reached the outbox, not what the model said. Reset state between cases.
+2. **Authorization boundaries.** If users have multiple accounts or shared inboxes, confirm the agent can't act across them.
+3. **Shadow mode.** Run auto-send decisions without sending and compare to what beta users actually did. Track would-have-sent versus user edits.
+4. **Beta metrics tied to harm:** undo rate, post-send edit or retraction, recipient complaints, and false-approval rate sampled by human review.
+5. **Disclosure and compliance review:** user consent language, whether recipients should know a reply was automated, model-provider data handling, and regional privacy rules. Check with counsel.
+6. **Rollback and support readiness:** a kill switch, an abuse-report path, and a runbook for "the agent sent something bad."
+
+**On the launch goal**
+
+Four hundred beta users is small relative to the rare-event risks above. Define go/no-go criteria now, before schedule pressure builds, such as zero confirmed exfiltration or payment-fraud cases in testing and an undo rate below a stated threshold. Keep a fallback: launching publicly with draft-only replies plus auto-send for a narrow category set still meets a launch goal while the riskier classes mature.
+
+If you share the guardrail list, I can map each rule to the enforcement point (model, gate, or user) and flag the ones that currently rely on the model alone.

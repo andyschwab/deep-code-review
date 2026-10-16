@@ -1,0 +1,54 @@
+**Bottom line:** the risky action is merging a third-party code change into a customer's main branch with no human looking at it. "Tests pass" is the only check, and your customers are the teams least likely to have strong tests or a second reviewer. I'd plan for opt-in, narrow auto-merge, with a human confirmation default, and I wouldn't call anything "safe." The ship decision belongs to your owner, not to this plan.
+
+**Harms to inventory (who, worst case)**
+- A malicious or compromised package version, a typosquat, or a new install script gets merged and deployed. The customer is hit with a supply-chain compromise, and with no second engineer, nobody notices.
+- A breaking change that the tests don't cover reaches production. Weak test suites make this the likely failure.
+- Prompt injection: changelogs, release notes, or PR text from upstream packages steer the assistant.
+- Excess agency: the assistant's token can do more than merge, or merges to branches that auto-deploy.
+- Data leakage across customers (logs, prompts, caches).
+- Over-reliance: a green "merged by assistant" badge reads as "reviewed."
+- Missing disclosure: customers can't tell which commits were machine-merged.
+
+**Defaults and limits (enforced in your service, not the prompt)**
+- Off by default. Customers opt in per repository, and the first merges require a human click.
+- Start with a narrow class only: patch or minor bumps of existing dependencies. Block anything that adds a new direct or transitive dependency, adds or changes install scripts, changes the registry source, or touches CI config.
+- Require a minimum release age before a version is eligible, and require a passing CI run on the exact commit being merged.
+- Block auto-merge to branches that deploy automatically, unless the customer explicitly acknowledges that.
+- Cap merges per repository per day, and pause on any CI failure after a merge.
+- Use least-privilege tokens. Treat upstream text as untrusted data, never as instructions.
+- Each merge gets a clear AI-generated label plus a one-click revert PR.
+- Add a global kill switch, a per-customer off switch, and a record of every merge decision.
+
+**What to evaluate: one test row per harm**
+Each row needs a probe set with a known-bad positive control and a known-good negative control, a metric, an owner-set threshold, a stop condition, and a named reviewer. I'm not proposing numbers. The owner sets them, with zero tolerance for any merge that violates a blocked rule.
+1. **Policy gate bypass:** craft PRs that add dependencies, install scripts, or registry changes in disguised ways. Any merge is a launch blocker.
+2. **Injection:** plant instructions in fixture changelogs and PR bodies. Any behavior change is a blocker.
+3. **Weak-test regression:** build fixture repos with thin coverage and seeded breaking changes. Measure how often green CI hides the break, and report it as a residual risk to customers instead of hiding it.
+4. **Token scope and leakage:** use fixture accounts only, never real customers, to probe cross-tenant access and over-broad permissions.
+5. **Revert path:** confirm the revert PR works and the kill switch halts in-flight merges.
+
+Be honest about the data. Your twenty internal repos are selection-biased, since your engineers wrote the tests and review the fallout. Also, zero failures in n trials bounds the true rate only to about 3/n at 95% confidence, so 20 clean repos tell you little. Size n to the tolerance you choose. If you also replay historical customer-like PRs, don't treat past merge outcomes as ground truth.
+
+**Five-week sequence (today is Oct 16)**
+- **Week 1 (Oct 19):** write the harm inventory, assign an owner for each row, and implement the policy gate and scoped tokens in code. Send counsel the questions below now, since they're slow.
+- **Week 2 (Oct 26):** build the fixture repos and run rows 1, 2 and 4. Fix any blockers.
+- **Week 3 (Nov 2):** run rows 3 and 5. Start shadow mode on the internal repos, where the assistant logs what it would merge without merging.
+- **Week 4 (Nov 9):** review the shadow results, write the model card (intended use, out-of-scope uses, limits, measured results, owner, version), and add monitoring.
+- **Week 5 (Nov 16):** staged rollout to a few willing customers with human confirmation still on.
+
+If time runs short, ship narrower: confirmation-required only, with auto-merge deferred. Don't trim rows 1, 2 or 4.
+
+**Evidence to see before customers get auto-merge**
+- Zero bypasses on rows 1, 2 and 4, with a record of what was run.
+- Shadow-mode logs showing no would-be merges that violate the rules.
+- A working kill switch and revert, tested.
+- A model card where unmeasured items read UNVERIFIED instead of a filled-in rate.
+- An owner who monitors post-launch metrics and a named person who can pull the switch.
+
+**Route to counsel (don't assume answers)**
+- Liability and warranty terms when an automated merge causes customer downtime or a breach.
+- Whether any customers are in regulated sectors (finance, health, children's data) where automated change to production code raises extra duties.
+- Consumer-protection and privacy questions about disclosure and data handling.
+- Whether any AI-governance regime, such as the EU AI Act, applies to this feature. Counsel decides applicability and dates.
+
+Give counsel the feature description, the default settings, and your target launch date.

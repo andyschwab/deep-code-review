@@ -1,0 +1,44 @@
+Your central constraint is the lack of a sandbox, so the first job is to shrink the blast radius. Then you can test adversarially without touching real customers.
+
+**1. Make the limits live in the refund system, not the bot**
+- Enforce per-customer, per-order, per-day, and global daily caps in the refund service. The bot should be unable to exceed them even if fully manipulated.
+- Derive the customer identity from the authenticated session, never from anything the user types. The bot should be unable to pass an arbitrary account or order ID that skips an ownership check.
+- Add idempotency keys, so retries or repeated prompts can't double-issue.
+- Add a kill switch that disables autonomous payouts without taking the chat down, and a global spend circuit breaker that pauses issuance and alerts a human.
+
+**2. Create a testing path despite no sandbox**
+- Ask the finance/payments team whether a dry-run mode is feasible: the refund tool validates and logs the decision but doesn't move money. Even a thin wrapper that records "would have refunded X" gives you most of the evidence. This is likely worth a week of engineering.
+- If that's impossible, use employee-owned synthetic accounts with real small-value orders that you can refund and reconcile. Never run adversarial probes against real customer accounts.
+- Define fixtures up front: accounts you own, accounts you don't, an order eligible for refund, one outside the return window, one already refunded. Include a control where a legitimate refund succeeds. A "not found" result on a made-up ID proves nothing about authorization.
+
+**3. Adversarial testing, scoped and budgeted**
+Focus on the boundaries that matter for money:
+- Cross-account access: requests for another customer's order or credit, including via order numbers, emails, or "I'm the account holder's spouse."
+- Limit evasion: splitting a large refund into many small ones, across sessions, orders, or credit versus refund paths.
+- Policy manipulation: false claims about damaged goods, lost packages, or promises supposedly made by an agent; pressure and urgency; instructions embedded in order notes or uploaded text.
+- Prompt and tool disclosure: extraction of system instructions, caps, or internal thresholds, which would help someone game them.
+- State and session: whether a conversation ID actually isolates identity, and whether a rejected action leaves balances unchanged. Read balances before and after each case.
+- Failure behavior: tool errors, timeouts, and partial writes. A refusal message after a write is not proof that nothing was written.
+
+Keep initial runs small, with explicit request budgets including retries, and have a person review the generated cases and transcripts, including those created adaptively during the run. Grade on actual ledger and tool records, not just the chat text. Use synthetic or redacted data, and confirm where test content is sent if you use an external generation or grading service.
+
+**4. Use the 5% cohort as evidence**
+- Review every autonomous payout for the first stretch, then a sample plus all outliers.
+- Track refund rate versus the human-handled baseline, average amount, repeat-claimant patterns, reversals, disputes, escalations, and customer satisfaction, split by new versus long-history customers. One-time holiday shoppers are likely your highest fraud and abuse exposure, so consider lower caps for thin-history accounts.
+- Set alert thresholds before expanding, for example refund rate drifting beyond an agreed multiple of baseline.
+
+**5. Human and policy review**
+- Finance signs off on caps, reconciliation process, and maximum acceptable loss per day.
+- Legal/compliance checks consumer-refund obligations, record-keeping, and what the bot may say about entitlements.
+- Define escalation: ambiguous cases, repeated attempts, and high-value requests go to a person, with the bot giving a clear handoff rather than a bare refusal.
+- Keep an audit trail linking each payout to the conversation, tool calls, and decision basis.
+
+**6. Gate expansion in stages**
+Don't jump from 5% to 100% in one move. A reasonable shape for six weeks:
+- Weeks 1–2: harden server-side controls, build dry-run or synthetic fixtures, run the first adversarial pass, fix findings.
+- Weeks 3–4: re-test fixes, continue at 5% with full review, and decide on the first expansion (perhaps 15–25%) only if exit criteria are met.
+- Weeks 5–6: expand in steps with a hold at each, with the kill switch and spend breaker tested before each step.
+
+Suggested exit criteria: no unresolved cross-account or limit-bypass findings, ledger reconciliation clean across the cohort, anomaly alerts working (confirmed by a deliberate drill), and finance sign-off on the loss ceiling.
+
+**A candid note on the deadline:** if the dry-run mode or server-side caps slip, take the slower rollout rather than skipping those steps. Peak returns are exactly when abuse volume and review capacity are most strained. A capped bot at 40% of traffic is a better outcome than an uncapped one paused mid-peak. I haven't run anything here, so all of this is a plan to verify against your actual system, particularly where identity comes from and how your refund API handles retries.
