@@ -1,0 +1,76 @@
+{
+ "id": "testify-mock-option-funcname",
+ "arm": "TK",
+ "findings": [
+  {
+   "file": "mock.go",
+   "line": 134,
+   "severity": "high",
+   "text": "`if ot.NumIn() == 0 { return }` is inside the per-option loop. The first option that takes no arguments ends the comparison with a match, so the remaining options are never compared. Expected `[Opt0(), OptX(1)]` matches actual `[Opt0(), OptX(2)]`, which is a fail-open check."
+  },
+  {
+   "file": "mock.go",
+   "line": 139,
+   "severity": "high",
+   "text": "`ot.In(i).Elem()` panics when an option's parameter is not a pointer, slice, map, array or chan. An option like `func(*T)` works, but `WithName(string)` is a closure that takes no params, so the `NumIn` approach only works for option funcs that take pointer targets. A parameter type such as `int` would panic. The code also calls the options on zero-valued fresh targets, which can panic on nil fields."
+  },
+  {
+   "file": "mock.go",
+   "line": 960,
+   "severity": "high",
+   "text": "`reflect.ValueOf(actual)` is used with `.Len()` and `.Index()` without checking that actual is a slice. If actual is nil or not a slice, `assertOpts` panics. The type check is skipped when expected is empty (`tValue.Len() != 0`), so an empty expected list with a non-slice actual reaches it. Also, when actual is a shorter or longer slice, names differ, but the index loops assume equal lengths."
+  },
+  {
+   "file": "mock.go",
+   "line": 150,
+   "severity": "low",
+   "text": "`actualFmt` uses `expectedNames[i]`, with `i` being the inner parameter index and not the option index. The failure message therefore names the wrong option, and can index out of range or mislabel."
+  },
+  {
+   "file": "mock.go",
+   "line": 160,
+   "severity": "medium",
+   "text": "`funcName` identifies options by the runtime function name. Closures from the same constructor share a name, which is intended. Distinct anonymous closures can still collide, and `path.Ext` trimming of names like `pkg.Opt.func1` yields `Opt`, so different closures within one function are treated as the same option."
+  },
+  {
+   "file": "mock.go",
+   "line": 46,
+   "severity": "medium",
+   "text": "`String()` calls `tValue.Len()` and `reflect.TypeOf(tValue.Index(0).Interface())`. If the first element is a nil interface, `TypeOf` returns nil and `.String()` panics. This happens when `FunctionalOptions(nil)` is passed to callString or Diff."
+  }
+ ],
+ "raw": "[{\"file\":\"mock.go\",\"line\":134,\"severity\":\"high\",\"text\":\"`if ot.NumIn() == 0 { return }` is inside the per-option loop. The first option that takes no arguments ends the comparison with a match, so the remaining options are never compared. Expected `[Opt0(), OptX(1)]` matches actual `[Opt0(), OptX(2)]`, which is a fail-open check.\"},{\"file\":\"mock.go\",\"line\":139,\"severity\":\"high\",\"text\":\"`ot.In(i).Elem()` panics when an option's parameter is not a pointer, slice, map, array or chan. An option like `func(*T)` works, but `WithName(string)` is a closure that takes no params, so the `NumIn` approach only works for option funcs that take pointer targets. A parameter type such as `int` would panic. The code also calls the options on zero-valued fresh targets, which can panic on nil fields.\"},{\"file\":\"mock.go\",\"line\":960,\"severity\":\"high\",\"text\":\"`reflect.ValueOf(actual)` is used with `.Len()` and `.Index()` without checking that actual is a slice. If actual is nil or not a slice, `assertOpts` panics. The type check is skipped when expected is empty (`tValue.Len() != 0`), so an empty expected list with a non-slice actual reaches it. Also, when actual is a shorter or longer slice, names differ, but the index loops assume equal lengths.\"},{\"file\":\"mock.go\",\"line\":150,\"severity\":\"low\",\"text\":\"`actualFmt` uses `expectedNames[i]`, with `i` being the inner parameter index and not the option index. The failure message therefore names the wrong option, and can index out of range or mislabel.\"},{\"file\":\"mock.go\",\"line\":160,\"severity\":\"medium\",\"text\":\"`funcName` identifies options by the runtime function name. Closures from the same constructor share a name, which is intended. Distinct anonymous closures can still collide, and `path.Ext` trimming of names like `pkg.Opt.func1` yields `Opt`, so different closures within one function are treated as the same option.\"},{\"file\":\"mock.go\",\"line\":46,\"severity\":\"medium\",\"text\":\"`String()` calls `tValue.Len()` and `reflect.TypeOf(tValue.Index(0).Interface())`. If the first element is a nil interface, `TypeOf` returns nil and `.String()` panics. This happens when `FunctionalOptions(nil)` is passed to callString or Diff.\"}]",
+ "error": "",
+ "attempts": 1,
+ "matched": [
+  false,
+  false,
+  false,
+  false,
+  true,
+  false
+ ],
+ "verdicts": {
+  "0": {
+   "verdict": "not_a_bug",
+   "reason": "The option name lists are compared in full before this loop, and every element of the typed options slice has the same func signature, so if one option has NumIn()==0 they all do. The early return skips no value comparison that could otherwise happen."
+  },
+  "1": {
+   "verdict": "not_a_bug",
+   "reason": "Functional options by design take a pointer to the target being configured (func(*T)), so calling Elem() on the parameter type is the intended contract, and a target freshly made with reflect.New is a valid non-nil pointer."
+  },
+  "2": {
+   "verdict": "real",
+   "reason": "When the expected list is empty the type check is skipped, so assertOpts calls reflect.ValueOf(actual).Len() on a non-slice or nil actual and panics; the length-mismatch part of the finding is wrong, though, because the name slices are compared with ObjectsAreEqual before any indexing."
+  },
+  "3": {
+   "verdict": "real",
+   "reason": "The inner loop variable i shadows the option index, so expectedNames[i] labels the failure with the wrong option name and can go out of range when an option has more parameters than there are options."
+  },
+  "5": {
+   "verdict": "real",
+   "reason": "FunctionalOptions(nil) stores []interface{}{nil}, so reflect.TypeOf(tValue.Index(0).Interface()) returns a nil Type and calling .String() on it panics, both in String() and in the matching code in Diff."
+  }
+ },
+ "verify_error": ""
+}

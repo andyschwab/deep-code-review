@@ -1,0 +1,47 @@
+{
+ "id": "execa-sync-duplicate-file-targets",
+ "arm": "TK",
+ "findings": [
+  {
+   "file": "output-async.js",
+   "line": 50,
+   "severity": "high",
+   "text": "The input/output tuple is reversed. For direction 'output' it now yields [stream, subprocess.stdio[fd]], so the pipe runs user stream \u2192 subprocess.stdout, and the 'input' case is reversed too. Input and output piping both run the wrong way: `execa('cmd', {stdout: nodeWritable})` never delivers stdout to the writable, and `stdin: readable` stops feeding the child."
+  },
+  {
+   "file": "output-async.js",
+   "line": 26,
+   "severity": "high",
+   "text": "Streams are grouped by the Map key `inputStream`, but the merge happens over the output streams. With multiple output targets on one fd, `mergeStreams` is called on writable destinations instead of readable sources. For multiple input streams on one fd, each is keyed separately instead of being merged into one stdin, so several piped inputs no longer merge."
+  },
+  {
+   "file": "duplicate.js",
+   "line": 231,
+   "severity": "high",
+   "text": "`hasSameValue` compares `value.path` for filePath items, but the filePath value is `{file}` (see `handle-sync.js`, `value: {file}`). Both sides are `undefined`, so any two different file paths on different fds compare equal. For example, `{stdout: {file: 'a.txt'}, stderr: {file: 'b.txt'}}` reuses stdout's stream for stderr, or throws if the directions differ. Compare `value.file`."
+  }
+ ],
+ "raw": "[{\"file\":\"output-async.js\",\"line\":50,\"severity\":\"high\",\"text\":\"The input/output tuple is reversed. For direction 'output' it now yields [stream, subprocess.stdio[fd]], so the pipe runs user stream \u2192 subprocess.stdout, and the 'input' case is reversed too. Input and output piping both run the wrong way: `execa('cmd', {stdout: nodeWritable})` never delivers stdout to the writable, and `stdin: readable` stops feeding the child.\"},{\"file\":\"output-async.js\",\"line\":26,\"severity\":\"high\",\"text\":\"Streams are grouped by the Map key `inputStream`, but the merge happens over the output streams. With multiple output targets on one fd, `mergeStreams` is called on writable destinations instead of readable sources. For multiple input streams on one fd, each is keyed separately instead of being merged into one stdin, so several piped inputs no longer merge.\"},{\"file\":\"duplicate.js\",\"line\":231,\"severity\":\"high\",\"text\":\"`hasSameValue` compares `value.path` for filePath items, but the filePath value is `{file}` (see `handle-sync.js`, `value: {file}`). Both sides are `undefined`, so any two different file paths on different fds compare equal. For example, `{stdout: {file: 'a.txt'}, stderr: {file: 'b.txt'}}` reuses stdout's stream for stderr, or throws if the directions differ. Compare `value.file`.\"}]",
+ "error": "",
+ "attempts": 1,
+ "matched": [
+  false,
+  false,
+  false
+ ],
+ "verdicts": {
+  "0": {
+   "verdict": "not_a_bug",
+   "reason": "The Map key is the destination and the value list holds the sources: for 'output' the key is the user stream and the value is subprocess.stdio[fd], and the final loop calls pipeStreams(subprocess.stdio[fd], userStream), so piping still runs in the right direction for both input and output."
+  },
+  "1": {
+   "verdict": "not_a_bug",
+   "reason": "The key passed as `inputStream` is actually the pipe destination, and the values merged by mergeStreams are always the readable sources, so several inputs to one fd share the subprocess.stdin key and are merged correctly."
+  },
+  "2": {
+   "verdict": "real",
+   "reason": "handle-sync.js destructures the filePath value as `{file}`, so `value.path` is undefined on both sides and hasSameValue treats any two filePath targets as equal, which wrongly reuses or rejects streams across fds."
+  }
+ },
+ "verify_error": ""
+}

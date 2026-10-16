@@ -1,0 +1,36 @@
+{
+ "id": "testify-unset-iteration",
+ "arm": "CF60",
+ "findings": [
+  {
+   "file": "mock.go",
+   "line": 31,
+   "severity": "medium",
+   "text": "Unset removes elements from c.Parent.ExpectedCalls while ranging over it. After the removal the next element shifts into index i and is skipped, and range keeps using the original length. With two matching expectations for the same method and arguments, only one is removed. Adjacent matching entries can also lead to a wrong or duplicated tail entry."
+  },
+  {
+   "file": "mock.go",
+   "line": 21,
+   "severity": "low",
+   "text": "`defer unlockOnce.Do(c.unlock)` is correct only if c.unlock is not evaluated early. If c.Parent.fail panics (the default when no TestingT is set), the lock has already been released, so this path is fine. However, the Arguments.Diff call and the slice mutation both run while holding only the call's lock (c.lock), not the Parent mutex. Concurrent On or MethodCalled calls can race with the modification of ExpectedCalls."
+  }
+ ],
+ "raw": "The bug is that the loop removes items from the slice while it is still iterating over it. Once the code deletes the element at `i`, the next element shifts into index `i`. The following iteration then skips it. The loop also keeps using the original length, so it reads stale entries at the end of the backing array. With two identical expectations, the second one is skipped and stays in place.\n\n[{\"file\":\"mock.go\",\"line\":31,\"severity\":\"medium\",\"text\":\"Unset removes elements from c.Parent.ExpectedCalls while ranging over it. After the removal the next element shifts into index i and is skipped, and range keeps using the original length. With two matching expectations for the same method and arguments, only one is removed. Adjacent matching entries can also lead to a wrong or duplicated tail entry.\"},{\"file\":\"mock.go\",\"line\":21,\"severity\":\"low\",\"text\":\"`defer unlockOnce.Do(c.unlock)` is correct only if c.unlock is not evaluated early. If c.Parent.fail panics (the default when no TestingT is set), the lock has already been released, so this path is fine. However, the Arguments.Diff call and the slice mutation both run while holding only the call's lock (c.lock), not the Parent mutex. Concurrent On or MethodCalled calls can race with the modification of ExpectedCalls.\"}]",
+ "error": "",
+ "attempts": 1,
+ "matched": [
+  false,
+  false
+ ],
+ "verdicts": {
+  "0": {
+   "verdict": "gt_same",
+   "reason": "It describes the reference bug: Unset deletes from ExpectedCalls with append(slice[:i], slice[i+1:]...) inside a range that keeps the original indices, so the element shifted into index i is skipped and later entries are mishandled."
+  },
+  "1": {
+   "verdict": "not_a_bug",
+   "reason": "In upstream testify, Call.lock() locks c.Parent.mutex rather than a separate per-call lock, so ExpectedCalls is changed under the same mutex that On and MethodCalled use (inferred from upstream because ./context/ was missing)."
+  }
+ },
+ "verify_error": ""
+}
