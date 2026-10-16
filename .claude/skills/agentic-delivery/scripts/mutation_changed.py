@@ -7,7 +7,7 @@ Finds changed source lines (`git diff --unified=0 <base>...HEAD`), runs an ALREA
 mutation tool (mutmut 3.x for Python, verified against 3.8.0; Stryker for JS/TS, unverified) on the changed files, and prints
 `SURVIVED <file>:<line>: <mutation>` for each surviving mutant on a changed line, i.e. a
 mutation of changed code that no test caught. Never installs anything. If no tool is found it
-prints COULD_NOT_CHECK with the install hint and exits 0. Exit 1 only with --strict and survivors.
+prints COULD_NOT_CHECK with the install hint and exits 0. Exit 1 only with --strict and findings (SURVIVED or NOT_COVERED).
 Side effects: the tools write their own caches (.mutmut-cache, .stryker-tmp, reports/mutation).
 """
 import argparse, ast, json, os, re, signal, subprocess, sys, tempfile, time
@@ -128,14 +128,17 @@ def check_python(files, changed, cwd, left, mm):
         return f"COULD_NOT_CHECK: mutmut produced no results (rc={rc}): {out.strip()[-300:]}"
     sel = {k for f in files for k, (a, b) in funcs[f].items() if any(a <= n <= b for n in changed[f])}
     key_of = lambda name: name.rpartition(".")[2].split("__mutmut_")[0]
-    found, unrun = [], any(st == "not checked" and key_of(n) in sel for n, st in stat)
+    found, unrun = [], False
     for name, st in stat:
-        if st not in ("survived", "no tests"):
+        if st not in ("survived", "no tests", "not checked"):
             continue
+        if st == "not checked" and key_of(name) not in sel:
+            continue  # mutant of a function with no changed line: nothing to report
         mod, key = name.rpartition(".")[0], key_of(name)
         f = next((f for f in files if key in funcs[f] and f[:-3].replace("/", ".").endswith(mod)), None)
         hit = f and parse_mutmut_show(run(mm + ["show", name], cwd, 60)[1])
         if not hit:
+            unrun = unrun or st == "not checked"  # cannot place it on a line: stay PARTIAL, never OK
             continue
         off, old, text = hit
         a, b = funcs[f][key]
@@ -145,6 +148,8 @@ def check_python(files, changed, cwd, left, mm):
             ln = next((i for i in range(a, b + 1) if src[i - 1].strip() == old), None)
         if ln in changed[f]:
             found.append((f, ln, text, st))
+        else:
+            unrun = unrun or st == "not checked"
     return (found, to or unrun)
 
 
@@ -178,7 +183,7 @@ def main(argv=None, cwd=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--base", default="origin/main")
     ap.add_argument("--max-seconds", type=int, default=300)
-    ap.add_argument("--strict", action="store_true", help="exit 1 on survivors")
+    ap.add_argument("--strict", action="store_true", help="exit 1 on SURVIVED or NOT_COVERED findings")
     ap.add_argument("--mutmut", help="path to a mutmut 3.x binary (default: python3 -m mutmut)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
@@ -197,7 +202,7 @@ def main(argv=None, cwd=None):
         print("NO_CHANGED_SOURCE: no changed non-test .py/.js/.ts files")
         return 0
     mm = [a.mutmut] if a.mutmut else [sys.executable, "-m", "mutmut"]
-    deadline, found, survivors = time.time() + a.max_seconds, False, []
+    deadline, found, survivors, partial = time.time() + a.max_seconds, False, [], False
     for lang, exts, fn in (("python", PY, check_python), ("js", JS, check_js)):
         files = sorted(p for p in changed if p.endswith(exts))
         if not files:
@@ -211,13 +216,16 @@ def main(argv=None, cwd=None):
             found = True
             survivors += r[0]
             if r[1]:
-                print(f"PARTIAL: {lang} run hit --max-seconds={a.max_seconds}; survivors below are from mutants finished in time")
-    for f, ln, m, st in sorted(survivors):
-        print(f"{'SURVIVED' if st == 'survived' else 'UNCOVERED'} {f}:{ln}: {m}")
-    survivors = [x for x in survivors if x[3] == "survived"]
-    if found and not survivors:
-        print("OK: no surviving mutants on changed lines")
-    return 1 if a.strict and survivors else 0
+                partial = True
+                print(f"PARTIAL: {lang} run incomplete (--max-seconds={a.max_seconds} hit, or mutants left unchecked); findings below are from mutants that finished")
+    # NOT_COVERED = mutmut "no tests" or "not checked" (mutmut stops early when no test reaches a mutant): changed code no test executes
+    out = {(f, ln, "SURVIVED" if st == "survived" else "NOT_COVERED", m if st == "survived" else "changed code no test executes")
+           for f, ln, m, st in survivors}
+    for f, ln, k, m in sorted(out):
+        print(f"{k} {f}:{ln}: {m}")
+    if found and not out and not partial:
+        print("OK: no surviving or uncovered mutants on changed lines")
+    return 1 if a.strict and out else 0
 
 
 def selftest():
@@ -272,9 +280,20 @@ def selftest():
         run = fake
         rc, o = go(["--base", "main"])
         assert rc == 0 and o.count("SURVIVED") == 2, o
-        assert "SURVIVED sut.py:5: return True -> return False" in o and "UNCOVERED sut.py:5: return True -> return None" in o and "SURVIVED a.js:3: EqualityOperator" in o, o
+        assert "SURVIVED sut.py:5: return True -> return False" in o and "NOT_COVERED sut.py:5: changed code no test executes" in o and "SURVIVED a.js:3: EqualityOperator" in o, o
         assert "sut.py:2:" not in o and "a.js:99" not in o and "a.test.js" not in o, o
         assert "PARTIAL" not in o and go(["--base", "main", "--strict"])[0] == 1
+        # real mutmut 3.8 shape when no test reaches the mutants: run stops early, every mutant stays "not checked"
+        keep = dict(mutmut_out)
+        mutmut_out["run"] = (0, "Stopping early, because we could not find any test case for any mutant.", False)
+        mutmut_out["results"] = (0, "    sut.x_f__mutmut_1: not checked\n    sut.x_f__mutmut_2: not checked\n    sut.x_g__mutmut_1: not checked\n", False)
+        rc, o = go(["--base", "main"])
+        assert o.count("NOT_COVERED sut.py:5:") == 1 and "OK" not in o and "SURVIVED sut.py" not in o and "PARTIAL" not in o, o
+        assert go(["--base", "main", "--strict"])[0] == 1
+        mutmut_out["show sut.x_f__mutmut_1"] = mutmut_out["show sut.x_f__mutmut_2"] = (1, "", False)  # cannot locate: never OK
+        rc, o = go(["--base", "main"])
+        assert "PARTIAL" in o and "OK" not in o and "NOT_COVERED" not in o, o
+        mutmut_out.update(keep)
         run = lambda c, cwd, t: real(c, cwd, t) if c[0] == "git" else (127, "", False)  # no tool anywhere
         rc, o = go(["--base", "main", "--strict"])
         assert rc == 0 and o.count("COULD_NOT_CHECK") == 2 and "pip install mutmut" in o and "SURVIVED" not in o, o
