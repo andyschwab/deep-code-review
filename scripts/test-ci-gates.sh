@@ -522,6 +522,84 @@ else
   record 1 "size-ratchet: FIRES when a row is silently dropped for a file that still exists (planted RED)"
 fi
 
+# Cases L-P: a base whose rows are stale (lanes do not commit rows, so an unlanded wave leaves them behind).
+# The raise is measured from the larger of the base row and the file's real size at base.
+git -C "$ratchetroot" reset --hard "$ratchet_base" -q >/dev/null 2>&1
+printf '%020d' 0 >"$ratchetroot/.claude/skills/demo/SKILL.md"   # 20 bytes at base, row still 12
+git -C "$ratchetroot" add -A >/dev/null 2>&1
+git -C "$ratchetroot" commit -qm "stale base: file grew past its row" >/dev/null 2>&1
+ratchet_stale="$(git -C "$ratchetroot" rev-parse HEAD)"
+ratchet_cfg="$ratchetroot/scripts/size-budgets.tsv"
+stale_rows() { printf '# unit: bytes\n.claude/skills/demo/SKILL.md\t%s\n.claude/skills/demo/references/ref.md\t3\n' "$1" >"$ratchet_cfg"; }
+
+# L: the file is untouched and its row is regenerated to the real size: not a raise.
+stale_rows 20
+git -C "$ratchetroot" add -A >/dev/null 2>&1
+git -C "$ratchetroot" commit -qm "regen rows" >/dev/null 2>&1
+gate "$GATES" size-ratchet --base "$ratchet_stale" --config "$ratchet_cfg" "$ratchetroot"
+if [ "$GATE_RC" -eq 0 ]; then
+  record 0 "size-ratchet: an untouched file with a stale base row passes"
+else
+  record 1 "size-ratchet: an untouched file with a stale base row passes"
+fi
+
+# M: planted RED — real growth 20 -> 30 with no marker fails, measured from the real base size.
+git -C "$ratchetroot" reset --hard "$ratchet_stale" -q >/dev/null 2>&1
+printf '%030d' 0 >"$ratchetroot/.claude/skills/demo/SKILL.md"; stale_rows 30
+git -C "$ratchetroot" add -A >/dev/null 2>&1
+git -C "$ratchetroot" commit -qm "grow" >/dev/null 2>&1
+gate "$GATES" size-ratchet --base "$ratchet_stale" --config "$ratchet_cfg" "$ratchetroot"
+if [ "$GATE_RC" -ne 0 ] && grep -q 'RATCHET FAIL: .claude/skills/demo/SKILL.md raised 20->30' "$WORK/last.log"; then
+  record 0 "size-ratchet: real growth on a stale base is measured from the real size (planted RED)"
+else
+  record 1 "size-ratchet: real growth on a stale base is measured from the real size (planted RED)"
+fi
+
+# N: the marker names the real base size and passes.
+git -C "$ratchetroot" reset --hard "$ratchet_stale" -q >/dev/null 2>&1
+printf '%030d' 0 >"$ratchetroot/.claude/skills/demo/SKILL.md"; stale_rows 30
+git -C "$ratchetroot" add -A >/dev/null 2>&1
+git -C "$ratchetroot" commit -qm "grow with marker
+
+size-budget-raise: .claude/skills/demo/SKILL.md 20→30 fixture growth is deliberate" >/dev/null 2>&1
+gate "$GATES" size-ratchet --base "$ratchet_stale" --config "$ratchet_cfg" "$ratchetroot"
+if [ "$GATE_RC" -eq 0 ]; then
+  record 0 "size-ratchet: growth with a marker naming the real base size passes"
+else
+  record 1 "size-ratchet: growth with a marker naming the real base size passes"
+fi
+
+# O: planted RED — a marker built on the stale row (12->30) does not approve the growth.
+git -C "$ratchetroot" reset --hard "$ratchet_stale" -q >/dev/null 2>&1
+printf '%030d' 0 >"$ratchetroot/.claude/skills/demo/SKILL.md"; stale_rows 30
+git -C "$ratchetroot" add -A >/dev/null 2>&1
+git -C "$ratchetroot" commit -qm "grow with a stale-row marker
+
+size-budget-raise: .claude/skills/demo/SKILL.md 12→30 stale" >/dev/null 2>&1
+gate "$GATES" size-ratchet --base "$ratchet_stale" --config "$ratchet_cfg" "$ratchetroot"
+if [ "$GATE_RC" -ne 0 ] && grep -q 'RATCHET FAIL: .claude/skills/demo/SKILL.md raised 20->30' "$WORK/last.log"; then
+  record 0 "size-ratchet: a marker built on the stale row does not approve growth (planted RED)"
+else
+  record 1 "size-ratchet: a marker built on the stale row does not approve growth (planted RED)"
+fi
+
+# P: planted RED — a hand-kept row above the size is a budget: base 20 bytes with row 50, head 60 bytes with
+# row 60 and no marker fails naming 50->60 (a rule that dropped the row floor would name 20->60).
+git -C "$ratchetroot" reset --hard "$ratchet_base" -q >/dev/null 2>&1
+printf '%020d' 0 >"$ratchetroot/.claude/skills/demo/SKILL.md"; stale_rows 50
+git -C "$ratchetroot" add -A >/dev/null 2>&1
+git -C "$ratchetroot" commit -qm "base: hand-kept budget row above the size" >/dev/null 2>&1
+ratchet_budget="$(git -C "$ratchetroot" rev-parse HEAD)"
+printf '%060d' 0 >"$ratchetroot/.claude/skills/demo/SKILL.md"; stale_rows 60
+git -C "$ratchetroot" add -A >/dev/null 2>&1
+git -C "$ratchetroot" commit -qm "grow past the hand-kept budget" >/dev/null 2>&1
+gate "$GATES" size-ratchet --base "$ratchet_budget" --config "$ratchet_cfg" "$ratchetroot"
+if [ "$GATE_RC" -ne 0 ] && grep -q 'RATCHET FAIL: .claude/skills/demo/SKILL.md raised 50->60' "$WORK/last.log"; then
+  record 0 "size-ratchet: a hand-kept budget row above the size keeps the row floor (planted RED)"
+else
+  record 1 "size-ratchet: a hand-kept budget row above the size keeps the row floor (planted RED)"
+fi
+
 # The real repo's config carries every row it had at origin/main's tip that
 # this branch's base still ships (proves the README.md-row regression can't
 # recur silently in the real config, not only the synthetic fixture above).
