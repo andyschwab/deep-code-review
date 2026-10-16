@@ -29,6 +29,8 @@ Perun copy committed on the default branch catches up; it never auto-merges and 
 `$XDG_CACHE_HOME/perun/auto-update.log`. Exit 0 always in hook mode; `--run` exits 0 on
 skip/up-to-date/updated, 1 when the update itself failed.
 
+A target with `.claude/.dcr-install-flags` but no marker is a legacy install: `legacy_marker` takes the version from the
+installed SKILL.md and the canonical remote, and the update writes the real marker.
 Stdlib only; a missing marker, remote or parseable version is a logged skip, never a guess.
 """
 import fcntl
@@ -49,6 +51,7 @@ import perun_policy  # noqa: E402
 THROTTLE = 6 * 3600
 STALE_LOCK = 24 * 3600  # a lock in a linked worktree older than this is leftover, not a live operation
 SKIP_WARN_AT = 3  # consecutive skips with the same reason before behind_warn surfaces it
+CANONICAL_REMOTE = "https://github.com/remigiusz-antczak/deep-code-review.git"  # same as install.sh's fallback
 TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
 
@@ -359,6 +362,22 @@ def verify_sums(src: Path) -> str:
     return ""
 
 
+def legacy_marker(target: Path) -> dict | None:
+    """Synthetic marker for a pre-`.perun-install.json` install (the target has `.claude/.dcr-install-flags`): the
+    installed deep-code-review SKILL.md frontmatter `version:` plus the canonical remote. It carries no `skills`
+    hashes, so hash-drift cannot be checked (install.sh still backs up the skill dirs it replaces); every other
+    `blocker` check applies. None when it is not an install or the version is unreadable. The update then writes
+    the real marker, so this path is one-time."""
+    if not (target / ".claude/.dcr-install-flags").is_file():
+        return None
+    try:
+        head = (target / ".claude/skills/deep-code-review/SKILL.md").read_text().split("\n---", 1)[0]
+    except OSError:
+        return None
+    m = re.search(r"^\s*version:\s*[\"']?([0-9.]+)", head, re.M)
+    return {"version": m.group(1), "remote": CANONICAL_REMOTE} if m and version(m.group(1)) else None
+
+
 def run(target: Path) -> int:
     """Background worker body (see module doc). Returns 0 skip/current/updated, 1 failed update."""
     cache().mkdir(parents=True, exist_ok=True)
@@ -368,8 +387,11 @@ def run(target: Path) -> int:
         try:
             marker = json.loads(mf.read_text())
         except (OSError, ValueError):
-            log(target, "skip: no readable install marker")
-            return 0
+            marker = None if mf.exists() else legacy_marker(target)
+            if marker is None:
+                log(target, "skip: no readable install marker")
+                return 0
+            log(target, f"legacy install (no .perun-install.json): treating as {marker['version']} from {marker['remote']}")
         remote = marker.get("remote")
         have = version(marker.get("version") or "")
         if not remote or have is None:
