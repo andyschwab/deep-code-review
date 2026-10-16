@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -103,6 +104,27 @@ class DerivedNumbers(unittest.TestCase):
         (self.d / "node_modules").mkdir()
         (self.d / "node_modules" / "x.md").write_text("<!-- derived: files *.txt -->9\n")
         self.assertEqual(run(str(self.d))[0], 0)
+
+    def test_pathological_glob_is_a_bad_marker_not_a_hang(self):
+        for i in range(1000):
+            (self.d / f"{'a' * 60}{i}.txt").write_text("x")
+        self.put(f"<!-- derived: files {'**a' * 8}**Z -->1\n")
+        t0 = time.monotonic()
+        rc, out = run(str(self.d))
+        self.assertLess(time.monotonic() - t0, 5)
+        self.assertEqual(rc, 1)
+        self.assertIn("wildcards", out)
+        self.put("<!-- derived: files **a**a**a**Z -->0\n")  # at the cap: runs, linear
+        t0 = time.monotonic()
+        self.assertEqual(run(str(self.d))[0], 0)
+        self.assertLess(time.monotonic() - t0, 5)
+
+    def test_deeply_nested_json_is_a_finding(self):
+        (self.d / "deep.json").write_text("[" * 200000)
+        self.put("<!-- derived: json-len deep.json 0 -->1\n")
+        rc, out = run(str(self.d))
+        self.assertEqual(rc, 1)
+        self.assertIn("bad marker", out)
 
     def test_bad_args_exit_2(self):
         self.assertEqual(run("--nope")[0], 2)

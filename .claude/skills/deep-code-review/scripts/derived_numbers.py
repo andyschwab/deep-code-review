@@ -15,7 +15,9 @@ trailing comma, period or decimal part is not part of the number).
 COUNTERS (a fixed allowlist, computed in Python; no shell, no subprocess of doc
 text, no network)
   files GLOB              tracked files matching GLOB (`*` and `?` stay inside a
-                          directory, `**` crosses directories)
+                          directory, `**` crosses directories; a run of `*` is one
+                          wildcard; at most 200 characters and 4 wildcards, matched
+                          without backtracking)
   lines PATH              lines in PATH
   grep-count PATTERN PATH lines of PATH containing PATTERN (a literal substring,
                           not a regex; PATTERN may hold spaces, PATH is the last word)
@@ -50,6 +52,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 MARK = re.compile(r"<!--\s*derived:\s*(.+?)\s*-->(?:(\d{1,3}(?:,\d{3})+|\d+)(?![\d]|[.,]\d))?")
@@ -91,16 +94,58 @@ def safe_file(root, rel):
     return cur
 
 
-def glob_re(g):
-    out, i = [], 0
-    while i < len(g):
-        if g.startswith("**", i):
-            out.append(".*")
-            i += 2
-            continue
-        out.append("[^/]*" if g[i] == "*" else "[^/]" if g[i] == "?" else re.escape(g[i]))
-        i += 1
-    return re.compile("".join(out))
+MAX_GLOB, MAX_WILDCARDS = 200, 4
+
+
+def glob_tokens(g):
+    """Tokenize a GLOB: a run of `*` collapses to one token, `**` (two or more) crosses `/`. ValueError over the caps."""
+    if len(g) > MAX_GLOB:
+        raise ValueError(f"glob is over {MAX_GLOB} characters")
+    toks = []
+    for ch in g:
+        if ch == "*" and toks and toks[-1] in ("*", "**"):
+            toks[-1] = "**"
+        elif ch == "*":
+            toks.append("*")
+        else:
+            toks.append("?" if ch == "?" else ch)
+    wild = [t for t in toks if t in ("*", "**", "?")]
+    if len(wild) > MAX_WILDCARDS:
+        raise ValueError(f"glob has {len(wild)} wildcards (at most {MAX_WILDCARDS})")
+    return toks
+
+
+def glob_match(toks, s):
+    """Match s against glob_tokens output by tracking the set of live token positions: O(len(s) * wildcards), no backtracking."""
+    def close(states):
+        out = set(states)
+        for i in sorted(states):
+            while i < len(toks) and toks[i] in ("*", "**"):  # a star may match nothing
+                i += 1
+                out.add(i)
+        return out
+
+    cur = close({0})
+    for ch in s:
+        nxt = set()
+        for i in cur:
+            if i == len(toks):
+                continue
+            t = toks[i]
+            if t == "**":
+                nxt.add(i)
+            elif t == "*":
+                if ch != "/":
+                    nxt.add(i)
+            elif t == "?":
+                if ch != "/":
+                    nxt.add(i + 1)
+            elif ch == t:
+                nxt.add(i + 1)
+        cur = close(nxt)
+        if not cur:
+            return False
+    return len(toks) in cur
 
 
 def count(spec, root, files):
@@ -112,8 +157,8 @@ def count(spec, root, files):
     if name == "files":
         if not rest or " " in rest or rest.startswith("/") or ".." in rest.split("/"):
             raise ValueError("files takes one repo-relative GLOB")
-        rx = glob_re(rest)
-        return sum(1 for f in files if rx.fullmatch(f) and not (root / f).is_symlink())
+        toks = glob_tokens(rest)
+        return sum(1 for f in files if glob_match(toks, f) and not (root / f).is_symlink())
     if name == "lines":
         if not rest or " " in rest:
             raise ValueError("lines takes one PATH")
@@ -131,7 +176,7 @@ def count(spec, root, files):
         node = json.loads(safe_file(root, path).read_bytes())
         for k in key.split("."):
             node = node[int(k)] if isinstance(node, list) else node[k]
-    except (ValueError, KeyError, IndexError, TypeError) as e:
+    except (ValueError, KeyError, IndexError, TypeError, RecursionError) as e:
         raise ValueError(f"json-len: cannot read {key!r} in {path!r} ({type(e).__name__})")
     if not isinstance(node, (list, dict)):
         raise ValueError(f"json-len: {key!r} is not a list or object")
@@ -242,6 +287,19 @@ def selftest():
         assert run("```\n<!-- derived: files *.txt -->9\n```\n````md\n```\n<!-- derived: files *.txt -->9\n```\n````\n"
                    "`<!-- derived: files *.txt -->9`\n``a ` <!-- derived: files *.txt -->9 ``\n\n    <!-- derived: files *.txt -->9\n") == ([], 0), "code ignored"
         assert run("no markers\n") == ([], 0), "zero markers pass"
+        m = lambda g, s: glob_match(glob_tokens(g), s)  # noqa: E731
+        assert m(".claude/skills/*/SKILL.md", ".claude/skills/a/SKILL.md") and not m(".claude/skills/*/SKILL.md", ".claude/skills/a/b/SKILL.md")
+        assert m("docs/**.md", "docs/a/b.md") and m("a***b", "a/x/b") and m("a?c", "abc") and not m("a?c", "a/c") and m("*", "") and not m("*", "a/b")
+        pathological = "**a" * 8 + "**Z"  # 9 wildcards: over the cap, so it never reaches the matcher
+        b, _ = run(f"<!-- derived: files {pathological} -->1\n")
+        assert len(b) == 1 and "bad marker" in b[0] and "wildcards" in b[0], b
+        assert "200 characters" in run(f"<!-- derived: files {'a' * 201} -->1\n")[0][0]
+        paths = ["a" * 100 + str(i) for i in range(1000)]
+        t0 = time.monotonic()
+        assert sum(glob_match(glob_tokens("**a**a**a**Z"), p) for p in paths) == 0  # at the cap: linear, not exponential
+        assert time.monotonic() - t0 < 1, "glob matching must not backtrack"
+        (root / "deep.json").write_text("[" * 200000)
+        assert "bad marker" in run("<!-- derived: json-len deep.json 0 -->1\n")[0][0], "RecursionError is a finding"
     print("derived_numbers selftest ok")
 
 
