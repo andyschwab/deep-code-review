@@ -160,20 +160,20 @@ Perun still loses on reach and adoption: obra/superpowers covers 15 to 16 hosts 
 
 ### H11. Merge train (1.584.0)
 
-Zero model spend, no network, no SaaS. No rival merge queue (Mergify, GitHub merge queue, Graphite) was run head-to-head, so nothing here is a comparison with a rival: it measures Perun's own train, and its own behavior before and after the 1.584.0 fixes.
+Zero model spend, no network, no SaaS. No rival merge queue (Mergify, GitHub merge queue, Graphite) was run head-to-head, so nothing here is a comparison with a rival: it measures Perun's own train, and, for the flake rules, the retired rule counted on the same simulated draws.
 
-Bench: a 6-PR fixture (two independent greens, two PRs that conflict on one file, one PR that passes alone but breaks the gate once another lands, one PR with a 1-in-3 simulated flaky test) on a local bare origin with a `gh` stub; git is real, forge responses are simulated. The first measurement ran the scripts as of an earlier commit; it was re-run on the 1.584.0 scripts with the same driver (4 runs: flake offsets 0, 1 and 2, and the semantic-conflict pair numbered the other way round).
+Bench: a 6-PR fixture (two independent greens, two PRs that conflict on one file, one PR that passes alone but breaks the gate once another lands, one PR with a 1-in-3 simulated flaky test) on a local bare origin with a `gh` stub; git is real, forge responses are simulated. Every number below comes from a run on the origin/main scripts at the 1.584.0 commit (b9e4231), copied unmodified; the driver, per-run logs and `RESULTS.md` are committed in `docs/bench/merge-train-1584`. 4 train runs: flake offsets 0, 1 and 2, and the semantic-conflict pair numbered the other way round.
 
 | Measure | Result | Caveat |
 |---|---|---|
-| PRs landed | 4 of 6, in all 4 re-runs; the other 2 parked, the conflict loser with no test run spent on it | The 2 parked are the conflict loser and the semantic-conflict culprit |
+| PRs landed | 4 of 6, in all 4 runs; the other 2 parked, the conflict loser with no test run spent on it | The 2 parked are the conflict loser and the semantic-conflict culprit |
 | Semantic conflict (passes alone, breaks after another PR lands) | Caught before anything landed in 4 of 4 runs, by bisecting prefixes | Blame goes to the later PR number: with the numbers swapped, the independently green PR was parked and the other landed. The train cannot tell which of the two is "wrong" |
 | `main` green at every commit | Yes, for the 5 commits checked in each of the 4 runs | Checked with the flake disabled so the oracle is deterministic; the train itself never tests the intermediate states |
-| Flake false-blame, 1-in-3 flake | 25.9% (7/27) to 3.7% (1/27), analytic | Assumes independent runs; real flakes can correlate. Seeded simulation on the real script, 1000 trials: 31 blamed (3.1%) against 248 (24.8%) for the retired 2-of-3 rule counted on the same draws. An earlier 200-trial run of the old script measured 64 blamed (32.0%) |
+| Flake false-blame, 1-in-3 flake | 25.9% (7/27) to 3.7% (1/27), analytic | Assumes independent runs; real flakes can correlate. Seeded simulation on the real script, 1000 trials: 31 blamed (3.1%) against 248 (24.8%) for the retired 2-of-3 rule counted on the same draws (not by running the old script) |
 | Regression that is clean on the base, landed as a "flake" at a 2/3 per-run failure rate | 0 of 300, against 73 of 300 under the old rule | Stubbed solo re-runs; 0 is by construction when the test never fails on the base. Cost: a genuinely flaky test that is also flaky on the base still lands 210 of 300 (70%) |
-| Per-tree verdict cache | Saved 0 test runs on this fixture: 10, 10, 11 and 10 runs on 1.584.0, the same as before the fix; no cache hit in any log | No tree was rebuilt identically in this fixture, so this says nothing about workloads that verify the same tree twice. The unit test does show a hit on a rebuilt union |
+| Per-tree verdict cache | Saved 0 test runs on this fixture: no cache hit in any of the 4 logs (10, 10, 11 and 10 test runs) | No tree was rebuilt identically in this fixture, so this says nothing about workloads that verify the same tree twice. The unit test does show a hit on a rebuilt union |
 
-Reproduce the flake and regression numbers with `bash scripts/test-train-flake-rate.sh` (16 passed, 0 failed). The bench driver and logs are local only (`bench-local/train`, not committed).
+Reproduce the flake and regression numbers with `bash scripts/test-train-flake-rate.sh` (16 passed, 0 failed; log in `docs/bench/merge-train-1584/flake-rate.log`).
 
 ## 1. Review quality (measured, 2026-10-14)
 
