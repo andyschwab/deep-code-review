@@ -136,7 +136,7 @@ die() { printf 'dcr-gates: %s\n' "$*" >&2; exit 1; }
 # Every host root install.sh can write a skill into, in the same order
 # install.sh tries them. The first host carrying deep-code-review's SKILL.md
 # is treated as THE install location for every skill this runner looks for.
-HOST_CANDIDATES=(.claude .agents .cursor .codex .gemini .opencode .github .windsurf .hermes .kiro .cline .roo .factory)
+HOST_CANDIDATES=(.claude .agents .cursor .codex .gemini .opencode .github .windsurf .hermes .kiro .cline .roo .factory .qwen .grok)
 
 # find_skill_root <skill-name> — print the first host's copy of <skill-name>
 # with a real SKILL.md, or print nothing (caller checks for empty).
