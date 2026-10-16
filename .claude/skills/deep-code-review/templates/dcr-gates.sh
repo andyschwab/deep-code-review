@@ -41,6 +41,15 @@
 #                           template). Locally, defaults to HEAD~1..HEAD when
 #                           both are unset.
 #
+#   DCR_DERIVED_NUMBERS     ON BY DEFAULT. Set to 0 to turn off (any value other
+#                           than unset, 0, or 1 fails closed). Runs derived_numbers.py
+#                           over the repo's tracked *.md files: a number bound to a
+#                           command with `<!-- derived: CMD -->N` must equal the
+#                           command's output (a stale "N tests" fails). It runs the
+#                           commands written in your docs, so review marker commands
+#                           like CI scripts. A repo with no markers passes. Fix a
+#                           failure with `python3 <skill>/scripts/derived_numbers.py --fix`.
+#
 # OPT-IN gates (off unless the flag is exactly 1; any value other than unset,
 # 0, or 1 fails closed).
 #   DCR_REAPER_LINT=1       run deep-code-review's reaper_lint.py over
@@ -268,6 +277,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b) derived_numbers — a doc number bound to a source command must equal the
+#     command's output. ON by default (a repo with no markers passes); set
+#     DCR_DERIVED_NUMBERS=0 to turn off. Its selftest runs in section 3.
+# ---------------------------------------------------------------------------
+case "${DCR_DERIVED_NUMBERS:-1}" in
+  0) ;;
+  1)
+    DERIVED_NUMBERS="${REVIEW_ROOT}/scripts/derived_numbers.py"
+    if [ ! -f "${DERIVED_NUMBERS}" ]; then
+      printf 'dcr-gates: derived_numbers.py not found at %s (FAIL, fail closed)\n' "${DERIVED_NUMBERS}" >&2
+      FAIL=1
+    elif python3 "${DERIVED_NUMBERS}" "${REPO_ROOT}"; then
+      printf 'dcr-gates: derived_numbers PASS\n'
+    else
+      printf 'dcr-gates: derived_numbers FAIL\n' >&2
+      FAIL=1
+    fi
+    ;;
+  *) printf 'dcr-gates: FAIL DCR_DERIVED_NUMBERS=%s (want unset, 0, or 1)\n' "${DCR_DERIVED_NUMBERS}" >&2; FAIL=1 ;;
+esac
+
+# ---------------------------------------------------------------------------
 # 3) selftests of every shipped gate script this runner knows how to call —
 #    proves each fires on a planted violation before its result is trusted,
 #    independent of this repo's own history/content.
@@ -275,6 +306,7 @@ fi
 SELFTEST_SCRIPTS=(
   "${REVIEW_ROOT}/scripts/fix_class_gate.py"
   "${REVIEW_ROOT}/scripts/binaries_gate.py"
+  "${REVIEW_ROOT}/scripts/derived_numbers.py"
   "${REVIEW_ROOT}/scripts/parity_differ.py"
   "${REVIEW_ROOT}/scripts/token_differ.py"
 )

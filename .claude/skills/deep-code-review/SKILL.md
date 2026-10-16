@@ -366,8 +366,7 @@ SLSA:** never state a level you did not walk.
 
 ## Optional overlays (same repository, not default)
 
-This skill is the bar. Sibling skills, installed only on an explicit flag or
-an owner yes after a recommendation:
+This skill is the bar. Sibling skills install only on an explicit flag or an owner yes:
 
 | Skill | Install | Does |
 |---|---|---|
@@ -381,12 +380,11 @@ target and prints a pack. Default `./install.sh <project>` stays review-only.
 gate scripts (`fix_class_gate.py`, `binaries_gate.py`) into the target's own
 CI via `scripts/dcr-gates.sh` — **read `docs-and-dx.md`'s
 Standards-imprint section when pairing a Phase 6 standard with a mechanized
-gate**, not just a doc.
+gate**, not just a doc. A count in a doc: `derived_numbers.py` (same file, "store the query").
 
-Terse chat voice is **not** vendored here. If a project wants compressed
-assistant prose, add [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)
-separately. Persisted artifacts (code, PR bodies, docs) stay normal English
-either way.
+Terse chat voice is **not** vendored. For compressed assistant prose add
+[JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) separately.
+Persisted artifacts (code, PR bodies, docs) stay normal English.
 
-Compose with other packs; do not also run a second delivery OS on the same
-repo. This review skill always composes.
+Compose with other packs; never run a second delivery OS on one repo.
+This skill always composes.
