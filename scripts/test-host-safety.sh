@@ -10,7 +10,7 @@ ok() { n=$((n+1)); if [ "$1" -eq 0 ]; then p=$((p+1)); echo "PASS  $2"; else ech
 
 mkdir -p "$W/p" "$W/m"
 bash "$ROOT/install.sh" --with-delivery --with-codex --with-extra-hosts "$W/p" >"$W/out" 2>&1
-for h in "Claude Code" Cursor Codex "Gemini CLI" OpenCode "GitHub Copilot" Windsurf "Hermes Agent" Kiro; do
+for h in "Claude Code" Cursor Codex "Gemini CLI" OpenCode "GitHub Copilot" Windsurf "Hermes Agent" Kiro Cline "Roo Code" "Factory Droid"; do
   grep -q "^safety: $h:.* https://" "$W/out"; ok $? "install warns for $h with a doc link"
 done
 bash "$ROOT/install.sh" --minimal "$W/m" >"$W/mout" 2>&1

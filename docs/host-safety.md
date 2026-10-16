@@ -15,13 +15,16 @@ Facts verified 2026-10-07 from the vendor docs listed in [standards-index.md](st
 | Windsurf (`.windsurf`) | Not documented | Terminal auto-execution level plus allow and deny lists (UI); team admins can cap the level | Nothing | Avoid Turbo; keep a deny list; use a container | Turbo runs everything outside the deny list |
 | Hermes Agent (`.hermes`) | Only via a container backend. `local` has none | `terminal.backend` and `approvals.mode` in `~/.hermes/config.yaml` | Nothing | Set a container backend; keep `approvals.mode` `smart` or `manual`; never `--yolo`, `/yolo`, `HERMES_YOLO_MODE=1` | Container backends skip approvals: the container is then the only boundary |
 | Kiro (`.kiro`) | Not documented | `~/.kiro/settings/permissions.yaml` (capabilities `shell`, `fs_write`; deny beats ask beats allow) | Nothing | Deny risky `shell` and `fs_write` patterns; use a container | Permissions are app-level; untrusted-workspace prompts are the only extra guard |
+| Cline (`.cline`) | Not documented | Auto Approve toggles ("Execute safe commands", "Execute all commands") and YOLO mode in Cline Settings | Nothing | Keep "Execute all commands" and YOLO off; use a container | The model, not a fixed list, decides which commands are safe; skills can run scripts |
+| Roo Code (`.roo`) | Not documented | "Always approve execute operations" with `roo-cline.allowedCommands` / `roo-cline.deniedCommands` (longest prefix wins, deny wins ties) | Nothing | Deny `*` then allow safe prefixes, or leave execute approval off; use a container | Prefix lists are not isolation; whether skill scripts run under the allowlist is unverified |
+| Factory Droid (`.factory`) | Yes (Seatbelt; bubblewrap + seccomp). Opt-in | `sandbox.enabled: true` in settings; Autonomy Level and `permissionRules` | Nothing | Enable the sandbox; avoid `--skip-permissions-unsafe` outside it | Command rules are not OS isolation; skill scripts run as ordinary commands (a skill is not a sandbox) |
 | Shared (`.agents`) | Depends on the agent that reads it | See that agent's row | Nothing | Follow the row of every agent you point at it | Codex keeps `.agents/` read-only; others may not |
 
 Not an install target but common: Aider has no sandbox documented; avoid `--yes-always` and run it in a container.
 
 ## Universal rule
 
-Hosts without an OS sandbox (OpenCode, Windsurf, Kiro, Hermes `local`, Copilot CLI, Aider) should run agents inside a [dev container](https://containers.dev/) or VM, so the container is the filesystem boundary. See [VS Code Dev Containers](https://code.visualstudio.com/docs/devcontainers/containers): with an isolated container volume the workspace is not bound to your local filesystem. Do not mount your home directory or credentials into it.
+Hosts without an OS sandbox (OpenCode, Windsurf, Kiro, Cline, Roo Code, Hermes `local`, Copilot CLI, Aider) should run agents inside a [dev container](https://containers.dev/) or VM, so the container is the filesystem boundary. See [VS Code Dev Containers](https://code.visualstudio.com/docs/devcontainers/containers): with an isolated container volume the workspace is not bound to your local filesystem. Do not mount your home directory or credentials into it.
 
 ## Autonomy-ready defaults
 
