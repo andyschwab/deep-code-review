@@ -630,11 +630,13 @@ if [[ -d "${SCRIPT_DIR}/commands" ]]; then
 fi
 
 # Marker: exactly what this install added, so perun_uninstall.py removes only that.
+# Remote: PERUN_REMOTE, else this checkout's origin, else (tarball/plugin copy with no git origin) the canonical public repo, so auto-update always has one.
+RECORD_REMOTE="${PERUN_REMOTE:-$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null | sed -E 's#://[^/@]+@#://#' || true)}"
 python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" ${COMMAND_FILES[@]+--files "${COMMAND_FILES[@]}"} \
   ${BACKUP_DIRS[@]+--backups "${BACKUP_DIRS[@]}"} ${OPLAYER_LOCAL_NEW:+--settings-created} \
   ${OPLAYER_PRE:+--pre "${OPLAYER_PRE}" --template "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"} \
   ${OPLAYER_AGENT_NEW:+--agent-created} --version "${VERSION}" \
-  --remote "${PERUN_REMOTE:-$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null | sed -E 's#://[^/@]+@#://#' || true)}"
+  --remote "${RECORD_REMOTE:-https://github.com/remigiusz-antczak/deep-code-review.git}"
 if [[ "${NO_AUTO_UPDATE}" -eq 1 ]]; then
   python3 - "${TARGET_DIR}/.perun/policy.json" <<'PY'
 import json, sys
