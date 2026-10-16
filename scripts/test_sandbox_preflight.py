@@ -263,6 +263,20 @@ class Behaviour(Base):
         self.assertIn("safe only with the sandbox enabled", text)
         self.assertNotIn("withheld", text)
 
+    def test_enabled_resolves_last_wins_not_or_merged(self):
+        (self.home / ".claude").mkdir()
+        (self.home / ".claude/settings.json").write_text(json.dumps({"sandbox": {"enabled": True}}))
+        repo = make_repo(self.tmp / "lw", NODE, "https://github.com/acme/widget.git", on=False)
+        (repo / ".claude").mkdir()
+        (repo / ".claude/settings.local.json").write_text(json.dumps({"sandbox": {"enabled": False}}))  # local wins: OFF
+        r = sp.analyze(repo, self.home, "darwin")
+        self.assertNotIn("allow", r["snippet"]["permissions"])
+        self.assertIs(r["snippet"]["sandbox"]["enabled"], True)
+        self.assertIn("Allow rules withheld", sp.advise(repo, self.home, "darwin"))
+        (repo / ".claude/settings.local.json").write_text(json.dumps({"sandbox": {"enabled": True}}))  # reversed
+        (self.home / ".claude/settings.json").write_text(json.dumps({"sandbox": {"enabled": False}}))
+        self.assertIn("allow", sp.analyze(repo, self.home, "darwin")["snippet"]["permissions"])  # local on wins
+
     def test_sandbox_enabled_in_user_settings_counts(self):
         (self.home / ".claude").mkdir()
         (self.home / ".claude/settings.json").write_text(json.dumps({"sandbox": {"enabled": True}}))
@@ -277,7 +291,10 @@ class Behaviour(Base):
         self.assertNotIn("Bash(npm run release *)", perm["allow"])
         samples = {"git push --force *": "git push --force origin main", "git push -f *": "git push -f origin main",
                    "git reset --hard *": "git reset --hard HEAD~1", "git clean *": "git clean -fd",
-                   "git branch -D *": "git branch -D old", "rm -rf *": "rm -rf /", "rm -fr *": "rm -fr ~/x"}
+                   "git branch -D *": "git branch -D old", "rm -rf *": "rm -rf /", "rm -fr *": "rm -fr ~/x",
+                   "git push --delete *": "git push --delete origin old", "git push -d *": "git push -d origin old",
+                   "git push --mirror *": "git push --mirror origin", "git push * +*": "git push origin +main",
+                   "git push * :*": "git push origin :old"}
         for rule, call in samples.items():
             self.assertIn(f"Bash({rule})", perm["deny"])
             self.assertTrue(destructive_guard.check(call), call)  # the deny rule and the guard agree

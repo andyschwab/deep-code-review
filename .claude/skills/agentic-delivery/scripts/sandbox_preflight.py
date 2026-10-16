@@ -61,7 +61,8 @@ INTERP = {".sh": "bash", ".bash": "bash", ".py": "python3", ".js": "node", ".mjs
 CODE = (".py", ".js", ".mjs", ".cjs", ".ts")
 # permissions.deny / ask entries that make "stays blocked" a settings rule (text rules only: the sandbox and
 # destructive_guard.py are the layers that do not depend on how a command is spelled)
-DENY = ("git push --force *", "git push -f *", "git reset --hard *", "git clean *", "git branch -D *",
+DENY = ("git push --force *", "git push -f *", "git push --delete *", "git push -d *", "git push --mirror *",
+        "git push * +*", "git push * :*", "git reset --hard *", "git clean *", "git branch -D *",
         "rm -rf *", "rm -fr *", "rm -r *", "rm -R *", "sudo *")
 ASK = ("npm publish *", "pnpm publish *", "cargo publish *", "twine upload *", "gh release create *", "gh release upload *")
 SENSITIVE = (".ssh", ".aws", ".gnupg", ".claude", ".config/gh", ".netrc", ".npmrc", ".docker", ".gitconfig",
@@ -300,8 +301,10 @@ def _effective(repo, home):
                          ("exclude", sb.get("excludedCommands")), ("domains", net.get("allowedDomains")),
                          ("write", fs.get("allowWrite"))):
             eff[key] += _list(val)
-        eff["enabled"] |= sb.get("enabled") is True
-        eff["binding"] |= net.get("allowLocalBinding") is True
+        if "enabled" in sb:  # scalars resolve last-wins in precedence order (user, project, local), not OR-merged
+            eff["enabled"] = sb["enabled"] is True
+        if "allowLocalBinding" in net:
+            eff["binding"] = net["allowLocalBinding"] is True
         if "allowUnsandboxedCommands" in sb:
             eff["retry"] = sb["allowUnsandboxedCommands"]
     return eff
@@ -314,7 +317,7 @@ def _specs(rules):
         m = re.fullmatch(r"Bash\((.*)\)", r, re.S)
         s = m.group(1) if m else "*" if r == "Bash" else None if re.match(r"[A-Z]\w*\(", r) else r
         if s is not None:
-            out.append(s[:-2] + " *" if s.endswith(":*") else s)
+            out.append(re.sub(r"(?<=\S):\*$", " *", s))  # the legacy `x:*` suffix, not a ` :*` argument pattern
     return out
 
 
