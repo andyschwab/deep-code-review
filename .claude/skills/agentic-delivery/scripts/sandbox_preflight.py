@@ -7,27 +7,27 @@ READ-ONLY and advice only (exit 0 always): it never writes a settings file or an
 code (git is asked only for the remotes and core.hooksPath). The owner decides and applies what they choose.
 
 It reads REPO's package.json scripts, Makefile, git hooks (.githooks, .husky, core.hooksPath, .git/hooks), top-level
-scripts/ script/ bin/ files, python tool config, and the settings that already apply (REPO/.claude/settings.json,
+scripts/ script/ bin/ files, and the settings that already apply (REPO/.claude/settings.json,
 REPO/.claude/settings.local.json, HOME/.claude/settings.json; --home defaults to ~). Then it prints a section that starts
-with "To run autonomously, add:" holding ONLY what those settings do not already cover:
-  (a) permissions.allow: exact `Bash(...)` patterns for the repo's own gate, test, lint and build commands, and
-      `git push <remote> HEAD` to its own remote. Release and deploy commands are never allow-listed.
-  (b) sandbox.excludedCommands for commands the sandbox breaks (tsx Unix-socket IPC, headless browsers, database
-      clients, gh TLS on macOS, docker, git over SSH on macOS), written as the command the agent types: a script or
-      make target that calls the tool internally needs ITS entry excluded, so risk is followed through package
-      scripts, make targets, git hooks and scripts. Also sandbox.network.allowedDomains for the push remote, GitHub's
-      API host and the package registries the flows use; allowLocalBinding (macOS) for dev servers; allowWrite for
-      literal writes outside the repo (credential and shell-config paths are never advised).
-  (c) what stays blocked or asks you on purpose (destructive git, rm -rf, force-push, writes outside the repo, other
-      repos, release commands, gh pr create/merge), plus permissions.deny entries for the destructive ones.
-  (d) per host, the mechanism the vendor docs confirm (Claude Code settings and /permissions, Codex approval modes).
-Excluded commands get no allow rule: they prompt on each run, because Claude can edit an excluded script and run it
-outside the sandbox. Every allow rule is checked against destructive_guard.py (a sample call, `*` replaced by an
-argument): one the guard blocks is dropped and reported, so nothing advised for allowing is something the guard
-blocks. FAIL CLOSED on repo-editable units: a make target, npm script or shell script gets an allow rule only when its
-whole body (with its make dependencies and npm pre/post scripts) resolves to known-safe leaf commands (the test
-runner, linter or typechecker binary itself); anything else (make/npm/pnpm/yarn/bun calls, sh/bash/node/python of a
-repo file, `cd`, `$`, `;`, a pipe, a continuation, an inline recipe) is listed as needs-approval. `analyze()` returns the data and `advise()` the text; perun_doctor.py and install.sh print it.
+with "To run autonomously, add:" holding ONLY what those settings do not already cover. The safety boundary is the OS
+sandbox (writes confined to the repo, network limited to the allowlist), so the main output is sandbox config:
+  (a) sandbox.enabled, no unsandboxed retry, sandbox.excludedCommands for commands the sandbox breaks (tsx Unix-socket
+      IPC, headless browsers, database clients, gh TLS on macOS, docker, git over SSH on macOS), written as the command
+      the agent types (a script or make target that calls the tool internally needs ITS entry excluded, so risk is
+      followed through package scripts, make targets, git hooks and scripts), plus sandbox.network.allowedDomains for the
+      push remote, GitHub's API host and the package registries the flows use, allowLocalBinding (macOS) for dev
+      servers and allowWrite for literal writes outside the repo (credential and shell-config paths are never advised).
+  (b) permissions.allow for the repo's gate and build commands (matched by NAME: test, lint, check, build...) and
+      `git push <remote> HEAD`, printed with a disclosure: they run repo-controlled code (a test runner executes
+      conftest, config files and build scripts, and no static check can make that safe), so they are safe only with the
+      sandbox enabled. If the sandbox is not enabled in the settings that apply, NO allow rule is printed: enable it
+      first. A unit with a publish/deploy/release/push word in its name or body is never allowed (an ask rule instead).
+  (c) permissions.deny for destructive git, rm -rf and sudo, permissions.ask for publish, deploy and release commands;
+      what stays blocked or asks you on purpose; and per host the mechanism the vendor docs confirm (Claude Code
+      settings and /permissions, Codex approval modes). Allow rules are checked against destructive_guard.py (a sample
+      call, `*` replaced by an argument): one the guard blocks is dropped and reported.
+Excluded commands get no allow rule: they prompt on each run. `analyze()` returns the data and `advise()` the text;
+perun_doctor.py and install.sh print it.
 
 Precision over recall: a tool counts only at a command position (line start, after `&&` `;` `|` `$(` `then`, after
 sudo/env/npx/yarn, or as the first element of a subprocess/exec call in a .py/.js/.ts script), never inside a path,
@@ -55,26 +55,15 @@ BUILD = re.compile(r"^(build|compile|bundle)(?![a-z0-9])", re.I)
 # a release/publish/deploy/push word in a unit's NAME or in any line of its BODY (including the units it runs)
 # makes it needs-approval, never allow-listed: `ci:publish`, `check-deploy`, a gate script that runs `npm publish`
 SHIP = re.compile(r"(?<![a-z0-9])(?:publish|deploy|release|push|ship|upload)(?![a-z0-9])|^(?:version|tag)(?![a-z0-9])", re.I)
-# FAIL CLOSED: an allow rule is advised for a repo-editable unit (make target, npm script, shell script) only when its
-# whole body resolves to known-safe leaf commands: the test runner, linter or typechecker binary itself with plain
-# arguments (one `&&` between leaves is fine). No make/npm/pnpm/yarn/bun call, no sh/bash/node/python of a repo file,
-# no cd, `$`, `;`, pipe, redirect, quote or continuation: those are needs-approval, however harmless they look.
-LEAF = re.compile(r"(?:[A-Z][A-Z0-9_]*=[\w./:-]+\s+)*(?:pytest|python3?\s+-m\s+(?:pytest|unittest|mypy)|ruff\s+(?:check|format\s+--check)|"
-                  r"mypy|flake8|black\s+--check|eslint|tsc|vitest|jest|prettier\s+--check|biome\s+(?:check|lint|ci)|"
-                  r"go\s+(?:test|vet)|cargo\s+(?:test|clippy|check|fmt\s+--check)|rspec|phpunit|shellcheck)(?:\s+[\w./:=,@+*-]+)*")
 HOOKS = {"pre-commit": "git commit *", "commit-msg": "git commit *", "prepare-commit-msg": "git commit *",
          "pre-push": "git push *"}
 INTERP = {".sh": "bash", ".bash": "bash", ".py": "python3", ".js": "node", ".mjs": "node", ".cjs": "node", ".ts": None}
 CODE = (".py", ".js", ".mjs", ".cjs", ".ts")
-TOOLS = {"pytest": ("pytest *", "python3 -m pytest *"), "ruff": ("ruff check *", "ruff format --check *"),
-         "mypy": ("mypy *",), "flake8": ("flake8 *",), "black": ("black --check *",), "tox": ("tox *",),
-         "nox": ("nox *",)}
-TOOL_FILES = {"pytest": ("pytest.ini", "conftest.py"), "ruff": ("ruff.toml", ".ruff.toml"), "mypy": ("mypy.ini",),
-              "flake8": (".flake8",), "tox": ("tox.ini",), "nox": ("noxfile.py",)}
-# permissions.deny entries that make "stays blocked" a settings rule (text rules only: the sandbox and
+# permissions.deny / ask entries that make "stays blocked" a settings rule (text rules only: the sandbox and
 # destructive_guard.py are the layers that do not depend on how a command is spelled)
 DENY = ("git push --force *", "git push -f *", "git reset --hard *", "git clean *", "git branch -D *",
         "rm -rf *", "rm -fr *", "rm -r *", "rm -R *", "sudo *")
+ASK = ("npm publish *", "pnpm publish *", "cargo publish *", "twine upload *", "gh release create *", "gh release upload *")
 SENSITIVE = (".ssh", ".aws", ".gnupg", ".claude", ".config/gh", ".netrc", ".npmrc", ".docker", ".gitconfig",
              ".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".profile")
 
@@ -119,9 +108,8 @@ STAY = (
     "the ! prefix.",
     "Writes outside the repo: the sandbox allows only the working directory and $TMPDIR; allowWrite above names only "
     "literal paths the scripts write. Nothing else is widened, and other repos are never granted.",
-    "An allow rule on a make target, npm script or script file trusts the repo's content: Claude can edit that file and run "
-    "it under the rule. Rules are advised only where the whole body resolved to known-safe test, lint or typecheck "
-    "commands today; read the files before you apply them.",
+    "Publish, deploy and release commands (npm publish, gh release, a script or target with such a word) ask you: see the "
+    "ask rules above.",
     "Commands in excludedCommands run outside the sandbox with your full access and prompt on each run (no allow rule "
     "is advised); Claude can edit an excluded script in the repo and run it, so read it before you approve.",
     "gh pr create, gh pr merge, gh api, gh release: not allow-listed (gh runs unsandboxed with your credentials); they prompt.",
@@ -227,11 +215,9 @@ def _units(repo):
             ents = [f"{pm} run {name} *"] + ([f"{pm} {name} *"] if name in ("test", "start") and pm != "bun" else [])
             us.append(_unit(f"package.json scripts.{name}", "npm", name, ents, [cmd],
                             re.compile(CMD + rf"(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?{re.escape(name)}(?![\w:.-])"), key=name))
-    mk_open = bool(re.search(r"^-?include\b", _text(repo / "Makefile") + _text(repo / "GNUmakefile") + _text(repo / "makefile"), re.M))
     for t, (deps, recipe) in _makefile(repo).items():
         us.append(_unit(f"Makefile:{t}", "make", t, [f"make {t} *"], recipe,
                         re.compile(CMD + rf"(?:make|\$[({{]MAKE[)}}])\s+(?:-\S+\s+)*{re.escape(t)}(?![\w.-])"), deps=deps, key=t))
-        us[-1].open = mk_open  # an include can redefine any recipe: nothing in this Makefile is resolved
     hooks_path = _git(repo, "config", "core.hooksPath").strip()
     hook_dirs = {".githooks", ".husky", ".git/hooks"} | ({hooks_path} if SAFE.fullmatch(hooks_path)
                                                          and not hooks_path.startswith("/") and ".." not in hooks_path else set())
@@ -289,24 +275,6 @@ def _body(u, edges):
             out += w.lines
             todo += edges[id(w)]
     return out
-
-
-def _leaf(line):
-    """A body line made only of known-safe leaf commands (see LEAF), joined by `&&` at most, with no `..`."""
-    return ".." not in line and all(LEAF.fullmatch(p.strip()) for p in line.split("&&"))
-
-
-def _safe(u, by, seen=()):
-    """Is the unit's WHOLE body resolved to known-safe leaves? Make dependencies and npm pre/post scripts must resolve
-    to safe units too; a script written in code (py/js/ts), an open Makefile (include) or an unknown dependency
-    (including an inline `target: ; cmd` recipe, whose text lands in the dependency list) is not safe."""
-    if id(u) in seen or getattr(u, "open", False) or u.code or u.kind == "hook" or not all(_leaf(ln) for ln in u.lines):
-        return False
-    if u.kind == "npm" and not u.lines:
-        return False
-    kids = ([by.get(("make", d)) for d in u.deps] if u.kind == "make"
-            else [by[("npm", p)] for p in (f"pre{u.name}", f"post{u.name}") if ("npm", p) in by])
-    return all(k is not None and _safe(k, by, seen + (id(u),)) for k in kids)
 
 
 def _list(x):
@@ -382,7 +350,7 @@ def _path_covered(have, p):
 
 
 def analyze(repo, home=None, platform=None):
-    """Return {"snippet": settings as a dict (only what is missing), "why": [str], "stay": [str]}.
+    """Return {"snippet": settings as a dict (only what is missing), "why": [str], "stay": [str], "notes": [str]}.
 
     `platform` (default sys.platform) decides the macOS-only advice (allowLocalBinding, git over SSH). A repo with
     no scripts still gets the baseline (sandbox on, no unsandboxed retry, the deny rules) when settings lack it.
@@ -393,8 +361,7 @@ def analyze(repo, home=None, platform=None):
     edges = _edges(us)
     _spread(us, edges)
     eff, remote = _effective(repo, home), _remote(repo)
-    by = {(u.kind, u.name): u for u in us if u.kind in ("npm", "make")}
-    allow, exclude, writes, domains, unresolved = set(), set(), set(), set(), set()
+    allow, exclude, writes, domains = set(), set(), set(), set()
     why, stay, ship, binding = [], [], set(), False  # why: (entries it explains or (), text)
 
     for u in us:
@@ -415,10 +382,7 @@ def analyze(repo, home=None, platform=None):
         if u.entries and u.kind != "hook" and (SHIP.search(base) or any(SHIP.search(ln) for ln in body)):
             ship |= set(u.entries)
         elif u.entries and not bad and (GATE.match(base) or BUILD.match(base)):
-            if _safe(u, by):
-                allow |= set(u.entries)
-            else:
-                unresolved |= set(u.entries)
+            allow |= set(u.entries)
         for path, origin in sorted(u.writes):
             if path.startswith("../"):
                 stay.append(f"{origin} writes {path}: another directory or repo; never granted")
@@ -442,11 +406,6 @@ def analyze(repo, home=None, platform=None):
 
     py = any((repo / f).exists() for f in ("pyproject.toml", "setup.py", "setup.cfg", "tox.ini", "Pipfile", "noxfile.py",
                                           "pytest.ini")) or any(repo.glob("requirements*.txt"))
-    cfg = "\n".join(_text(repo / f) for f in ("pyproject.toml", "tox.ini", "setup.cfg", "Pipfile", "noxfile.py", "pytest.ini"))
-    cfg += "\n".join(_text(p) for p in sorted(repo.glob("requirements*.txt"))[:5])
-    for tool, pats in TOOLS.items():
-        if py and (re.search(rf"\b{tool}\b", cfg) or any((repo / f).exists() for f in TOOL_FILES.get(tool, ()))):
-            allow |= set(pats)
     if remote:
         name, host, ssh = remote
         allow |= {f"git push {name} HEAD", f"git push -u {name} HEAD"}
@@ -460,7 +419,7 @@ def analyze(repo, home=None, platform=None):
             why.append((("git push *", "git fetch *", "git pull *"),
                         "exclude git push/fetch/pull: on macOS git over SSH fails inside the sandbox even to an allowed host; "
                         f"the other fix is an HTTPS remote: git remote set-url {name} https://{host}/<owner>/<repo>.git"))
-    flows = "\n".join("\n".join(u.lines) for u in us) + cfg
+    flows = "\n".join("\n".join(u.lines) for u in us)
     if (repo / "package.json").exists() and (re.search(r"\b(?:npm|pnpm|yarn|bun)\s+(?:ci|install|i|add)\b", flows)
                                               or not (repo / "node_modules").is_dir()):
         domains.add("registry.npmjs.org")
@@ -470,14 +429,10 @@ def analyze(repo, home=None, platform=None):
     if binding and not mac:
         why.append(((), "local port: Linux/WSL2 needs no setting for a server and client inside one command; a command "
                         "that must reach a server started outside the sandbox has to be excluded"))
-    if unresolved:
-        stay.append("needs approval, not allow-listed (the body is not fully resolved to known-safe test, lint or typecheck "
-                    "commands: it calls make/npm/a shell, node or python file, or uses `;`, `$`, a pipe or a continuation): "
-                    + ", ".join(sorted(unresolved)))
     if ship:
         stay.append("release or deploy commands found here need your approval and are not allow-listed: " + ", ".join(sorted(ship)))
 
-    keep = []
+    keep, notes = [], []
     for a in sorted(allow):
         r = _guard(a)
         if r:
@@ -486,6 +441,14 @@ def analyze(repo, home=None, platform=None):
             stay.append(f"{a}: not advised, your own deny or ask rule overrides any allow")
         elif not _covers(eff["allow"], a):
             keep.append(a)
+    if keep and not eff["enabled"]:
+        keep = []
+        notes.append("Allow rules withheld: the sandbox is not enabled in the settings that apply. Enable it first "
+                     "(sandbox.enabled above), then run this again for the allow rules.")
+    elif keep:
+        notes.append("Disclosure: these allow rules run repo-controlled code (a test runner executes conftest, config files "
+                     "and build scripts, and no static check can make that safe); they are safe only with the sandbox "
+                     "enabled, which confines writes to the repo and the network to the allowlist.")
     sb, net = {}, {}
     if not eff["enabled"]:
         sb["enabled"] = True
@@ -509,12 +472,15 @@ def analyze(repo, home=None, platform=None):
     perm = {}
     if keep:
         perm["allow"] = [f"Bash({a})" for a in keep]
+    ak = [f"Bash({a})" for a in ASK + tuple(sorted(ship)) if not _covers(eff["ask"] + eff["deny"], a)]
+    if ak:
+        perm["ask"] = ak
     dn = [f"Bash({d})" for d in DENY if not _covers(eff["deny"], d)]
     if dn:
         perm["deny"] = dn
     shown = set(ex) | set(wr) | set(keep) | ({"allowLocalBinding"} if net.get("allowLocalBinding") else set())
     return {"snippet": {k: v for k, v in (("permissions", perm), ("sandbox", sb)) if v},
-            "why": [t for ents, t in why if not ents or shown & set(ents)], "stay": stay}
+            "why": [t for ents, t in why if not ents or shown & set(ents)], "stay": stay, "notes": notes}
 
 
 def advise(repo, home=None, platform=None):
@@ -525,6 +491,7 @@ def advise(repo, home=None, platform=None):
     out = ["To run autonomously, add (advice only: nothing is written; you apply what you choose):",
            "Merge this into .claude/settings.local.json (untracked, yours) or ~/.claude/settings.json (every project):",
            json.dumps(r["snippet"], indent=2)]
+    out += r["notes"]
     if r["why"]:
         out.append("Why (a text scan of package.json, Makefile, git hooks and scripts: a lead, not a verdict):")
         out += [f"  - {w}" for w in r["why"]]

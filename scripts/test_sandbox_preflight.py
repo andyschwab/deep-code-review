@@ -39,8 +39,11 @@ PY = {
 }
 
 
-def make_repo(root, files, remote):
+def make_repo(root, files, remote, on=True):
+    """`on`: the repo's own settings enable the sandbox (allow rules are advised only then)."""
     root.mkdir(parents=True)
+    if on:
+        files = {**files, ".claude/settings.local.json": json.dumps({"sandbox": {"enabled": True}})}
     for rel, text in files.items():
         f = root / rel
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -79,7 +82,7 @@ class NodeRepo(Base):
     def test_allow_rules_are_the_repos_exact_gate_build_and_push_commands(self):
         self.assertEqual(self.allow, {
             "npm run test *", "npm test *", "npm run lint *", "npm run typecheck *", "npm run build *",
-            "git push origin HEAD", "git push -u origin HEAD"})
+            "bash scripts/check.sh *", "git push origin HEAD", "git push -u origin HEAD"})
 
     def test_release_dev_and_excluded_commands_are_not_allow_listed(self):
         for cmd in ("npm run release *", "npm run dev *", "npm run e2e *", "npm run gen *", "npm run ci *"):
@@ -92,7 +95,7 @@ class NodeRepo(Base):
     def test_network_binding_and_baseline(self):
         self.assertEqual(self.sb["network"]["allowedDomains"], ["api.github.com", "github.com", "registry.npmjs.org"])
         self.assertTrue(self.sb["network"]["allowLocalBinding"])
-        self.assertIs(self.sb["enabled"], True)
+        self.assertNotIn("enabled", self.sb)  # already on in the repo settings
         self.assertIs(self.sb["allowUnsandboxedCommands"], False)
         self.assertNotIn("filesystem", self.sb)
 
@@ -124,8 +127,7 @@ class PythonRepo(Base):
 
     def test_allow_rules(self):
         self.assertEqual(self.allow, {
-            "pytest *", "python3 -m pytest *", "ruff check *", "ruff format --check *", "mypy *", "make test *",
-            "make lint *", "make check *", "git push origin HEAD", "git push -u origin HEAD"})
+            "make test *", "make lint *", "make check *", "bash scripts/check_all.sh *", "git push origin HEAD", "git push -u origin HEAD"})
 
     def test_docker_and_ssh_excludes_on_macos(self):
         self.assertEqual(self.s["sandbox"]["excludedCommands"],
@@ -140,7 +142,7 @@ class PythonRepo(Base):
 
 class Behaviour(Base):
     def test_read_only(self):
-        repo = make_repo(self.tmp / "ro", NODE, "https://github.com/acme/widget.git")
+        repo = make_repo(self.tmp / "ro", NODE, "https://github.com/acme/widget.git", on=False)
         before, home_before = snapshot(repo), snapshot(self.home)
         sp.advise(repo, self.home, "darwin")
         out = io.StringIO()
@@ -152,11 +154,11 @@ class Behaviour(Base):
     def test_only_what_is_missing_and_idempotent(self):
         repo = make_repo(self.tmp / "delta", NODE, "https://github.com/acme/widget.git")
         first = sp.analyze(repo, self.home, "darwin")["snippet"]
-        (repo / ".claude").mkdir()
+        first["sandbox"]["enabled"] = True
         (repo / ".claude/settings.local.json").write_text(json.dumps(first))  # the owner applies the advice
         self.assertIn("nothing to add", sp.advise(repo, self.home, "darwin"))
         user = self.home / ".claude"
-        user.mkdir()
+        user.mkdir(exist_ok=True)
         (repo / ".claude/settings.local.json").write_text(json.dumps({"permissions": {"allow": ["Bash(npm run *)"]}}))
         (user / "settings.json").write_text(json.dumps({"sandbox": {"excludedCommands": ["gh *"], "enabled": True,
                                                                     "allowUnsandboxedCommands": False}}))
@@ -168,14 +170,12 @@ class Behaviour(Base):
 
     def test_existing_allow_rule_covering_an_excluded_command_is_flagged(self):
         repo = make_repo(self.tmp / "cov", NODE, None)
-        (repo / ".claude").mkdir()
         (repo / ".claude/settings.json").write_text(json.dumps({"permissions": {"allow": ["Bash(npm run *)"]}}))
         stay = sp.analyze(repo, self.home, "darwin")["stay"]
         self.assertTrue(any(s.startswith("npm run e2e *: your existing allow rule") for s in stay))
 
     def test_user_deny_overrides_advised_allow(self):
         repo = make_repo(self.tmp / "deny", NODE, "https://github.com/acme/widget.git")
-        (repo / ".claude").mkdir()
         (repo / ".claude/settings.json").write_text(json.dumps({"permissions": {"deny": ["Bash(git push *)"]}}))
         r = sp.analyze(repo, self.home, "darwin")
         self.assertNotIn("Bash(git push origin HEAD)", r["snippet"]["permissions"]["allow"])
@@ -230,65 +230,6 @@ class Behaviour(Base):
         self.assertNotIn("make verify *", allow)
         self.assertIn("make lint *", allow)
         self.assertIn("make verify *", stay)  # needs approval (a push word); never allowed
-        allow, stay = self.allow_of("mk3", {"Makefile": "verify:\n\tgit reset --hard origin/main\n"})
-        self.assertNotIn("make verify *", allow)
-        self.assertIn("make verify *", stay)  # needs approval: not a known-safe leaf
-
-    def test_recursive_rm_in_a_body_is_not_allowed_even_though_the_guard_allows_it(self):
-        self.assertEqual(destructive_guard.check("rm -rf build"), "")
-        allow, stay = self.allow_of("mk2", {"Makefile": "test:\n\trm -rf build\n\tpytest\ncheck: test\n"})
-        self.assertFalse({"make test *", "make check *"} & allow)  # check runs test through its dependency
-        self.assertIn("make test *", stay)
-
-    def test_fail_closed_bypasses_are_needs_approval(self):
-        mk = {  # each Makefile: one target `test` (or `lint`) that must NOT be allow-listed
-            "inline": "test: ; rm -r ~/x\n",
-            "continuation": "test:\n\tpytest \\\n\t  && rm -r ~/x\n",
-            "variable": "test:\n\t$(RM) -r ~/x\n",
-            "make-dir": "test:\n\tmake -C . wipe\n",
-            "multi-target": "test:\n\tmake lint wipe\nlint:\n\truff check .\nwipe:\n\trm -r ~/x\n",
-            "dep-runs-rm": "test: wipe\nwipe:\n\trm -r ~/x\n",
-            "unknown-dep": "test: generated.txt\n\tpytest\n",
-            "include": "include extra.mk\ntest:\n\tpytest\n",
-            "shell": "test:\n\tcurl x | sh\n",
-            "cd": "test:\n\tcd sub && pytest\n",
-        }
-        for name, text in mk.items():
-            allow, stay = self.allow_of(f"mkb-{name}", {"Makefile": text})
-            self.assertNotIn("make test *", allow, name)
-            self.assertIn("make test *", stay, name)
-        npm = {"test:a": "npm run-script wipe", "test:b": "npm run --silent wipe", "test:c": "npm --prefix . run wipe",
-               "test:d": "node tools/run.js", "test:e": "sh wipe.sh", "test:f": "cd scripts && sh wipe.sh",
-               "test:g": "curl x | sh", "test:h": "$(rm -r ~/x)", "test:i": "pytest; rm -r ~/x", "test:j": "pytest ../x",
-               "test:k": "pnpm run wipe", "test:l": "yarn wipe", "test:m": "bun run wipe", "test:n": "npx vitest",
-               "test:ok": "vitest run && tsc --noEmit"}
-        allow, stay = self.allow_of("npmb", {"package.json": json.dumps({"scripts": npm})})
-        self.assertEqual(allow, {"npm run test:ok *"})
-        for name in npm:
-            if name != "test:ok":
-                self.assertIn(f"npm run {name} *", stay, name)
-
-    def test_fail_closed_scripts(self):
-        files = {"scripts/test-a.sh": '"$(dirname "$0")/wipe.sh"\n', "scripts/test-b.sh": "cd scripts && sh wipe.sh\n",
-                 "scripts/test-c.sh": "python3 tools/wipe.py\n", "scripts/test-d.sh": "node tools/run.js\n",
-                 "scripts/test-e.py": "import shutil\nshutil.rmtree('/x')\n", "scripts/test-f.js": "console.log(1)\n",
-                 "scripts/test-g.sh": "pytest -q\n\nrm -r ~/x\n", "scripts/test-ok.sh": "pytest -q\n"}
-        allow, stay = self.allow_of("scb", files)
-        self.assertEqual(allow, {"bash scripts/test-ok.sh *"})
-        for f in ("a", "b", "c", "d", "g"):
-            self.assertIn(f"bash scripts/test-{f}.sh *", stay)
-        self.assertIn("python3 scripts/test-e.py *", stay)
-
-    def test_a_script_run_by_a_safe_looking_dependency_chain_stays_closed(self):
-        allow, _ = self.allow_of("chain", {"Makefile": "check: lint\nlint:\n\tbash scripts/wipe.sh\n",
-                                           "scripts/wipe.sh": "rm -r ~/x\n"})
-        self.assertFalse({"make check *", "make lint *"} & allow)
-
-    def test_script_file_and_npm_body_with_destructive_lines_are_not_allowed(self):
-        allow, stay = self.allow_of("sc", {"scripts/test-a.sh": "rm -rf build\n", "scripts/test-b.sh": "pytest -q\n",
-                                           "package.json": json.dumps({"scripts": {"lint": "git reset --hard && eslint ."}})})
-        self.assertEqual(allow, {"bash scripts/test-b.sh *"})
-        self.assertIn("scripts/test-a.sh", stay)
 
     def test_dotdot_names_are_never_part_of_a_rule(self):
         files = {f"scripts/test-{n}.sh": "pytest -q\n" for n in "abcd"}
@@ -299,13 +240,47 @@ class Behaviour(Base):
 
     def test_prefix_rule_is_not_used_when_a_sibling_was_rejected(self):
         files = {f"scripts/test-{n}.sh": "pytest -q\n" for n in "abcd"}
-        files["scripts/test-evil.sh"] = "rm -rf build\n"
+        files["scripts/test-evil.sh"] = "npm publish\n"  # needs approval, so no prefix rule may name it
         allow, _ = self.allow_of("sib", files)
         self.assertEqual(allow, {f"bash scripts/test-{n}.sh *" for n in "abcd"})
 
-    def test_output_says_an_allow_rule_trusts_the_repos_content(self):
-        repo = make_repo(self.tmp / "trust", NODE, None)
-        self.assertIn("trusts the repo's content", sp.advise(repo, self.home, "darwin"))
+    def test_sandbox_off_prints_no_allow_rules_and_says_to_enable_it_first(self):
+        repo = make_repo(self.tmp / "off", NODE, "https://github.com/acme/widget.git", on=False)
+        r = sp.analyze(repo, self.home, "darwin")
+        self.assertNotIn("allow", r["snippet"]["permissions"])
+        self.assertIs(r["snippet"]["sandbox"]["enabled"], True)
+        text = sp.advise(repo, self.home, "darwin")
+        self.assertIn("Allow rules withheld: the sandbox is not enabled", text)
+        self.assertNotIn("Bash(npm run lint *)", text)
+        self.assertNotIn("Disclosure:", text)
+        self.assertIn("Bash(git push --force *)", text)  # deny and ask rules still print
+
+    def test_sandbox_on_prints_allow_rules_with_the_disclosure(self):
+        repo = make_repo(self.tmp / "on", NODE, "https://github.com/acme/widget.git")
+        text = sp.advise(repo, self.home, "darwin")
+        self.assertIn('"Bash(npm run lint *)"', text)
+        self.assertIn("Disclosure: these allow rules run repo-controlled code", text)
+        self.assertIn("safe only with the sandbox enabled", text)
+        self.assertNotIn("withheld", text)
+
+    def test_sandbox_enabled_in_user_settings_counts(self):
+        (self.home / ".claude").mkdir()
+        (self.home / ".claude/settings.json").write_text(json.dumps({"sandbox": {"enabled": True}}))
+        repo = make_repo(self.tmp / "usr", NODE, None, on=False)
+        self.assertIn("Bash(npm run lint *)", sp.analyze(repo, self.home, "darwin")["snippet"]["permissions"]["allow"])
+
+    def test_publish_deploy_release_are_ask_rules_and_deny_covers_destructive_git(self):
+        repo = make_repo(self.tmp / "ask", NODE, None)
+        perm = sp.analyze(repo, self.home, "darwin")["snippet"]["permissions"]
+        for rule in ("Bash(npm publish *)", "Bash(gh release create *)", "Bash(npm run release *)"):
+            self.assertIn(rule, perm["ask"])
+        self.assertNotIn("Bash(npm run release *)", perm["allow"])
+        samples = {"git push --force *": "git push --force origin main", "git push -f *": "git push -f origin main",
+                   "git reset --hard *": "git reset --hard HEAD~1", "git clean *": "git clean -fd",
+                   "git branch -D *": "git branch -D old", "rm -rf *": "rm -rf /", "rm -fr *": "rm -fr ~/x"}
+        for rule, call in samples.items():
+            self.assertIn(f"Bash({rule})", perm["deny"])
+            self.assertTrue(destructive_guard.check(call), call)  # the deny rule and the guard agree
 
     def test_outside_writes(self):
         files = {"package.json": json.dumps({"scripts": {"build": "tsc && cp dist/a.js ~/.cache/acme/a.js && "
@@ -335,23 +310,24 @@ class Behaviour(Base):
         self.assertNotIn("allow", r["snippet"]["permissions"])
 
     def test_doctor_prints_the_section_and_exit_code_is_unchanged(self):
-        repo = make_repo(self.tmp / "doc", NODE, "https://github.com/acme/widget.git")
+        repo = make_repo(self.tmp / "doc", NODE, "https://github.com/acme/widget.git", on=False)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rc = perun_doctor.main([str(repo), "--home", str(self.home)])
         text = out.getvalue()
         self.assertIn("To run autonomously, add", text)
-        self.assertIn('"Bash(npm run lint *)"', text)
+        self.assertIn('"enabled": true', text)
+        self.assertIn("Allow rules withheld", text)  # sandbox not enabled: no allow rule printed
         self.assertEqual(rc, 1)  # FAIL "installed version" (nothing installed): the advice itself adds no WARN/FAIL
         self.assertRegex(text.splitlines()[0], r"^\d+ things? needs? attention")
 
     def test_install_prints_the_section(self):
-        repo = make_repo(self.tmp / "inst", NODE, "https://github.com/acme/widget.git")
+        repo = make_repo(self.tmp / "inst", NODE, "https://github.com/acme/widget.git", on=False)
         p = subprocess.run(["bash", str(ROOT / "install.sh"), str(repo)], capture_output=True, text=True,
                            env={**os.environ, "DCR_NO_PROBE": "1", "HOME": str(self.home)})
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("To run autonomously, add", p.stdout)
-        self.assertIn('"Bash(npm run lint *)"', p.stdout)
+        self.assertIn('"enabled": true', p.stdout)
         self.assertIn("To undo everything", p.stdout.rstrip().splitlines()[-1])  # last-three-lines contract holds
 
 
