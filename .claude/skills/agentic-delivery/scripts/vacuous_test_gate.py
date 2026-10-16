@@ -19,8 +19,9 @@ and PHPUnit emit counts, pytest does not), Jest JSON (`testResults[].name/assert
 pytest-json-report shape (`tests[].nodeid/outcome`). Assertion counts are only checked when the report carries them.
 --changed takes paths; --base REF takes added/changed/renamed files from `git diff --name-only --diff-filter=ACMR
 REF...HEAD` filtered to test-looking names (test_*, *_test.*, *.test.*, *.spec.*, or under test/tests/__tests__).
-Exit: ADVISORY by default: 0 whatever is listed (2 usage error). With --strict: 0 all OK (or no changed test files),
-1 any FAIL or VACUOUS, 3 any COULD_NOT_CHECK and no FAIL.
+Exit: the REPORT check always gates: 0 all OK (or no changed test files), 1 any FAIL, 3 any COULD_NOT_CHECK and no
+FAIL (2 usage error). The static pass is ADVISORY by default (its VACUOUS hits are listed, exit unaffected); with
+--strict its VACUOUS hits exit 1 and its parse failures exit 3 too.
 Limits: path matching is by suffix/dotted-classname, so two files with one basename in different dirs can be
 conflated when the report has no directory; this errs toward OK only if one of them really ran. The static pass
 cannot see assertions hidden in imported helpers whose names carry no assert/check/verify/expect word; such a
@@ -511,6 +512,8 @@ def selftest():
         rc = lambda *p: subprocess.run(me + list(p), capture_output=True).returncode
         assert (rc("tests/ok.spec.ts"), rc("tests/skip.spec.ts"), rc("tests/gone.spec.ts"),
                 rc("tests/skip.spec.ts", "tests/gone.spec.ts")) == (0, 1, 3, 1)
+        me.remove("--strict")  # the REPORT check gates without --strict too (only the static pass is advisory)
+        assert (rc("tests/ok.spec.ts"), rc("tests/skip.spec.ts"), rc("tests/gone.spec.ts")) == (0, 1, 3)
     # same-basename conflation: bare-basename report entry + two repo files sharing it = ambiguous; sole file = ok
     bare = '<testsuites><testcase classname="x.spec.ts"/></testsuites>'
     assert check(bare, ["a/x.spec.ts"], ["a/x.spec.ts", "b/x.spec.ts"])[0][0] == "COULD_NOT_CHECK"
@@ -614,7 +617,8 @@ def main(argv=None):
     ap.add_argument("--changed", nargs="*", default=None)
     ap.add_argument("--base")
     ap.add_argument("--selftest", action="store_true")
-    ap.add_argument("--strict", action="store_true", help="exit non-zero on any hit (default: advisory, always 0)")
+    ap.add_argument("--strict", action="store_true",
+                    help="also fail on static VACUOUS hits (default: static pass advisory; the REPORT check always gates)")
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest() or 0
@@ -636,11 +640,14 @@ def main(argv=None):
             text = f"<!DOCTYPE unreadable {type(e).__name__}"  # forces the COULD_NOT_CHECK path
         ls = subprocess.run(["git", "ls-files", "-z"], capture_output=True)
         files = ls.stdout.decode("utf-8", "surrogateescape").split("\0") if ls.returncode == 0 else []
-        res += check(text, paths, files)
-    for s, p, why in res:
+        rep = check(text, paths, files)
+    else:
+        rep = []
+    for s, p, why in res + rep:
         print(f"{s} {p}: {why}")
-    st = {s for s, _, _ in res}
-    return (1 if st & {"FAIL", "VACUOUS"} else 3 if "COULD_NOT_CHECK" in st else 0) if a.strict else 0
+    # The run-report check always gates (its documented contract); only the static pass is advisory unless --strict.
+    st = {s for s, _, _ in rep} | ({s for s, _, _ in res} if a.strict else set())
+    return 1 if st & {"FAIL", "VACUOUS"} else 3 if "COULD_NOT_CHECK" in st else 0
 
 
 if __name__ == "__main__":
