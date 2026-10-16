@@ -16,7 +16,7 @@
 #   - .claude/skills/deep-code-review/   (Claude Code; Cursor/Codex also load)
 # Optional hosts:
 #   --with-codex         also .codex/skills/
-#   --with-extra-hosts   also .gemini .opencode .github .windsurf .hermes .kiro .cline .roo .factory
+#   --with-extra-hosts   also .gemini .opencode .github .windsurf .hermes .kiro .cline .roo .factory .qwen .grok
 # Overlay skills (opt-in; default stays review-only):
 #   --with-delivery      also agentic-delivery
 #   --with-terse-replies with --with-delivery: write a Stop-hook snippet (terse_reply_check.py, opt-in)
@@ -75,7 +75,7 @@ on re-install). Overlay skills are opt-in.
   --minimal            Only .claude/skills/ + AGENTS.md
   --policy dim=value[,dim=value]  Write .perun/policy.json (e.g. local_cpu=maximize,github_actions=off,share_learnings=auto)
   --with-codex         Also .codex/skills/
-  --with-extra-hosts   Also Gemini, OpenCode, Copilot, Windsurf, Hermes, Kiro, Cline, Roo Code, Factory Droid
+  --with-extra-hosts   Also Gemini, OpenCode, Copilot, Windsurf, Hermes, Kiro, Cline, Roo Code, Factory Droid, Qwen Code, Grok Build
   --claude-only        Only .claude/skills/; skip AGENTS.md
   --with-cursor        Accepted as no-op (Cursor path is default now)
   --with-delivery      Also install agentic-delivery (gated delivery overlay)
@@ -359,7 +359,7 @@ if [[ "${WITH_CODEX}" -eq 1 ]]; then
   HOSTS+=(".codex")
 fi
 if [[ "${WITH_EXTRA}" -eq 1 ]]; then
-  HOSTS+=(".gemini" ".opencode" ".github" ".windsurf" ".hermes" ".kiro" ".cline" ".roo" ".factory")
+  HOSTS+=(".gemini" ".opencode" ".github" ".windsurf" ".hermes" ".kiro" ".cline" ".roo" ".factory" ".qwen" ".grok")
 fi
 
 SKILLS=("${REVIEW_NAME}")
@@ -748,7 +748,7 @@ if [[ "${WRITE_AGENTS}" -eq 1 ]]; then
     LOCATIONS="${LOCATIONS:+${LOCATIONS}; }.codex/skills/"
   fi
   if [[ "${WITH_EXTRA}" -eq 1 ]]; then
-    LOCATIONS="${LOCATIONS:+${LOCATIONS}; }extra hosts (.gemini .opencode .github .windsurf .hermes .kiro .cline .roo .factory)"
+    LOCATIONS="${LOCATIONS:+${LOCATIONS}; }extra hosts (.gemini .opencode .github .windsurf .hermes .kiro .cline .roo .factory .qwen .grok)"
   fi
   # Primary path is stated once; the parenthetical lists only the MIRROR roots
   # (empty under --minimal, so no bare "()" and no path repeated).
