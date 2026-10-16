@@ -7,7 +7,7 @@ Checks, in plain language: installed version vs this checkout (and the global co
 hook entries whose files exist, shipped hook scripts that nothing calls, forked copies
 that drifted from the checkout (sha256), janitor/scheduler presence, policy file, and the
 sandbox probe (git, ssl, network, local bind, ~/.cache write; DCR_NO_PROBE=1 skips it).
-Exit 0 = nothing to fix, 1 = at least one WARN/FAIL. `--fix` prints a plan (and what default-on would add), needs a typed yes on a TTY or --yes, then
+Exit 0 = nothing to fix, 1 = at least one WARN/FAIL (INFO rows are optional add-ons and never fail the exit code). `--fix` prints a plan (and what default-on would add), needs a typed yes on a TTY or --yes, then
 re-runs the recorded install flags via scripts/update-installed.sh (skills are backed up
 by install.sh first), and re-checks. Stdlib only; read-only without --fix.
 """
@@ -162,10 +162,10 @@ def check(repo, home):
     add("WARN" if drift else "OK", "drifted copies", (f"{len(drift)} differ from checkout: " + ", ".join(sorted(drift)[:6]) + (" ..." if len(drift) > 6 else "")) if drift else "none")
     # janitor/scheduler
     names = [p for p in walk(repo, 4) if re.search(r"janitor|scheduler", p.name, re.I)]
-    add("OK" if names else "WARN", "janitor/scheduler", f"found {names[0].relative_to(repo)}" if names else "none installed: nothing runs Perun on a schedule")
+    add("OK" if names else "INFO", "janitor/scheduler", f"found {names[0].relative_to(repo)}" if names else "none (optional add-on install does not ship: nothing runs Perun on a schedule)")
     # policy
     pol = [p for p in walk(repo, 3) if re.search(r"perun[-_]?policy.*\.(json|ya?ml|toml)$", p.name, re.I)]
-    add("OK" if pol else "WARN", "policy file", f"found {pol[0].relative_to(repo)}" if pol else "no perun-policy file in the repo")
+    add("OK" if pol else "INFO", "policy file", f"found {pol[0].relative_to(repo)}" if pol else "none (optional; defaults apply, write one with install.sh --policy)")
     # sandbox probe: harmless checks; each failure names its exact fix. DCR_NO_PROBE=1 skips (tests, offline).
     if not os.environ.get("DCR_NO_PROBE"):
         sys.path.insert(0, str(SRC / ".claude/skills/agentic-delivery/scripts"))
@@ -239,7 +239,7 @@ def main(argv=None):
     bad = [r for r in rows if r[0] in ("WARN", "FAIL")]
     if a.fix and bad:
         if not any(r[1] in FIXABLE for r in bad):
-            print("\nNothing here a reinstall fixes (janitor, scheduler and policy need to be added by you).")
+            print("\nNothing here a reinstall fixes (see each WARN row).")
             return 1
         print(f"\nPlan: bash {SRC}/scripts/update-installed.sh {repo}  (replays .claude/.dcr-install-flags; "
               "existing skills move to <host>/skill-backups/; loose forks and the global copy are left alone)")

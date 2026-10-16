@@ -19,10 +19,10 @@ Run from your deep-code-review checkout (pull it first: "latest" means this chec
 | hooks wired | each operating-layer script (`pipe_mask_guard`, `subagent_start_inject`, `handback_cap`) is called by a hook, else "installed but never runs" |
 | manual-only scripts | informational: scripts no hook, workflow, loop or other script calls |
 | drifted copies | skill files, or loose copies of Perun scripts elsewhere in the repo, whose sha256 differs from the checkout |
-| janitor/scheduler | a janitor or scheduler file exists, so something runs Perun without you |
-| policy file | a `perun-policy` file exists |
+| janitor/scheduler | informational (INFO, never fails the exit code): a janitor or scheduler file exists, so something runs Perun without you. Install does not ship one |
+| policy file | informational (INFO): a `perun-policy` file exists. Optional; defaults apply without it |
 
-`--fix` prints the plan and what the default-on operating layer would add to your settings, then needs a typed `yes` on a terminal (or `--yes`, which prints a warning). It exits non-zero if the reinstall fails. It only re-runs `install.sh` with the recorded flags (existing skill copies move to `<host>/skill-backups/` first). It does not delete loose forks, touch the global copy, or invent a janitor or policy.
+`--fix` prints the plan and what the default-on operating layer would add to your settings, then needs a typed `yes` on a terminal (or `--yes`, which prints a warning). It exits non-zero if the reinstall fails. It only re-runs `install.sh` with the recorded flags (existing skill copies move to `<host>/skill-backups/` first; a backup identical to the fresh copy is not kept, so unchanged re-runs add nothing; install never deletes any other backup). It does not delete loose forks, touch the global copy, or invent a janitor or policy.
 
 ## Default-on operating layer
 
@@ -35,7 +35,7 @@ python3 scripts/perun_uninstall.py [REPO]            # dry run: prints the plan,
 python3 scripts/perun_uninstall.py [REPO] --apply    # does it
 ```
 
-It trusts only `.claude/.perun-install.json`, written by `install.sh` (no marker: nothing is removed; re-run `install.sh` once). Settings are parsed first; invalid JSON aborts with no change, and the file is replaced by temp file plus rename. It removes only the hook entries and env values the marker recorded, and the `model` key only if Perun set it. Skill files are removed only if their sha256 still matches the install; files you added or edited stay and are listed, and the pre-install backup in `skill-backups/` is restored only when the whole dir was removed. It leaves `.bak.<timestamp>` files and any `AGENTS.md` block alone.
+It trusts only `.claude/.perun-install.json`, written by `install.sh` (no marker: nothing is removed; re-run `install.sh` once). The rule is that nothing is deleted unless it is provably an unmodified, shipped Perun copy inside the repo. Settings are parsed first; invalid JSON aborts with no change, and the file is replaced by temp file plus rename. It removes only the hook entries, env values and sandbox/permissions values the marker recorded, and the `model` key only if Perun set it (the settings file itself goes if install created it and nothing else is in it). A skill file is removed only if its sha256 equals a hash install itself shipped; files you added or edited stay and are listed, and your pre-install copy is moved back into place (not copied, not deleted) when the whole dir was removed. A `skill-backups/` dir is removed only when every file in it is a shipped copy; any backup with a file that is not shipped, was edited, or sits behind a symlink is kept and listed as `kept: user content`. It also removes `house-defaults.md`, `settings.local.json.bak.<timestamp>` files and `AGENTS.md` blocks that install wrote (and `AGENTS.md` itself if install created it), then any directory that is now empty. A marker key with `..`, an absolute path or a malformed skills/backup dir aborts the run with no change; a path with a symlink in any component is skipped, never walked. Every delete is one file at a time, only for paths in the marker; nothing uses `rm -rf`.
 
 ## Releases and tags
 

@@ -290,6 +290,8 @@ if git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   INSTALL_SHA="$(git -C "${SCRIPT_DIR}" rev-parse --short HEAD)"
 fi
 
+COMMAND_FILES=()  # files install wrote fresh (commands, house-defaults.md, settings .bak): hashed into the uninstall record
+BACKUP_DIRS=()  # skill-backups dirs this run created and kept (recorded in the marker for uninstall)
 install_skill_copy() {
   local skill_name="$1"
   local dest="$2"
@@ -300,13 +302,17 @@ install_skill_copy() {
     exit 1
   fi
   mkdir -p "$(dirname "${dest}")"
-  if [[ -e "${dest}" ]]; then
+  local backup=""
+  if [[ -e "${dest}" || -L "${dest}" ]]; then
+    # Fail closed: a symlinked backup dir would move the user's skill (or later delete files) outside the target.
+    python3 "${SCRIPT_DIR}/scripts/perun_marker.py" backup-ok "${TARGET_DIR}" "${backup_root}" \
+      || { echo "error: ${backup_root} (or a parent below ${TARGET_DIR}) is a symlink; refusing to back up into it. Replace it with a real directory and re-run." >&2; exit 1; }
     mkdir -p "${backup_root}"
     # Portable, collision-free backup name: a seconds-resolution timestamp plus
     # an existence-checked numeric suffix, so rapid repeated installs within the
     # same second never reuse a name. Avoids `date +%N` (unsupported on BSD/macOS
     # date), which is why a plain timestamp alone would collide.
-    local backup="${backup_root}/${skill_name}-$(date +%Y%m%d-%H%M%S)"
+    backup="${backup_root}/${skill_name}-$(date +%Y%m%d-%H%M%S)"
     if [[ -e "${backup}" ]]; then
       local n=1
       while [[ -e "${backup}-${n}" ]]; do
@@ -329,6 +335,12 @@ install_skill_copy() {
     if [[ -f "${SCRIPT_DIR}/docs/example-review-report.md" ]]; then
       cp "${SCRIPT_DIR}/docs/example-review-report.md" "${dest}/references/example-review-report.md"
     fi
+  fi
+  if [[ -n "${backup}" ]]; then
+    # A backup byte-identical to the fresh copy is just the shipped files again: drop it so unchanged re-runs add nothing.
+    # Any other backup (an edited copy, an older release, your own copy) is never deleted by install.
+    python3 "${SCRIPT_DIR}/scripts/perun_marker.py" dedupe "${backup_root}" "${backup}" "${dest}"
+    [[ ! -d "${backup}" ]] || BACKUP_DIRS+=("${backup#"${TARGET_DIR}"/}")
   fi
   local skill_ver="unknown"
   if [[ -f "${src}/VERSION" ]]; then
@@ -529,11 +541,12 @@ Lane budget: stay inside the lane token cap. Read only the line ranges you need,
 Optional chat voice: add your own line here; compressed assistant prose is available from the public caveman repository. Code, commits, PR bodies and docs stay normal prose.
 Hand-back: one line `status | evidence (sha/path/test) | next`, at most 10 lines and 800 characters; deliverables go to files, never into chat.
 HOUSE
+    COMMAND_FILES+=(".claude/house-defaults.md")
     echo "wrote default ${OPLAYER_HOUSE} (edit freely; an existing file is never overwritten)"
   fi
   if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
     OPLAYER_LOCAL="${TARGET_DIR}/.claude/settings.local.json"
-    [[ -f "${OPLAYER_LOCAL}" ]] || echo '{}' > "${OPLAYER_LOCAL}"
+    [[ -f "${OPLAYER_LOCAL}" ]] || { echo '{}' > "${OPLAYER_LOCAL}"; OPLAYER_LOCAL_NEW=1; }
     OPLAYER_PRE="$(mktemp "${TMPDIR:-/tmp}/perun.XXXXXX")"; cp "${OPLAYER_LOCAL}" "${OPLAYER_PRE}"
     # Append template hook entries not already present; existing env/model win.
     # Placeholder matchers (contain "<") never fire: skip them, tell the operator.
@@ -560,6 +573,7 @@ HOUSE
       OPLAYER_BAK="${OPLAYER_LOCAL}.bak.$(date +%Y%m%d-%H%M%S)"   # timestamped: never overwrite an earlier backup
       OPLAYER_N=1; while [[ -e "${OPLAYER_BAK}" ]]; do OPLAYER_BAK="${OPLAYER_LOCAL}.bak.$(date +%Y%m%d-%H%M%S)-${OPLAYER_N}"; OPLAYER_N=$((OPLAYER_N + 1)); done
       cp "${OPLAYER_LOCAL}" "${OPLAYER_BAK}"
+      COMMAND_FILES+=("${OPLAYER_BAK#"${TARGET_DIR}"/}")
       mv "${OPLAYER_LOCAL}.tmp" "${OPLAYER_LOCAL}"
     fi
     OPLAYER_AGENT="${TARGET_DIR}/.claude/agents/delivery-lane.md"
@@ -599,7 +613,6 @@ fi
 # Slash commands: copy commands/*.md into .claude/commands/, but only those whose skill is installed.
 # review, deliver always; cost-retro, perun, perun-run need agentic-ceo/agentic-delivery.
 # Never overwrites (write_gate_file writes <dest>.new); only files written fresh go in the uninstall record.
-COMMAND_FILES=()
 if [[ -d "${SCRIPT_DIR}/commands" ]]; then
   for cmd in "${SCRIPT_DIR}"/commands/*.md; do
     name="$(basename "${cmd}" .md)"
@@ -618,6 +631,7 @@ fi
 
 # Marker: exactly what this install added, so perun_uninstall.py removes only that.
 python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --dirs "${INSTALLED_DIRS[@]}" ${COMMAND_FILES[@]+--files "${COMMAND_FILES[@]}"} \
+  ${BACKUP_DIRS[@]+--backups "${BACKUP_DIRS[@]}"} ${OPLAYER_LOCAL_NEW:+--settings-created} \
   ${OPLAYER_PRE:+--pre "${OPLAYER_PRE}" --template "${SCRIPT_DIR}/.claude/skills/agentic-delivery/templates/operating-layer.settings.json"} \
   ${OPLAYER_AGENT_NEW:+--agent-created} --version "${VERSION}" \
   --remote "${PERUN_REMOTE:-$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null | sed -E 's#://[^/@]+@#://#' || true)}"
@@ -688,11 +702,13 @@ if [[ "${APPLY_OPLAYER}" -eq 1 ]]; then
   { mkdir -p "${XDG_CACHE_HOME:-${HOME}/.cache}/perun" && printf '%s\n' "${SCRIPT_DIR}" > "${XDG_CACHE_HOME:-${HOME}/.cache}/perun/source"; } 2>/dev/null || true
 fi
 
+AGENTS_BLOCKS=(); AGENTS_CREATED=""
 upsert_agents_block() {
   local agents="$1"
   local marker_begin="$2"
   local marker_end="$3"
   local block="$4"
+  AGENTS_BLOCKS+=("${marker_begin%:begin}")
   if [[ -f "${agents}" ]] && grep -q "${marker_begin}" "${agents}"; then
     local block_file out_file
     block_file="$(mktemp "${TMPDIR:-/tmp}/perun.XXXXXX")"
@@ -717,6 +733,7 @@ upsert_agents_block() {
     echo "agents: appended ${marker_begin} -> ${agents}"
   else
     printf '# AGENTS.md\n\n%s\n' "${block}" > "${agents}"
+    AGENTS_CREATED=1
     echo "agents: created ${agents} with ${marker_begin}"
   fi
 }
@@ -810,6 +827,7 @@ EOF
 )"
     upsert_agents_block "${AGENTS}" "dcr-tracker:begin" "dcr-tracker:end" "${TRACKER_BLOCK}"
   fi
+  python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --agents-block "${AGENTS_BLOCKS[@]}" ${AGENTS_CREATED:+--agents-created}
   echo "  works with Cursor, Claude Code, Codex, Copilot, Gemini, Aider, Windsurf, OpenCode, Hermes, Kiro, ..."
 fi
 
