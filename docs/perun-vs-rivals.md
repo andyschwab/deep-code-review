@@ -158,6 +158,23 @@ Three safety reviews of the uninstall and backup changes found and closed 4 data
 
 Perun still loses on reach and adoption: obra/superpowers covers 15 to 16 hosts per its docs with one native command each, against Perun's 11, and it has far more adoption. 10 of Perun's 11 are not run on a real host. Hosts superpowers lists beyond these have no Perun native install.
 
+### H11. Merge train (1.584.0)
+
+Zero model spend, no network, no SaaS. No rival merge queue (Mergify, GitHub merge queue, Graphite) was run head-to-head, so nothing here is a comparison with a rival: it measures Perun's own train, and, for the flake rules, the retired rule counted on the same simulated draws.
+
+Bench: a 6-PR fixture (two independent greens, two PRs that conflict on one file, one PR that passes alone but breaks the gate once another lands, one PR with a 1-in-3 simulated flaky test) on a local bare origin with a `gh` stub; git is real, forge responses are simulated. Every number below comes from a run on the origin/main scripts at the 1.584.0 commit (b9e4231), copied unmodified; the driver, per-run logs and `RESULTS.md` are committed in `docs/bench/merge-train-1584`. 4 train runs: flake offsets 0, 1 and 2, and the semantic-conflict pair numbered the other way round.
+
+| Measure | Result | Caveat |
+|---|---|---|
+| PRs landed | 4 of 6, in all 4 runs; the other 2 parked, the conflict loser with no test run spent on it | The 2 parked are the conflict loser and the semantic-conflict culprit |
+| Semantic conflict (passes alone, breaks after another PR lands) | Caught before anything landed in 4 of 4 runs, by bisecting prefixes | Blame goes to the later PR number: with the numbers swapped, the independently green PR was parked and the other landed. The train cannot tell which of the two is "wrong" |
+| `main` green at every commit | Yes, for the 5 commits checked in each of the 4 runs | Checked with the flake disabled so the oracle is deterministic; the train itself never tests the intermediate states |
+| Flake false-blame, 1-in-3 flake | 25.9% (7/27) to 3.7% (1/27), analytic | Assumes independent runs; real flakes can correlate. Seeded simulation on the real script, 1000 trials: 31 blamed (3.1%) against 248 (24.8%) for the retired 2-of-3 rule counted on the same draws (not by running the old script) |
+| Regression that is clean on the base, landed as a "flake" at a 2/3 per-run failure rate | 0 of 300, against 73 of 300 under the old rule | Stubbed solo re-runs; 0 is by construction when the test never fails on the base. Cost: a genuinely flaky test that is also flaky on the base still lands 210 of 300 (70%) |
+| Per-tree verdict cache | Saved 0 test runs on this fixture: no cache hit in any of the 4 logs (10, 10, 11 and 10 test runs) | No tree was rebuilt identically in this fixture, so this says nothing about workloads that verify the same tree twice. The unit test does show a hit on a rebuilt union |
+
+Reproduce the flake and regression numbers with `bash scripts/test-train-flake-rate.sh` (16 passed, 0 failed; log in `docs/bench/merge-train-1584/flake-rate.txt`).
+
 ## 1. Review quality (measured, 2026-10-14)
 
 Sonnet `claude-sonnet-5-5`, 37 cases, one run per case, same harness and verifier for every arm. Full method and caveats: [`bench-results.md`](../.claude/skills/deep-code-review/scripts/fixtures/bench-results.md).
@@ -238,6 +255,7 @@ Perun's own docs warn against running it alongside superpowers on one repository
 - Destructive guard: 32-string corpus; no real-agent transcripts, and residual bypasses are known.
 - Vacuous-test detection: one 40-test corpus; the static pass was measured on one 20-test held-out set; `mutation_changed.py` was measured on one 40-test Python-only held-out set (20 vacuous, 20 genuine), with JavaScript unmeasured.
 - Install: no rival installer was run; the 1.583.0 uninstall, backup and doctor results are release-check claims, not part of the 1.582.0 bench tables; only the Codex native install was run on a real host; the other 10 native hosts are docs-validated or file-placement tested only.
+- Merge train: one small fixture and one seed; no rival merge queue was run; no real forge, branch protection or CI timing.
 - Delivery on multi-lane work: the fixtures were small, so coordination across lanes and budget gates were not tested.
 - Sections 3 and 4 compare documented features only.
 - Bundle token counts are static estimates, not API usage. No rival bundle was executed.
