@@ -134,6 +134,9 @@ def check_python(files, changed, cwd, left, mm):
             continue
         if st == "not checked" and key_of(name) not in sel:
             continue  # mutant of a function with no changed line: nothing to report
+        if st == "not checked" and to:
+            unrun = True  # the run timed out before reaching it: unknown, not "untested" (stays PARTIAL)
+            continue
         mod, key = name.rpartition(".")[0], key_of(name)
         f = next((f for f in files if key in funcs[f] and f[:-3].replace("/", ".").endswith(mod)), None)
         hit = f and parse_mutmut_show(run(mm + ["show", name], cwd, 60)[1])
@@ -293,6 +296,10 @@ def selftest():
         mutmut_out["show sut.x_f__mutmut_1"] = mutmut_out["show sut.x_f__mutmut_2"] = (1, "", False)  # cannot locate: never OK
         rc, o = go(["--base", "main"])
         assert "PARTIAL" in o and "OK" not in o and "NOT_COVERED" not in o, o
+        mutmut_out.pop("show sut.x_f__mutmut_1"); mutmut_out.pop("show sut.x_f__mutmut_2")
+        mutmut_out["run"] = (-9, "", True)  # --max-seconds hit: unreached mutants are unknown, never NOT_COVERED
+        rc, o = go(["--base", "main"])
+        assert "PARTIAL" in o and "NOT_COVERED" not in o and "OK" not in o, o  # (the mocked JS survivor still prints)
         mutmut_out.update(keep)
         run = lambda c, cwd, t: real(c, cwd, t) if c[0] == "git" else (127, "", False)  # no tool anywhere
         rc, o = go(["--base", "main", "--strict"])
