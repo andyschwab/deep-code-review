@@ -28,7 +28,18 @@ F=.claude/skills/deep-code-review
 
 run; ok $rc "clean range passes"
 
-awk -F'\t' 'BEGIN{OFS=FS} !d&&/^\.claude\/skills\//{$2=$2+1;d=1} {print}' "$R/scripts/size-budgets.tsv" >"$WORK/t" && cp "$WORK/t" "$R/scripts/size-budgets.tsv"
+# raise the first skill row one byte past max(its row, its file's size): the ratchet's old value is that max, and a
+# lane that grew the file without committing the row (derived rows are not committed) leaves the row below the size
+python3 - "$R" <<'PY'
+import os, sys
+r = sys.argv[1]; p = os.path.join(r, "scripts/size-budgets.tsv"); out = []; done = False
+for ln in open(p).read().split("\n"):
+    f = ln.split("\t")
+    if not done and f[0].startswith(".claude/skills/") and len(f) > 1:
+        f[1] = str(max(int(f[1]), os.path.getsize(os.path.join(r, f[0]))) + 1); done = True; ln = "\t".join(f)
+    out.append(ln)
+open(p, "w").write("\n".join(out))
+PY
 red size-ratchet 'size-ratchet'
 awk -F'\t' 'BEGIN{OFS=FS} $1=="phase-floor-light"{$2=1} {print}' "$R/scripts/mustload-budgets.tsv" >"$WORK/t" && cp "$WORK/t" "$R/scripts/mustload-budgets.tsv"
 red mustload 'mustload'
