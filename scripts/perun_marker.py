@@ -2,7 +2,8 @@
 """Install marker: what install.sh itself added to a repo, so uninstall removes only that.
 
 Usage (called by install.sh): perun_marker.py TARGET --dirs REL... [--pre FILE --template FILE] [--agent-created] [--files REL...] [--backups REL...] [--agents-block NAME...] [--agents-created] [--settings-created] [--version V] [--remote URL]
-       perun_marker.py prune BACKUP_ROOT NAME NEW DEST   (keep only the newest Perun backup of a skill)
+       perun_marker.py backup-ok TARGET BACKUP_ROOT      (exit 1 when BACKUP_ROOT or a parent below TARGET is a symlink)
+       perun_marker.py dedupe BACKUP_ROOT NEW DEST       (drop NEW only when identical to the installed DEST)
 
 Writes TARGET/.claude/.perun-install.json, merged with any previous marker:
   skills: {<host>/skills/<name>: {<file>: sha256}}  hashes of the copy just installed
@@ -10,7 +11,9 @@ Writes TARGET/.claude/.perun-install.json, merged with any previous marker:
   env:    {key: value}      env keys absent before this install
   model:  "sonnet" | null   set only when the settings had no "model" before
   files:  {<rel>: sha256}  slash commands, house-defaults.md and settings .bak files install wrote fresh (never pre-existing files)
-  backups: {<rel dir>: {<file>: sha256}}  skill-backups dirs this install created (still on disk)
+  backups: [<rel dir>]  skill-backups dirs this install created (still on disk); never deleted unless every file is a shipped copy
+  preinstall: [<rel dir>]  the backups that hold what was in a skill dir before Perun first wrote it (uninstall moves one back)
+  shipped: {<skill>: {<file>: [sha256]}}  every hash install itself copied in, per release: the only content uninstall may delete
   settings: {sandbox, permissions}  only the values the operating layer added (nested; lists hold the added items)
   settings_created: true when install created settings.local.json
   agents_md: {blocks: [name], created: bool}  AGENTS.md blocks install wrote, and whether it created the file
@@ -56,34 +59,60 @@ def merge(a, b):
     return b
 
 
-def _rm_tree(d):
-    """Delete a directory file by file (symlinks unlinked, never followed), then its dirs bottom-up."""
-    for dp, dn, fn in os.walk(d, topdown=False):
-        for n in fn + dn:
-            if (Path(dp) / n).is_symlink() or (Path(dp) / n).is_file():
-                (Path(dp) / n).unlink()
-        os.rmdir(dp)
+def _entries(d):
+    """Every entry under d as relative paths (None when any entry is a symlink: never trusted, never walked through)."""
+    out = []
+    for dp, dn, fn in os.walk(d, followlinks=False):
+        for n in dn + fn:
+            if (Path(dp) / n).is_symlink():
+                return None
+            out.append(str((Path(dp) / n).relative_to(d)))
+    return sorted(x for x in out if "__pycache__" not in Path(x).parts)
 
 
-def prune_backups(root, name, new, dest):
-    """Keep one Perun backup per skill: drop `new` when identical to `dest`, else drop older ones that carry a VERSION file.
-    Pre-Perun originals (no VERSION file) and anything not named <name>-<timestamp> are never touched. Returns a status line."""
-    root, new = Path(root), Path(new)
-    if (new / "VERSION").is_file() and hash_dir(new) == hash_dir(dest):
-        _rm_tree(new)
-        return "backup: identical to the installed copy, not kept"
-    pat = re.compile(re.escape(name) + r"-\d{8}-\d{6}(-\d+)?$")
-    old = [b for b in root.iterdir() if b != new and pat.match(b.name) and b.is_dir() and not b.is_symlink() and (b / "VERSION").is_file()]
-    for b in old:
-        _rm_tree(b)
-    return f"backup: kept the latest only ({len(old)} older Perun backup(s) removed)" if (new / "VERSION").is_file() else "backup: pre-Perun original kept"
+def symlink_free(root, path):
+    """True when no component of `path` below `root` (and `path` itself) is a symlink."""
+    root, p = Path(root), Path(path)
+    try:
+        parts = p.relative_to(root).parts
+    except ValueError:
+        return False
+    return not any((root.joinpath(*parts[:i + 1])).is_symlink() for i in range(len(parts)))
+
+
+def drop_identical_backup(root, new, dest):
+    """Remove the fresh backup `new` only when it is provably the shipped copy: byte-identical to the just-installed `dest`
+    (same entries, same sha256), with no symlink in either tree or anywhere on the path. Anything else stays. Returns a status line."""
+    root, new, dest = Path(root), Path(new), Path(dest)
+    if not (symlink_free(root, new) and new.is_dir() and dest.is_dir() and not dest.is_symlink()):
+        return "backup: kept (symlink or unexpected path)"
+    ne, de = _entries(new), _entries(dest)
+    if ne is None or de is None or ne != de or hash_dir(new) != hash_dir(dest):
+        return "backup: kept (differs from the installed copy)"
+    for f in sorted(new.rglob("*"), reverse=True):  # files first, then dirs, one at a time; the walk above proved no symlinks
+        (f.rmdir if f.is_dir() else f.unlink)()
+    new.rmdir()
+    return "backup: identical to the installed copy, not kept"
+
+
+def _skill_of(backup):
+    """host/skill-backups/<name>-<timestamp> -> host/skills/<name> (None when it does not look like one)."""
+    m = re.match(r"^(.*)/skill-backups/(.+)-\d{8}-\d{6}(-\d+)?$", backup)
+    return f"{m.group(1)}/skills/{m.group(2)}" if m else None
 
 
 def record(target, dirs, pre=None, template=None, agent_created=False, files=(), version=None, remote=None, backups=(), agents_blocks=(), agents_created=False, settings_created=False):
     target = Path(target)
     m = load(target) or {}
     m.update({k: v for k, v in (("version", version), ("remote", remote)) if v})
+    first = {d for d in dirs if d not in m.get("skills", {})}  # skill dirs Perun had never written before this run
     m.setdefault("skills", {}).update({d: hash_dir(target / d) for d in dirs if (target / d).is_dir()})
+    for d in dirs:  # the copy install just wrote is the shipped release: remember its hashes (never the hashes of whatever was there before)
+        if (target / d).is_dir() and not (target / d).is_symlink():
+            for f, h in hash_dir(target / d).items():
+                sh = m.setdefault("shipped", {}).setdefault(d.rsplit("/", 1)[-1], {}).setdefault(f, [])
+                if h not in sh:
+                    sh.append(h)
     m.setdefault("hooks", []); m.setdefault("env", {}); m.setdefault("model", None); m.setdefault("agent", None)
     cfg = target / ".claude/settings.local.json"
     if pre and template and cfg.is_file():
@@ -109,8 +138,9 @@ def record(target, dirs, pre=None, template=None, agent_created=False, files=(),
         am = m.setdefault("agents_md", {"blocks": [], "created": False})
         am["blocks"] += [b for b in agents_blocks if b not in am["blocks"]]
         am["created"] = am["created"] or agents_created
-    m.setdefault("backups", {}).update({d: hash_dir(target / d) for d in backups if (target / d).is_dir()})
-    m["backups"] = {d: h for d, h in m["backups"].items() if (target / d).is_dir()}
+    m["backups"] = sorted(d for d in {*m.get("backups", []), *backups} if (target / d).is_dir())
+    pre = {b for b in backups if _skill_of(b) in first}
+    m["preinstall"] = sorted(b for b in {*m.get("preinstall", []), *pre} if b in m["backups"])
     m.setdefault("files", {}).update({f: sha(target / f) for f in files if (target / f).is_file()})
     agent = target / ".claude/agents/delivery-lane.md"
     if agent_created and agent.is_file():
@@ -122,8 +152,10 @@ def record(target, dirs, pre=None, template=None, agent_created=False, files=(),
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["prune"]:
-        print(prune_backups(*sys.argv[2:6]))
+    if sys.argv[1:2] == ["backup-ok"]:
+        sys.exit(0 if symlink_free(sys.argv[2], sys.argv[3]) else 1)
+    if sys.argv[1:2] == ["dedupe"]:
+        print(drop_identical_backup(*sys.argv[2:5]))
         sys.exit(0)
     ap = argparse.ArgumentParser()
     ap.add_argument("target")

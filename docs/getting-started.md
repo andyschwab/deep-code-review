@@ -129,7 +129,7 @@ everything the install recorded. By hand instead: delete the skill folders it cr
 `.cursor/skills/`, `.agents/skills/` (and any extra host roots), and delete the
 `<!-- deep-code-review:begin -->` … `<!-- deep-code-review:end -->` block from
 `AGENTS.md` (plus the `dcr-overlays` block if you installed overlays). If the
-installer replaced an older copy, that copy is under `.<host>/skill-backups/` (latest Perun copy per skill only; an identical one is not kept).
+installer replaced an older copy, that copy is under `.<host>/skill-backups/` (a copy identical to the new one is not kept; install never deletes a backup).
 
 ## Next
 

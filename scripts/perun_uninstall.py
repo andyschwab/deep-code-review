@@ -12,20 +12,24 @@ Plan, built and validated before anything is touched:
     entries, env values and sandbox/permissions values recorded in the marker (and still
     equal to the recorded value) are removed, and the "model" key only if Perun set it.
     The file itself goes if install created it and nothing else is left. Temp file + rename.
-  * Skill dirs: only files whose sha256 still equals the recorded install hash are removed.
+  * Skill dirs: only files whose sha256 equals a hash install itself shipped are removed.
     Files you added or edited are kept and listed; the dir stays if any are kept. When a
-    dir is fully removed, the oldest pre-install backup (no VERSION file) is restored.
-  * skill-backups dirs install created: removed file by file when unchanged. A pre-install
-    original is removed only after it was restored; otherwise it is kept and listed.
+    dir is fully removed, your oldest pre-install copy (a backup that is not a shipped copy)
+    is moved back into place, never copied over or deleted.
+  * skill-backups dirs install created: removed only when every file in them is a shipped copy
+    (an older release, or an identical one). Any backup with a file that is not shipped, was edited,
+    or sits behind a symlink is kept and listed as "kept: user content".
   * Slash commands, house-defaults.md and settings .bak.<ts> files: removed only if install
     wrote them and they are unchanged.
   * delivery-lane.md is removed only if Perun created it and it is unchanged.
   * AGENTS.md: the blocks install wrote are cut out; the file goes if install created it and nothing else is left.
-Every delete is one file at a time, only for paths in the marker, each checked to resolve inside REPO
-(never rm -rf on a computed path). Only __pycache__/*.pyc under a removed skill dir are removed without being listed.
+Principle: nothing is deleted unless it is provably an unmodified, shipped Perun copy inside REPO. Marker keys
+with "..", an absolute path, a path that escapes REPO, or a skills/backup dir of the wrong shape abort the run
+with no change. A path with a symlink in any component is skipped, never walked. Every delete is one file at a
+time (never rm -rf on a computed path); only __pycache__/*.pyc under a removed dir is removed without being listed.
 Emptied directories are removed last (rmdir, never recursive). Stdlib only.
 """
-import argparse, json, os, re, shutil, sys
+import argparse, json, os, re, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -34,18 +38,33 @@ import perun_marker  # noqa: E402
 SRC = Path(__file__).resolve().parent.parent
 
 
+SKILL_RE = re.compile(r"^\.[\w.-]+/skills/[\w.-]+$")
+BACKUP_RE = re.compile(r"^\.[\w.-]+/skill-backups/([\w.-]+)-\d{8}-\d{6}(-\d+)?$")
+
+
+def plain(rel):
+    """True for a plain relative path: a string, not absolute, no ".." part. A bad marker key aborts the whole run."""
+    return isinstance(rel, str) and bool(rel) and not os.path.isabs(rel) and ".." not in Path(rel).parts
+
+
 def inside(repo, rel):
-    """True when repo/rel resolves (symlinked parents followed) to a path under repo, and rel is not absolute."""
+    """plain() and the realpath stays under repo. A path that fails only this (a symlink leads out) is skipped, never touched."""
+    if not plain(rel):
+        return False
     root = os.path.realpath(repo)
     real = os.path.join(os.path.realpath((repo / rel).parent), (repo / rel).name)
-    return not os.path.isabs(rel) and os.path.commonpath([root, real]) == root
+    return os.path.commonpath([root, real]) == root
+
+
+def safe(repo, rel):
+    """inside() and no component of repo/rel is a symlink."""
+    return inside(repo, rel) and perun_marker.symlink_free(repo, repo / rel)
 
 
 def rmf(repo, rel):
-    """Unlink one marker-listed file, after re-checking it is inside repo."""
-    if not inside(repo, rel):
-        raise ValueError(f"refusing to delete {rel}: outside {repo}")
-    (repo / rel).unlink(missing_ok=True)
+    """Unlink one file, only when safe(); a symlinked path is left alone."""
+    if safe(repo, rel):
+        (repo / rel).unlink(missing_ok=True)
 
 
 def strip(c, tree):
@@ -90,15 +109,34 @@ def plan(repo):
     if m is None:
         raise ValueError("no .claude/.perun-install.json marker: nothing is safe to remove (re-run install.sh to write one)")
     ops, notes = [], []
-    rels = [*m.get("skills", {}), *m.get("backups", {}), *m.get("files", {})]
-    rels += [d + "/" + f for g in ("skills", "backups") for d, fs in m.get(g, {}).items() for f in fs]
+    rels = [*m.get("files", {})] + [d + "/" + f for d, fs in m.get("skills", {}).items() for f in fs]
     if m.get("agent"):
         rels.append(m["agent"]["path"])
-    bad = [r for r in rels if not inside(repo, r)]
+    bad = [r for r in rels if not plain(r)]
+    bad += [d for d in m.get("skills", {}) if not (plain(d) and SKILL_RE.match(d))]
+    bad += [d for d in m.get("backups", []) if not (plain(d) and BACKUP_RE.match(d))]
     if bad:
-        raise ValueError(f"marker lists paths outside {repo} ({bad[0]}); nothing changed")
+        raise ValueError(f"marker lists a path outside {repo} or not a skills/backup dir ({bad[0]}); nothing changed")
+    shipped = {n: {f: set(hs) for f, hs in fs.items()} for n, fs in m.get("shipped", {}).items()}
+    for d, fs in m.get("skills", {}).items():  # markers from before "shipped" existed: the install-time hashes of the fresh copy
+        for f, h in fs.items():
+            shipped.setdefault(d.rsplit("/", 1)[-1], {}).setdefault(f, set()).add(h)
+
+    def backup_files(rel):
+        """Files of a backup dir when it is a real, symlink-free dir, else None."""
+        b = repo / rel
+        ents = perun_marker._entries(b) if b.is_dir() and safe(repo, rel) else None
+        return None if ents is None else [e for e in ents if (b / e).is_file()]
+
+    def is_shipped(rel):
+        """True only when every file in the backup is a byte-identical shipped copy (and there is nothing else in it)."""
+        name, files = BACKUP_RE.match(rel).group(1), backup_files(rel)
+        return files is not None and all(f in shipped.get(name, {}) and perun_marker.sha(repo / rel / f) in shipped[name][f] for f in files)
+
     cfg = repo / ".claude/settings.local.json"
-    if cfg.is_file() and (m.get("hooks") or m.get("env") or m.get("model") or m.get("settings") or m.get("settings_created")):
+    if cfg.is_file() and not safe(repo, ".claude/settings.local.json"):
+        notes.append(".claude/settings.local.json: kept: symlink in path, not touched")
+    elif cfg.is_file() and (m.get("hooks") or m.get("env") or m.get("model") or m.get("settings") or m.get("settings_created")):
         try:
             c = json.loads(cfg.read_text())
         except ValueError as e:
@@ -133,12 +171,22 @@ def plan(repo):
         ops.append((f"settings.local.json: remove {n} hook entr{'y' if n == 1 else 'ies'}, {envn} env value(s), {sn} sandbox/permissions value(s)" + (", model pin" if model else ""), write))
     restored = set()
     for d, files in sorted(m.get("skills", {}).items()):
-        dest = repo / d
+        dest, name = repo / d, d.rsplit("/", 1)[-1]
+        if dest.is_symlink() or (dest.exists() and not safe(repo, d)):
+            notes.append(f"{d}: kept: symlink in path, not touched")
+            continue
         if not dest.is_dir():
             continue
-        keep = [str(p.relative_to(dest)) for p in sorted(dest.rglob("*")) if p.is_file()
-                and "__pycache__" not in p.parts and files.get(str(p.relative_to(dest))) != perun_marker.sha(p)]
-        gone = [r for r in files if (dest / r).is_file() and r not in keep]
+        keep, gone = [], []
+        for dp, dn, fn in os.walk(dest, followlinks=False):  # a symlinked dir is listed but never descended
+            for n in fn + dn:
+                q = Path(dp) / n
+                if "__pycache__" in q.parts or not (q.is_symlink() or q.is_file()):
+                    continue
+                r = str(q.relative_to(dest))
+                ok = not q.is_symlink() and files.get(r) == perun_marker.sha(q) and perun_marker.sha(q) in shipped.get(name, {}).get(r, ())
+                (gone if ok else keep).append(r)
+        gone.sort(); keep.sort()
 
         def rm(dest=dest, gone=gone, d=d):
             for r in gone:
@@ -149,39 +197,49 @@ def plan(repo):
                 if not any(Path(dp).iterdir()):
                     Path(dp).rmdir()
         ops.append((f"{d}: remove {len(gone)} installed file(s)" + (f"; KEEP {len(keep)} added/edited: {', '.join(keep[:5])}" if keep else ""), rm))
-        host, _, name = d.partition("/skills/")
-        orig = sorted(b for b in (repo / host / "skill-backups").glob(name + "-*") if b.is_dir() and not (b / "VERSION").exists())
+        host = d.partition("/skills/")[0]
+        mine = [str(b.relative_to(repo)) for b in sorted((repo / host / "skill-backups").glob(name + "-*")) if b.is_dir() and BACKUP_RE.match(str(b.relative_to(repo)))]
+        pre = m.get("preinstall")  # markers written before this list existed: the oldest backup that is not a shipped copy
+        orig = [b for b in mine if BACKUP_RE.match(b).group(1) == name and backup_files(b) is not None
+                and (b in pre if pre is not None else not is_shipped(b))]
         if orig and not keep:
-            restored.add(str(orig[0].relative_to(repo)))
-            ops.append((f"{d}: restore {orig[0].relative_to(repo)}", lambda b=orig[0], dest=dest: shutil.copytree(b, dest)))
+            restored.add(orig[0])
+
+            def back(b=orig[0], dest=dest):
+                if not dest.exists():  # the removal above emptied it; if anything is left there, the backup stays where it is
+                    os.rename(repo / b, dest)
+            ops.append((f"{d}: restore your pre-install copy from {orig[0]} (moved back, not copied)", back))
         elif keep:
             notes.append(f"{d}: kept files, so the pre-install backup was not restored (see {host}/skill-backups)")
-    for d, files in sorted(m.get("backups", {}).items()):
-        if not (repo / d).is_dir():
+    for d in m.get("backups", []):
+        if not (repo / d).is_dir() and not (repo / d).is_symlink():
             continue
-        if not (repo / d / "VERSION").exists() and d not in restored:
-            notes.append(f"{d}: pre-install original kept (its skill dir was not restored)")
+        if d in restored:
             continue
-        have = [r for r in files if (repo / d / r).is_file()]
-        gone = [r for r in have if perun_marker.sha(repo / d / r) == files[r]]
+        files = backup_files(d)
+        if files is None or not is_shipped(d):
+            notes.append(f"{d}: kept: user content (not a shipped copy, edited, or behind a symlink)")
+            continue
 
-        def rmb(d=d, gone=gone):
-            for r in gone:
+        def rmb(d=d, files=files):
+            for r in files:
                 rmf(repo, f"{d}/{r}")
+            for pyc in sorted((repo / d).rglob("__pycache__/*.pyc")):
+                rmf(repo, str(pyc.relative_to(repo)))
             for dp, _, _ in sorted(os.walk(repo / d), reverse=True):
                 if not any(Path(dp).iterdir()):
                     Path(dp).rmdir()
-        ops.append((f"{d}: remove {len(gone)} backup file(s)", rmb))
-        if len(gone) < len(have):
-            notes.append(f"{d}: kept {len(have) - len(gone)} backup file(s) you changed")
+        ops.append((f"{d}: remove {len(files)} shipped backup file(s)", rmb))
     for f, h in sorted(m.get("files", {}).items()):
-        if (repo / f).is_file() and perun_marker.sha(repo / f) == h:
+        if safe(repo, f) and (repo / f).is_file() and perun_marker.sha(repo / f) == h:
             ops.append((f"remove {f}", lambda f=f: rmf(repo, f)))
     a = m.get("agent")
-    if a and (repo / a["path"]).is_file() and perun_marker.sha(repo / a["path"]) == a["sha"]:
+    if a and safe(repo, a["path"]) and (repo / a["path"]).is_file() and perun_marker.sha(repo / a["path"]) == a["sha"]:
         ops.append((f"remove {a['path']}", lambda a=a: rmf(repo, a["path"])))
     am, ag = m.get("agents_md"), repo / "AGENTS.md"
-    if am and ag.is_file():
+    if am and ag.is_file() and not safe(repo, "AGENTS.md"):
+        notes.append("AGENTS.md: kept: symlink in path, not touched")
+    elif am and ag.is_file():
         text = new = ag.read_text()
         for b in am["blocks"]:
             new = re.sub(rf"\n?^<!-- {re.escape(b)}:begin -->\n.*?^<!-- {re.escape(b)}:end -->\n?", "", new, flags=re.S | re.M)
@@ -197,7 +255,7 @@ def plan(repo):
 def finish(repo, m):
     for f in (".claude/.dcr-install-flags", ".claude/.dcr-install-flags.local", perun_marker.MARKER):
         rmf(repo, f)
-    prune_empty(repo, [*m.get("skills", {}), *(d.partition("/skills/")[0] + "/skill-backups" for d in m.get("skills", {})), *m.get("backups", {}), *m.get("files", {}), ".claude/agents", ".claude"])
+    prune_empty(repo, [*m.get("skills", {}), *(d.partition("/skills/")[0] + "/skill-backups" for d in m.get("skills", {})), *m.get("backups", []), *m.get("files", {}), ".claude/agents", ".claude"])
 
 
 def run(repo, apply=False):

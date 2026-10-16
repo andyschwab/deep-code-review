@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Install UX regressions (temp repos only): doctor exit on a fresh install, bounded backups, complete uninstall."""
+"""Install UX regressions (temp repos only): doctor exit on a fresh install, no growing backups, complete and safe uninstall.
+
+Principle under test: nothing is deleted unless it is provably an unmodified, shipped Perun copy inside the target."""
 import json, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
@@ -57,20 +59,55 @@ class BoundedBackups(Base):
         install(self.repo)
         self.assertEqual([self.backups(h) for h in (".claude", ".cursor", ".agents")], [[], [], []])
 
-    def test_changed_reruns_keep_only_the_latest_and_never_the_original(self):
+    def test_changed_reruns_never_delete_a_backup(self):  # review repro 2: pruning used to destroy user edits
         orig = self.repo / ".claude/skills/deep-code-review"
         orig.mkdir(parents=True)
         (orig / "SKILL.md").write_text("mine\n")  # pre-Perun copy: no VERSION file
         install(self.repo, "--minimal")
-        first = self.backups()
-        self.assertEqual(len(first), 1)
+        seen = {self.backups()[0]: "mine\n"}
         for i in range(3):
-            (orig / "SKILL.md").write_text(f"edit {i}\n")  # a changed copy each time, so each re-run has something to back up
+            (orig / "SKILL.md").write_text(f"my edit {i}\n")  # a changed copy each time, so each re-run has something to back up
             install(self.repo, "--minimal")
-        left = self.backups()
-        self.assertEqual(len(left), 2, left)  # the original plus ONE Perun backup
-        self.assertIn(first[0], left)
-        self.assertEqual((self.repo / ".claude/skill-backups" / first[0] / "SKILL.md").read_text(), "mine\n")
+            seen[[b for b in self.backups() if b not in seen][0]] = f"my edit {i}\n"
+        self.assertEqual(self.backups(), sorted(seen))  # all four are still there, none replaced
+        for name, text in seen.items():
+            self.assertEqual((self.repo / ".claude/skill-backups" / name / "SKILL.md").read_text(), text)
+
+    def test_symlinked_backup_root_is_refused(self):  # review repro 1: a symlinked skill-backups dir must never be written through
+        ext = self.tmp / "ext"
+        (ext / "deep-code-review-20260101-000000").mkdir(parents=True)
+        (ext / "deep-code-review-20260101-000000/keep.txt").write_text("user data\n")
+        (self.repo / ".claude").mkdir()
+        (self.repo / ".claude/skill-backups").symlink_to(ext)
+        orig = self.repo / ".claude/skills/deep-code-review"
+        orig.mkdir(parents=True)
+        (orig / "SKILL.md").write_text("mine\n")
+        p = subprocess.run(["bash", str(ROOT / "install.sh"), "--minimal", str(self.repo)], capture_output=True, text=True)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("symlink", p.stderr)
+        self.assertEqual((ext / "deep-code-review-20260101-000000/keep.txt").read_text(), "user data\n")
+        self.assertEqual(sorted(x.name for x in ext.iterdir()), ["deep-code-review-20260101-000000"])  # nothing moved into it
+        self.assertEqual((orig / "SKILL.md").read_text(), "mine\n")  # the user's skill was not moved or replaced
+
+    def test_dedupe_never_follows_a_symlink(self):
+        dest = self.tmp / "dest"
+        (dest).mkdir()
+        (dest / "SKILL.md").write_text("same\n")
+        userdir = self.tmp / "userdir"
+        userdir.mkdir()
+        (userdir / "SKILL.md").write_text("same\n")  # identical content: still the user's directory
+        root = self.tmp / "root"
+        root.mkdir()
+        (root / "foo-20260101-000000").symlink_to(userdir)
+        out = perun_marker.drop_identical_backup(root, root / "foo-20260101-000000", dest)
+        self.assertIn("kept", out)
+        self.assertEqual((userdir / "SKILL.md").read_text(), "same\n")
+        real = root / "bar-20260101-000000"
+        real.mkdir()
+        (real / "SKILL.md").write_text("same\n")
+        (real / "link").symlink_to(userdir)  # a symlink inside the backup: not a plain shipped copy
+        self.assertIn("kept", perun_marker.drop_identical_backup(root, real, dest))
+        self.assertTrue(userdir.is_dir())
 
     def test_prune_ignores_foreign_dirs(self):
         install(self.repo, "--minimal")
@@ -128,9 +165,52 @@ class CompleteUninstall(Base):
         (orig / "my-notes.md").write_text("added\n")  # user file inside the skill dir: dir is not fully removed
         p = uninstall(self.repo, "--apply")
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn("original kept", p.stdout)
-        kept = [b for b in (self.repo / ".claude/skill-backups").iterdir() if not (b / "VERSION").exists()]
+        self.assertIn("kept: user content", p.stdout)
+        kept = [b for b in (self.repo / ".claude/skill-backups").iterdir()]
         self.assertEqual((kept[0] / "SKILL.md").read_text(), "mine\n")
+
+    def test_preinstall_copy_with_version_file_and_edited_backup_survive(self):  # review repro 3
+        orig = self.repo / ".claude/skills/deep-code-review"
+        orig.mkdir(parents=True)
+        (orig / "SKILL.md").write_text("mine\n")
+        (orig / "VERSION").write_text("9.9.9\n")  # looks like a Perun copy by name, but it is not a shipped one
+        install(self.repo, "--minimal")
+        (b,) = list((self.repo / ".claude/skill-backups").iterdir())
+        (b / "SKILL.md").write_text("edited in the backup\n")
+        p = uninstall(self.repo, "--apply")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((orig / "SKILL.md").read_text(), "edited in the backup\n")  # moved back, content untouched
+        self.assertEqual((orig / "VERSION").read_text(), "9.9.9\n")
+
+    def test_backup_with_a_non_shipped_file_is_kept_and_a_shipped_one_is_removed(self):
+        install(self.repo, "--minimal")
+        sk = self.repo / ".claude/skills/deep-code-review"
+        bdir = self.repo / ".claude/skill-backups"
+        bdir.mkdir()
+        shipped_copy, user_copy = bdir / "deep-code-review-20260101-000000", bdir / "deep-code-review-20260102-000000"
+        shutil.copytree(sk, shipped_copy)
+        shutil.copytree(sk, user_copy)
+        (user_copy / "notes.md").write_text("mine\n")
+        mf = self.repo / perun_marker.MARKER
+        m = json.loads(mf.read_text())
+        m["backups"] = [f".claude/skill-backups/{shipped_copy.name}", f".claude/skill-backups/{user_copy.name}"]
+        mf.write_text(json.dumps(m))
+        p = uninstall(self.repo, "--apply")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse(shipped_copy.exists())  # byte-identical shipped copy: removed
+        self.assertEqual((user_copy / "notes.md").read_text(), "mine\n")  # extra user file: whole backup kept
+        self.assertIn(f"{user_copy.name}: kept: user content", p.stdout.replace(".claude/skill-backups/", ""))
+
+    def test_edited_perun_backup_is_kept_not_restored_as_preinstall(self):
+        install(self.repo, "--minimal")
+        (self.repo / ".claude/skills/deep-code-review/SKILL.md").write_text("my edit\n")
+        install(self.repo, "--minimal")  # backs up the edited copy
+        p = uninstall(self.repo, "--apply")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertFalse((self.repo / ".claude/skills/deep-code-review").exists())  # nothing pre-existed: no skill restored
+        (b,) = list((self.repo / ".claude/skill-backups").iterdir())
+        self.assertEqual((b / "SKILL.md").read_text(), "my edit\n")
+        self.assertIn("kept: user content", p.stdout)
 
     def test_marker_path_outside_repo_is_refused(self):
         install(self.repo, "--minimal")
@@ -152,7 +232,57 @@ class CompleteUninstall(Base):
         (self.repo / "link").symlink_to(outside)
         self.assertFalse(perun_uninstall.inside(self.repo, "link/f.txt"))
         self.assertFalse(perun_uninstall.inside(self.repo, "/etc/hosts"))
+        self.assertFalse(perun_uninstall.inside(self.repo, "a/../b"))
         self.assertTrue(perun_uninstall.inside(self.repo, ".claude/x"))
+
+    def _marker(self, **edit):
+        mf = self.repo / perun_marker.MARKER
+        m = json.loads(mf.read_text())
+        m.update(edit)
+        mf.write_text(json.dumps(m))
+
+    def test_traversal_absolute_and_bad_shaped_marker_keys_abort(self):  # review repro 4
+        install(self.repo, "--minimal")
+        outer = self.tmp / "outer"
+        (outer / "emptyvictim").mkdir(parents=True)
+        good = (self.repo / perun_marker.MARKER).read_text()
+        for bad in ({"skills": {"../outer": {}}}, {"skills": {".": {}}}, {"skills": {str(outer): {}}},
+                    {"backups": ["../outer/emptyvictim"]}, {"files": {"/etc/hosts": "x"}}, {"files": {"a/../../outer/x": "x"}}):
+            self._marker(**bad)
+            p = uninstall(self.repo, "--apply")
+            self.assertNotEqual(p.returncode, 0, bad)
+            self.assertIn("outside", p.stderr)
+            self.assertTrue((outer / "emptyvictim").is_dir())
+            self.assertTrue((self.repo / ".claude/skills/deep-code-review").exists())  # nothing else touched
+            (self.repo / perun_marker.MARKER).write_text(good)
+
+    def test_symlinked_skill_dir_is_skipped_and_never_walked(self):
+        install(self.repo, "--minimal")
+        sk = self.repo / ".claude/skills/deep-code-review"
+        ext = self.tmp / "ext"
+        shutil.copytree(sk, ext)  # an exact shipped copy, outside the repo
+        shutil.rmtree(sk)
+        sk.symlink_to(ext)
+        p = uninstall(self.repo, "--apply")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("symlink", p.stdout)
+        self.assertTrue((ext / "SKILL.md").exists())
+        self.assertTrue(sk.is_symlink())
+
+    def test_symlinked_backup_dir_is_kept(self):
+        install(self.repo, "--minimal")
+        userdir = self.tmp / "userdir"
+        userdir.mkdir()
+        (userdir / "SKILL.md").write_text("user\n")
+        (self.repo / ".claude/skill-backups").mkdir()
+        link = self.repo / ".claude/skill-backups/deep-code-review-20260101-000000"
+        link.symlink_to(userdir)
+        self._marker(backups=[".claude/skill-backups/deep-code-review-20260101-000000"])
+        p = uninstall(self.repo, "--apply")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((userdir / "SKILL.md").read_text(), "user\n")
+        self.assertTrue(link.is_symlink())
+        self.assertIn("kept: user content", p.stdout)
 
 
 class SettingsTree(unittest.TestCase):

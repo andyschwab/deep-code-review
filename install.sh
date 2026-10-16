@@ -303,7 +303,10 @@ install_skill_copy() {
   fi
   mkdir -p "$(dirname "${dest}")"
   local backup=""
-  if [[ -e "${dest}" ]]; then
+  if [[ -e "${dest}" || -L "${dest}" ]]; then
+    # Fail closed: a symlinked backup dir would move the user's skill (or later delete files) outside the target.
+    python3 "${SCRIPT_DIR}/scripts/perun_marker.py" backup-ok "${TARGET_DIR}" "${backup_root}" \
+      || { echo "error: ${backup_root} (or a parent below ${TARGET_DIR}) is a symlink; refusing to back up into it. Replace it with a real directory and re-run." >&2; exit 1; }
     mkdir -p "${backup_root}"
     # Portable, collision-free backup name: a seconds-resolution timestamp plus
     # an existence-checked numeric suffix, so rapid repeated installs within the
@@ -334,8 +337,9 @@ install_skill_copy() {
     fi
   fi
   if [[ -n "${backup}" ]]; then
-    # Re-runs and updates must not grow backups without bound: keep the latest Perun copy only (an identical one is dropped).
-    python3 "${SCRIPT_DIR}/scripts/perun_marker.py" prune "${backup_root}" "${skill_name}" "${backup}" "${dest}"
+    # A backup byte-identical to the fresh copy is just the shipped files again: drop it so unchanged re-runs add nothing.
+    # Any other backup (an edited copy, an older release, your own copy) is never deleted by install.
+    python3 "${SCRIPT_DIR}/scripts/perun_marker.py" dedupe "${backup_root}" "${backup}" "${dest}"
     [[ ! -d "${backup}" ]] || BACKUP_DIRS+=("${backup#"${TARGET_DIR}"/}")
   fi
   local skill_ver="unknown"
