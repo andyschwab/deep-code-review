@@ -93,8 +93,8 @@ class DoctorTests(unittest.TestCase):
         r = rows(self.repo, self.home)
         self.assertEqual(r["installed version"][0], "WARN")
         self.assertEqual(r["global copy"][0], "WARN")
-        self.assertEqual(r["policy file"][0], "WARN")
-        self.assertEqual(r["janitor/scheduler"][0], "WARN")
+        self.assertEqual(r["policy file"][0], "INFO")
+        self.assertEqual(r["janitor/scheduler"][0], "INFO")
         (self.repo / "perun-policy.json").write_text("{}")
         (self.repo / "scripts").mkdir()
         (self.repo / "scripts/janitor.sh").write_text("#!/bin/sh\n")
@@ -130,7 +130,7 @@ class DoctorTests(unittest.TestCase):
         r = rows(self.repo, self.home)
         self.assertEqual((r["hooks wired"][0], r["hook files exist"][0]), ("OK", "OK"))
         self.assertTrue(list((self.repo / ".claude/skill-backups").glob("agentic-delivery-*")))  # fork preserved
-        self.assertEqual(rc, 1)  # policy/janitor warnings remain: fix never invents them
+        self.assertEqual(rc, 0)  # janitor/policy are INFO: fix never invents them and they never fail the exit code
 
     def test_fix_fails_loudly_when_reinstall_fails(self):
         install(self.repo, "--with-delivery")

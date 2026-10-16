@@ -19,10 +19,10 @@ Run from your deep-code-review checkout (pull it first: "latest" means this chec
 | hooks wired | each operating-layer script (`pipe_mask_guard`, `subagent_start_inject`, `handback_cap`) is called by a hook, else "installed but never runs" |
 | manual-only scripts | informational: scripts no hook, workflow, loop or other script calls |
 | drifted copies | skill files, or loose copies of Perun scripts elsewhere in the repo, whose sha256 differs from the checkout |
-| janitor/scheduler | a janitor or scheduler file exists, so something runs Perun without you |
-| policy file | a `perun-policy` file exists |
+| janitor/scheduler | informational (INFO, never fails the exit code): a janitor or scheduler file exists, so something runs Perun without you. Install does not ship one |
+| policy file | informational (INFO): a `perun-policy` file exists. Optional; defaults apply without it |
 
-`--fix` prints the plan and what the default-on operating layer would add to your settings, then needs a typed `yes` on a terminal (or `--yes`, which prints a warning). It exits non-zero if the reinstall fails. It only re-runs `install.sh` with the recorded flags (existing skill copies move to `<host>/skill-backups/` first). It does not delete loose forks, touch the global copy, or invent a janitor or policy.
+`--fix` prints the plan and what the default-on operating layer would add to your settings, then needs a typed `yes` on a terminal (or `--yes`, which prints a warning). It exits non-zero if the reinstall fails. It only re-runs `install.sh` with the recorded flags (existing skill copies move to `<host>/skill-backups/` first; only the latest Perun backup per skill is kept, and an unchanged one is dropped, so re-runs do not grow it). It does not delete loose forks, touch the global copy, or invent a janitor or policy.
 
 ## Default-on operating layer
 
@@ -35,7 +35,7 @@ python3 scripts/perun_uninstall.py [REPO]            # dry run: prints the plan,
 python3 scripts/perun_uninstall.py [REPO] --apply    # does it
 ```
 
-It trusts only `.claude/.perun-install.json`, written by `install.sh` (no marker: nothing is removed; re-run `install.sh` once). Settings are parsed first; invalid JSON aborts with no change, and the file is replaced by temp file plus rename. It removes only the hook entries and env values the marker recorded, and the `model` key only if Perun set it. Skill files are removed only if their sha256 still matches the install; files you added or edited stay and are listed, and the pre-install backup in `skill-backups/` is restored only when the whole dir was removed. It leaves `.bak.<timestamp>` files and any `AGENTS.md` block alone.
+It trusts only `.claude/.perun-install.json`, written by `install.sh` (no marker: nothing is removed; re-run `install.sh` once). Settings are parsed first; invalid JSON aborts with no change, and the file is replaced by temp file plus rename. It removes only the hook entries, env values and sandbox/permissions values the marker recorded, and the `model` key only if Perun set it (the settings file itself goes if install created it and nothing else is in it). Skill files are removed only if their sha256 still matches the install; files you added or edited stay and are listed, and the pre-install backup in `skill-backups/` is restored only when the whole dir was removed, then deleted. It also removes the backups, `house-defaults.md`, `settings.local.json.bak.<timestamp>` files and `AGENTS.md` blocks that install wrote (and `AGENTS.md` itself if install created it), then any directory that is now empty. Every delete is one file at a time, only for paths in the marker, each checked to be inside the repo; nothing uses `rm -rf`. Files you changed after install are kept and listed.
 
 ## Releases and tags
 

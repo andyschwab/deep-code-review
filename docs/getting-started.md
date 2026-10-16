@@ -124,11 +124,12 @@ and differ, and exits `0` when they match or it can't check. `main` can be ahead
 of the latest release tag, so a mismatch right after a pinned install is
 expected.
 
-**Remove:** delete the skill folders it created under `.claude/skills/`,
+**Remove:** run `python3 scripts/perun_uninstall.py <repo>` (dry run), then add `--apply`; it undoes
+everything the install recorded. By hand instead: delete the skill folders it created under `.claude/skills/`,
 `.cursor/skills/`, `.agents/skills/` (and any extra host roots), and delete the
 `<!-- deep-code-review:begin -->` … `<!-- deep-code-review:end -->` block from
 `AGENTS.md` (plus the `dcr-overlays` block if you installed overlays). If the
-installer replaced an older copy, that copy is under `.<host>/skill-backups/`.
+installer replaced an older copy, that copy is under `.<host>/skill-backups/` (latest Perun copy per skill only; an identical one is not kept).
 
 ## Next
 
