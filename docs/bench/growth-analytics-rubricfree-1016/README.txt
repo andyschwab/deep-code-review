@@ -1,0 +1,12 @@
+growth-analytics vs its H1 rival, rubric-free blind judge re-test, 2026-10-16. Cited by docs/perun-vs-rivals.md H1 and H1d.
+
+Result: Perun win rate 0.700, 95% CI [0.500, 0.900], n=10, 4 of 10 scenarios split by order. FAIL against the preregistered bar (CI lower bound above 0.5). Spend $1.51 (ledger.jsonl, 41 calls, 0 errors). Rival: coreyhaines31/marketingskills skills/analytics and skills/ab-testing SKILL.md (commit 365b4121, MIT).
+
+Perun clearly won 5 scenarios (01, 03, 05, 06, 09), lost 1 outright (02) and 4 split by order (04, 07, 08, 10). Judge reasons favouring Perun cite correct interval and sample-size arithmetic and surfacing the requester's unknowns; those favouring the rival cite a more complete build-ready spec. The lower bound is exactly 0.5, which does not clear the bar (above 0.5); same value as business-ops in H1. A lean win that is not shown at the bar. The earlier 0.850 came from a rubric that was not preserved and is not reproduced.
+
+- PREREGISTERED.md: pair choice, arms, judge, bar, stop rule. Written and hashed before the first call of any of the five re-tests (SHA256-frozen.txt).
+- prompts/: perun.txt (the skill's SKILL.md at origin/main 6bb9a707), rival.txt (unmodified rival text, see PREREGISTERED.md for files and license), gen_task.txt, writer_brief.txt, seeds.txt, judge.txt (no criteria). LICENSE.rival.txt is the rival repository's MIT license, fetched 2026-10-16 at the same commit.
+- scenarios.json: 10 generated scenarios, used unedited. outputs/<ARM>/<id>.txt: generated answers. judge/<Response 1 arm>__<Response 2 arm>/<id>.json: per-order verdict and one-sentence reason.
+- results.json: per-scenario scores, win rate, bootstrap CI (10,000 resamples, seed 1, percentile). bench.py: driver copied from docs/bench/comms-rubricfree-1016/bench.py with two edits (cap read from the CAP env var so the runs share one $6 total; temp-dir prefix).
+- Not reproducible bit for bit: model sampling is not seeded. Same-vendor judge, one set of 10; both caveats apply. Both arms ran without tools, so the skill's references and scripts were unavailable to Perun. Run note: the first `run` call stopped at n=8 because the driver's in-flight reserve (4 jobs x $0.50) plus spend exceeded the CAP env value; the same call was resumed once with JOBS=1 and the cached outputs and verdicts, completing the preregistered 10 scenarios. The n=8 interim (0.688 [0.438, 0.938]) was seen before completion; no scenario, arm text or setting was changed.
+- The skill is unchanged.

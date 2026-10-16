@@ -1,0 +1,40 @@
+# Corrigan Travel Event Cleanup Plan (target: 31 March 2027)
+
+## Phased sequence
+
+| Phase | Dates | Work | Exit criterion |
+|---|---|---|---|
+| 1. Inventory | 19 Oct – 13 Nov | Export all 412 event names with first/last fired date, 90-day volume, and property schemas (with observed types). Script the export; don't eyeball it. | One row per event, reconciled so the row count equals 412. |
+| 2. Dependency map | 19 Oct – 4 Dec (parallel) | List every dashboard, scheduled report, export, alert, and downstream pipeline querying events. Pull query logs/usage metadata, and interview Finance directly. Record owner, last viewed, and events used. | Every event is tagged "used by X" or "no known dependents". |
+| 3. Classify | 16 Nov – 11 Dec | Tag each event: **keep**, **rename/merge**, **retire**, or **investigate**. Group duplicates by the business moment they represent. | Signed-off mapping table (old name → new name). |
+| 4. Standard | by 20 Nov | Approve naming convention and property type rules (below). | Published spec. |
+| 5. Dual-fire | Jan – Feb 2027 | Ship new names alongside old ones; add a normalization layer (a view or mapping table) so reports can query either. Validate counts match old vs. new within an agreed tolerance. | Parity confirmed per event. |
+| 6. Repoint reports | Feb – mid-Mar | Migrate dashboards to the new names, Finance reports first, with their owners reviewing side-by-side outputs for at least one month-end close. | Owners sign off. |
+| 7. Retire | by 31 Mar | Stop old-name firing, archive the old definitions, and keep the mapping table permanently for historical queries. | Old names stop firing. |
+
+**Schedule risk:** Finance's reports run monthly, so you get only about two month-end closes (end of Jan, end of Feb) to compare old and new before the deadline. Start the Finance conversation in the first week. If parity can't be shown by the February close, the Finance cutover should slip rather than risk their numbers.
+
+## Proposed naming convention
+
+- `object_action`, lowercase snake_case, past tense: `signup_completed`, `booking_confirmed`, `search_submitted`.
+- Provider-defined names (e.g. GA4 `purchase`) keep their native name; map them explicitly.
+- Context goes in properties, not names (`cta_clicked` with `location`, not `hero_cta_clicked_v2`).
+- No spaces, capitals, or version suffixes.
+- For your example, `signup_completed` is the canonical name; `SignUp Complete` and `user_signed_up` map to it.
+
+**Property rules:**
+- Prices and amounts are numbers (not strings), with a separate `currency` property (ISO code).
+- Dates are ISO 8601; booleans are true/false, not "yes"/"1".
+- Same property name means the same type everywhere. Keep a schema registry listing name, type, and allowed values.
+- No PII in properties.
+
+## Migration approach without breaking reports
+
+1. **Don't rename in place.** Dual-fire, then cut over.
+2. **Normalization layer:** a mapping table (old → new) used in the warehouse so historical data and new data query as one series.
+3. **Type coercion:** cast string prices to numeric in the layer, and log any values that fail to parse rather than dropping them.
+4. **Side-by-side validation** for each migrated report: same period, old vs. new, differences explained.
+5. **Treat "unused" cautiously:** your one-third figure is an assumption. A 90-day window misses seasonal events (annual-trip, holiday-booking, year-end reports), so check at least 12 months before retiring. Soft-retire first: stop firing, and keep the definition for one quarter.
+6. **Governance:** require new events to go through a tracking-plan review, with an owner per event.
+
+Note: the stated 90-day inactivity share and the Finance dependencies are unverified until Phases 1–2 are done, so I'd treat the retirement count as a hypothesis for now.

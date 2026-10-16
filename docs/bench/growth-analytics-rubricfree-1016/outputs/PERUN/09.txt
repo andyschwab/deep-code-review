@@ -1,0 +1,37 @@
+# Event cleanup plan (finish by March 31, 2027)
+
+## Sequence
+
+1. **Audit (Oct 19 to Nov 13).** Build an inventory of all 412 events with first and last fired date, volume over 90 days and 13 months, property types seen, and an owner. Travel is seasonal, so a 90-day window can wrongly flag annual or holiday-season events. Your "roughly a third" figure stays **UNVERIFIED** until this query runs.
+2. **Dependency map (same period).** Pull BI and warehouse query logs for references to each event name. Ask Finance for a list of every monthly, quarterly and annual report, its owner, and the events it uses. Unreviewed Finance reports are the main risk, so start with them.
+3. **Decide (Nov 16 to Dec 4).** Label each event keep, rename, merge, retire or unknown. Keep an event only if it answers a question someone can name. Before merging the signup trio, confirm they mark the same moment.
+4. **Tracking plan and guardrails (Dec).** Publish a registry (event, question it answers, properties, types, owner). Add schema validation in CI so new events that break the convention fail the build.
+5. **Migrate (Jan to Feb).** Dual-emit new and old events. Build a mapping view in the warehouse that unions old names into canonical ones and casts property types. Repoint reports to the view one at a time. Run Finance's reports in parallel, old versus new, through the January and February closes.
+6. **Retire (March).** Stop emitting old names only after each report's owner signs off. Archive the raw data rather than deleting it. Keep March 16 to 31 as buffer.
+
+## Naming convention
+
+- Events use `object_action`, snake_case, past tense: `account_created`, `booking_completed`.
+- One event per moment. The signup trio becomes `account_created`.
+- Put variants in properties, not event names (use `cabin_class`, not `search_economy`).
+- Properties are snake_case with fixed types:
+  - Prices are numbers, with a separate `currency` property (ISO 4217 code).
+  - Timestamps are ISO 8601 UTC.
+  - Booleans are true/false.
+  - Enums are lowercase.
+- Use one stable, pseudonymous `user_id`. Keep PII out of event properties.
+- The existing string prices are handled in the mapping view (strip symbols and commas, cast to number) and fixed at the source going forward.
+
+## Migration safety rules
+
+- Never rename in place. Add the new event, map the old one, switch reports, then retire.
+- Each report gets a before-and-after total comparison. Agree the tolerance with its owner before the test, not after.
+- Anything with an unknown dependent stays live until its owner is found.
+
+## This week
+
+1. **Run the inventory query:** last fired date and counts over 90 days and 13 months for each of the 412 names. If the share dormant over 13 months is well below a third, shrink the retire phase and give the time to migration.
+2. **Test the signup trio:** pull per-user timestamps for `signup_completed`, `SignUp Complete` and `user_signed_up`. If the same users fire them within seconds, merge them. If the user sets differ, they are different moments (for example, different platforms or flows) and need separate decisions.
+3. **Send Finance the report-list request** and ask for read access to BI query logs. If Finance reports use many events you plan to retire, add a third parallel-run month.
+
+*Note: dates assume the audit starts Oct 19. If Finance's reply is slow, the January close becomes your only parallel run.*
