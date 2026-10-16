@@ -3,6 +3,27 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.586.0] — 2026-10-16
+
+### Added
+- `install.sh --apply-operating-layer` now sets `autoCompactWindow: 200000` in `.claude/settings.local.json`, but only when no user, project or local settings file already sets it; policy `auto_compact: off` (`--policy auto_compact=off`) opts out, and uninstall removes only the value install added.
+- New SessionStart hook `handoff_inject.py` (matchers `compact|startup|clear`) re-injects the newest `.claude/handoff*.md` after a compaction, at most 2KB (only the first 2KB is read), framed as data not instructions, nothing when absent; on `startup` a handoff older than 24h is skipped. Stdlib only, fails open. If any settings file is invalid JSON or JSONC the installer cannot tell whether the user set `autoCompactWindow`, so it writes nothing and prints a note. Tests: `scripts/test-auto-context-reset.sh`. Measured: 2048 bytes injected at most and about 32 ms per run (python3 start-up included); no token saving was measured, so none is claimed.
+
+### Changed
+- `context_nudge.py` no longer suggests the owner start a fresh session: it tells the agent to write `.claude/handoff.md` and not to ask for a restart. `references/operating-discipline.md` documents that auto-compact plus re-inject replaces "restart the session" (a session cannot `/clear` itself).
+
+### Fixed
+- Auto-update no longer skips with "no readable install marker" on older installs that have `.claude/.dcr-install-flags` but no `.claude/.perun-install.json`. `perun_auto_update.py` now treats such a repo as an install: the version comes from the installed `deep-code-review` `SKILL.md` frontmatter and the remote is the canonical public repo. Merge/rebase/train locks and an uncommitted `.claude/settings.local.json` still skip; hash-drift cannot be checked because an old install recorded no hashes, so uncommitted skill edits are preserved by install.sh's backup of the skill dirs it replaces, not by a skip. The update writes the real marker, so this is one-time.
+- `install.sh` now records the canonical public repo as the marker `remote` when `PERUN_REMOTE` is unset and the install source has no git origin (tarball or plugin copy), so the marker always carries a remote for auto-update.
+
+### Fixed
+- Auto-update legacy installs (no `.perun-install.json`) read `version:` only inside a properly closed `---` frontmatter block of the installed `SKILL.md`; with no closing `---` the version is unreadable and the run is a logged skip instead of scanning the whole file.
+- A legacy install always updates from the canonical remote: if the cache clone (`$XDG_CACHE_HOME/perun/src`) was cloned from a different origin, the run logs a skip rather than inheriting that origin into the new marker.
+- Docs for the legacy path no longer claim uncommitted-change skips apply to it: only git locks and an uncommitted `.claude/settings.local.json` skip; uncommitted skill edits are preserved by install.sh's backup, not by a skip.
+
+### Changed
+- `docs/perun-vs-rivals.md`: H1 now says the other H1 rubrics were not preserved, that rubric bias is shown for product-output-safety only and is a possible risk for the other rows (not re-run), and that the product-output-safety rival is a red-team tool skill run without its tools. New H1b: on a rubric-free blind judge product-output-safety lost to its rival, 0.150 [0.000, 0.400] on set A and 0.250 [0.100, 0.400] on fresh set B. Bench data, preregistration and ledger ($6.22) are in `docs/bench/pos-1016/`, with the rival skill's MIT notice; the skill is unchanged.
+
 ## [1.585.0] — 2026-10-16
 
 ### Added
