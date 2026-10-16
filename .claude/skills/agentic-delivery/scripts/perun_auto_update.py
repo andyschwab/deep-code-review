@@ -30,7 +30,9 @@ Perun copy committed on the default branch catches up; it never auto-merges and 
 skip/up-to-date/updated, 1 when the update itself failed.
 
 A target with `.claude/.dcr-install-flags` but no marker is a legacy install: `legacy_marker` takes the version from the
-installed SKILL.md and the canonical remote, and the update writes the real marker.
+installed SKILL.md (inside a closed frontmatter block only) and the canonical remote, and the update writes the real
+marker. Only git locks and an uncommitted `settings.local.json` skip a legacy install; uncommitted skill edits are
+preserved by install.sh's backup, not by a skip. A cache clone whose origin is not the canonical remote is a logged skip.
 Stdlib only; a missing marker, remote or parseable version is a logged skip, never a guess.
 """
 import fcntl
@@ -365,16 +367,19 @@ def verify_sums(src: Path) -> str:
 def legacy_marker(target: Path) -> dict | None:
     """Synthetic marker for a pre-`.perun-install.json` install (the target has `.claude/.dcr-install-flags`): the
     installed deep-code-review SKILL.md frontmatter `version:` plus the canonical remote. It carries no `skills`
-    hashes, so hash-drift cannot be checked (install.sh still backs up the skill dirs it replaces); every other
-    `blocker` check applies. None when it is not an install or the version is unreadable. The update then writes
+    hashes, so hash-drift cannot be checked and `blocker` guards only the git locks and an uncommitted
+    `.claude/settings.local.json`; uncommitted edits to the skill files are preserved by install.sh's backup of the
+    skill dirs it replaces, not by a skip. None when it is not an install, the version is unreadable, or SKILL.md
+    has no properly closed `---` frontmatter block (`version:` is parsed only inside it). The update then writes
     the real marker, so this path is one-time."""
     if not (target / ".claude/.dcr-install-flags").is_file():
         return None
     try:
-        head = (target / ".claude/skills/deep-code-review/SKILL.md").read_text().split("\n---", 1)[0]
+        text = (target / ".claude/skills/deep-code-review/SKILL.md").read_text()
     except OSError:
         return None
-    m = re.search(r"^\s*version:\s*[\"']?([0-9.]+)", head, re.M)
+    fm = re.match(r"---[ \t]*\n(.*?)\n---[ \t]*(?:\n|$)", text, re.S)
+    m = fm and re.search(r"^\s*version:\s*[\"']?([0-9.]+)", fm.group(1), re.M)
     return {"version": m.group(1), "remote": CANONICAL_REMOTE} if m and version(m.group(1)) else None
 
 
@@ -384,10 +389,12 @@ def run(target: Path) -> int:
     with open(cache() / "auto-update.lock", "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)  # one worker per machine: the cache clone is shared
         mf = target / ".claude/.perun-install.json"
+        legacy = False
         try:
             marker = json.loads(mf.read_text())
         except (OSError, ValueError):
-            marker = None if mf.exists() else legacy_marker(target)
+            legacy = not mf.exists()
+            marker = legacy_marker(target) if legacy else None
             if marker is None:
                 log(target, "skip: no readable install marker")
                 return 0
@@ -402,6 +409,12 @@ def run(target: Path) -> int:
         if why:
             log(target, f"skip: {why}")
             return 0
+        src = cache() / "src"
+        if legacy and (src / ".git").is_dir():  # install.sh records the clone's origin: a legacy install must never inherit a foreign one
+            o = git("-C", str(src), "remote", "get-url", "origin").stdout.strip()
+            if o != CANONICAL_REMOTE:
+                log(target, f"skip: cache clone origin {o or '(none)'} is not the canonical remote")
+                return 0
         ls = git("ls-remote", "--tags", "--refs", remote)
         if ls.returncode != 0:
             log(target, f"skip: cannot list tags on {remote}")
@@ -412,8 +425,7 @@ def run(target: Path) -> int:
             log(target, f"up to date at {marker['version']}")
             pr_step(target)  # also here: a past update may never have reached the default branch
             return 0
-        src = cache() / "src"
-        steps = ([] if (src / ".git").is_dir() else [["clone", "-q", "--no-checkout", remote, str(src)]]) + [
+        steps =([] if (src / ".git").is_dir() else [["clone", "-q", "--no-checkout", remote, str(src)]]) + [
             ["-C", str(src), "fetch", "-q", remote, f"refs/tags/{newest}:refs/tags/{newest}",
              "+refs/heads/main:refs/remotes/origin/main"],  # no --force on tags: a moved tag is refused
             ["-C", str(src), "-c", "advice.detachedHead=false", "checkout", "-q", "-f", "--detach", newest]]
