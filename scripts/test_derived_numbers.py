@@ -161,7 +161,7 @@ class GateRunnerWiring(unittest.TestCase):
         p = subprocess.run(["bash", os.path.join(d, "scripts/dcr-gates.sh")], capture_output=True, text=True, env={**env, "DCR_DERIVED_NUMBERS": "0"})
         self.assertNotIn("derived_numbers PASS", p.stdout)
         self.assertNotIn("derived_numbers FAIL", p.stderr)
-        self.assertEqual(p.returncode, 0)
+        self.assertEqual(p.returncode, 0, p.stdout[-2000:] + p.stderr[-2000:])
 
 
 if __name__ == "__main__":
