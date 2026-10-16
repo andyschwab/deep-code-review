@@ -1,0 +1,52 @@
+# Larkspoon Launch Tracking Plan (v1)
+
+**Conventions (for Ravi's team)**
+- Event names: lowercase `object_action`, snake_case, identical on iOS and Android. Never put platform in the name.
+- Every event automatically carries: `user_id` (pseudonymous, no email/name), `anonymous_id`, `platform` (ios/android), `app_version`, `session_id`, `trial_day` (0-7, null if not in trial), `timestamp` (UTC, client time plus server receive time).
+- Subscription state events (trial started, converted, cancelled, renewed) are emitted **server-side** from App Store/Play receipts, not the client. This keeps them platform-neutral and accurate.
+- Enumerated values (e.g. `source`, `method`) are fixed lists in a shared doc, lowercase with hyphens.
+- No PII in properties. Dietary preferences are sensitive; send category codes only, and confirm consent and ATT handling before launch.
+
+## Events
+
+| Event | Properties | Why it matters |
+|---|---|---|
+| `app_opened` | `launch_source` (organic, push, deeplink), `days_since_install` | Return-visit frequency during the trial |
+| `onboarding_started` | none | Top of onboarding funnel |
+| `onboarding_step_completed` | `step_number`, `step_name` | Finds where people drop off |
+| `onboarding_skipped` | `step_name` | Shows which steps feel like friction |
+| `dietary_preferences_saved` | `diet_types` (list of codes), `allergen_count`, `household_size` | Segments users; tests whether personalization drives retention |
+| `onboarding_completed` | `duration_sec` | Activation denominator |
+| `recipe_viewed` | `recipe_id`, `source` (browse, search, recommended, shared, plan), `position` | Core engagement signal |
+| `search_performed` | `query_length`, `result_count`, `filters_used` | Content gaps; zero-result searches show missing recipes |
+| `recipe_saved` / `recipe_unsaved` | `recipe_id`, `source` | Intent signal; first save is a likely activation step |
+| `recipe_shared` | `recipe_id`, `channel` | Organic growth |
+| `meal_plan_created` | `week_start`, `is_first_plan` | Key activation candidate |
+| `meal_added_to_plan` | `recipe_id`, `day_of_week`, `meal_slot`, `plan_meal_count` | Depth of planning habit |
+| `meal_removed_from_plan` | `recipe_id`, `plan_meal_count` | Plan quality problems |
+| `shopping_list_generated` | `recipe_count`, `item_count`, `is_first_list` | Likely the highest-value action |
+| `shopping_list_item_checked` | `item_count_checked`, `item_count_total` | Shows the list is actually used in-store (batch or sample to limit volume) |
+| `shopping_list_shared` | `channel` | Household/second-user signal |
+| `paywall_viewed` | `placement` (onboarding, feature-gate, trial-end, settings), `trial_day` | Which placements drive decisions |
+| `paywall_dismissed` | `placement`, `trial_day` | Rejection by placement |
+| `trial_started` *(server)* | `plan`, `price`, `currency`, `store`, `trial_end_date` | Trial cohort anchor |
+| `purchase_cta_tapped` | `placement`, `plan` | Intent vs. completion |
+| `trial_converted` *(server)* | `plan`, `price`, `currency`, `store`, `trial_day_converted` | Primary conversion outcome |
+| `subscription_cancelled` *(server)* | `reason_code` (if available), `during_trial` (bool), `trial_day` | Trial vs. paid churn |
+| `subscription_renewed` *(server)* | `renewal_number`, `price` | Retention revenue |
+| `billing_failed` *(server)* | `retry_count` | Involuntary churn |
+| `push_permission_responded` | `granted`, `prompt_context` | Reachability for trial-end nudges |
+| `notification_opened` | `notification_type` | Re-engagement effectiveness |
+
+## Why your day 6-7 assumption needs a test
+
+Don't build on it as fact. Many iOS users cancel in the store, or decide earlier, so conversion timing may be spread out. Because every event carries `trial_day` and `trial_started` carries `trial_end_date`, you can compute what converters and non-converters did on days 0-5 and find when decisions happen. Key early metrics: first meal plan, first shopping list, and number of active days in the first three.
+
+## Analysis rules to record now
+- Conversion rate uses only trial cohorts whose 7 days (plus the store's billing window) have ended. Recent starters are pending, not failed.
+- Compute rates from the event data, with matching time windows for numerator and denominator.
+
+## Android
+The plan above is platform-neutral. Use `platform` and `store` as properties, keep the same event names and enumerations, and map Play Billing states into the same server-side subscription events. Android then needs no schema change.
+
+**Note:** Verify consent and privacy treatment (including dietary data) with counsel before launch.
