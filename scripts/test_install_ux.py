@@ -285,6 +285,84 @@ class CompleteUninstall(Base):
         self.assertIn("kept: user content", p.stdout)
 
 
+class Hardening(Base):
+    """Non-blocking edges from the re-review: forged marker paths, symlinked sweeps, pycache in the dedupe compare."""
+
+    def _marker(self, **edit):
+        mf = self.repo / perun_marker.MARKER
+        m = json.loads(mf.read_text())
+        m.update(edit)
+        mf.write_text(json.dumps(m))
+
+    def test_forged_files_and_agent_paths_are_rejected(self):  # (a)
+        install(self.repo, "--minimal")
+        app = self.repo / "src/app.py"
+        app.parent.mkdir()
+        app.write_text("print(1)\n")
+        cfg = self.repo / ".git/config"
+        cfg.parent.mkdir()
+        cfg.write_text("[core]\n")
+        for edit in ({"files": {"src/app.py": perun_marker.sha(app)}}, {"files": {".git/config": perun_marker.sha(cfg)}},
+                     {"agent": {"path": "src/app.py", "sha": perun_marker.sha(app)}}, {"files": {"AGENTS.md": "x"}}):
+            good = (self.repo / perun_marker.MARKER).read_text()
+            self._marker(**edit)
+            p = uninstall(self.repo, "--apply")
+            self.assertNotEqual(p.returncode, 0, edit)
+            self.assertEqual((app.read_text(), cfg.read_text()), ("print(1)\n", "[core]\n"))
+            (self.repo / perun_marker.MARKER).write_text(good)
+
+    def test_dot_and_dotdot_are_not_skill_or_backup_names(self):  # (a)
+        for rel in (".claude/skills/.", ".claude/skills/..", "../skills/x", ".claude/skill-backups/..-20260101-000000", ".claude/skill-backups/.-20260101-000000"):
+            self.assertFalse(perun_uninstall.SKILL_RE.match(rel) or perun_uninstall.BACKUP_RE.match(rel), rel)
+        self.assertTrue(perun_uninstall.SKILL_RE.match(".claude/skills/deep-code-review"))
+        self.assertTrue(perun_uninstall.BACKUP_RE.match(".claude/skill-backups/deep-code-review-20260101-000000-2"))
+
+    def test_marker_without_shipped_hashes_keeps_every_file(self):  # (a): no legacy fallback to the marker's own hashes
+        install(self.repo, "--minimal")
+        m = json.loads((self.repo / perun_marker.MARKER).read_text())
+        del m["shipped"]
+        (self.repo / perun_marker.MARKER).write_text(json.dumps(m))
+        before = tree(self.repo / ".claude/skills")
+        p = uninstall(self.repo, "--apply")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(tree(self.repo / ".claude/skills"), before)
+        self.assertIn("KEEP", p.stdout)
+
+    def test_sweeps_never_follow_a_symlink(self):  # (b)
+        ext = self.tmp / "ext"
+        (ext / "skills/x").mkdir(parents=True)
+        (self.repo / ".claude").symlink_to(ext)  # a symlinked parent
+        perun_uninstall.prune_empty(self.repo, [".claude/skills/x"])
+        self.assertTrue((ext / "skills/x").is_dir())
+        ext2 = self.tmp / "ext2"
+        (ext2 / "sub").mkdir(parents=True)
+        (self.repo / "top").symlink_to(ext2)  # a symlinked top
+        perun_uninstall.sweep(self.repo, "top")
+        self.assertTrue((ext2 / "sub").is_dir())
+        real = self.repo / "real"
+        (real / "empty").mkdir(parents=True)
+        (real / "link").symlink_to(ext2)  # a symlink inside a real top: its target is not descended
+        perun_uninstall.sweep(self.repo, "real")
+        self.assertTrue((ext2 / "sub").is_dir())
+        self.assertFalse((real / "empty").exists())
+
+    def test_dedupe_compares_pycache_files_too(self):  # (c)
+        dest, new = self.tmp / "dest", self.tmp / "root/foo-20260101-000000"
+        for d in (dest, new):
+            (d / "__pycache__").mkdir(parents=True)
+            (d / "SKILL.md").write_text("same\n")
+            (d / "__pycache__/data.txt").write_text("same\n")
+        (new / "__pycache__/data.txt").write_text("different\n")  # a non-.pyc file under __pycache__
+        self.assertIn("kept", perun_marker.drop_identical_backup(self.tmp / "root", new, dest))
+        self.assertEqual((new / "__pycache__/data.txt").read_text(), "different\n")
+        (new / "__pycache__/data.txt").write_text("same\n")
+        (new / "__pycache__/extra.pyc").write_text("x")  # an extra entry
+        self.assertIn("kept", perun_marker.drop_identical_backup(self.tmp / "root", new, dest))
+        (new / "__pycache__/extra.pyc").unlink()
+        self.assertIn("not kept", perun_marker.drop_identical_backup(self.tmp / "root", new, dest))
+        self.assertFalse(new.exists())
+
+
 class SettingsTree(unittest.TestCase):
     def test_added_and_strip_roundtrip(self):
         have = {"sandbox": {"enabled": False, "network": {"allowedDomains": ["mine.example.com"]}}, "permissions": {"deny": ["Bash(a)"]}}

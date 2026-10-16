@@ -38,8 +38,10 @@ import perun_marker  # noqa: E402
 SRC = Path(__file__).resolve().parent.parent
 
 
-SKILL_RE = re.compile(r"^\.[\w.-]+/skills/[\w.-]+$")
-BACKUP_RE = re.compile(r"^\.[\w.-]+/skill-backups/([\w.-]+)-\d{8}-\d{6}(-\d+)?$")
+SKILL_RE = re.compile(r"^\.\w[\w.-]*/skills/\w[\w.-]*$")  # names start with a word char: "." and ".." never match
+BACKUP_RE = re.compile(r"^\.\w[\w.-]*/skill-backups/(\w[\w.-]*)-\d{8}-\d{6}(-\d+)?$")
+# The only loose files install writes (the marker `files` and `agent` keys): anything else in a marker is forged.
+OWN_FILE_RE = re.compile(r"^\.claude/(commands/\w[\w.-]*\.md|house-defaults\.md|settings\.local\.json\.bak\.[\w.-]+|agents/delivery-lane\.md)$")
 
 
 def plain(rel):
@@ -89,10 +91,21 @@ def strip(c, tree):
     return n
 
 
+def sweep(repo, rel):
+    """rmdir the empty dirs under repo/rel, deepest first. Never follows a symlink: does nothing when rel or a parent is one."""
+    if not safe(repo, rel):
+        return
+    for dp, _, _ in sorted(os.walk(repo / rel, followlinks=False), reverse=True):
+        if not any(Path(dp).iterdir()):
+            Path(dp).rmdir()
+
+
 def prune_empty(repo, rels):
-    """rmdir (never recursive) each path and its parents up to, not including, repo while they are empty."""
+    """rmdir (never recursive) each path and its parents up to, not including, repo while they are empty. Skips a path with a symlink in it."""
     for rel in rels:
         p = repo / rel
+        if not perun_marker.symlink_free(repo, p):
+            continue
         while p != repo and p.is_relative_to(repo):
             try:
                 p.rmdir()
@@ -115,12 +128,11 @@ def plan(repo):
     bad = [r for r in rels if not plain(r)]
     bad += [d for d in m.get("skills", {}) if not (plain(d) and SKILL_RE.match(d))]
     bad += [d for d in m.get("backups", []) if not (plain(d) and BACKUP_RE.match(d))]
+    bad += [f for f in [*m.get("files", {}), *([m["agent"]["path"]] if m.get("agent") else [])] if not (plain(f) and OWN_FILE_RE.match(f))]
     if bad:
         raise ValueError(f"marker lists a path outside {repo} or not a skills/backup dir ({bad[0]}); nothing changed")
+    # Only hashes install recorded as shipped count. A marker without them proves nothing, so every file is kept.
     shipped = {n: {f: set(hs) for f, hs in fs.items()} for n, fs in m.get("shipped", {}).items()}
-    for d, fs in m.get("skills", {}).items():  # markers from before "shipped" existed: the install-time hashes of the fresh copy
-        for f, h in fs.items():
-            shipped.setdefault(d.rsplit("/", 1)[-1], {}).setdefault(f, set()).add(h)
 
     def backup_files(rel):
         """Files of a backup dir when it is a real, symlink-free dir, else None."""
@@ -193,15 +205,12 @@ def plan(repo):
                 rmf(repo, f"{d}/{r}")
             for pyc in sorted(dest.rglob("__pycache__/*.pyc")):  # bytecode a skill run left behind: not in the marker, so not listed
                 rmf(repo, str(pyc.relative_to(repo)))
-            for dp, _, _ in sorted(os.walk(dest), reverse=True):
-                if not any(Path(dp).iterdir()):
-                    Path(dp).rmdir()
+            sweep(repo, d)
         ops.append((f"{d}: remove {len(gone)} installed file(s)" + (f"; KEEP {len(keep)} added/edited: {', '.join(keep[:5])}" if keep else ""), rm))
         host = d.partition("/skills/")[0]
         mine = [str(b.relative_to(repo)) for b in sorted((repo / host / "skill-backups").glob(name + "-*")) if b.is_dir() and BACKUP_RE.match(str(b.relative_to(repo)))]
-        pre = m.get("preinstall")  # markers written before this list existed: the oldest backup that is not a shipped copy
-        orig = [b for b in mine if BACKUP_RE.match(b).group(1) == name and backup_files(b) is not None
-                and (b in pre if pre is not None else not is_shipped(b))]
+        pre = m.get("preinstall", [])  # no list (an older marker): nothing is provably pre-install, so nothing is moved back
+        orig = [b for b in mine if BACKUP_RE.match(b).group(1) == name and backup_files(b) is not None and b in pre]
         if orig and not keep:
             restored.add(orig[0])
 
@@ -226,9 +235,7 @@ def plan(repo):
                 rmf(repo, f"{d}/{r}")
             for pyc in sorted((repo / d).rglob("__pycache__/*.pyc")):
                 rmf(repo, str(pyc.relative_to(repo)))
-            for dp, _, _ in sorted(os.walk(repo / d), reverse=True):
-                if not any(Path(dp).iterdir()):
-                    Path(dp).rmdir()
+            sweep(repo, d)
         ops.append((f"{d}: remove {len(files)} shipped backup file(s)", rmb))
     for f, h in sorted(m.get("files", {}).items()):
         if safe(repo, f) and (repo / f).is_file() and perun_marker.sha(repo / f) == h:

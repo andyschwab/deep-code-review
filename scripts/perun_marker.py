@@ -59,15 +59,16 @@ def merge(a, b):
     return b
 
 
-def _entries(d):
-    """Every entry under d as relative paths (None when any entry is a symlink: never trusted, never walked through)."""
+def _entries(d, pycache=False):
+    """Every entry under d as relative paths (None when any entry is a symlink: never trusted, never walked through).
+    __pycache__ entries are left out unless pycache=True."""
     out = []
     for dp, dn, fn in os.walk(d, followlinks=False):
         for n in dn + fn:
             if (Path(dp) / n).is_symlink():
                 return None
             out.append(str((Path(dp) / n).relative_to(d)))
-    return sorted(x for x in out if "__pycache__" not in Path(x).parts)
+    return sorted(x for x in out if pycache or "__pycache__" not in Path(x).parts)
 
 
 def symlink_free(root, path):
@@ -86,8 +87,8 @@ def drop_identical_backup(root, new, dest):
     root, new, dest = Path(root), Path(new), Path(dest)
     if not (symlink_free(root, new) and new.is_dir() and dest.is_dir() and not dest.is_symlink()):
         return "backup: kept (symlink or unexpected path)"
-    ne, de = _entries(new), _entries(dest)
-    if ne is None or de is None or ne != de or hash_dir(new) != hash_dir(dest):
+    ne, de = _entries(new, True), _entries(dest, True)  # every entry counts, __pycache__ included
+    if ne is None or de is None or ne != de or any((new / e).is_file() != (dest / e).is_file() or ((new / e).is_file() and sha(new / e) != sha(dest / e)) for e in ne):
         return "backup: kept (differs from the installed copy)"
     for f in sorted(new.rglob("*"), reverse=True):  # files first, then dirs, one at a time; the walk above proved no symlinks
         (f.rmdir if f.is_dir() else f.unlink)()
