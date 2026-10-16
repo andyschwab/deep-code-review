@@ -3,6 +3,34 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.584.0] — 2026-10-16
+
+### Fixed
+- `install.sh` now prints a `safety:` line for Cline, Roo Code and Factory Droid, as it does for the other hosts. The new rows in `host-safety.tsv` and `docs/host-safety.md` state only what each vendor's docs confirm (fetched 2026-10-16, URLs in `docs/standards-index.md`) and mark the rest `unverified`: Cline and Roo Code document no OS sandbox, Factory Droid has an opt-in one.
+- `dcr-gates.sh` now looks for the installed skill under `.cline`, `.roo` and `.factory` too, and `.gitignore` covers their `skill-backups/` folders.
+
+### Fixed
+- Shipped scripts no longer call bare `mktemp`. macOS bare `mktemp` ignores `TMPDIR`, which broke sandboxed runs. Every call now takes `"${TMPDIR:-/tmp}/<name>.XXXXXX"` (with `-d` where it was used): `review_checks.sh`, `integrator-gate.sh`, `merge_train.py`, and four test scripts. Existing trap cleanup is unchanged.
+- New regression `scripts/test-mktemp-tmpdir.sh` (run in CI) fails on any non-comment bare `mktemp` in `.claude/skills` or `scripts`, after a positive control proves the pattern matches a bare call.
+
+### Added
+- `install.sh --with-extra-hosts` now also writes skill roots for Cline (`.cline/skills`), Roo Code (`.roo/skills`) and Factory Droid (`.factory/skills`). Each path and format was confirmed from the vendor docs on 2026-10-16 (URLs in `docs/standards-index.md`); OpenCode, Windsurf and Kiro, already written by that flag, are now docs-validated too. Amp reads `.agents/skills` and `.claude/skills`, so it needed no new directory. Continue documents rules only and was not added.
+- `perun_doctor.py` now checks drift in every root `install.sh` can write, not only four.
+- New `scripts/test_extra_hosts_install.py` (run in CI): fixture repo and HOME under `$TMPDIR`, install, doctor, then uninstall with 0 leftovers; a user-edited copy is kept and a pre-existing copy is restored.
+
+### Changed
+- `docs/perun-vs-rivals.md` H10 now counts 11 native hosts and marks each as smoke-tested (Codex only) or docs-validated. No new host was run on a real install.
+
+### Fixed
+- agentic-delivery: `train_flake.sh` no longer false-blames a flaky test. An id is `REAL` only when it fails every one of the `FLAKE_RUNS` (default 3) isolated re-runs; any single pass makes it a `FLAKE`. `FLAKE_REAL_AT` now defaults to `FLAKE_RUNS` and is no longer clamped to 2. Measured on a 1-in-3 flake (200 trials, same seeds): 64/200 = 32.0% blamed before, 9/200 = 4.5% after (analytic 3.7%); `scripts/test-train-flake-rate.sh` proves it on the real script with a seeded 1000-trial simulation (31/1000 after, 248/1000 under the old rule). A flake that passes once now costs one re-run, not two.
+- agentic-delivery: `scripts/test-train-flake-rate.sh` also pins that the keystone `contains` helper in `merge_train.py` works when a template-less `mktemp -d` is unusable (the TMPDIR fix itself landed separately), and runs the selftests without the `GIT_AUTHOR_*`/`GIT_COMMITTER_*` variables that `scripts/test-ci-gates.sh` exports, which override the selftest's own `git -c user.email` identity and failed `keystone-git-helpers-on-a-real-repo`.
+
+- agentic-delivery: `train_land.sh` now lands a flakes-only red only when each flaked test also fails at least once in `FLAKE_RUNS` (3) solo runs on the base; a test that passes 3 of 3 on the base may be an intermittent regression and the train exits `CANT` (3) with nothing landed and no PR blamed. The all-N `REAL` rule alone let a regression that fails 2 of 3 runs (p=2/3) land 70% of the time, against 26% under the old 2-of-3 rule. Seeded simulation on the real scripts (`scripts/test-train-flake-rate.sh`, 300 trials per rate): a regression clean on the base lands 0/300 at p=0.5, 2/3 and 0.9, against 161, 73 and 6 of 300 under the old 2-of-3 rule on the same draws; a genuine flake that is also flaky on the base still lands about 70% of the time. End-to-end cases in `scripts/test-train-flake-base.sh`.
+
+### Added
+- `merge_train.py` caches the verify verdict per git tree SHA for the run, so an identical tree (for example a rebuilt union that equals a prefix the bisect already proved green) is never tested twice; the log prints `CACHED <label> tree <sha7> verdict=...`.
+- `merge_train.py --gate-backoff` (default 5 s, doubling, cap 300 s) sets the delay before re-running a failing `--verify-cmd`; `--backoff` (default 30) keeps governing gh retries and throttles. On the 6-PR bench fixture the default sleeps for two deterministic failures drop from 180 s to 30 s (computed from the attempt log); test-run count is unchanged at 10 there because no tree repeats.
+
 ## [1.583.0] — 2026-10-16
 
 ### Added
