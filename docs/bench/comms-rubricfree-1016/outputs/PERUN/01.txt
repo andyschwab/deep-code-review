@@ -1,0 +1,19 @@
+**Priya: please approve the schema change (index on `orders(customer_id, created_at)`) for a Tuesday-night run after the 22:00 dip. One open risk: I haven't measured insert overhead at peak write rates.**
+
+**Why:** The customer order history endpoint does a sequential scan. p95 is ~1.8 s for the largest tenants. On a staging copy of production (~42M rows), the same query drops to ~35 ms with the index.
+
+**Change:** Adds a composite index on `orders(customer_id, created_at)` in Postgres via `CREATE INDEX CONCURRENTLY`, so there is no table lock.
+
+**Cost and timing**
+- Build: 11 min on staging. Production is ~1.4x larger, so expect roughly 15 min (extrapolated, not measured).
+- Disk: ~2.1 GB.
+- Run: Tuesday night, after the 22:00 traffic dip.
+
+**Unmeasured risk:** Orders peak around 900 writes/sec during sales events. I don't know whether the extra index affects insert throughput at that rate. Tuesday night is not a sales peak, but I haven't benchmarked it either way.
+
+**Rollback:** `DROP INDEX CONCURRENTLY` on the index. No code depends on it yet, so dropping it is safe.
+
+**Decision for Priya:** Approve for Tuesday as planned, or want an insert-throughput benchmark on staging first? **Reply A (approve) or B (benchmark first).**
+
+---
+Note: I wrote `DROP INDEX CONCURRENTLY` as the rollback since you said "dropping the index"; change it if you'd use a plain drop. Also, if you can run an insert benchmark before Tuesday, add the result and I'd drop the "unmeasured risk" section.
