@@ -6,6 +6,11 @@
 # FLAKE_REAL_AT of FLAKE_RUNS isolated re-runs, by default ALL of them: a 1-in-3 flake is then blamed (1/3)^3 = 3.7% of the time
 # (2-of-3 blamed it 7/27 = 25.9%). Stops early once the verdict is fixed, so a flake that passes once costs one re-run. Prints "REAL <id>" / "FLAKE <id>"
 # lines (flakes are reported separately, never blamed on a PR). Exit: 0 no REAL ids, 1 at least one REAL, 2 usage or bad FLAKE_RUNS/FLAKE_REAL_AT (fails closed).
+# Optional: FLAKE_LEDGER_DIR=<dir> (outside the worktree and git toplevel, else exit 2) records each id's suite failure and every solo run in
+# flake_ledger.py's per-tree ledger (FLAKE_TREE, default HEAD's tree) and prints `quarantined-flake <id> (failed f of n alone)` instead of FLAKE for an
+# id on its active quarantine list that failed at least one but not all solo runs and is not consistently failing on the tree (non-blocking). The list is read
+# from memory only, read before any re-run (stdin when FLAKE_QUARANTINE_STDIN=1, as train_land.sh passes it, else from the dir now), never from a file the code under
+# test could overwrite; FLAKE_LEDGER_DIR and the list are unset for the code under test.
 # Same-host baseline: a non-empty baseline file must start with the header `# baseline host=<h> inv=<hash>` written by
 # `train_flake.sh --record <failing-ids-file> > baseline` on the machine and invocation that measured it. The current host
 # (FLAKE_HOST, default hostname -s) and invocation hash (sha256 of FLAKE_INVOCATION, default BROWSER_CMD) must match, else exit 2:
@@ -17,6 +22,8 @@ set -uo pipefail
 inv=$(printf %s "${FLAKE_INVOCATION:-${BROWSER_CMD:-}}" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-16)
 host=${FLAKE_HOST:-$(hostname -s)}
 T=${TMPDIR:-/tmp}
+# Ledger env (see the FLAKE_LEDGER_DIR note above): move it into shell variables and unset it so the code under test (RERUN_CMD, FLAKE_SETUP_CMD) never inherits the path.
+led=${FLAKE_LEDGER_DIR:-} qstdin=${FLAKE_QUARANTINE_STDIN:-}; unset FLAKE_LEDGER_DIR FLAKE_QUARANTINE_STDIN FLAKE_QUARANTINE_JSON qjson
 # norm: the ONE id normalizer (strip trailing whitespace incl. CR, nothing else). Every emit and match of a FAIL/REAL id goes through it
 # (`train_flake.sh --norm` filters stdin), so an id printed with a trailing space or CRLF still equals the listed one.
 norm() { sed -E 's/[[:space:]]+$//'; }
@@ -58,16 +65,32 @@ case $runs$need in ''|*[!0-9]*) echo "train_flake: FLAKE_RUNS/FLAKE_REAL_AT must
 if [ -s "${2:-/dev/null}" ] && [ "$(head -n1 "$2" | norm)" != "# baseline host=$host inv=$inv" ]; then
   echo "train_flake: baseline $2 not recorded on this host with this invocation (want '# baseline host=$host inv=$inv'); refusing to compare" >&2; exit 2
 fi
+L="$(dirname "$0")/flake_ledger.py"
+if [ -n "$led" ]; then
+  python3 "$L" --dir "$led" guard >&2 || exit 2  # a ledger dir the code under test can write (under the worktree/toplevel) is refused
+  # The quarantine list lives only in this unexported shell variable (never a file): stdin when the caller read it before any PR code ran
+  # (train_land.sh), else read now, before any re-run executes code under test.
+  if [ -n "$qstdin" ]; then qjson=$(cat); else qjson=$(cat "$led/quarantine.json" 2>/dev/null) || qjson=; fi
+  [ -n "$qjson" ] || qjson='{}'
+fi
+rep() { local i; for ((i = 0; i < $3; i++)); do printf '%s %s\n' "$1" "$2"; done; }  # rep <word> <id> <count>
 while IFS= read -r id; do
   [ -n "$id" ] || continue
   [ -z "${2:-}" ] || ! norm <"$2" | grep -qxF -- "$id" 2>/dev/null || continue
-  f=0 p=0
+  f=0 p=0 qok=0
+  # Quarantine (flake_ledger.py): `check` against the pre-run list (stdin), exit 0 = actively quarantined and not consistently failing on this tree.
+  # Errors (exit 2) leave qok=0 (fail closed). A quarantined id runs ALL its solo re-runs (no early stop on the first pass) so a flake is seen failing.
+  [ -z "$led" ] || ! printf '%s' "$qjson" | python3 "$L" --dir "$led" check "$id" --quarantine - ${FLAKE_TREE:+--tree "$FLAKE_TREE"} >/dev/null 2>&1 || qok=1
   for n in $(seq "$runs"); do
     one_run "$id" "$n"; r=$?
     [ "$r" -ne 125 ] || { echo "train_flake: fresh store or FLAKE_SETUP_CMD failed for $id" >&2; exit 2; }
     if [ "$r" -eq 0 ]; then p=$((p + 1)); else f=$((f + 1)); fi
-    [ "$f" -ge "$need" ] || [ "$p" -gt $((runs - need)) ] && break
+    if [ "$f" -ge "$need" ] || { [ "$qok" -eq 0 ] && [ "$p" -gt $((runs - need)) ]; }; then break; fi
   done
-  if [ "$f" -ge "$need" ]; then echo "REAL $id"; real=1; else echo "FLAKE $id (failed $f of $((f + p)) alone)"; fi
+  if [ "$f" -ge "$need" ]; then v="REAL $id"; real=1; else v="FLAKE $id (failed $f of $((f + p)) alone)"; fi
+  # quarantined-flake needs a solo failure (0 < f < n): a suite failure that passes every solo re-run keeps the plain FLAKE and its base check.
+  echo "$v" | { if [ "$qok" -eq 1 ] && [ "$f" -ge 1 ] && [ "$f" -lt "$need" ]; then sed 's/^FLAKE /quarantined-flake /'; else cat; fi; }
+  # Evidence is recorded per run (the suite failure, then each solo run), best-effort; verdict labels are never evidence.
+  [ -z "$led" ] || { printf 'SUITE %s\n' "$id"; rep FAIL "$id" "$f"; rep PASS "$id" "$p"; } | python3 "$L" --dir "$led" record ${FLAKE_TREE:+--tree "$FLAKE_TREE"} >&2 || true
 done < <(norm <"$1")
 exit $real
