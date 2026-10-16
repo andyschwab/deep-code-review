@@ -46,7 +46,7 @@ makes no network calls and needs no `sudo`.
 |---|---|
 | *(none)* | `.claude/`, `.cursor/`, `.agents/` skill roots + `AGENTS.md` |
 | `--with-codex` | also `.codex/skills/` |
-| `--with-extra-hosts` | also the Gemini, OpenCode, Copilot, Windsurf, Hermes, and Kiro roots |
+| `--with-extra-hosts` | also the Gemini, OpenCode, Copilot, Windsurf, Hermes, Kiro, Cline, Roo Code, and Factory Droid roots |
 | `--minimal` | only `.claude/skills/` + `AGENTS.md` |
 | `--claude-only` | only `.claude/skills/`, no `AGENTS.md` |
 

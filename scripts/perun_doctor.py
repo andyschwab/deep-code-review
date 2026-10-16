@@ -16,6 +16,7 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parent.parent
 SKIP = {".git", "node_modules", ".venv", "__pycache__", "worktrees", "skill-backups"}
+SKILL_HOSTS = (".claude", ".cursor", ".agents", ".codex", ".gemini", ".opencode", ".github", ".windsurf", ".hermes", ".kiro", ".cline", ".roo", ".factory")  # every root install.sh can write
 HOOK_SCRIPTS = ("pipe_mask_guard.py", "bypass_guard.py", "destructive_guard.py", "subagent_start_inject.py", "handback_cap.py", "context_nudge.py", "lane_resume_nudge.py")  # operating-layer template
 
 
@@ -144,7 +145,7 @@ def check(repo, home):
     srcfiles = {}
     for p in walk(SRC / ".claude/skills"):
         srcfiles.setdefault(p.name, []).append(sha(p))
-    for host in (".claude", ".cursor", ".agents", ".codex"):
+    for host in SKILL_HOSTS:
         base = repo / host / "skills"
         for p in walk(base) if base.is_dir() else ():
             rel = p.relative_to(base)
@@ -155,7 +156,7 @@ def check(repo, home):
                 drift.append(str(p.relative_to(repo)))
     for p in walk(repo):
         rel = p.relative_to(repo).parts
-        if rel[0] in (".claude", ".cursor", ".agents", ".codex") and len(rel) > 1 and rel[1] == "skills":
+        if rel[0] in SKILL_HOSTS and len(rel) > 1 and rel[1] == "skills":
             continue
         if p.suffix in (".py", ".sh") and p.name in srcfiles and sha(p) not in srcfiles[p.name]:
             drift.append(str(p.relative_to(repo)) + " (forked copy)")
