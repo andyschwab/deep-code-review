@@ -4205,17 +4205,20 @@ else
 fi
 
 # ===========================================================================
-# drive-to-goal: the rule, both spend modes, and the override knob must stay in
-# the lane preamble and operating-discipline.md (and the perun-run override).
+# drive-to-goal: the rule, both spend modes, and the override knob live once in
+# the lane preamble; operating-discipline.md keeps the first rule and points at
+# it (and the perun-run override stays). Waste-filter wording: test_max_pace_no_waste.py.
 _dtg=1
-for f in .claude/skills/agentic-delivery/templates/lane-preamble.md .claude/skills/agentic-delivery/references/operating-discipline.md; do
-  grep -qF 'Drive to the goal (first rule)' "$ROOT/$f" \
-    && grep -qF 'Default: be cautious about spend and report spend to the owner' "$ROOT/$f" \
-    && grep -qF 'Maximum pace:' "$ROOT/$f" \
-    && grep -qF 'do not pause for approval inside any granted budget' "$ROOT/$f" \
-    && grep -qF 'set tokens maximize' "$ROOT/$f" \
-    && grep -qF 'counts as the grant for the human-gate push' "$ROOT/$f" || _dtg=0
-done
+_lp=.claude/skills/agentic-delivery/templates/lane-preamble.md
+_od=.claude/skills/agentic-delivery/references/operating-discipline.md
+grep -qF 'Drive to the goal (first rule)' "$ROOT/$_lp" \
+  && grep -qF 'Default: be cautious about spend and report spend to the owner' "$ROOT/$_lp" \
+  && grep -qF 'Maximum pace:' "$ROOT/$_lp" \
+  && grep -qF 'do not pause for approval inside any granted budget' "$ROOT/$_lp" \
+  && grep -qF 'set tokens maximize' "$ROOT/$_lp" \
+  && grep -qF 'counts as the grant for the human-gate push' "$ROOT/$_lp" \
+  && grep -qF 'Drive to the goal (first rule)' "$ROOT/$_od" \
+  && grep -qF '`templates/lane-preamble.md` **Drive to the goal**' "$ROOT/$_od" || _dtg=0
 grep -qF 'is such a grant for push and merge only' "$ROOT/commands/perun-run.md" || _dtg=0
 if [ "$_dtg" -eq 1 ]; then record 0 "drive-to-goal: rule, two spend modes and override present"; else record 1 "drive-to-goal: rule, two spend modes and override present"; fi
 

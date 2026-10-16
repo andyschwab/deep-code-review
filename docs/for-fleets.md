@@ -94,8 +94,10 @@ Every resource is spent efficiently unless you name a front to push. One file,
 - Set it without hand-writing JSON: `perun_policy.py set local_cpu maximize`, or at install
   `./install.sh --policy local_cpu=maximize,github_actions=off,share_learnings=auto`.
 - `tokens`: enforced only as a lane cap. `perun_policy.py lanes` and `heavy-slots` (and host_probe's lane cap)
-  cap at 2 for `efficient`, 1 for `off`, N for a number (never a token budget); `maximize` lifts the cap.
-  Cheapest fitting model tier, no duplicate review passes and terse hand-backs are lane guidance, not enforced.
+  cap at 2 for `efficient`, 1 for `off`, N for a number (never a token budget); `maximize` (maximum pace) lifts the cap.
+  Cheapest fitting model tier, no duplicate review passes and terse hand-backs are lane guidance, not enforced. At
+  maximum pace spend rises only where it buys speed or quality, and the waste filter still applies
+  ([`lane-preamble.md`](../.claude/skills/agentic-delivery/templates/lane-preamble.md), **Drive to the goal**).
 - `share_learnings` (`auto|ask|off`, default `ask`) governs `share_learning.py`; `auto` also runs it at the end of `/perun-run`, after its privacy gate.
 - Agents read the policy (`python3 scripts/perun_policy.py get <dim>`) before choosing
   parallelism, CI, or model. A malformed file fails closed.
