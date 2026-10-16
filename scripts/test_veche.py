@@ -69,6 +69,13 @@ class T(unittest.TestCase):
         rc, rec, _, _ = self.run_veche(answers, ["--max-calls", "1"], script="council.py")
         self.assertEqual((rc, rec["verdict"]), (3, "COULD_NOT_DECIDE"))
 
+    def test_import_council_neither_exits_nor_runs_and_exposes_veche_names(self):
+        code = ("import sys; sys.argv = ['x']; sys.path.insert(0, %r); import council; "
+                "assert callable(council.run) and callable(council.cite_state) and callable(council.parse) "
+                "and callable(council.fence) and callable(council.main); print('imported')" % str(SK))
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual((r.returncode, r.stdout.strip(), r.stderr), (0, "imported", ""))
+
     def test_seats_are_independent_and_decorrelated(self):
         rc, rec, calls, d = self.run_veche(self.seats(*[ans()] * 5), ["--lenses", ",".join(SEATS)])
         self.assertEqual((rc, len(calls), rec["lenses"]), (0, 5, list(SEATS)))
