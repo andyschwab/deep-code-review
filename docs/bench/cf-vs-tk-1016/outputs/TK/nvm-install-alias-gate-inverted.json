@@ -1,0 +1,50 @@
+{
+ "id": "nvm-install-alias-gate-inverted",
+ "arm": "TK",
+ "findings": [
+  {
+   "file": "nvm.sh",
+   "line": 43,
+   "severity": "high",
+   "text": "In the already-installed branch, EXIT_CODE is declared with `local EXIT_CODE` and never initialised. The checks are inverted (`-ne 0`) and the variable is unset when NVM_UPGRADE_NPM is not 1, so `[ $EXIT_CODE -ne 0 ]` fails with an error. Default packages and reinstall-packages are therefore skipped on a plain `nvm install <installed version>`. If npm upgrade succeeds (EXIT_CODE=0), they are also skipped. They only run when the previous step failed."
+  },
+  {
+   "file": "nvm.sh",
+   "line": 59,
+   "severity": "high",
+   "text": "The alias step uses `[ $EXIT_CODE -ne 0 ]`, so `nvm install --alias=foo <installed version>` never creates the alias on success. It only runs after a failure. If EXIT_CODE is unset, the test errors and the alias is skipped. The final `return $EXIT_CODE` with an unset value also returns the status of the last command rather than a reliable result."
+  },
+  {
+   "file": "nvm.sh",
+   "line": 94,
+   "severity": "medium",
+   "text": "nvm_install_default_packages assigns EXIT_CODE without declaring it local, so it overwrites the caller's EXIT_CODE variable in nvm(). It also drops the dedicated `nvm_get_default_packages` failure early-exit that used to run before install. A malformed default-packages file is now only detected after node has been installed, not before."
+  },
+  {
+   "file": "nvm.sh",
+   "line": 69,
+   "severity": "medium",
+   "text": "The `EXIT_CODE=-1` initialisation was removed. When no install branch sets EXIT_CODE, later `[ $EXIT_CODE -eq 0 ]` tests on an unset variable error out, or the default-package and reinstall steps are skipped or misreported."
+  }
+ ],
+ "raw": "[{\"file\":\"nvm.sh\",\"line\":43,\"severity\":\"high\",\"text\":\"In the already-installed branch, EXIT_CODE is declared with `local EXIT_CODE` and never initialised. The checks are inverted (`-ne 0`) and the variable is unset when NVM_UPGRADE_NPM is not 1, so `[ $EXIT_CODE -ne 0 ]` fails with an error. Default packages and reinstall-packages are therefore skipped on a plain `nvm install <installed version>`. If npm upgrade succeeds (EXIT_CODE=0), they are also skipped. They only run when the previous step failed.\"},{\"file\":\"nvm.sh\",\"line\":59,\"severity\":\"high\",\"text\":\"The alias step uses `[ $EXIT_CODE -ne 0 ]`, so `nvm install --alias=foo <installed version>` never creates the alias on success. It only runs after a failure. If EXIT_CODE is unset, the test errors and the alias is skipped. The final `return $EXIT_CODE` with an unset value also returns the status of the last command rather than a reliable result.\"},{\"file\":\"nvm.sh\",\"line\":94,\"severity\":\"medium\",\"text\":\"nvm_install_default_packages assigns EXIT_CODE without declaring it local, so it overwrites the caller's EXIT_CODE variable in nvm(). It also drops the dedicated `nvm_get_default_packages` failure early-exit that used to run before install. A malformed default-packages file is now only detected after node has been installed, not before.\"},{\"file\":\"nvm.sh\",\"line\":69,\"severity\":\"medium\",\"text\":\"The `EXIT_CODE=-1` initialisation was removed. When no install branch sets EXIT_CODE, later `[ $EXIT_CODE -eq 0 ]` tests on an unset variable error out, or the default-package and reinstall steps are skipped or misreported.\"}]",
+ "error": "",
+ "attempts": 1,
+ "matched": [
+  true,
+  true,
+  false,
+  false
+ ],
+ "verdicts": {
+  "2": {
+   "verdict": "real",
+   "reason": "The non-local EXIT_CODE does no harm because every caller sets EXIT_CODE=$? right after the call, but the patch does remove the early nvm_get_default_packages check that returned before installing, so a bad default-packages file is now only caught after node is installed."
+  },
+  "3": {
+   "verdict": "real",
+   "reason": "In the already-installed branch, `local EXIT_CODE` is declared with no value and only gets set when NVM_UPGRADE_NPM=1, so otherwise `[ $EXIT_CODE -ne 0 ]` becomes `[ -ne 0 ]`, which errors and skips the default-packages, reinstall and alias steps; switching the test to -eq would still fail, so this is a separate problem from the inverted test."
+  }
+ },
+ "verify_error": ""
+}

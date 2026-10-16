@@ -1,0 +1,42 @@
+{
+ "id": "nvm-install-alias-gate-inverted",
+ "arm": "CF",
+ "findings": [
+  {
+   "file": "nvm.sh",
+   "line": 3322,
+   "severity": "high",
+   "confidence_score": 90,
+   "text": "In the already-installed branch, `local EXIT_CODE` is empty unless `NVM_UPGRADE_NPM=1`. The new guards use `[ $EXIT_CODE -ne 0 ]`, which with an empty value gives an 'integer expression expected' error and evaluates false. As a result, `nvm install <already-installed-version>` never installs default packages, never runs `reinstall-packages` for `--reinstall-packages-from`, and never creates `--alias`. The guards are also inverted: they should be `-eq 0`, so a failed npm upgrade (non-zero) would trigger the next step."
+  },
+  {
+   "file": "nvm.sh",
+   "line": 3335,
+   "severity": "high",
+   "confidence_score": 85,
+   "text": "The alias step is guarded by `[ $EXIT_CODE -ne 0 ] && [ -n \"${ALIAS-}\" ]`. When EXIT_CODE is empty, the test errors and is false. When every earlier step succeeded (EXIT_CODE=0), it is also false. So `nvm install X --alias=foo` on an already-installed version never creates the alias, and `return $EXIT_CODE` then returns an empty or stale status."
+  },
+  {
+   "file": "nvm.sh",
+   "line": 4286,
+   "severity": "medium",
+   "confidence_score": 80,
+   "text": "`nvm_install_default_packages` assigns to `EXIT_CODE` without declaring it local, so it overwrites the caller's or the shell's global `EXIT_CODE`. Callers other than `nvm install` get this variable clobbered. If the function is invoked outside `nvm()`, which declares its own local, the variable leaks into the user's shell."
+  }
+ ],
+ "raw": "[{\"file\":\"nvm.sh\",\"line\":3322,\"severity\":\"high\",\"confidence_score\":90,\"text\":\"In the already-installed branch, `local EXIT_CODE` is empty unless `NVM_UPGRADE_NPM=1`. The new guards use `[ $EXIT_CODE -ne 0 ]`, which with an empty value gives an 'integer expression expected' error and evaluates false. As a result, `nvm install <already-installed-version>` never installs default packages, never runs `reinstall-packages` for `--reinstall-packages-from`, and never creates `--alias`. The guards are also inverted: they should be `-eq 0`, so a failed npm upgrade (non-zero) would trigger the next step.\"},{\"file\":\"nvm.sh\",\"line\":3335,\"severity\":\"high\",\"confidence_score\":85,\"text\":\"The alias step is guarded by `[ $EXIT_CODE -ne 0 ] && [ -n \\\"${ALIAS-}\\\" ]`. When EXIT_CODE is empty, the test errors and is false. When every earlier step succeeded (EXIT_CODE=0), it is also false. So `nvm install X --alias=foo` on an already-installed version never creates the alias, and `return $EXIT_CODE` then returns an empty or stale status.\"},{\"file\":\"nvm.sh\",\"line\":4286,\"severity\":\"medium\",\"confidence_score\":80,\"text\":\"`nvm_install_default_packages` assigns to `EXIT_CODE` without declaring it local, so it overwrites the caller's or the shell's global `EXIT_CODE`. Callers other than `nvm install` get this variable clobbered. If the function is invoked outside `nvm()`, which declares its own local, the variable leaks into the user's shell.\"}]",
+ "error": "",
+ "attempts": 1,
+ "matched": [
+  true,
+  true,
+  false
+ ],
+ "verdicts": {
+  "2": {
+   "verdict": "not_a_bug",
+   "reason": "The only callers of `nvm_install_default_packages` are the two in `nvm install`, which declares `local EXIT_CODE` and sets `EXIT_CODE=$?` right after each call, so nothing is actually clobbered; a leak would only happen if a user called this internal helper directly."
+  }
+ },
+ "verify_error": ""
+}

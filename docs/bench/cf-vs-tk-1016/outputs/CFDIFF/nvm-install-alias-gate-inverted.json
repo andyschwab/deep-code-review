@@ -1,0 +1,58 @@
+{
+ "id": "nvm-install-alias-gate-inverted",
+ "arm": "CFDIFF",
+ "findings": [
+  {
+   "file": "nvm.sh",
+   "line": 3317,
+   "severity": "high",
+   "confidence_score": 90,
+   "text": "In the already-installed branch, `EXIT_CODE` is declared with `local EXIT_CODE` and never initialised. If `NVM_UPGRADE_NPM` is not 1, `[ $EXIT_CODE -ne 0 ]` expands to `[ -ne 0 ]` and errors, so the test is false. Default packages, `reinstall-packages` and `alias` are then skipped. The conditions are also inverted: `-ne 0` should be `-eq 0`. If `install-latest-npm` fails, the later steps run anyway. Otherwise they are skipped."
+  },
+  {
+   "file": "nvm.sh",
+   "line": 4285,
+   "severity": "medium",
+   "confidence_score": 82,
+   "text": "`nvm_install_default_packages` assigns `EXIT_CODE` without declaring it local. It overwrites the caller's `EXIT_CODE` variable and leaks a global into the user's shell."
+  },
+  {
+   "file": "nvm.sh",
+   "line": 3335,
+   "severity": "medium",
+   "confidence_score": 80,
+   "text": "On the already-installed path, `return $EXIT_CODE` can return an uninitialised or stale value. When `nvm use` fails, `EXIT_CODE` is never set, so `return` gets an empty value. It also no longer reflects the failure of `nvm use`, so a failed `nvm use` can return success."
+  },
+  {
+   "file": "nvm.sh",
+   "line": 3310,
+   "severity": "low",
+   "confidence_score": 80,
+   "text": "The removed `EXIT_CODE=-1` initialisation and the `local EXIT_CODE` move leave the later install path without its sentinel value. Code that depends on the -1 default, such as the third-party hook or the no-method-matched path, may now see an empty value."
+  }
+ ],
+ "raw": "[{\"file\":\"nvm.sh\",\"line\":3317,\"severity\":\"high\",\"confidence_score\":90,\"text\":\"In the already-installed branch, `EXIT_CODE` is declared with `local EXIT_CODE` and never initialised. If `NVM_UPGRADE_NPM` is not 1, `[ $EXIT_CODE -ne 0 ]` expands to `[ -ne 0 ]` and errors, so the test is false. Default packages, `reinstall-packages` and `alias` are then skipped. The conditions are also inverted: `-ne 0` should be `-eq 0`. If `install-latest-npm` fails, the later steps run anyway. Otherwise they are skipped.\"},{\"file\":\"nvm.sh\",\"line\":4285,\"severity\":\"medium\",\"confidence_score\":82,\"text\":\"`nvm_install_default_packages` assigns `EXIT_CODE` without declaring it local. It overwrites the caller's `EXIT_CODE` variable and leaks a global into the user's shell.\"},{\"file\":\"nvm.sh\",\"line\":3335,\"severity\":\"medium\",\"confidence_score\":80,\"text\":\"On the already-installed path, `return $EXIT_CODE` can return an uninitialised or stale value. When `nvm use` fails, `EXIT_CODE` is never set, so `return` gets an empty value. It also no longer reflects the failure of `nvm use`, so a failed `nvm use` can return success.\"},{\"file\":\"nvm.sh\",\"line\":3310,\"severity\":\"low\",\"confidence_score\":80,\"text\":\"The removed `EXIT_CODE=-1` initialisation and the `local EXIT_CODE` move leave the later install path without its sentinel value. Code that depends on the -1 default, such as the third-party hook or the no-method-matched path, may now see an empty value.\"}]",
+ "error": "",
+ "attempts": 1,
+ "matched": [
+  true,
+  false,
+  false,
+  false
+ ],
+ "verdicts": {
+  "1": {
+   "verdict": "not_a_bug",
+   "reason": "nvm_install_default_packages is only called from inside nvm(), which has already declared `local EXIT_CODE`, so under shell dynamic scoping the assignment only touches nvm()'s local, which the caller immediately overwrites with `EXIT_CODE=$?`; nothing leaks into the user's shell."
+  },
+  "2": {
+   "verdict": "real",
+   "reason": "On the already-installed path `local EXIT_CODE` is never given a value and the status of `nvm use` is never stored, so the `[ $EXIT_CODE -ne 0 ]` tests run on an empty value and error out, and `return $EXIT_CODE` turns into a bare `return` that can give 0 after `nvm use` failed; this is a missing initialisation and capture, a different cause from the inverted test."
+  },
+  "3": {
+   "verdict": "real",
+   "reason": "Removing `EXIT_CODE=-1` leaves EXIT_CODE empty on the install path, so the source-install fallback (`if [ $EXIT_CODE -ne 0 ]` when no binary is used) and the no-method-matched return no longer see the -1 sentinel; the test errors out as false, the fallback is skipped and the return status is wrong."
+  }
+ },
+ "verify_error": ""
+}
