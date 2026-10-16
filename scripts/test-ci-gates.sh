@@ -1110,12 +1110,13 @@ else
   record 1 "install: full default creates claude/cursor/agents (no codex) + one idempotent AGENTS.md block"
 fi
 
-# 3) rapid repeated installs create distinct backups of the prior skill.
+# 3) rapid repeated installs create distinct backups of a modified prior skill (identical re-runs take none).
 dest3="$WORK/dest-backups"
 mkdir -p "$dest3/$skill_rel"
 printf 'v0\n' >"$dest3/$skill_rel/SKILL.md"
 gate "$GATES" install --src "$ROOT" --dest "$dest3" --mode claude
 rc_first=$GATE_RC
+printf '\nuser edit\n' >>"$dest3/$skill_rel/SKILL.md"  # a backup is taken only when content differs from the shipped copy
 gate "$GATES" install --src "$ROOT" --dest "$dest3" --mode claude
 rc_second=$GATE_RC
 if [ "$rc_first" -eq 0 ] && [ "$rc_second" -eq 0 ]; then
