@@ -79,7 +79,7 @@ The judge actually used for a skill (the one inside the band) contributes 99 slo
 The gate is applied per skill with at most 20 verdicts, so an unbiased judge still lands outside 0.4-0.6 on about one skill in three by chance; the three-judge chain exists for that.
 idea-critic is the exception: the Perun and rival answers recommend the same decision in almost the same words (about 320 to 540 words each), the judges cannot separate them, and all three
 fall back on slot 1 (0.65 to 0.75). That is a fixture problem (near-identical answers), not something a judge prompt fixes; the skill stays with no verdict rather than a biased number.
-Because a win needs both orders to agree, slot bias cannot inflate a win rate; it can only push scenarios toward 0.5 and widen the interval.
+Because a win needs both orders to agree, slot bias cannot create a win on its own, but it can soften a true loss toward 0.5 (raising a losing rate) and widen the interval.
 
 ## Method
 
