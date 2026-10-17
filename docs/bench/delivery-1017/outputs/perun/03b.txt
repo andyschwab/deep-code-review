@@ -1,0 +1,36 @@
+**Delivery Plan: Restrict Legacy Billing API Access**
+
+**1. Lanes & Serialization**
+*   **Lane A (Spec & Impact Analysis):** Product Analyst defines the exact JSON diff for `global_access_matrix.json` and verifies the "Finance-Admins" group ID. Simultaneously, Builder analyzes the nightly batch reconciliation service account to confirm it possesses the required group membership.
+    *   *Constraint:* Must complete before Lane B.
+*   **Lane B (Implementation):** Builder applies the JSON change in an isolated worktree. Adds a specific integration test asserting 403 for non-finance users and 200 for Finance-Admins. Includes a dry-run script to validate the batch service account against the new matrix.
+    *   *Parallelism:* None. Dependent on Lane A.
+*   **Lane C (Security Verification):** Security Engineer reviews the diff independently. Verifies the audit trail logging mechanism is triggered by this specific config change.
+    *   *Parallelism:* Can run concurrently with Lane B's test writing, but must complete before G6.
+
+**2. Gates & Checks**
+*   **G2 (Plan):** Explicitly name the token budget for the CI run. Given the $120 cost and 15% flake rate, the plan mandates **one** full regression run only after local verification passes.
+*   **G4 (Implement):** Commit includes the JSON diff, the unit test, and the dry-run validation script. Base SHA is pinned.
+*   **G5 (Verify):**
+    *   *Local:* Run the dry-run script against the modified config to prove the batch service account retains access.
+    *   *CI:* Trigger the full pipeline on the exact commit SHA. If Stage 3 flakes, do not auto-retry; trigger a manual re-evaluation to avoid burning the $120 budget unnecessarily.
+    *   *Audit:* Confirm the security log entry exists in the staging environment.
+*   **G6 (Review):** Security Engineer (independent of Builder) signs off on the access restriction. Platform Reliability Lead signs off on the batch process continuity.
+
+**3. Review Strategy**
+*   **Builder** implements the change but cannot approve it.
+*   **Security Engineer** performs the primary review for the access control logic.
+*   **Platform Reliability Lead** performs the secondary review specifically for the batch reconciliation impact.
+*   **Deep Code Review** scans for accidental widening of access elsewhere in the diff.
+
+**4. Landing & Human Gates**
+*   **Merge Train:** The change lands on a dedicated integration branch. Due to the 4-hour cache on `global_access_matrix.json`, the merge must be timed immediately following a scheduled cache purge or during a low-traffic window to minimize the 20-minute manual purge delay if an immediate rollback is needed.
+*   **Human Approval (G8):** Before deployment, explicit written approval is required from both the **Chief Financial Officer** and the **Head of Security** via the governance portal. No automated merge to production occurs without these two distinct artifacts.
+*   **Rollback Plan:**
+    *   If the batch process fails post-deploy: Revert the commit immediately.
+    *   Execute the manual cache purge (20 mins) to force the old configuration live.
+    *   Notify stakeholders that the fiscal close window is at risk; do not attempt a "fix forward" during the close window.
+
+**5. Risk Mitigation**
+*   **Flaky CI:** The 15% flake rate in Stage 3 is mitigated by requiring a successful local dry-run of the batch account logic before triggering the expensive CI job.
+*   **Cache Latency:** The 4-hour cache and 20-minute purge time are treated as hard constraints. Deployment is scheduled to ensure the new rules are active well before the fiscal close deadline next Tuesday, allowing a full cycle for verification.

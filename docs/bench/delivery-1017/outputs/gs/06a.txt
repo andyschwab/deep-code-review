@@ -1,0 +1,54 @@
+### Delivery Plan: Cap Daily LLM Spend
+
+**Objective:** Implement a hard stop on text-enhancement requests once daily API spend exceeds $450, ensuring user-facing error messages and preventing budget overruns before Tuesday's marketing blast.
+
+#### 1. Work Lanes & Parallelization
+
+*   **Lane A: Core Logic & Configuration (Serialized)**
+    *   **Owner:** Backend Engineer.
+    *   **Scope:** Modify `parser-service` to read the shared global config. Implement the pre-call check: query today's usage, compare against the $450 threshold, and return a specific user-friendly error if capped.
+    *   **Constraint:** Must coordinate with Lane B to ensure the counter mechanism is active before logic is deployed.
+*   **Lane B: Data & Infrastructure (Serialized, High Risk)**
+    *   **Owner:** Lead Architect (Marcus Thorne).
+    *   **Scope:** Prepare the irreversible database schema migration for tracking daily counts. Since staging uses a mock API that doesn't increment counters, a dry-run script must be created to validate the migration logic without applying it to production yet.
+    *   **Constraint:** Migration application to Production is a manual, high-stakes gate requiring Marcus's direct presence.
+*   **Lane C: Verification & Cost Control (Parallel to A & B)**
+    *   **Owner:** QA / DevOps.
+    *   **Scope:** Isolate the CI regression suite. Create a "fast-path" test profile that skips the full historical dataset re-processing (saving 28 mins and $12/run) and only tests the new spend-cap logic and error messaging.
+    *   **Constraint:** Must verify that the mock API in staging can be temporarily toggled or bypassed to simulate a "cap hit" scenario for manual testing.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Logic Review (Pre-Migration)**
+    *   **Check:** Code review of the spend-cap logic in `parser-service`.
+    *   **Revision:** Feature branch head.
+    *   **Reviewer:** Senior Engineer (independent of the author).
+    *   **Criteria:** Verifies the $450 threshold is configurable, the error message is clear to support teams, and no silent failures exist.
+*   **Gate 2: Migration Dry-Run**
+    *   **Check:** Execution of the migration script against a local copy of production data (sanitized).
+    *   **Revision:** Same feature branch.
+    *   **Reviewer:** Marcus Thorne.
+    *   **Criteria:** Confirms irreversibility risks are understood and rollback scripts (if any exist for data, though schema is irreversible) are documented.
+*   **Gate 3: Fast-Path CI**
+    *   **Check:** Run the new "fast-path" CI profile.
+    *   **Revision:** Post-merge to a release candidate branch.
+    *   **Criteria:** Pass/fail based solely on the new logic and critical path; historical regression is deferred until post-launch to save time/cost for this hotfix.
+
+#### 3. Review Strategy
+
+*   **Code Review:** Conducted by a Senior Engineer not involved in writing the logic. Focus on edge cases (e.g., race conditions where two requests hit the limit simultaneously).
+*   **Architecture/Security Review:** Marcus Thorne must review the database migration plan and the shared config file changes to ensure no side effects on the billing daemon.
+*   **User Experience Review:** Product Manager verifies the exact wording of the "try again tomorrow" message to ensure it reduces support ticket volume.
+
+#### 4. Landing & Rollout
+
+*   **Merge Strategy:**
+    1.  Code lands in `staging` first.
+    2.  **Human Decision:** Marcus Thorne must manually approve the production database migration during business hours. This is a hard gate; no automation applies here due to irreversibility.
+    3.  Once migration is confirmed, the application code is deployed.
+*   **Timing:** Deployment must occur Monday afternoon to allow overnight monitoring before Tuesday's email blast.
+*   **Rollback Plan:**
+    *   **Code:** Immediate revert of the `parser-service` deployment if false positives block legitimate users.
+    *   **Database:** Since the schema migration is irreversible, the rollback involves disabling the check via feature flag (if implemented) or reverting code to a state where the new column is ignored. Data accumulated during the incident remains but is marked as invalid if the cap was erroneous.
+
+**Critical Path:** The dependency on Marcus Thorne for the migration approval and the irreversible nature of the DB change are the primary risks. All testing must validate the "cap hit" scenario manually since staging mocks do not trigger it naturally.

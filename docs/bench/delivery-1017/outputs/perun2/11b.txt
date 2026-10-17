@@ -1,0 +1,43 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Ingestion
+
+**Lanes & Serialization**
+Work proceeds in three serialized lanes to prevent collision on the shared `global-audit-log` and manage costly CI simulations.
+
+1.  **Lane A (Spec & Safety):** Product Analyst defines the exact vendor IAM ARN and the `pending-review` prefix scope. Security Lead drafts the rollback script (reverting to the previous policy version) and verifies it targets only the specific bucket, not the shared audit log.
+    *   *Dependency:* None. Must complete before Lane B.
+2.  **Lane B (Implementation):** Builder updates the infrastructure definition in `core-network`. Changes are strictly scoped to the vendor write permission; read access for internal auditors remains untouched. The builder runs a local syntax check only.
+    *   *Dependency:* Waits for Lane A's confirmed ARN and scope.
+3.  **Lane C (Verification Prep):** QA prepares the manual verification checklist for the Tuesday drift detection gap, ensuring steps exist to validate the `global-audit-log` integrity post-deployment.
+    *   *Dependency:* Parallel to Lane B, but requires Lane A's scope confirmation.
+
+**Gates & Checks**
+*   **G1/G2 (Spec/Plan):** Verify the vendor identity and prefix constraints. Confirm the $45 CI cost cap is enforced by limiting simulation runs to one final execution.
+*   **G4 (Implement):** Builder commits the change. No CI triggered yet.
+*   **G5 (Verify):** Trigger **one** full environment simulation on the exact commit SHA.
+    *   *Check:* Simulation must pass (22 min runtime).
+    *   *Check:* Manual inspection of the generated policy diff to ensure `global-audit-log` is unmodified.
+    *   *Check:* If today is Tuesday, QA manually verifies the policy state post-simulation due to flaky drift detection.
+*   **G6 (Review):** Independent review by Jane Smith and the Security Lead. They review the simulation receipt, the policy diff, and the rollback script. Neither is the Builder.
+*   **G7 (Integrate):** Merge to the integration branch only after both approvals are recorded.
+
+**Review**
+*   **Reviewer 1:** Jane Smith (Platform Reliability). Focus: Operational safety and `global-audit-log` integrity.
+*   **Reviewer 2:** Security Lead. Focus: Least-privilege scope (write-only to `pending-review`) and rollback viability.
+*   **Independence:** Both reviewers are distinct from the Builder. They review the exact SHA that passed the single simulation run.
+
+**Landing & Human Gates**
+*   **Merge:** Automated merge train lands the PR after G6 approval.
+*   **Deploy (Human Gate):** Deployment is **not** automatic. The Conductor requests explicit owner approval to deploy, presenting:
+    *   Issue: Deploy S3 Policy Update
+    *   A: Deploy now with rollback script ready — Meets compliance deadline.
+    *   B: Delay until non-Tuesday window — Avoids flaky drift detection (if applicable).
+*   **Rollback:** If the vendor's test upload fails or monitoring flags unexpected traffic:
+    1.  Trigger the prepared rollback script immediately (target < 5 mins).
+    2.  The script reverts the policy to the previous version ID.
+    3.  QA manually confirms logging integrity for the Billing system post-rollback.
+*   **Cost Control:** Only one simulation run is authorized. Any re-run requires a new human approval explaining the failure cause.
+
+**Risk Mitigation**
+*   **Shared State:** The `global-audit-log` is treated as read-only. Any diff touching this file blocks the merge.
+*   **Flake Handling:** Tuesday drift detection failures are bypassed via manual verification steps defined in Lane C.
+*   **Compliance:** The plan ensures the end-of-month deadline is met by serializing spec work first to prevent rework, while enforcing strict safety gates around the shared logging configuration.

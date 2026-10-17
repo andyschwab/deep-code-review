@@ -1,0 +1,58 @@
+**Delivery Plan: Emergency Fare Calculation Hotfix**
+
+**Immediate Actions (G0/G1 Intake & Spec)**
+*   **Scope:** Apply hotfix from `emergency` branch capping surge multipliers for inter-city bus routes.
+*   **Constraints:** Bypass 2-day staging; execute manual sanity suite; deploy within 1 hour.
+*   **Risk:** Legacy monolith coupling (train/ferry impact); flaky smoke tests; irreversible DB schema changes.
+*   **Verification Target:** Dashboard metrics stabilization; revenue leak cessation.
+
+**Lanes & Serialization**
+*   **Lane 1: Code Integrity & Isolation (Serialized First)**
+    *   **Actor:** Builder (Independent of original hotfix author if possible).
+    *   **Task:** Checkout `emergency` branch. Verify diff contains *only* the multiplier cap logic. Ensure no unintended schema migrations or side-effects on train/ferry modules are included.
+    *   **Output:** Confirmed clean commit SHA on `emergency` branch.
+*   **Lane 2: Targeted Verification (Parallel to Lane 1 completion, before Deploy)**
+    *   **Actor:** QA (Independent).
+    *   **Task:** Deploy to a isolated staging clone (not shared prod). Run manual "sanity check suite" explicitly covering:
+        1.  Inter-city bus surge calculation (peak hours).
+        2.  Train and ferry pricing regression (verify no bleed-over).
+        3.  Tax calculation edge cases (known flake area).
+    *   **Condition:** Must pass on the exact SHA from Lane 1. Flaky test failures require manual triage, not ignore.
+*   **Lane 3: Deployment Preparation (Parallel to Lane 2)**
+    *   **Actor:** Release Engineer.
+    *   **Task:** Prepare production deployment manifest. Document rollback procedure (full DB restore, 45min ETA). Pre-draft incident communication.
+
+**Gates & Checks**
+*   **Gate G4 (Implement):** Builder confirms SHA matches `emergency` branch head. No new dependencies added.
+*   **Gate G5 (Verify):** QA signs off on sanity suite results for the specific SHA. **Hard Stop:** If train/ferry regression fails or tax calc is broken, deployment is aborted.
+*   **Gate G6 (Review):** Lead Engineer reviews the diff and QA receipts. Security quick-scan for injection risks in the cap logic.
+*   **Gate G8 (Release - Human Decision):**
+    *   **Approver 1:** Lead Engineer (Real-time approval required).
+    *   **Approver 2:** Operations Director (Retroactive approval allowed within 4h per incident policy, but notification must be sent immediately).
+    *   **Decision Point:** Go/No-Go based on G5 receipts.
+
+**Landing & Rollback**
+*   **Merge/Deploy Strategy:** Direct deploy of the verified SHA to production. Do not merge to `main` until post-deploy stability is confirmed to avoid contaminating the nightly pipeline.
+*   **Human Gate:** Lead Engineer must explicitly authorize the push. Operations Director is notified instantly for retroactive sign-off.
+*   **Post-Deploy Verification (G9):**
+    *   Monitor dashboard metrics for 15 minutes.
+    *   Confirm surge multipliers are capped correctly.
+    *   Verify no spike in error rates for train/ferry modules.
+*   **Rollback Trigger:** If metrics do not stabilize within 15 minutes, or if train/ferry errors spike:
+    1.  Halt traffic.
+    2.  Execute full DB restore from backup (45min downtime).
+    3.  Notify stakeholders of extended outage.
+
+**Execution Rhythm**
+1.  **T+0:** Lane 1 validates code; Lane 3 preps deploy/rollback.
+2.  **T+15m:** Lane 2 completes sanity checks on isolated env.
+3.  **T+25m:** G6 Review complete. Lead Engineer approves.
+4.  **T+30m:** Deploy to Production.
+5.  **T+45m:** G9 Verification complete. Confirm stabilization or initiate rollback.
+6.  **T+60m:** Incident resolved or rollback in progress. Director notified.
+
+**Critical Constraints Enforced:**
+*   No deployment without QA sign-off on the exact SHA.
+*   No skipping of the manual sanity suite despite time pressure.
+*   Rollback plan ready before the first command is run.
+*   Finance team updated only after G9 confirmation to avoid premature reporting.

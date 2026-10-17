@@ -1,0 +1,52 @@
+### Delivery Plan: Fix Duplicate Payouts in Vendor Disbursement Loop
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Code Fix):** Engineer implements the strict idempotency check in the disbursement service. This includes generating retry tokens and enforcing uniqueness before the banking rail call.
+    *   *Constraint:* Must not modify the shared read-only configuration file used by the invoicing engine.
+*   **Lane B (Data Analysis):** Data Analyst extracts last week's failed batch logs and identifies legitimate pending payouts.
+    *   *Parallel:* Runs simultaneously with Lane A.
+    *   *Output:* A whitelist of transaction IDs that must not be blocked, to be used as a validation dataset for Lane A.
+
+*Serialization Point:* Lane A cannot finalize validation until Lane B provides the whitelist.
+
+#### 2. Gates & Checks
+*   **Gate 1: Local Validation (Mandatory)**
+    *   *Trigger:* Engineer completes code fix.
+    *   *Action:* Run unit tests locally against the **staging ledger** (not the mocked test environment, which is unreliable for duplicates).
+    *   *Check:* Verify that retry tokens block duplicate transfers while allowing the "legitimate pending" IDs from Lane B to proceed.
+    *   *Pass Criteria:* Zero duplicate transfers in simulation; zero blocked legitimate payouts.
+*   **Gate 2: Cost-Benefit Review**
+    *   *Trigger:* Local validation passes.
+    *   *Action:* Engineer performs a final code diff review.
+    *   *Constraint:* Because CI costs $45/run and takes 50 minutes, this human review is the primary quality gate. CI is only triggered once confidence is 100%.
+
+#### 3. Independent Review
+*   **Reviewer:** Senior Backend Engineer (not the author of the fix).
+*   **Scope:** Review the idempotency logic and the handling of the retry token.
+*   **Independence:** Reviewer must verify the fix against the raw failed batch logs provided by Lane B, independent of the implementer's test results.
+*   **Timing:** Before CI execution.
+
+#### 4. Landing Strategy
+*   **Merge Target:** `main` branch (via Pull Request).
+*   **CI Execution:** Only after Independent Review approval.
+*   **Production Deployment:**
+    *   *Approver:* Chief Financial Officer (CFO).
+    *   *Timing Constraint:* Must be scheduled for Monday–Thursday. **No deploys on Fridays.**
+    *   *Deadline:* Must be deployed before next Tuesday's quarterly audit.
+*   **Rollback Plan:**
+    *   If double payments persist post-deploy, immediately revert the PR.
+    *   Disable the nightly reconciliation job manually until a hotfix is ready.
+    *   Notify affected logistics partners proactively if any overpayments occur during the window.
+
+#### 5. Critical Human Decisions
+1.  **CFO Approval:** Required for the final production deploy. Schedule this meeting mid-week to avoid Friday unavailability.
+2.  **Audit Risk Acceptance:** If the fix cannot be validated against the staging ledger with 100% certainty by Monday evening, the stakeholder must decide whether to delay the audit explanation or deploy with residual risk.
+
+#### Summary of Flow
+1.  **Start:** Lane A (Code) + Lane B (Logs) run in parallel.
+2.  **Sync:** Lane B delivers whitelist to Lane A.
+3.  **Local Test:** Lane A validates against staging ledger using whitelist.
+4.  **Review:** Independent Senior Engineer reviews code + logs.
+5.  **CI:** Run expensive pipeline ($45, 50m) only after review pass.
+6.  **Approval:** CFO approves deploy (Mon–Thu only).
+7.  **Land:** Merge and deploy before Tuesday audit.

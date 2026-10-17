@@ -1,0 +1,54 @@
+### Delivery Plan: Sequential PR Train for Generated Assets
+
+**Objective:** Land six dependent PRs in strict sequence to prevent generated asset checksum conflicts, followed by a manual snapshot deployment.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Conductor & Coordination):** Single writer. Responsible for sequencing, monitoring CI, and communicating with the Warehouse Integration team.
+*   **Lane B (The Train):** **Strictly Serialized.** The six PRs must land one-by-one. No parallel merging.
+    *   *Dependency:* PR $N$ cannot merge until PR $N-1$ is fully integrated and the nightly build green check is confirmed.
+    *   *Constraint:* Do not squash. Preserve individual commit history for audit.
+*   **Lane C (Deployment):** Triggers only after all six PRs are live. Executes the manual snapshot job.
+
+**Serialization Rule:** The shared JSON lockfile generation creates a hard serialization point. Attempting to parallelize merges will cause irrecoverable conflicts and break the nightly build.
+
+#### 2. Gates & Checks
+*   **G2 Plan (Pre-flight):**
+    *   Verify current branch state against `main`.
+    *   Confirm Warehouse Integration team availability for the merge window.
+    *   **Time Gate:** Ensure today is **not Tuesday** (staging instability).
+*   **G5 Verify (Per PR):**
+    *   **Trigger:** After each individual PR merge.
+    *   **Check:** Wait for the specific "Nightly Build" status check to return **Green** (45-minute duration).
+    *   **Failure Mode:** If red, stop immediately. Do not proceed to PR $N+1$. Initiate rollback protocol.
+*   **G7 Integrate:**
+    *   Final verification that all six SHAs are present in `main` without conflict markers in the generated assets.
+*   **G8 Release (Snapshot):**
+    *   Trigger manual snapshot job only after G7 success.
+
+#### 3. Review & Independence
+*   **Code Review:** Presumed complete as PRs are already open.
+*   **Merge Approval:**
+    *   **Reviewer:** Senior Lead from Operations Group.
+    *   **Independence:** The Conductor (merging agent) cannot self-approve. The Senior Lead must explicitly approve each of the six merges individually via the platform UI.
+    *   **Scope:** Approval covers the specific SHA of each PR, ensuring no drift occurred while waiting for the previous build.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:**
+    *   Merge PR #1 → Wait 45 mins → Verify Green → Merge PR #2 → ... → Merge PR #6.
+    *   Method: Standard merge (no squash) to preserve audit trail.
+*   **Human Gates (Required):**
+    1.  **Start Authorization:** Operations Lead confirms the window is open (not Tuesday) and team is standing by.
+    2.  **Six Merge Approvals:** Operations Lead must approve each PR individually.
+    3.  **Deployment Trigger:** Operations Lead must manually trigger the snapshot job after confirming all six are live.
+*   **Rollback Plan:**
+    *   **Condition:** Any PR fails the post-merge build check, or a conflict corrupts the lockfile.
+    *   **Action:** Immediate full database rollback.
+    *   **Warning:** This is **irreversible** for tracked shipment events. Data loss for in-flight shipments will occur. This risk must be acknowledged by the Operations Lead before starting the sequence.
+    *   **Recovery:** Restore from pre-sequence backup; revert merged PRs in reverse order only after database restoration.
+
+#### 5. Execution Rhythm
+1.  **Handoff:** Confirm Operations Lead readiness and day of week.
+2.  **Loop (x6):** Request Approval → Merge → Wait 45 mins → Verify Build Status.
+3.  **Final:** Confirm all 6 SHAs in `main` → Request Snapshot Trigger → Verify Field Tablet update.
+
+**Risk Note:** The 45-minute CI delay creates a long critical path. Total estimated time is ~4.5 hours plus review latency. Any interruption requires a full stop.

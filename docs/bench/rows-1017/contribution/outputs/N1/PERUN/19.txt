@@ -1,0 +1,57 @@
+### Changelog Entry: Breaking Change in Environment Variable Override Logic
+
+**Version:** [Insert Next Major Version]  
+**Type:** Breaking Change  
+
+#### Summary
+The mechanism for merging environment variables with configuration files has been changed from a **recursive (deep) merge** to a **shallow merge**. Previously, if an environment variable targeted a nested key within an object, the system would traverse the configuration tree and update only that specific leaf node, preserving sibling keys. Under the new logic, if an environment variable targets a key that exists as an object in the configuration file, the entire object is replaced by the value provided in the environment variable.
+
+#### Impact Analysis
+This change affects users who:
+1.  Define nested objects (maps/dictionaries) in their configuration files.
+2.  Use environment variables to override *individual* properties within those nested objects rather than the whole object.
+
+If your environment variables only target top-level keys or if you intentionally replace entire nested objects via environment variables, your configuration will continue to work without modification.
+
+#### Migration Guide
+To achieve the same result under the new shallow merge logic, you must now provide the **complete object structure** in the environment variable, as partial updates to nested structures are no longer supported.
+
+**Scenario:**  
+You have a configuration file (`config.yaml`) defining a database connection with multiple properties:
+```yaml
+database:
+  host: "localhost"
+  port: 5432
+  user: "admin"
+  password: "secret"
+```
+
+**Old Behavior (Recursive Merge):**  
+To change only the `host` via an environment variable, you could set:
+`DATABASE_HOST="production-db.example.com"`  
+*Result:* The system would update `database.host` while preserving `port`, `user`, and `password`.
+
+**New Behavior (Shallow Merge):**  
+Setting `DATABASE_HOST` now treats `database` as the key to be overwritten. Since the environment variable provides a string, it may cause a type error or replace the entire `database` object with a string, losing all other connection details.
+
+**Required Update:**  
+You must now construct the environment variable to include the full object structure you wish to apply. Depending on your library's syntax for complex env values (often JSON or flattened dot-notation mapped manually), the approach changes.
+
+*If your library supports JSON values in env vars:*
+Set the environment variable to the full object:
+`DATABASE='{"host": "production-db.example.com", "port": 5432, "user": "admin", "password": "secret"}'`
+
+*If your library relies on specific prefixed keys for nested structures (common workaround):*
+You may need to explicitly define every key you wish to retain in the environment:
+`DATABASE_HOST="production-db.example.com"`
+`DATABASE_PORT="5432"`
+`DATABASE_USER="admin"`
+`DATABASE_PASSWORD="secret"`
+*(Note: Verify if your specific loader supports re-assembling these prefixed keys into an object under the new shallow merge regime; if not, the JSON approach above is the required standard.)*
+
+**Recommendation:**  
+Audit your deployment pipelines for any environment variables targeting nested configuration keys. Update your CI/CD scripts or container definitions to pass the complete configuration object for any nested section you intend to override.
+
+---
+*Ensure you replace `[Insert Next Major Version]` with the actual version number before merging.*  
+*Verify the specific syntax your library expects for JSON-based environment variables, as it may vary slightly by language runtime.*

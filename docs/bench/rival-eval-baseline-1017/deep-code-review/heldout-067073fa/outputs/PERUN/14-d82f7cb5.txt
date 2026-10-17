@@ -1,0 +1,59 @@
+### 1. Critical Logic Regression: Legitimate Stacks Silently Dropped
+**File:** `lib/core/Axios.js`
+**Location:** Hunk `+58` to `+62` (Calculation of `stackWithoutTwoTopLines`)
+
+**Why it is wrong:**
+The original code used a regex (`replace(/^.+\n.+\n/, '')`) to strip the first two lines of the stack trace. If a stack trace had fewer than two lines (e.g., a single-line error message or a minimal environment), the regex would fail to match and return the original string (or whatever remained), preserving the data.
+
+The new implementation introduces a hard boundary condition that discards valid data:
+1. It searches for the *second* newline explicitly.
+2. `const secondNewlineIndex = ... stack.indexOf('\n', firstNewlineIndex + 1)`
+3. `const stackWithoutTwoTopLines = secondNewlineIndex === -1 ? '' : ...`
+
+If the captured `stack` variable contains only one line (no second newline), `secondNewlineIndex` becomes `-1`. The ternary operator then forces `stackWithoutTwoTopLines` to be an **empty string**.
+Consequently, the check `!String(err.stack).endsWith('')` evaluates to `false` (since every string ends with an empty string), and the code inside the `if` block never executes. The stack trace is never appended. This silently swallows error context in any environment where stack traces are short or formatted unconventionally, breaking debugging capabilities.
+
+**Fix:**
+Revert to the regex approach for slicing, which handles edge cases gracefully, or correct the logic to append the available stack if fewer than two lines exist.
+
+```javascript
+// Corrected logic preserving available stack data
+let stackWithoutTwoTopLines = stack;
+const firstNewlineIndex = stack.indexOf('\n');
+if (firstNewlineIndex !== -1) {
+  const secondNewlineIndex = stack.indexOf('\n', firstNewlineIndex + 1);
+  if (secondNewlineIndex !== -1) {
+    stackWithoutTwoTopLines = stack.slice(secondNewlineIndex + 1);
+  } else {
+    // Only one newline found; keep the remainder rather than emptying it
+    stackWithoutTwoTopLines = stack.slice(firstNewlineIndex + 1);
+  }
+}
+
+if (!String(err.stack).endsWith(stackWithoutTwoTopLines)) {
+  err.stack += '\n' + stack;
+}
+```
+
+### 2. High Severity: Behavior Change on Duplicate Stack Detection
+**File:** `lib/core/Axios.js`
+**Location:** Hunk `+54` to `+64`
+
+**Why it is wrong:**
+The original code checked if the existing `err.stack` ended with the captured stack *minus the top two lines*. This was a heuristic to avoid duplicating the async stack trace if it was already partially present.
+
+The new code changes the comparison target from "stack minus two lines" to "stack minus two lines" but calculates it differently (see Defect #1). However, the logical flow implies that if the calculation results in an empty string (due to the bug above), the `endsWith('')` check returns `true`, preventing the append.
+
+Even if Defect #1 is fixed, the logic `if (!String(err.stack).endsWith(stackWithoutTwoTopLines))` is fragile. If `err.stack` is `null` or `undefined` (coerced to string "null"/"undefined" by `String()`), the logic proceeds. While `err.stack` is usually a string, relying on `String()` coercion here masks potential type errors upstream. More critically, if `stackWithoutTwoTopLines` is legitimately empty (e.g., the captured stack was only 1 line long and we sliced it all off), the code prevents appending a 1-line stack to an existing error because `"anything".endsWith("")` is true. This means single-line auxiliary stacks are now permanently suppressed.
+
+**Fix:**
+Add an explicit check to ensure there is content to append before running the `endsWith` deduction logic.
+
+```javascript
+if (stackWithoutTwoTopLines && !String(err.stack).endsWith(stackWithoutTwoTopLines)) {
+  err.stack += '\n' + stack;
+}
+```
+
+### Summary
+The patch attempts to optimize string manipulation by removing a regex but introduces a critical regression where short stack traces are dropped entirely. The logic assumes a minimum depth of two newlines that does not exist in all JavaScript environments or error types. Revert to the regex method or implement robust bounds checking.

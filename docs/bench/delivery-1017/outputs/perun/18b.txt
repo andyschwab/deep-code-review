@@ -1,0 +1,56 @@
+### Delivery Plan: Dashboard Responsiveness Enhancement
+
+**Objective:** Resolve mobile layout overlap and latency for field agents without triggering unnecessary security audits or CI costs.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Analysis & Spec) – Serial (First):**
+    *   **Actor:** Product Analyst + UX Lead.
+    *   **Work:** Audit current CSS/JS on target devices. Define specific breakpoints for phones/tablets. Identify heavy assets causing "sluggish" load times.
+    *   **Output:** A testable spec listing exact components to refactor and performance budgets (e.g., "Dashboard load < 2s on 4G").
+    *   **Constraint:** Must complete before coding starts to prevent rework.
+*   **Lane B (Implementation) – Parallel within lane, Serial vs. Lane C:**
+    *   **Actor:** Frontend Builder.
+    *   **Work:** Refactor layout using modern CSS (Grid/Flexbox), implement lazy loading for non-critical data, and optimize asset delivery.
+    *   **Constraint:** Works in an isolated worktree. **Must not** touch the shared configuration file to avoid triggering the mandatory security audit. Changes are limited to presentation logic and asset loading.
+*   **Lane C (Verification) – Serial (After Lane B):**
+    *   **Actor:** Independent QA.
+    *   **Work:** Execute manual and automated checks on real devices (not just emulators) focusing on screen rotation and data density.
+    *   **Constraint:** Runs only after Lane B produces a stable build in Staging.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Approval):** Product Analyst presents the "Done-when" criteria to the Squad Lead. **Hard Gate:** No code written until accepted.
+*   **G4 (Build & Local Test):** Builder runs local linting and lightweight unit tests. **Check:** Verify no changes to `config/shared-flags.json`.
+*   **G5 (Staging Verification):**
+    *   **Timing:** Schedule immediately after a Tuesday 03:00 UTC reset to avoid flaky integration tests.
+    *   **Action:** Deploy to Staging. QA verifies visual integrity on physical devices.
+    *   **Cost Control:** Run the full $45 device farm simulation **only once** after QA confirms local passes. If it fails, fix locally before re-triggering to avoid the 3-hour queue block.
+*   **G6 (Independent Review):**
+    *   **Reviewer:** Senior Frontend Engineer (not the Builder).
+    *   **Scope:** Code quality, accessibility, and confirmation that no config files were altered.
+    *   **Security:** Automated scan confirms no new vulnerabilities; no manual audit needed since config was untouched.
+
+#### 3. Review Strategy
+*   **Independence:** The Builder cannot approve their own code. The Reviewer must verify the "no config change" constraint explicitly.
+*   **Evidence:** Review includes screenshots of the dashboard on mobile before/after and a Lighthouse performance report showing improved load times.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:** Squash merge to the integration branch upon G6 approval.
+*   **Human Gates (Dual Approval Required):**
+    1.  **Lead Architect:** Confirms architectural soundness and performance gains.
+    2.  **Compliance Officer:** Confirms no financial data exposure risks in the new layout.
+    *   *Note:* Both must approve before the production deploy job runs.
+*   **Deployment:** Triggered only after dual approval.
+*   **Rollback Plan:**
+    *   If production metrics (load time, error rate) degrade within 1 hour of deploy, immediately revert the merge commit.
+    *   Since no database changes or config flags were touched, rollback is purely a code revert with zero data migration risk.
+
+**Timeline:**
+1.  **Day 1:** Analysis & Spec (Lane A).
+2.  **Day 2-3:** Implementation (Lane B).
+3.  **Day 4 (Post-Tuesday Reset):** Staging Verification & Device Farm (Lane C).
+4.  **Day 5:** Review, Dual Approval, and Deploy.
+
+**Risk Mitigation:**
+*   **CI Cost:** Strict local pre-checks ensure the $45 run is not wasted.
+*   **Audit Scope:** Explicit exclusion of config files prevents unnecessary security delays.
+*   **Data Safety:** Zero database interaction ensures no irreversible changes occur.

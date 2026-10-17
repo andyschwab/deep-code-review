@@ -1,0 +1,51 @@
+**Delivery Plan: Sanitize PII in Insurance Claim Fixtures**
+
+**Objective:** Replace real PII (names, SSNs) in staging fixtures with realistic fictional data, preserving row counts and types, ensuring nightly regression passes without exposing raw data.
+
+**Gates & Constraints**
+*   **G0/G1 (Spec):** Define fictional data patterns (e.g., SSN format `XXX-XX-XXXX` but non-valid ranges). Confirm "staging data directory" path.
+*   **G2 (Plan):** Serialize access to shared state; parallelize file processing.
+*   **G4 (Implement):** Isolated worktree. No modification of `global-rates.json`.
+*   **G5 (Verify):** Run regression suite once on final SHA. Ignore known flaky timeout in document generation if logs confirm timeout. Verify build artifacts contain zero raw PII.
+*   **G6 (Review):** Independent Security review (PII scan) + QA (data integrity). Builder cannot self-approve.
+*   **G8 (Release):** Dual approval required (Chief Risk Officer + Lead Data Architect) before merging to `Gold-Standard`.
+*   **Rollback:** Revert commit and restore previous fixture snapshot from version control.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Data Sanitization Script (Builder)**
+    *   **Task:** Write a script to scan the staging directory, identify PII patterns, and replace them with deterministic fictional placeholders (seeded randomization to ensure test stability).
+    *   **Constraint:** Must preserve row counts and data types exactly. Must skip `global-rates.json`.
+    *   **Parallelism:** Can run independently once the target directory is confirmed.
+
+2.  **Lane B: Pipeline Configuration & Flakiness Handling (QA/Builder)**
+    *   **Task:** Configure the CI trigger to run the full suite only on the final commit. Document the specific log signature for the known flaky document generation timeout to ensure it is ignored during G5 verification.
+    *   **Serialization:** Must wait for Lane A's script to be ready to define the exact test scope, but can prepare the ignore-rules in parallel.
+
+3.  **Lane C: Security Verification (Independent Security Role)**
+    *   **Task:** Run a static scan and a grep-based audit on the generated fixtures and build artifacts to prove zero real PII remains.
+    *   **Serialization:** Must run after Lane A generates the new fixtures.
+
+**Execution Flow**
+
+1.  **Preparation:** Create a dedicated worktree. Verify the staging directory path and ensure `global-rates.json` is untouched.
+2.  **Implementation (Lane A):** Execute the sanitization script. Commit changes with a message detailing the scope (files touched, rows processed).
+3.  **Verification (Lane B & C):**
+    *   Trigger the nightly regression suite **once** on the exact commit SHA.
+    *   Monitor logs: if the document generation module times out, verify the log matches the known flake signature; if so, mark as non-blocking. Any other failure blocks.
+    *   Security scans build artifacts for PII leaks.
+4.  **Review:** Submit PR. Security and QA reviewers verify the "no raw data" claim and the "test pass" receipt independently of the builder.
+
+**Human Decisions Required**
+*   **Approval to Merge:** Explicit dual sign-off from the Chief Risk Officer and the Lead Data Architect is required before merging to the integration branch.
+*   **Flake Judgment:** If the regression fails for reasons other than the known timeout, a human must triage before retrying to avoid burning compute credits.
+
+**Landing Strategy**
+*   **Merge:** Only after G6 approval and G8 dual sign-off.
+*   **Timing:** Target completion before Tuesday's compliance review.
+*   **Post-Merge:** Monitor the first automated hourly sync from the read-only replica to ensure the sanitization logic (if persistent) or the fixture generation process does not reintroduce raw data. If the fixtures are static files, ensure the sync process does not overwrite the sanitized versions.
+
+**Risk Mitigation**
+*   **Compute Cost:** Strictly limit CI runs to one final verification. Do not run on intermediate commits.
+*   **Data Integrity:** The script must assert row counts before and after; mismatch causes immediate failure.
+*   **Compliance:** If any doubt exists about a data field, err on the side of sanitization; false positives are acceptable, false negatives are not.

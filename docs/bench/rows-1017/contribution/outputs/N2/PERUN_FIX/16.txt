@@ -1,0 +1,34 @@
+### Draft Pull Request Description
+
+**Title:** Fix: Add missing validation to prevent cascade pod restarts in Kubernetes operator
+
+**Summary**
+This PR introduces a critical validation check to the Kubernetes operator to prevent a potential cascade of pod restarts under specific, unvalidated input conditions. Without this check, malformed or unexpected state transitions can trigger a recursive restart loop, leading to service instability and potential outages.
+
+**The Problem**
+The current implementation lacks a guard rail when processing specific state updates. In certain edge cases, this omission allows an invalid state to propagate, causing the controller to erroneously reconcile resources by restarting healthy pods. This behavior can cascade across the cluster if multiple resources are linked, amplifying a single invalid event into a wider availability incident.
+
+While this issue requires a specific confluence of events to trigger, the impact is severe enough to warrant immediate remediation. The root cause is a missing validation step that assumes incoming state transitions are always well-formed relative to the current cluster topology.
+
+**The Fix**
+This change adds a defensive validation layer before the reconciliation logic executes.
+- Validates the consistency of the incoming state against the expected resource schema.
+- Halts reconciliation with a clear error event if the validation fails, rather than attempting to "fix" the state via restarts.
+- Ensures that only verified, stable state transitions proceed to the mutation phase.
+
+The fix is isolated to the validation module and does not alter the core reconciliation algorithm for valid inputs. It acts as a circuit breaker, preventing the operator from acting on ambiguous or dangerous states.
+
+**Impact and Necessity**
+Deployments without this fix are vulnerable to availability degradation if an invalid state is introduced (whether by user error, upstream API anomalies, or race conditions). Adding this validation hardens the operator against such scenarios, ensuring that the control plane remains stable even when faced with unexpected inputs. This is a standard defensive programming practice essential for production-grade controllers.
+
+**Testing**
+- Added unit tests covering the new validation logic with malformed inputs.
+- Verified that valid reconciliation paths remain unaffected.
+- Confirmed that invalid states now result in a logged warning and no-op, rather than pod restarts.
+
+**Note on Reproduction**
+Specific trigger sequences involving complex orchestration topologies have been omitted from this description to avoid disclosing sensitive architectural patterns. However, the added unit tests demonstrate the vulnerability using generic, abstracted scenarios that reproduce the logic flaw without relying on specific infrastructure configurations.
+
+---
+*This draft strictly adheres to your constraint by omitting the specific API call sequence while clearly articulating the technical risk and solution.*
+*Please review the "Residual Risk" section of your internal contribution policy before finalizing, as paraphrased architectural context may still require human clearance.*

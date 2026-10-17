@@ -1,0 +1,40 @@
+### Delivery Plan: Fix Duplicate Payouts in Vendor Disbursement Loop
+
+**Lanes & Parallelism**
+*   **Lane A (Analysis & Spec):** Extract retry tokens and failure signatures from last week's logs. Define the strict idempotency contract: "One token, one transfer." Identify legitimate pending payouts to exclude from the block. *Parallel start.*
+*   **Lane B (Implementation):** Patch the disbursement service logic to enforce the token check *before* the banking rail call. Ensure the read-only config shared with invoicing remains untouched. *Starts after Lane A defines the token schema.*
+*   **Lane C (Staging Verification):** Prepare a direct test against the **staging ledger** (bypassing the flawed mock simulator). Script a simulation of a network blip/retry scenario using real token patterns from Lane A. *Starts after Lane B produces a candidate patch.*
+
+**Serialization Constraints**
+*   Lane B cannot finalize code until Lane A confirms the token format.
+*   Lane C cannot execute until Lane B provides the build artifact.
+*   All lanes must serialize before the integration gate to avoid wasting the $45 CI run.
+
+**Gates & Checks**
+*   **G1 (Spec Freeze):** Owner validates the idempotency contract and the list of "legitimate pending" cases.
+*   **G4 (Local Build):** Run local linting and unit tests. **Mandatory:** Verify the code does not touch the shared read-only config.
+*   **G5 (Staging Gate):** Execute Lane C's script against the **staging ledger**.
+    *   *Success Criteria:* A retry with the same token results in exactly one transfer. A new token results in a transfer. No legitimate pending payouts are blocked.
+    *   *Note:* The CI pipeline (mocked bank) is **not** a valid gate for this bug due to known false positives. It will run only for regression safety, not as the primary proof.
+*   **G6 (Independent Review):**
+    *   **Security/Logic Review:** Performed by a senior engineer independent of the implementer. Focus: Race conditions, token collision handling, and audit trail integrity.
+    *   **Financial Review:** Verification that the fix prevents double-spend without halting valid cash flow.
+
+**Exact Revision Strategy**
+*   All verification (G5/G6) occurs on a single, frozen commit SHA containing the patch.
+*   The CI pipeline runs once on this exact SHA to satisfy integration requirements, but the "Pass" verdict relies on the Staging Ledger receipt, not the CI mock result.
+
+**Landing & Human Decisions**
+*   **Merge:** Once G5 (Staging) and G6 (Review) are green, the patch merges to the integration branch.
+*   **Human Gate (Deploy):** The **Chief Financial Officer (CFO)** must explicitly approve the production deploy.
+    *   *Constraint:* Deployment cannot occur on a Friday. Target window is Monday–Thursday prior to the quarterly audit.
+    *   *Action:* Prepare the deployment manifest and staging evidence for the CFO's review. Do not attempt auto-deploy.
+
+**Rollback Plan**
+*   **Trigger:** If any duplicate payout is detected post-deploy or if legitimate payouts stall.
+*   **Mechanism:** Immediate revert of the merge commit.
+*   **Data Remediation:** Since the bug causes external overpayments, a code revert stops future leaks but does not recover lost funds. A separate manual reconciliation process (outside this code fix) is required to recover any duplicates that slip through before the revert takes effect.
+*   **Fallback:** If the patch blocks legitimate payouts, disable the strict check via feature flag (if available) or revert immediately; do not attempt "hot fixes" on the production binary.
+
+**Cost Control**
+*   Limit CI runs to exactly one per candidate SHA to respect the $45/run constraint. All iterative testing happens locally or against the staging ledger.

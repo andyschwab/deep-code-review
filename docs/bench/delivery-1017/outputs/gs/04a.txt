@@ -1,0 +1,31 @@
+### Delivery Plan: Billing Module Updates
+
+**1. Work Lanes & Serialization**
+*   **Lane A (Logic Updates):** One engineer implements both the premium subscription calculation adjustment and the northern district tax rate update in the main logic file. These must be done in a single commit or tightly coupled sequence to prevent merge conflicts between adjacent lines.
+*   **Lane B (Config Update):** A second engineer (or the same, sequentially) updates the contact email in the notification settings configuration. This is independent but must wait for Lane A to finalize the logic file before final integration testing.
+*   **Serialization Point:** Lane A must complete and be locally verified before Lane B is merged into the same branch. Both changes must exist on the feature branch before the final review.
+
+**2. Gates & Checks**
+*   **Local Verification Gate (Mandatory):** Before pushing, the merged result of both changes must be verified locally. This is critical because production deployments are irreversible and trigger a 24-hour frozen state.
+*   **CI Pipeline Strategy:**
+    *   Trigger the full financial reconciliation simulation ($45 cost, 22 mins) only once the feature branch contains *both* Lane A and Lane B changes.
+    *   **Network Validation Flakiness:** If the network validation suite fails, re-run the job exactly once. Do not alter code to fix this specific failure unless the second run also fails.
+*   **Revision Control:** All checks run on the final feature branch head containing all three updates. No partial merges to main are permitted.
+
+**3. Review Protocol**
+*   **Dual Approval Requirement:** The main logic file changes (Lane A) require explicit approval from both **Jane Smith** (Pricing) and **John Doe** (Tax).
+*   **Independence:** Jane and John must review independently. Neither approval counts until both have signed off.
+*   **Config Review:** The notification config change (Lane B) requires a standard peer review to ensure strict backward compatibility with the legacy alerting system.
+*   **Final Gate:** The merge request cannot be approved until both dual-approvals for the logic file and the peer approval for the config file are present.
+
+**4. Landing & Rollback Strategy**
+*   **Merge Window:** Merge occurs only after the fiscal quarter closing window opens, ensuring the 24-hour production freeze does not block critical end-of-quarter processing.
+*   **Atomic Merge:** All three changes merge in a single commit to main. Partial merges are forbidden to avoid billing discrepancies.
+*   **Human Decision Point:** A designated release manager must manually confirm the "Go" status after verifying the CI passed (accounting for the one-time network flake retry rule) and both dual-approvals are recorded.
+*   **Rollback:** Since production deployments are irreversible, there is no technical rollback path. The "rollback" plan is purely procedural: immediate manual intervention to correct data post-deployment if an error slips through. This makes the local verification and dual-approval gates the only safety net.
+
+**Summary of Constraints:**
+*   **Cost:** $45 per CI run; minimize re-runs.
+*   **Time:** 22-minute CI latency; plan for this delay before the closing window.
+*   **Risk:** Irreversible deploy + 24h freeze. Local verification is the primary risk mitigation.
+*   **Conflict Risk:** High risk of overwrite between tax and pricing logic; single-author or tight coordination on the main logic file is required.

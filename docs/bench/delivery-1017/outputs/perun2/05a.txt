@@ -1,0 +1,41 @@
+### Delivery Plan: Loan Status Payload Update
+
+**Lanes & Parallelism**
+*   **Lane A (Spec & Coordination):** Product Analyst contacts Customer Portal and Collections Dashboard leads to confirm ingestion readiness. Simultaneously, updates the `financial-specs` library PR to include `graceEndUtc` as an optional field. *Serialized:* Must complete before Lane B merges.
+*   **Lane B (Implementation):** Builder modifies the Core Lending response schema in a dedicated worktree. Adds `graceEndUtc` (optional) to the JSON serializer. Writes unit tests for the new field presence and null-safety.
+*   **Lane C (Verification Prep):** QA prepares the data-replay simulation environment. Identifies the specific currency formatting flake to manually triage if it appears, ensuring it does not block the gate.
+
+**Gates & Checks**
+*   **G1 (Spec Freeze):** Base SHA pinned. Output: Signed confirmation from both downstream leads that the optional field is safe to ingest.
+*   **G4 (Build):** Lane B commits code. Unit tests run locally.
+*   **G5 (Verify):**
+    *   Run the 45-minute data-replay simulation **once** on the exact final SHA of Lane B.
+    *   **Constraint:** Do not re-run unless the SHA changes or the known currency flake occurs (if flake appears, verify it is the known issue via logs, then proceed; do not auto-retry).
+    *   Verify `graceEndUtc` is present in the payload when data exists, and absent/null safely when not.
+*   **G6 (Review):**
+    *   **Security/Compliance:** Independent review of the schema change against the `financial-specs` contract.
+    *   **Deep Code Review:** Full diff review focusing on backward compatibility (ensuring the field is strictly optional).
+    *   **QA:** Reviews the single simulation receipt.
+*   **G7 (Integrate):** Merge Lane A (`financial-specs`) first. Once merged and published, merge Lane B (Core Lending) to the integration branch.
+
+**Review Strategy**
+*   **Builder (Lane B)** cannot review their own code.
+*   **Reviewer 1 (Architect):** Validates the schema change does not break existing serialization logic.
+*   **Reviewer 2 (Downstream Lead Rep):** Validates the field name and type match the agreed contract.
+*   **Compliance Officer:** Mandatory human gate for SecureZone deployment.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Merge `financial-specs` PR first. Wait for publication. Then merge Core Lending PR.
+*   **Human Decisions Required:**
+    1.  Compliance Officer approval for SecureZone deployment.
+    2.  Explicit "Go" from both downstream leads confirming they have deployed or are ready to ingest the new optional field.
+*   **Deployment Window:** Must complete **before 01:00 UTC** to avoid the irreversible 02:00 UTC ledger batch.
+*   **Rollback Plan:**
+    *   **Code:** Revert the Core Lending merge immediately if issues arise pre-ledger.
+    *   **Data/External:** Since the ledger batch at 02:00 UTC is irreversible, if the deployment occurs after 01:00 UTC and causes calculation errors, **rollback is not possible** for that cycle. The fallback is a hotfix patch deployed before the next batch, not a revert.
+    *   **Constraint:** If the 01:00 UTC deadline is missed, the deployment is aborted and rescheduled for the next cycle. No partial deploys.
+
+**Risk Controls**
+*   **Cost:** One simulation run only.
+*   **Flake:** Known currency formatting failure is documented; a failure there requires manual log verification, not an automatic block, unless accompanied by other errors.
+*   **Compatibility:** Field is optional; existing consumers ignoring new fields will function normally.

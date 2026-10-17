@@ -1,0 +1,66 @@
+# Delivery Plan: Billing Calculator Isolation
+
+## Lanes & Parallelism
+
+**Lane A: Extraction & Service Creation (Platform Guild)**
+*   **Work:** Extract billing logic and tax computation engines from the Core Monolith into a new standalone service repository. Refactor dependencies to remove ties to user profile modules.
+*   **Parallelism:** Runs parallel to Lane B.
+*   **Constraint:** Must strictly adhere to the existing interface signature to ensure downstream report compatibility.
+
+**Lane B: Interface Contract & Mocking (Platform Guild)**
+*   **Work:** Define the strict API contract based on the current monolith's public methods. Create a "Shadow Adapter" in the monolith that can switch between the internal logic and the new service.
+*   **Parallelism:** Runs parallel to Lane A. Must complete before Lane C integration.
+
+**Lane C: Compliance Data Sync (Compliance Team)**
+*   **Work:** Verify `tax-rates.json` backward compatibility rules. Provide a read-only snapshot of the current production tax rates for the new service's initial state.
+*   **Serialization:** Must complete before Lane D (Validation) begins.
+
+**Lane D: Dual-Run Validation (Automated + Manual)**
+*   **Work:** Execute the new service alongside the monolith using production traffic shadows. Compare outputs cent-by-cent.
+*   **Serialization:** Depends on completion of Lanes A, B, and C.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Baseline (Revision: `main` @ pre-extraction)**
+*   **Check:** Tag the current monolith state as `billing-extraction-baseline`. All extraction work branches from here.
+*   **Location:** FinCore Repository.
+
+**Gate 2: Cent-Accuracy Verification (Revision: `feature/billing-service/v1`)**
+*   **Check:** Automated diff of calculation outputs between Monolith and New Service using the Compliance Team's snapshot.
+*   **Pass Criteria:** 100% match on financial calculations.
+*   **Exception Handling:** If the "timezone conversion" test fails, trigger manual verification by a Senior Engineer. Do not auto-fail the build on this specific error.
+*   **Cost Control:** Limit CI runs to 2 per hour to avoid the budget freeze. Pre-validate locally before pushing.
+
+**Gate 3: Interface Stability (Revision: `feature/billing-service/v1`)**
+*   **Check:** Downstream report integration tests run against the Shadow Adapter.
+*   **Pass Criteria:** Zero changes in report output format or data.
+
+## Review Process
+
+**Independent Technical Review**
+*   **Reviewer:** Senior Engineer from a different guild (not Platform Guild).
+*   **Scope:** Verify isolation boundaries (no user profile imports) and tax logic independence.
+*   **Timing:** After Gate 2 passes, before merge request.
+
+**Compliance Review**
+*   **Reviewer:** Compliance Team Lead.
+*   **Scope:** Verify `tax-rates.json` handling and 90-day backward compatibility logic.
+*   **Timing:** Concurrent with Technical Review.
+
+## Landing Strategy
+
+**Merge Protocol**
+*   **Target:** `main` branch via Feature Flag (`billing.service.enabled`).
+*   **Default State:** Flag OFF (traffic routes to monolith).
+*   **Sign-off Required:** Dual approval from Chief Architect and Risk Officer mandatory before enabling the flag in Production.
+
+**Rollout & Rollback**
+*   **Phase 1:** Enable flag for 1% of internal traffic. Monitor logs for calculation drift.
+*   **Phase 2:** Gradual increase to 100% over 48 hours.
+*   **Rollback Trigger:** Any single cent-level discrepancy detected in Phase 1 or 2, or any downstream report failure.
+*   **Rollback Action:** Flip feature flag to OFF. No code revert required; traffic instantly reroutes to monolith logic.
+
+**Human Decision Points**
+*   Manual verification of timezone test failures.
+*   Final authorization to enable the feature flag in Production (Chief Architect + Risk Officer).
+*   Decision to proceed if minor non-financial discrepancies occur (e.g., logging timestamps).

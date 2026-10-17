@@ -1,0 +1,38 @@
+### Delivery Plan: Legacy Billing API Restriction
+
+**Lanes & Parallelism**
+*   **Lane A (Policy Logic):** Modify the shared JSON policy file to restrict the legacy billing adjustment endpoint. Change the allowed role from `Support` to `Senior Finance Auditor`. Add a specific exception rule allowing the `Audit Team` service account (referenced in existing support tickets) to bypass this restriction to prevent breaking audit workflows.
+*   **Lane B (Test Harness):** Create a localized unit test script that mocks the `Senior Finance Auditor` claim and the `Audit Team` service account. This script must run against the JSON policy file directly, bypassing the full CI pipeline to save time and cost.
+*   **Lane C (Documentation):** Draft the change notification for the Compliance Officer and Lead Architect, explicitly detailing the cache propagation delay (10 minutes) and the mock procedure used in Staging.
+
+*Parallel Execution:* Lanes A, B, and C run simultaneously. Lane B depends only on the initial structure of the JSON file, not the final logic, so test scaffolding begins immediately.
+
+**Gates & Checks**
+1.  **Syntax Gate (Local):** Before any commit, run a JSON schema validator locally on the policy file. Failure here stops the lane.
+2.  **Logic Gate (Local):** Execute the Lane B test harness against the modified policy on the feature branch revision.
+    *   *Check 1:* Verify `Support` role receives 403 Forbidden.
+    *   *Check 2:* Verify mocked `Senior Finance Auditor` receives 200 OK.
+    *   *Check 3:* Verify `Audit Team` service account receives 200 OK.
+    *   *Constraint:* Do not trigger the full 55-minute CI pipeline yet.
+3.  **Staging Verification:** Deploy to Staging using the manual mock for the Finance role. Confirm access controls via manual integration test. Verify logs match the existing schema (no new fields added).
+4.  **CI Gate:** Only after successful Staging verification, trigger the full CI pipeline on the exact revision approved in Staging. This limits the $45 cost to one necessary run.
+
+**Review Process**
+*   **Primary Reviewer:** Lead Architect. They must verify the JSON logic changes and confirm the `Audit Team` exception does not create a privilege escalation vector.
+*   **Independent Compliance Review:** Compliance Officer. They review the change solely against the mandate: "Only Senior Finance Auditors." They must sign off on the `Audit Team` exception as a documented compliance necessity, not a loophole.
+*   **Separation:** The developer implementing Lane A cannot be the Lead Architect. The Compliance Officer must not have write access to the branch.
+
+**Landing Strategy**
+1.  **Merge Request:** Submit the merge request only after the CI pipeline passes.
+2.  **Dual Approval:** The merge button remains locked until both the Lead Architect and Compliance Officer approve. This is a hard requirement; no single approver can force the merge.
+3.  **Deployment Window:** Deploy immediately upon approval. Due to the 10-minute edge node cache, the "live" status is not instantaneous.
+4.  **Verification Post-Land:** Monitor logs for 15 minutes post-deployment. Look for 403 errors from `Support` roles (expected) and ensure no 500 errors from the fraud detection pipeline (logging schema integrity).
+5.  **Rollback Plan:** If the fraud detection pipeline fails or legitimate audit tickets break:
+    *   Immediate revert of the JSON policy file to the previous revision.
+    *   Re-deploy via the same dual-approval emergency path (pre-authorized verbally by both approvers for this specific contingency).
+    *   Notify Compliance Officer immediately of the rollback reason.
+
+**Human Decisions Required**
+*   Confirmation of the `Audit Team` service account ID for the exception rule.
+*   Final dual-approval for production deployment.
+*   Go/No-Go decision if the 10-minute cache delay conflicts with the exact start time of the audit window.

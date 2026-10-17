@@ -1,0 +1,55 @@
+### Delivery Plan: Core Ledger Engine v4.0 Upgrade
+
+#### 1. Work Lanes & Parallelism
+**Lane A: Core Upgrade & Migration (Serialized)**
+*   **Owner:** Platform Reliability Lead.
+*   **Tasks:** Update core dependency to v4.0; execute irreversible migration script in the pre-production sandbox; verify data integrity against live traffic mirrors.
+*   **Constraint:** Must complete before Lane B begins integration testing.
+
+**Lane B: Plugin Compatibility & Code Adaptation (Parallel to A start, serial dependency on A finish)**
+*   **Owner:** Backend Engineering Team.
+*   **Tasks:** Audit custom plugins built last year; refactor transaction serialization logic to match v4.0 breaking changes; map new error codes to internal handling.
+*   **Dependency:** Requires Lane A's sandbox environment to be ready for plugin validation.
+
+**Lane C: Test Suite Stabilization (Parallel)**
+*   **Owner:** QA Automation.
+*   **Tasks:** Isolate and mark flaky currency conversion tests as non-blocking for this release; update integration tests for new error codes; prepare regression suite for the new data format.
+*   **Constraint:** Must finalize test filters before Lane D's full run.
+
+**Lane D: Staged Rollout Coordination (Serialized)**
+*   **Owner:** DevOps / SRE.
+*   **Tasks:** Configure staged deployment pipeline (Canary → 10% → 50% → 100%); ensure zero-downtime switchover logic; schedule execution outside market hours.
+
+#### 2. Gates & Checks
+*   **Gate 1: Sandbox Validation (Pre-Integration)**
+    *   **Revision:** `feat/ledger-v4-sandbox` (Lane A output).
+    *   **Check:** Successful migration execution in pre-prod; zero data loss verified against traffic mirror.
+    *   **Location:** Pre-production sandbox cluster.
+*   **Gate 2: Plugin & Serialization Integrity**
+    *   **Revision:** `feat/ledger-v4-plugins` (Lane B + A merged).
+    *   **Check:** All custom plugins pass functional tests; transaction serialization round-trips successfully with archive storage (backward compatibility check).
+    *   **Location:** Staging environment.
+*   **Gate 3: Stabilized CI Run**
+    *   **Revision:** `release/candidate-v4.0`.
+    *   **Check:** Full suite execution passes excluding known flaky currency tests (which must be manually verified as unrelated to ledger changes). Cost cap: 2 retries max ($900 limit).
+    *   **Location:** Shared CI cluster.
+*   **Gate 4: Compliance & Archive Check**
+    *   **Revision:** `release/candidate-v4.0`.
+    *   **Check:** Verification that 6-month archive data remains readable/writeable under v4.0 format.
+
+#### 3. Review Process
+*   **Technical Review:** Senior Staff Engineer (independent of Platform Reliability team) reviews serialization logic and plugin refactors.
+*   **Risk Review:** Chief Risk Officer (or delegate) reviews the migration rollback plan and compliance mapping.
+*   **Operational Review:** SRE Lead validates the staged rollout configuration and monitoring alerts for the new error codes.
+*   **Independence Rule:** The author of the migration script cannot approve Gate 1; the plugin author cannot approve Gate 2.
+
+#### 4. Landing Strategy
+*   **Merge Window:** Saturday 02:00 – 06:00 (Outside market hours).
+*   **Human Decisions Required:**
+    *   Dual approval (Jane Smith + Chief Risk Officer) explicitly required before triggering the production migration job.
+    *   Go/No-Go decision after Canary deployment based on error rate thresholds.
+*   **Rollback Plan:**
+    *   **Code:** Immediate revert to v3.x commit tag.
+    *   **Data:** Since the DB migration is irreversible, rollback relies on the pre-upgrade snapshot restore procedure. The sandbox test must prove restore viability before landing.
+    *   **Trigger:** Any critical failure in reconciliation jobs or >1% increase in transaction failure rates during Canary phase.
+*   **Post-Landing:** Monitor reconciliation jobs for 48 hours; keep v3.x read-adapters active for 6 months to ensure archive compatibility.

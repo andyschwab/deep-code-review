@@ -1,0 +1,38 @@
+**Immediate Action Plan: Secret Removal Without History Rewrite**
+
+**Critical Constraint Warning:** You **cannot** purge a secret from past git commits without rewriting history (`git filter-branch` or `git filter-repo`). Any tool that claims to "remove secrets from history" while keeping history intact is misleading you. Rewriting history **will** break existing forks and require every contributor to re-clone.
+
+Given your constraint ("cannot break existing forks"), you must choose one of these two paths:
+
+### Path A: The Safe Immediate Fix (Recommended)
+*Accepts that the secret exists in history but renders it useless.*
+
+1.  **Verify Rotation:** Confirm the rotated token at Acme Logistics is fully active and the old token is permanently revoked. This is your primary security control.
+2.  **Implement Placeholder:** Commit your change replacing the hardcoded token with `<ACME_LOGISTICS_TOKEN>` or `${ACME_TOKEN}` in the sample file.
+3.  **Add `.gitignore` Rule:** Ensure any local `.env` or config files containing real tokens are ignored to prevent future leaks.
+4.  **Submit PR:** Open a Pull Request with a clear description:
+    *   **Summary:** "Replace hardcoded test token with placeholder variable."
+    *   **Security Note:** Explicitly state: "The original token has been rotated and revoked by the owner. While the hash remains in git history, it is no longer valid. This change prevents accidental reuse in new clones."
+    *   **Migration Guide:** Add a note in the tutorial/docs telling users to generate their own token if they need one.
+
+**Why this works:** Security relies on the *validity* of the credential, not just its presence. If the token is revoked, the history leak is a "false positive" risk. This preserves fork compatibility.
+
+### Path B: The Nuclear Option (History Rewrite)
+*Only choose this if Acme Logistics insists the hash itself must vanish (e.g., automated scanners flagging the repo).*
+
+**Warning:** This breaks all existing forks. Contributors must run `git fetch --all && git reset --hard origin/main` to recover.
+
+1.  **Install Tooling:** Use `git filter-repo` (preferred over `filter-branch`).
+2.  **Rewrite History:**
+    ```bash
+    git filter-repo --replace-text <(echo "OLD_TOKEN==>NEW_PLACEHOLDER")
+    ```
+3.  **Force Push:**
+    ```bash
+    git push origin main --force
+    ```
+4.  **Coordinate:** You must contact all known fork maintainers and downstream tutorial authors immediately to warn them of the forced update.
+
+**Recommendation:** Execute **Path A**. It solves the security incident immediately (via rotation) without causing the collateral damage of breaking the ecosystem's git history. Only proceed with Path B if explicitly mandated by a security incident response team who understands the cost of rewriting history.
+
+*Note: Never commit real secrets, even in test environments. Use environment variables or secret managers from day one.*

@@ -1,0 +1,33 @@
+### Delivery Plan: Smart Irrigation Canary Release
+
+**Lanes & Parallelism**
+*   **Lane A (Logic & Safety):** Develop the soil-moisture prediction algorithm and the automated kill switch logic. This lane includes the threshold checks (error rate >0.5%, ticket spike) and the fallback mechanism to legacy calculations.
+*   **Lane B (Infrastructure & Config):** Implement the feature flag reader compatible with the existing read-only manifest schema. Develop the real-time dashboard for water usage variance.
+*   **Serialization Point:** Lane A and Lane B merge only at the integration test phase. The kill switch logic (Lane A) must be unit-tested in isolation before integrating with the flag reader (Lane B) to ensure safety logic does not depend on external config availability.
+
+**Gates & Checks**
+*   **Pre-Build Gate:** Static analysis must pass on the kill switch logic. Any ambiguity in the fallback path blocks the build.
+*   **CI Execution:** Builds run strictly between 02:00 and 05:00 local time.
+    *   *Revision Control:* All checks run on the specific commit hash designated for the nightly build.
+    *   *Flaky Test Handling:* The network latency module check is bypassed if logs confirm successful packet delivery. Failure without successful delivery logs blocks the pipeline.
+*   **Safety Simulation:** Hardware-in-the-loop simulation must verify the kill switch triggers within 2 seconds of simulated error threshold breach. This is a hard gate; failure here prevents deployment artifact generation.
+
+**Review Process**
+*   **Code Review:** Independent senior engineer reviews Lane A and Lane B changes separately. Focus areas: schema compatibility for the manifest (Lane B) and threshold logic correctness (Lane A).
+*   **Domain Review (Mandatory):**
+    *   **Lead Agronomist:** Validates the water usage variance metrics on the dashboard and confirms the 5% Oregon segmentation logic matches agricultural zones.
+    *   **Safety Officer:** Validates the kill switch triggers and the irreversibility warning protocols.
+*   **Independence:** Domain reviewers do not review code; they review behavior reports and simulation logs generated from the reviewed code. Code reviewers do not validate agricultural logic.
+
+**Landing Strategy**
+*   **Deployment Artifact:** A single immutable binary signed after successful CI and dual sign-off.
+*   **Rollout Phases:**
+    1.  **Shadow Mode:** Deploy to 0% of devices; logic runs locally but does not act. Validate dashboard data ingestion.
+    2.  **Canary:** Enable flag for exactly 5% of Oregon devices.
+*   **Human Decision Points:**
+    *   Transition from Shadow to Canary requires explicit written confirmation from both the Lead Agronomist and Safety Officer.
+    *   Expanding beyond 5% requires a new safety review.
+*   **Rollback Protocol:**
+    *   *Automated:* If error rates exceed 0.5% or ticket spikes occur, the kill switch forces local reversion to legacy logic immediately.
+    *   *Irreversibility Note:* Since over-the-air reversion of the binary is impossible, the "rollback" is purely logical (feature flag off + kill switch active). If the binary itself is corrupted, a physical technician dispatch is triggered automatically.
+*   **Merge Condition:** The code merges to the release branch only after the 02:00–05:00 build window succeeds, simulation passes, and both domain leads sign off. No merges occur outside this window.

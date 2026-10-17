@@ -1,0 +1,60 @@
+### Delivery Plan: Ledger Schema Migration (Dual-Write & Backfill)
+
+**Constraints & Risks:** 45m CI (6 runs/day cap), read-only migration scripts (manual CDO approval), irreversible backfill >10%, month-end freeze.
+
+#### Lanes & Parallelism
+*Worktrees isolated per lane; one writer each.*
+
+1.  **Lane A (Dual-Write Implementation):** Implement logic to write incoming payments to both legacy and columnar tables.
+    *   *Dependency:* None. Runs parallel to Lane B.
+    *   *Owner:* Builder.
+2.  **Lane B (Backfill Orchestration):** Develop the job to copy historical records. Includes dry-run mode and progress checkpointing.
+    *   *Dependency:* None. Runs parallel to Lane A.
+    *   *Owner:* Builder.
+3.  **Lane C (Migration Script Request):** Prepare change request for the read-only Data Governance repo.
+    *   *Dependency:* None. Starts immediately to accommodate manual CDO approval latency.
+    *   *Owner:* Conductor (Human coordination).
+4.  **Lane D (Rollback & Latency Guard):** Implement feature flag for read-switch and automated reversion logic if latency spikes.
+    *   *Dependency:* None. Runs parallel to A/B.
+    *   *Owner:* Builder.
+5.  **Lane E (Integrity Audit Suite):** Define and script the data integrity audit comparing legacy vs. columnar rows.
+    *   *Dependency:* Requires schema definition from Lane C approval.
+    *   *Owner:* QA (Independent).
+
+**Serialization:** Lane E waits for Lane C approval. Lanes A, B, D merge into an integration branch only after individual unit tests pass. The backfill job (Lane B) must not execute until Lane A is live in production.
+
+#### Gates & Checks
+*All checks run on the exact final SHA of the integration branch.*
+
+*   **G2 (Plan):** Confirm CDO approval path for Lane C. Set strict budget: 6 CI runs max. Cap backfill job to stop automatically at 9% completion for the first production dry-run.
+*   **G3 (Design):** ADR confirming dual-write consistency model and the specific latency threshold triggering rollback.
+*   **G4 (Implement):** Code complete. Unit tests included.
+*   **G5 (Verify):**
+    *   *Local:* Spin up local stack with sanitized data. Run dual-write simulation.
+    *   *CI:* Run cryptographic validation (expensive). **Strategy:** Run full suite once on the integrated SHA. If flaky reconciliation checks fail on staging, analyze logs for false positives immediately; do not re-run blindly due to the 6-build cap.
+    *   *Audit:* Lane E runs integrity check against the staging backfill (limited dataset).
+*   **G6 (Review):**
+    *   *Code:* Independent Senior Engineer (not the Builder).
+    *   *Security:* AppSec review of dual-write transaction boundaries.
+    *   *Data:* CDO or delegate approves the migration script change in the external repo.
+*   **G7 (Integrate):** Merge to release branch. Re-run affected integration tests on the merge SHA.
+
+#### Review Strategy
+*   **Builder:** Implements Lanes A, B, D.
+*   **QA (Independent):** Owns Lane E (Audit) and verifies G5 receipts. Does not write implementation code.
+*   **Security:** Reviews data flow and rollback triggers.
+*   **Data Governance (External):** Manual approval for schema scripts.
+
+#### Landing & Rollback
+*   **Human Approvals Required:**
+    1.  CDO approval for migration scripts (Lane C).
+    2.  Finance Lead approval to deploy during the pre-freeze window.
+    3.  On-call Lead approval to trigger the historical backfill job (G8).
+*   **Merge Strategy:** Merge dual-write code (A+B+D) first. Deploy to all three regional clusters with the "new read path" flag **OFF**.
+*   **Backfill Execution:** Once live, manually trigger the backfill job. Monitor closely.
+*   **Rollback Plan:**
+    *   *Code Level:* If latency spikes, the feature flag instantly reverts read traffic to the legacy table. No code redeploy needed.
+    *   *Data Level:* If backfill corrupts data or exceeds 10% before audit pass: **STOP JOB IMMEDIATELY.** The dual-write ensures new data exists in both. Legacy reads remain valid. The columnar table is truncated/reset; no data loss occurs as legacy is the source of truth until audit pass.
+    *   *Irreversibility Note:* Since reverting schema changes is irreversible after 10% backfill, the job is hard-capped at 9% for the initial run until the audit passes.
+
+**Timeline:** Execute Lanes A, B, C, D immediately. Target G7 merge 48 hours before month-end freeze. Backfill (G8) occurs post-freeze start only if audit passes.

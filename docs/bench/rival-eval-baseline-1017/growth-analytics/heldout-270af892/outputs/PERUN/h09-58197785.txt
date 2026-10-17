@@ -1,0 +1,28 @@
+### Taxonomy Consolidation Strategy for WanderLust
+
+**Phase 1: Audit and Map (Weeks 1-2)**
+Do not delete or modify existing ingestion pipelines yet. Create a "Rosetta Stone" mapping table in your data warehouse.
+1.  **Identify the Canonical Event:** Select one clear name for the core action (e.g., `booking_confirmed`). Reject ambiguous verbs like "click" for final actions; reserve "click" for UI interactions only if they answer a specific UX question.
+2.  **Map Duplicates:** Document every variant (`click_book`, `book_click`, `booking_clicked`) and map them to the canonical event ID in a transformation layer (SQL view or dbt model).
+3.  **Validate Volume:** Run queries against the mapped view to ensure the sum of old events matches the new canonical count within a 1% margin. If the variance is higher, investigate filtering logic before proceeding.
+
+**Phase 2: The Dual-Write Transition (Weeks 3-8)**
+To preserve historical comparability without breaking dashboards:
+1.  **Backfill via View:** Create a new canonical dataset that unions historical data (remapped via your mapping table) with incoming new data. Point all *new* reports and dashboards to this unified view.
+2.  **Freeze Legacy Pipelines:** Stop adding new logic to the old 300-event streams. Keep them running strictly for backward compatibility on legacy dashboards.
+3.  **Deprecation Schedule:** Mark old event names as "Deprecated" in your internal documentation. Set a hard date (e.g., 6 months out) when legacy dashboards must be migrated or archived. Do not delete raw logs; only stop processing them into active tables.
+
+**Phase 3: Governance Rules (Prevent Recurrence)**
+Establish these three non-negotiable rules for your engineering and BI teams:
+1.  **The "Named Question" Rule:** No event is instrumented unless a ticket explicitly states the business question it answers (e.g., "Do users abandon at the payment step?"). If there is no question, there is no event. This prevents "instrument everything" bloat.
+2.  **Centralized Schema Registry:** All new events must be defined in a central registry (code-reviewed) before deployment. The registry enforces naming conventions (e.g., `object_action_result`: `hotel_search_completed`) and rejects duplicates.
+3.  **Owner Assignment:** Every event type must have a single named owner (Product Manager or Analyst) responsible for its lifecycle. If an event goes unused for 90 days, the owner must justify keeping it or it is automatically scheduled for removal.
+
+**Handling the 15% Variance**
+The conflicting numbers you see are likely due to inconsistent filtering (e.g., some events fire on button click, others on server confirmation). Your consolidation must standardize the **trigger point**. Define the "truth" for a booking (e.g., "Server-side confirmation received") and apply this filter uniformly across all historical variants in your mapping layer. Document this definition clearly so analysts know exactly what `booking_confirmed` represents.
+
+**Immediate Next Steps**
+1.  Draft the mapping table for the top 20 most frequent conflicting events.
+2.  Freeze all new event creation until the Schema Registry process is live.
+
+*Note: This strategy prioritizes a transformation-layer fix over raw data migration to minimize risk to your 2M daily event pipeline. Historical data remains immutable; only the interpretation layer changes.*

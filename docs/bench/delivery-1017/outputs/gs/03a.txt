@@ -1,0 +1,62 @@
+### Delivery Plan: Legacy Billing API Access Restriction
+
+**Objective:** Restrict the legacy billing adjustment endpoint to the 'Senior Finance Auditor' role only, ensuring compliance before Monday's audit while preserving audit team access and logging integrity.
+
+#### 1. Work Lanes & Parallelization
+
+*   **Lane A: Policy Logic (Serialized First)**
+    *   **Owner:** Backend Engineer.
+    *   **Task:** Modify the shared JSON policy file to explicitly deny 'Support' roles and allow only 'Senior Finance Auditor' for the specific billing adjustment path.
+    *   **Constraint:** Must be completed and unit-tested locally before any other lane proceeds, as all downstream systems depend on this file.
+*   **Lane B: Audit Access Bridge (Parallel to Lane C)**
+    *   **Owner:** DevOps/Security Engineer.
+    *   **Task:** Identify the specific user accounts used by the audit team. Manually assign the 'Senior Finance Auditor' role to these accounts in the identity provider to ensure their existing tickets and tool access remain functional.
+    *   **Constraint:** Must be verified before production deployment.
+*   **Lane C: Staging Validation (Parallel to Lane B)**
+    *   **Owner:** QA Engineer.
+    *   **Task:** Deploy the updated policy to Staging. Since Staging lacks real finance roles, inject a mock 'Senior Finance Auditor' claim into the test harness.
+    *   **Tests:**
+        1.  Verify 'Support' role receives 403 Forbidden.
+        2.  Verify mock 'Senior Finance Auditor' receives 200 OK.
+        3.  Confirm log output schema remains unchanged (critical for fraud detection).
+    *   **Constraint:** Limit full data integrity runs to **one final execution** only after local unit tests pass, to save cost/time.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Local Syntax & Logic Check (Pre-Commit)**
+    *   **Revision:** Feature branch head.
+    *   **Action:** Validate JSON syntax and run targeted unit tests for the authorization module.
+    *   **Pass Criteria:** Zero syntax errors; unit tests confirm role denial/allowance logic.
+*   **Gate 2: Staging Integration (Pre-Approval)**
+    *   **Revision:** Release candidate tag.
+    *   **Action:** Deploy to Staging. Run the single full data integrity check (55 mins).
+    *   **Pass Criteria:** Integrity check passes; mock audit claim works; support role blocked; logs match existing schema exactly.
+*   **Gate 3: Cache Propagation Check (Pre-Landing)**
+    *   **Action:** Verify edge node cache TTL (10 mins) is accounted for in the deployment runbook.
+    *   **Pass Criteria:** Runbook includes a 15-minute waiting period post-deployment before declaring "fully effective."
+
+#### 3. Review Process
+
+*   **Technical Review:**
+    *   **Reviewer:** Senior Backend Engineer (Independent of Lane A).
+    *   **Focus:** JSON policy diff, ensuring no unintended paths were restricted and logging schema is untouched.
+*   **Compliance Review:**
+    *   **Reviewer:** Compliance Officer.
+    *   **Focus:** Verification that 'Support' is fully blocked and 'Senior Finance Auditor' is the sole allowed role. Must sign off on the Audit Access Bridge (Lane B) list.
+
+#### 4. Landing Strategy
+
+*   **Merge Mechanism:**
+    *   The feature branch merges to `main` only after both Technical and Compliance reviews are approved.
+    *   **Dual Approval Deployment:** Production deployment requires explicit sign-off from both the **Lead Architect** and **Compliance Officer** in the CI/CD tool.
+*   **Timing:**
+    *   Deploy immediately upon approval to maximize the 10-minute cache propagation window before the audit window opens.
+*   **Human Decision Points:**
+    *   Final list of audit team accounts to receive the role upgrade (Lane B).
+    *   Go/No-Go decision after the 55-minute Staging integrity check.
+*   **Rollback Plan:**
+    *   **Trigger:** If audit team access fails or fraud detection logs show schema deviation.
+    *   **Action:** Revert the JSON policy file to the previous commit and redeploy.
+    *   **Caveat:** Due to the 10-minute edge cache, rollback will also take up to 15 minutes to be globally effective. Communicate this delay immediately to stakeholders if triggered.
+
+**Critical Path:** Lane A → Gate 1 → Gate 2 (55m test) → Reviews → Dual Approval → Deploy. Total estimated lead time: ~2.5 hours excluding the 55-minute test.

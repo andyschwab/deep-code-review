@@ -1,0 +1,75 @@
+# Delivery Plan: PulseRate Isolation
+
+## Work Lanes & Parallelism
+
+**Lane A: Extraction & Refactoring (Platform Guild)**
+*   **Scope:** Copy renewal logic from `claims_processor.py` and relevant schemas into the new `PulseRate` service.
+*   **Constraint:** Must avoid editing patient record interfaces. Work on `claims_processor.py` is serialized outside 09:00–17:00 EST.
+*   **Parallelism:** Runs parallel to Lane B, but must pause if Clinical hotfixes conflict during locked hours.
+
+**Lane B: Interface Adapter (Platform Guild)**
+*   **Scope:** Build the communication layer (API/gRPC) so the monolith calls `PulseRate` instead of executing local logic. Update `/config/global` ensuring backward compatibility for the three legacy tools.
+*   **Parallelism:** Can proceed independently of Lane A’s internal logic implementation, provided the interface contract is defined first.
+
+**Lane C: Data Migration Strategy (DBA + Finance)**
+*   **Scope:** Design zero-downtime migration for `HealthVault`. Since schema changes are irreversible, this requires a dual-write or shadow-table strategy.
+*   **Serialization:** Must complete validation before Lane D begins.
+
+**Lane D: Audit & Compliance (Finance Team)**
+*   **Scope:** Verify separation meets audit requirements.
+*   **Serialization:** Occurs after Lane A & B are feature-complete in staging.
+
+## Gates & Checks
+
+**Gate 1: Contract Freeze (Day 3)**
+*   **Check:** Define the exact input/output signature between Monolith and `PulseRate`.
+*   **Revision:** Locked in Git before extraction begins.
+
+**Gate 2: Local Integrity (Pre-Commit)**
+*   **Check:** Unit tests for `PulseRate` logic.
+*   **Environment:** Local developer machines to avoid CI costs.
+*   **Revision:** Feature branch head.
+
+**Gate 3: Staging Verification (CI Pipeline)**
+*   **Check:** Full integration test suite.
+*   **Constraint:** Trigger only when Lane A, B, and C artifacts are ready.
+*   **Mitigation:** Due to 20% flaky network checks, require two consecutive successful runs before approval.
+*   **Cost Control:** Limit to final release candidates and critical fixes to manage the $45/run cost.
+
+**Gate 4: Clinical Lock Compliance**
+*   **Check:** Automated scan ensuring no touches to patient record interfaces.
+*   **Timing:** Enforced on every push to the feature branch.
+
+## Review Strategy
+
+**Primary Review: Platform Guild Lead**
+*   **Focus:** Code quality, modularity, and adherence to the "no patient record modification" rule.
+*   **Independence:** Must not be the author of the extraction logic.
+
+**Secondary Review: Finance Representative**
+*   **Focus:** Accuracy of renewal calculations and audit trail integrity.
+*   **Timing:** After Gate 3 passes.
+
+**Safety Review: Chief Medical Officer (CMO)**
+*   **Focus:** Risk assessment regarding claim adjudication stability.
+*   **Timing:** Pre-deployment.
+
+## Landing & Rollback
+
+**Merge Strategy**
+*   **Branch:** Merge `pulserate-extraction` to `main` only after dual approval (CMO + VP Engineering).
+*   **Timing:** Deployment window scheduled outside 09:00–17:00 EST to avoid Clinical team locks.
+
+**Deployment Phases**
+1.  **Shadow Mode:** Deploy `PulseRate` alongside the monolith. Route 1% of traffic to the new service; compare results against the monolith without affecting live claims.
+2.  **Dual Write:** Enable writing to new schemas while reading from old.
+3.  **Full Cutover:** Switch read traffic to `PulseRate`.
+
+**Human Decisions Required**
+*   Approval to switch read traffic from old to new schema (VP Engineering + CMO).
+*   Final sign-off on audit compliance (Finance).
+
+**Rollback Plan**
+*   **Trigger:** Any discrepancy in billing calculations or claim adjudication failures >0.1%.
+*   **Action:** Immediate revert of the feature flag routing traffic to `PulseRate`. The monolith code remains intact as the fallback.
+*   **Data:** Disable dual-write; revert to legacy schema as the source of truth. Irreversible schema changes in `HealthVault` necessitate that the new tables are simply abandoned, not dropped, to preserve audit logs.

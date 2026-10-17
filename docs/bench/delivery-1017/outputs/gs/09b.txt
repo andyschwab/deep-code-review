@@ -1,0 +1,30 @@
+### Delivery Plan: Partial Refund Logic Fix
+
+**1. Work Lanes & Parallelization**
+*   **Lane A (Logic & Migration):** Implement the prorated fee calculation in the billing service and write the irreversible database migration script. This lane owns the core business logic change.
+*   **Lane B (Test Harness):** Develop a localized unit test suite specifically for the new proration math. This runs locally and in CI without triggering the expensive 45-minute integration suite initially.
+*   **Lane C (Historical Guardrails):** Write a verification script to assert that historical transaction records remain untouched when the new logic is applied. This ensures the "no retroactive alteration" requirement is met before any code merge.
+
+*Parallel Execution:* Lanes A, B, and C start immediately. Lane B and C can proceed while Lane A finalizes the migration script.
+*Serialization:* Lane A must complete the migration script before Lane C can verify it against the schema. The full integration suite (Lane B expansion) waits until Lane A's code is committed to a feature branch.
+
+**2. Gates & Checks**
+*   **Gate 1 (Local Verification):** Before pushing, Lane A and B must pass local unit tests. The known flaky currency conversion check is explicitly ignored if logs show timeout errors; failure on other grounds blocks progression.
+*   **Gate 2 (Staging Deployment):** Upon push to the feature branch, the CI pipeline triggers.
+    *   *Check:* Run the full integration suite exactly once to minimize the $12 cost. If the flaky check fails with a timeout, proceed; otherwise, it must pass.
+    *   *Approval:* Two senior engineers from the Ledger Team must approve the staging deployment.
+*   **Gate 3 (Data Safety):** Lane C's verification script runs against the staging database post-migration to confirm zero changes to historical records. Failure here triggers an immediate rollback of the staging migration.
+
+**3. Review Process**
+*   **Code Review:** One senior engineer from the Ledger Team (distinct from the deploy approvers) reviews the logic and migration script. They focus on the proration math and the irreversibility of the migration.
+*   **Compliance Review:** The Compliance Officer reviews the change description and the "no retroactive alteration" proof (Lane C's report) during the designated window. This is independent of the engineering review.
+
+**4. Landing Strategy**
+*   **Merge Window:** Production deployment is strictly scheduled for Tuesday between 2 PM and 4 PM.
+*   **Human Decision:** The Compliance Officer provides the final sign-off during the window. No automated merge to production occurs without this explicit approval.
+*   **Rollback Plan:** Since the database migration is irreversible, a "rollback" involves deploying a patch that restores the old calculation logic for future transactions while leaving the new data structure intact. A hotfix branch must be prepared in advance by Lane A, containing a revert of the calculation logic but retaining the migration to prevent schema mismatch errors. If the production deploy fails validation, this hotfix is deployed immediately to stabilize calculations while a permanent fix is engineered.
+
+**Summary of Critical Path:**
+Logic/Migration Dev → Unit Tests → Code Review → Staging Deploy (2 approvals) → Historical Data Check → Compliance Sign-off (Tue 2-4 PM) → Production Deploy.
+
+The flaky test is bypassed only on specific timeout errors. The integration suite runs once per feature branch to control costs. Historical data integrity is the primary gate before production consideration.

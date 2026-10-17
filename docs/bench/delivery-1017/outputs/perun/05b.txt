@@ -1,0 +1,54 @@
+### Delivery Plan: Inventory Schema Update
+
+**Objective:** Add `warehouse_zone` (required string) to inventory API payload, synchronized with ShopFast and MegaMart parser updates.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Coordination) [Serialized First]:**
+    *   **Owner:** Product Analyst / Conductor.
+    *   **Task:** Draft exact protobuf diff. Contact Jane Smith to lock the cutover time window. Confirm ShopFast/MegaMart readiness status.
+    *   **Output:** Signed spec with exact cutover timestamp and partner confirmation IDs.
+*   **Lane B (Provider Implementation) [Parallel after Spec]:**
+    *   **Owner:** Builder (Worktree `wt-provider`).
+    *   **Task:** Update protobuf definition, regenerate code, modify provider service to populate `warehouse_zone`. Add unit tests for payload structure.
+    *   **Constraint:** Must target the exact SHA from Lane A's spec.
+*   **Lane C (Consumer Verification) [Parallel after Spec]:**
+    *   **Owner:** QA / Integration Specialist.
+    *   **Task:** Update local mocks in consumer repos (ShopFast/MegaMart simulators) to expect the new field. Verify parsing logic against the new schema.
+    *   **Constraint:** No code changes to vendor repos; verify against provided spec.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Lane A completes. No code starts until Jane Smith confirms the time window and partners acknowledge readiness.
+*   **G3 (Design Review):** Security Officer reviews the protobuf change to ensure no PII leakage in `warehouse_zone`. Logistics Lead approves the non-nullable migration strategy.
+*   **G4 (Build):** Lane B builds in isolated worktree. Lint and type-check only (skip full CI to save cost/time at this stage).
+*   **G5 (Verification - Wednesday Only):**
+    *   **Trigger:** Deploy to Staging **Wednesday morning**.
+    *   **Check:** Run full CI ($45 cost, 22 mins) **once** on the integration branch.
+    *   **Validation:** End-to-end test simulating bulk restock with both partner parsers. Verify `warehouse_zone` is present and non-empty.
+*   **G6 (Independent Review):**
+    *   **Reviewer:** Senior Engineer (not the Builder).
+    *   **Scope:** Diff review + G5 test receipts.
+    *   **Security:** Independent AppSec sign-off on schema change.
+
+#### 3. Review Strategy
+*   **Code Review:** One independent reviewer for the Provider repo.
+*   **Schema Review:** Logistics Lead + Security Officer (mandatory dual approval).
+*   **Integration Review:** QA lead verifies the "handshake" simulation receipts.
+*   **Isolation:** Builder never approves their own code. Security review is separate from functional review.
+
+#### 4. Landing & Deployment
+*   **Merge Strategy:**
+    1.  Merge Lane B to integration branch only after G5 passes on Wednesday.
+    2.  Hold merge to `main` until the confirmed cutover time.
+*   **Human Gates (Pre-Merge):**
+    *   **Approval 1:** Logistics Lead (confirms distribution center readiness).
+    *   **Approval 2:** Security Officer (confirms schema safety).
+    *   **Final Go:** Jane Smith (confirms partner sync).
+*   **Deployment:**
+    *   Deploy immediately upon dual approval + Jane's go-ahead.
+    *   Monitor logs for 15 minutes post-deploy for parsing errors from partners.
+*   **Rollback Plan:**
+    *   **Critical:** Reverting is **impossible** without a 4-hour data migration due to non-nullable column activation.
+    *   **Mitigation:** If deployment fails or partners are not ready, **do not deploy**. Keep the PR merged but the feature flag off (if available) or delay the merge entirely. There is no "quick revert."
+    *   **Contingency:** If live data corruption occurs, execute emergency data migration script (pre-tested in staging) to restore compatibility, then engage database team.
+
+**Risk Note:** The Tuesday staging instability is a hard block; testing must occur Wednesday. The $45 CI cost dictates zero redundant runs; ensure local linting is perfect before triggering CI.

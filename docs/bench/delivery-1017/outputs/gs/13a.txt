@@ -1,0 +1,59 @@
+# Delivery Plan: Sanitize PII in Logistics Test Fixtures
+
+## Work Lanes & Parallelization
+
+**Lane A: Data Masking Logic (Owner: Operations Engineering)**
+*   **Task:** Update the data ingestion transformation script to redact driver license numbers and home addresses.
+*   **Constraint:** Logic must apply to both historical backfills and new streaming events.
+*   **Parallelism:** Can run immediately.
+
+**Lane B: Fixture Generation Script (Owner: Operations Engineering)**
+*   **Task:** Modify the script that generates test fixtures to output masked data by default.
+*   **Constraint:** Do not edit static files in the read-only bucket; update the generator only.
+*   **Parallelism:** Can run in parallel with Lane A.
+
+**Lane C: Verification & Compliance (Owner: QA + Data Privacy Officer)**
+*   **Task:** Verify log outputs contain no PII and confirm compliance.
+*   **Dependency:** Must wait for Lanes A and B to complete locally before triggering CI.
+
+## Gates & Checks
+
+**Gate 1: Local Sanitization Proof (Pre-CI)**
+*   **When:** Before pushing code.
+*   **Check:** Run the transformation step locally against a sample of the real beta driver profiles.
+*   **Success Criteria:** Log output on disk contains zero unmasked license numbers or addresses.
+*   **Revision:** Latest local commit on feature branch.
+
+**Gate 2: CI Integration Suite (Cloud Cluster)**
+*   **When:** After Lane A and B are merged to feature branch.
+*   **Check:** Full integration test suite.
+*   **Risk Mitigation:** Due to the $45/55min cost and the flaky "geo-validator" check:
+    *   If today is Tuesday, manually monitor the geo-validator step. If it fails, verify if it is a rate-limit error before retrying to avoid unnecessary charges.
+    *   Ensure code formatting is perfect locally to prevent paid failures due to style errors.
+*   **Revision:** Feature branch head after local sanitization proof.
+
+**Gate 3: Dual Approval (Mandatory)**
+*   **Who:** Lead Architect AND Data Privacy Officer.
+*   **When:** After CI passes, before merge.
+*   **Check:** Architect reviews code quality/streaming logic; DPO verifies masking completeness against audit requirements.
+
+## Review Strategy
+
+*   **Independent Review:** The Lead Architect must review the engineering implementation (Lane A/B) without relying on the DPO's sign-off for code correctness.
+*   **Compliance Review:** The Data Privacy Officer must independently validate the log outputs from Gate 1 and Gate 2, without relying on the Architect's approval for privacy compliance.
+*   **Separation:** Neither approver can delegate their specific domain check to the other.
+
+## Landing & Rollback
+
+**Merge Strategy**
+*   **Method:** Squash merge to main branch only after both approvals are recorded.
+*   **Timing:** Merge immediately upon dual approval to lift the legal release pause.
+*   **Human Decision:** The Data Privacy Officer must explicitly confirm in the PR comment that "No PII detected in staging logs" before the merge button is active.
+
+**Rollback Plan**
+*   **Trigger:** If production logs post-deploy show any PII leakage.
+*   **Action:** Revert the merge immediately. Since the database schema is immutable, no DB rollback is needed; only the application code reverts to the previous version.
+*   **Constraint:** The 48-hour change window notice applies to schema changes, not code reverts, so the code rollback is immediate.
+
+**Post-Landing**
+*   Monitor the next hourly sync of the fixture bucket to ensure the new generation script propagates correctly to the read-only storage.

@@ -1,0 +1,38 @@
+### Delivery Plan: Irreversible Patient Data Erasure
+
+**1. Work Lanes & Parallelization**
+*   **Lane A (Backend Implementation):** Develop the `DELETE /patients/{id}` endpoint. This includes the hard-delete logic (bypassing soft-delete flags), the identity provider token validation middleware, and the zero-PII audit logger.
+*   **Lane B (Sandbox Provisioning):** Security team provisions the isolated sandbox cluster with production-mirrored data structures. This must complete before Lane C begins.
+*   **Lane C (Integration Testing):** Once Lane A provides the build and Lane B provides the environment, execute end-to-end deletion tests. Verify irreversibility by attempting data recovery queries post-commit.
+*   **Lane D (Compliance Documentation):** Draft the legal validation report and update the data retention policy docs. This runs in parallel with Lane A but must finalize before the dual-approval gate.
+
+**Serialization Constraint:** Lane C cannot start until Lane B is ready. Lane A’s code freeze must occur before Lane C begins to ensure test stability.
+
+**2. Gates & Checks**
+*   **Gate 1: Static Analysis & Unit Tests (CI):** Runs on every commit to the feature branch.
+    *   *Check:* Verify token validation logic and audit log schema (ensuring no PII fields).
+    *   *Flaky Check Handling:* If the notification module fails, inspect logs. If the error matches the known flake pattern and core logic passes, mark as non-blocking.
+*   **Gate 2: Data Integrity Suite (CI):** Runs on the release candidate revision only.
+    *   *Constraint:* Due to the 45-minute runtime and compute cost, this runs once per release candidate. Do not trigger on intermediate commits.
+    *   *Revision:* Must run on the exact commit hash intended for staging.
+*   **Gate 3: Sandbox Verification:**
+    *   *Check:* Execute deletion in the isolated sandbox. Monitor the database connection pool to ensure the operation does not exhaust the 50-session cap. Implement batched deletion or rate limiting if session usage spikes.
+    *   *Success Criteria:* Data is unrecoverable; audit log exists with zero PII; live traffic latency remains unaffected.
+
+**3. Review Strategy**
+*   **Code Review:** Performed by a Senior Backend Engineer *not* on the Clinical Data team (e.g., from Platform Security) to ensure unbiased scrutiny of the irreversible logic. Raj Patel (Team Lead) provides architectural sign-off but not the primary security review.
+*   **Compliance Review:** The Chief Compliance Officer (CCO) reviews the audit log format and the legal sufficiency of the "irreversible" mechanism against the new regulations.
+*   **Independence:** The code reviewer cannot be the author. The compliance reviewer operates independently of engineering timelines.
+
+**4. Landing & Merge Strategy**
+*   **Merge Method:** Squash merge to `main` to maintain a clean history, but retain the specific commit hash in the governance portal audit trail.
+*   **Human Decision Gate:** Deployment requires dual approval via the governance portal:
+    1.  Lead Engineer (Raj Patel): Confirms technical stability and pool management.
+    2.  Chief Compliance Officer: Confirms legal adherence.
+    *   *No deployment occurs without both tokens.*
+*   **Rollback Plan:**
+    *   *Technical:* Since deletion is irreversible, a code rollback only stops *future* deletions; it cannot restore lost data. Therefore, the "rollback" is strictly a feature flag toggle to disable the endpoint immediately if unintended behavior is detected.
+    *   *Data Recovery:* Impossible by design. Any erroneous deletion requires a manual legal incident report and potential re-ingestion from pre-regulation backups (if legally permissible), which is outside the scope of this hotfix.
+    *   *Trigger:* If sandbox testing shows pool exhaustion or audit leaks, the merge is blocked. If production monitoring detects anomalies post-deploy, the feature flag is killed instantly.
+
+**Risk Mitigation:** The database session cap is the highest technical risk. The implementation must use a dedicated, limited-size connection sub-pool for this endpoint to prevent denying service to live users during large deletions.

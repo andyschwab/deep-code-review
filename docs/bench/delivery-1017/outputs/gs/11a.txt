@@ -1,0 +1,42 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Tier Access
+
+#### 1. Work Lanes & Parallelization
+*   **Lane A (Infrastructure Code):** One engineer edits the policy definition in `core-net-storage`. This is **serialized** before any testing. The edit must be strictly additive (adding `auditor-svc` read permissions) to avoid triggering the legacy backup lockout.
+*   **Lane B (Simulation Prep):** A second engineer prepares the CI topology simulation configuration. This can run **in parallel** with Lane A's coding but cannot execute until Lane A commits.
+*   **Lane C (Security Review):** The security lead reviews the proposed policy diff independently. This runs **in parallel** with Lane A but must complete before the final merge approval.
+
+#### 2. Gates & Checks
+*   **Gate 1: Local Validation (Immediate):** Before pushing, the author verifies the diff contains only additive changes to the `legal-archive-09` bucket policy and explicitly excludes encryption or lifecycle rule modifications.
+*   **Gate 2: Staging Verification (Post-Commit):** Push the branch to trigger the CI pipeline.
+    *   **Check:** Full topology simulation (22 mins).
+    *   **Flaky Check Handling:** If `network-latency-validator` fails, perform **one** manual retry. If it fails again, treat as a hard block.
+    *   **Success Criteria:** Simulation passes, confirming `auditor-svc` can read files >7 years old without write access.
+*   **Gate 3: Approval Quorum (Pre-Merge):** Requires explicit approval tokens from:
+    1.  Senior Engineer 1
+    2.  Senior Engineer 2
+    3.  Security Lead (independent of the authors).
+
+#### 3. Review Strategy
+*   **Primary Review:** Conducted by the two senior engineers focusing on infrastructure integrity and idempotency.
+*   **Independent Security Review:** Conducted by the security lead focusing strictly on permission scope (ensuring no write access or public exposure).
+*   **Constraint:** Reviewers must not be the author of the code. Reviews occur on the specific commit hash that passed the staging simulation.
+
+#### 4. Landing & Merge
+*   **Timing:** Merge is permitted **only** during the production window (Tuesdays 02:00–04:00 UTC).
+*   **Method:** Standard merge to main. No rebasing or history rewriting.
+*   **Human Decision Point:** The on-call lead must manually confirm the "Go" status at 02:00 UTC after verifying the approval quorum and staging success.
+
+#### 5. Rollback Plan
+*   **Trigger:** Immediate rollback if:
+    *   `auditor-svc` gains write access.
+    *   Public exposure is detected.
+    *   Legacy backup system reports lockout errors.
+*   **Execution:** Revert the specific merge commit using `git revert`.
+    *   **Constraint:** Do **not** delete the bucket policy resource; only revert the commit to restore the previous state.
+    *   **SLA:** The revert commit must be pushed and deployed within **5 minutes** of detection.
+*   **Verification:** Post-rollback, verify legacy backup connectivity immediately.
+
+#### Summary of Constraints
+*   **Do Not Touch:** Encryption settings, lifecycle rules, or the bucket policy resource itself (only edit the policy content).
+*   **Critical Risk:** Deleting the policy resource causes irreversible legacy lockout.
+*   **Resource Cost:** Each simulation attempt consumes 400 compute credits; ensure local validation is thorough to avoid wasted runs.

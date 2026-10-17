@@ -1,0 +1,61 @@
+# Delivery Plan: Irreversible Right-to-Erasure Endpoint
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+*   **Owner:** Senior Backend Engineer
+*   **Work:** Implement the cascade delete logic within the existing transaction boundaries. This must strictly adhere to the "frozen" `audit-logger` library constraints, logging only the event confirmation, never the data content.
+*   **Dependency:** None, but requires the schema map from Lane B.
+
+**Lane B: Schema & Backup Analysis (Parallel to A)**
+*   **Owner:** Database Administrator (DBA)
+*   **Work:** Map all linked tables for the cascade. Define the specific backup index scrubbing routine.
+*   **Constraint:** Must verify if backup indices are mutable or if "scrubbing" requires a logical flag due to immutability.
+
+**Lane C: Governance & Interface (Parallel to A/B)**
+*   **Owner:** Product Owner & Compliance Liaison
+*   **Work:** Define the exact payload for the "compliance officer approval" trigger. Configure the governance portal hooks for the required dual sign-off workflow.
+
+**Integration Point:** Lanes A, B, and C merge only at the Integration Build. No code touches the main branch until all three lanes report readiness.
+
+## Gates & Checks
+
+**Gate 1: Local Verification (Pre-Commit)**
+*   **Revision:** Feature branch head.
+*   **Action:** Engineer runs unit tests mocking the `audit-logger` and database transactions.
+*   **Check:** Verify no PII is passed to the logger mock. Verify transaction rollback behavior on partial failure (before the irreversible commit).
+
+**Gate 2: The "Expensive" CI Run**
+*   **Revision:** Release Candidate (RC) tag on the feature branch.
+*   **Action:** Trigger full CI suite on isolated hardware.
+*   **Mitigation:** Due to the $45/55min cost and the known flaky backup check, this run is triggered **only once** after Lane A and B sign off on a dry-run simulation.
+*   **Flake Handling:** If the backup verification module fails, a manual triage by the DBA is required to distinguish a flake from a genuine scrubbing failure before re-running.
+
+**Gate 3: Security & Compliance Audit**
+*   **Revision:** The exact RC tag that passed Gate 2.
+*   **Action:** Independent Security Engineer reviews the diff.
+*   **Focus:** Confirm irreversibility logic and ensure no "soft delete" flags were used where hard deletes were mandated. Verify audit logs contain zero data payloads.
+
+## Review Strategy
+
+*   **Code Review:** Performed by the Lead Architect (independent of the Data Integrity squad to avoid groupthink). Focus: Transaction isolation and cascade correctness.
+*   **Logic Review:** Performed by the Chief Compliance Officer (or delegate). Focus: Does the workflow match the legal requirement for "verified request" and "no traces"?
+*   **Independence:** The Code Reviewer cannot be the same person who wrote Lane A. The Compliance Reviewer cannot be the Product Owner from Lane C.
+
+## Landing & Rollback
+
+**Merge Protocol:**
+1.  **Dual Sign-off:** The Lead Architect and Chief Compliance Officer must both approve the merge request in the governance portal. No automated merge is permitted.
+2.  **Deployment:** Deploy to a staging environment that mirrors production data structure (sanitized) for a final "fire drill" deletion test.
+3.  **Production Release:** Enabled behind a feature flag, accessible only to the Compliance Officer role.
+
+**Rollback Strategy:**
+*   **Code Rollback:** Immediate revert of the feature flag and code merge if logic errors are found post-deploy.
+*   **Data Reality:** **There is no data rollback.** As noted in repository facts, writing to the `deletion_log` and executing the cascade is irreversible.
+*   **Contingency:** If erroneous deletion occurs, the only recovery path is restoring from the pre-deletion backup snapshot (if the backup scrubbing logic has not yet run) or manual data re-entry from offline records. The "Rollback" plan is strictly a **Restoration Plan** involving offline procedures, not a git revert.
+
+**Human Decision Points:**
+1.  Approval to trigger the expensive CI run.
+2.  Triage of any backup module flakiness.
+3.  Final dual sign-off for production merge.
+4.  Authorization of the specific deletion request by the Compliance Officer.

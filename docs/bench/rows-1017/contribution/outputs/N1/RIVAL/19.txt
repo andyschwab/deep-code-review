@@ -1,0 +1,88 @@
+## Changelog Entry: Breaking Change in Environment Variable Merging
+
+**Type:** Breaking Change  
+**Scope:** Configuration Loading / Environment Overrides  
+**Version:** [Next Major Version]
+
+### Summary
+The mechanism for merging environment variables into configuration files has changed from **recursive (deep) merge** to **shallow merge**. Previously, nested keys in environment variables would deeply merge with corresponding nested structures in the configuration file. Now, if an environment variable targets a key that exists as an object in the configuration file, the entire object is replaced by the environment variable's value rather than merged into it.
+
+### Who Is Affected?
+This change affects users who:
+1. Define nested objects in their configuration files (e.g., `database.host`, `database.port`).
+2. Use environment variables to override only *some* properties of those nested objects (e.g., setting only `DATABASE_HOST` while expecting `database.port` from the file to remain intact).
+
+If your deployment relies on partially overriding nested configuration objects via environment variables, your application may lose unspecified nested properties after this update.
+
+### Behavior Comparison
+
+**Before (Recursive Merge):**
+*Config file (`config.json`):*
+```json
+{
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "ssl": true
+  }
+}
+```
+*Environment Variable:*
+```bash
+DATABASE_HOST=prod-db.example.com
+```
+*Resulting Config:*
+```json
+{
+  "database": {
+    "host": "prod-db.example.com", // Overridden
+    "port": 5432,                  // Preserved from file
+    "ssl": true                    // Preserved from file
+  }
+}
+```
+
+**After (Shallow Merge):**
+*Config file (`config.json`):*
+```json
+{
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "ssl": true
+  }
+}
+```
+*Environment Variable:*
+```bash
+DATABASE_HOST=prod-db.example.com
+```
+*Resulting Config:*
+```json
+{
+  "database": "prod-db.example.com" // Entire 'database' object replaced by string
+  // OR, if the library flattens keys:
+  // { "DATABASE_HOST": "prod-db.example.com" } (other 'database' keys lost)
+}
+```
+*(Note: Exact failure mode depends on type mismatch handling, but the original nested structure is no longer preserved.)*
+
+### Migration Guide
+To achieve the same result under the new shallow merge logic, you must explicitly define **all** required nested properties via environment variables when overriding a section. You can no longer rely on the configuration file to fill in the gaps.
+
+**Option A: Define All Keys via Environment Variables**
+If you need to override the `database` section, you must now provide every necessary property:
+```bash
+export DATABASE_HOST=prod-db.example.com
+export DATABASE_PORT=5432
+export DATABASE_SSL=true
+```
+
+**Option B: Restructure Configuration for Flat Overrides**
+If your deployment pipeline makes Option A difficult, consider restructuring your configuration file to avoid deep nesting for values that require frequent partial overrides.
+
+**Option C: Pin to Previous Version**
+If refactoring environment variables is not immediately feasible, pin your dependency to the previous major version until you can update your deployment configurations.
+
+---
+*Ensure this entry is placed in the "Breaking Changes" section of CHANGELOG.md. Verify that the version number reflects a major version bump per semver guidelines.*

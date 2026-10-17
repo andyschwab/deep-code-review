@@ -1,0 +1,53 @@
+### Delivery Plan: Field Agent v4.2 Staged Rollout
+
+**Lanes & Parallelism**
+*   **Lane A (Compliance & Docs):** Draft release notes matching approved legal language. *Parallel.*
+*   **Lane B (Build & Verify):** Trigger single CI run on `field-ops-core` HEAD. Validate encryption library usage against warehouse tablet constraints. *Parallel to A, but blocks Lane C.*
+*   **Lane C (Release Prep):** Prepare enterprise store metadata to prevent rejection. *Serial: waits for Lane B green.*
+*   **Lane D (Monitoring Setup):** Configure dashboards for crash-free sessions and sync latency. *Parallel to A/B.*
+
+**Serialization Constraints**
+*   Lane C cannot submit to the store until Lane B confirms the build is green and the encryption library change is valid.
+*   Rollout expansion (5% → 25% → 100%) is strictly sequential based on time and metrics.
+
+**Gates & Checks**
+*   **G4 (Implement):** Lane B runs one full CI pipeline (55 mins) on the exact commit SHA intended for release. No re-runs unless the SHA changes.
+*   **G5 (Verify):**
+    *   **Security:** Independent verification that the encryption library modification does not break warehouse tablet compatibility (joint sign-off required before G6).
+    *   **Compliance:** Lane A output compared against approved legal text; zero deviations allowed.
+*   **G6 (Review):**
+    *   **Builder:** Lane B owner.
+    *   **Independent Reviewers:** Security Lead (encryption impact), Warehouse Product Lead (library compatibility), Compliance Officer (release notes).
+    *   **Check:** All reviews must reference the exact G4 SHA.
+*   **G8 (Release - Initial):** Human approval to submit to enterprise store (2-day review window).
+*   **G9 (Production Verify):**
+    *   **Phase 1 (5%):** Monitor logistics division users for 48 hours. Gate: Zero critical alerts, crash-free rate > threshold.
+    *   **Phase 2 (25%):** Automatic progression if Phase 1 passes.
+    *   **Phase 3 (100%):** **Blocked** until explicit written confirmation from Director of Logistics regarding sync latency SLAs.
+
+**Review Authority**
+*   **Encryption/Library Changes:** Requires joint sign-off from Field Ops Product Lead and Warehouse Tablet Product Lead. Neither can approve alone.
+*   **Release Notes:** Compliance Team only.
+*   **Final Expansion:** Director of Logistics only. No delegation.
+
+**Landing & Rollback**
+*   **Merge:** One-time merge to the release branch after G6. Triggers single store submission.
+*   **Deploy:**
+    1.  Submit to enterprise store (Human Gate).
+    2.  Upon approval, enable 5% rollout to logistics division.
+    3.  Hold for 48 hours.
+    4.  If stable, expand to 25%.
+    5.  **Stop.** Wait for Director's written confirmation for 100%.
+*   **Irreversibility Point:** Once rollout exceeds 10%, database schema migrations make the deploy irreversible.
+*   **Rollback Strategy:**
+    *   **<10%:** Immediate toggle off via feature flag or store rollback.
+    *   **>10%:** No rollback possible. Mitigation requires a hotfix patch (v4.2.1) undergoing the full CI/review cycle.
+*   **Human Decisions Required:**
+    1.  Joint sign-off on encryption library change.
+    2.  Approval to submit to app store.
+    3.  Director of Logistics' written confirmation for >25% expansion.
+
+**Risk Controls**
+*   **CI Cost:** Only one build permitted. Any failure requires code fix and new SHA, not a retry.
+*   **Store Rejection:** Metadata validated locally against store guidelines before submission to avoid 2-day queue reset.
+*   **Data Safety:** 10% cap enforced technically until Director approval is recorded.

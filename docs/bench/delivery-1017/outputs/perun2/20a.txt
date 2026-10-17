@@ -1,0 +1,36 @@
+**Delivery Plan: Irreversible Right-to-Erasure Endpoint**
+
+**Lanes & Serialization**
+Work proceeds in three strictly serialized lanes due to data safety and dependency constraints. Parallel execution is forbidden until G6.
+
+*   **Lane 1 (Spec & Contract):** Product Analyst defines the exact cascade path across linked tables and the audit schema. Must confirm with Legal that "no traces" includes backup indices or if "active databases" is the hard boundary. Output: Testable spec with acceptance criteria for data absence.
+*   **Lane 2 (Implementation):** Builder implements the endpoint in an isolated worktree. Logic: Verify compliance officer approval token → Execute cascade delete → Write immutable audit event (timestamp, requester, record ID hash) → Return success. **Constraint:** Cannot modify `audit-logger` library; must use existing frozen interface. Must handle the known backup verification flake by isolating it from the critical path.
+*   **Lane 3 (Security & Rollback Prep):** Security Engineer designs the "point of no return" rehearsal. Since the DB write is irreversible, this lane prepares a staging snapshot restore procedure and verifies that no PII leaks into logs. Defines the rollback: not a code revert, but a data restoration from pre-deletion backup (if legally permissible) or a documented "unrecoverable" state.
+
+**Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Owner confirms scope. **Critical:** Clarify if backup indices must be scrubbed immediately or if "active DB" suffices for now. Freeze base SHA.
+*   **G2 (Plan):** Acyclic graph approved. **Budget Cap:** Limit CI runs to 3 total ($135 max) before manual intervention. Explicitly name the backup flake as "ignored for merge if isolated."
+*   **G3 (Design):** ADR signed by Lead Architect. Interface contract for the approval token verified.
+*   **G4 (Implement):** Code committed with unit tests mocking the cascade. No real DB writes in CI.
+*   **G5 (Verify):** Run on exact final SHA.
+    *   *Local:* Spin up ephemeral DB, seed with dummy patient data, trigger endpoint, verify rows vanish and audit row appears.
+    *   *CI:* Run full suite once. If backup flake triggers, re-run once capped; if it fails again, mark as known flake and proceed if isolation is proven.
+    *   *Evidence:* Screenshot of empty tables post-execution; log showing only the audit hash, no PII.
+*   **G6 (Review):** Independent Security and Lead Architect review. Builder is excluded. Focus: Irreversibility confirmation and audit integrity.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected tests on the merged SHA.
+
+**Review**
+*   **Security:** Independent AppSec review of the cascade logic to ensure no orphaned records remain.
+*   **Architecture:** Lead Architect verifies the frozen `audit-logger` usage and transactional boundaries.
+*   **Compliance:** Chief Compliance Officer reviews the audit event schema to ensure it meets legal "proof of deletion" standards without logging content.
+
+**Landing & Human Gates**
+*   **Merge:** Automated upon G6/G7 green.
+*   **Deploy (G8 - Human Gate):** Requires dual sign-off via governance portal (Lead Architect + Chief Compliance Officer). This is not automatic. The deploy window is restricted to low-traffic hours.
+*   **Rollback:** Code rollback is trivial. Data rollback is **impossible** by design. The "rollback plan" is strictly: 1) Restore from pre-deletion backup (if policy allows), 2) Manual re-ingestion if backup is unavailable, 3) Document the permanent loss.
+*   **Production Verify (G9):** Execute one controlled deletion on a staging clone of production data to confirm the cascade speed and audit log format. Monitor for latency spikes in the DB during the cascade.
+
+**Risk Mitigation**
+*   **Cost:** Strict limit on CI runs; no speculative commits.
+*   **Flake:** Backup verification failure is bounded; does not block merge if proven unrelated to deletion logic.
+*   **Irreversibility:** The endpoint includes a "dry-run" mode (simulated delete) for the Compliance Officer to validate the target set before the final approved trigger.
