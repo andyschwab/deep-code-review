@@ -1,0 +1,86 @@
+{
+ "id": "execa-ipc-strict-deadlock",
+ "arm": "V1",
+ "findings": [
+  {
+   "file": "incoming.js",
+   "line": 38,
+   "severity": "high",
+   "text": "onDisconnect does not handle the case where INCOMING_MESSAGES.get(anyProcess) returns undefined; the while loop condition `incomingMessages?.length > 0` safely short-circuits, but line 44 calls `anyProcess.removeListener('message', boundOnMessage)` without verifying that `boundOnMessage` was ever attached, potentially causing incorrect cleanup or missing disconnect emission if onMessage was never called for this process."
+  },
+  {
+   "file": "incoming.js",
+   "line": 25,
+   "severity": "medium",
+   "text": "The while loop at line 25 processes all queued messages but if waitForOutgoingMessages never resolves (e.g., outgoingMessages set contains a deferred promise that is never resolved due to an error in send path), the loop hangs indefinitely, blocking all subsequent message processing for that process."
+  },
+  {
+   "file": "outgoing.js",
+   "line": 76,
+   "severity": "medium",
+   "text": "waitForOutgoingMessages uses Promise.all on a Set of deferred promises that may grow during iteration; if new outgoing messages are started while waiting, the loop may never terminate because OUTGOING_MESSAGES.get(anyProcess)?.size stays > 0, causing a livelock when concurrent senders exist."
+  }
+ ],
+ "error": "",
+ "attempts": 1,
+ "turns": 6,
+ "tokens": 23801,
+ "prompt": [
+  629,
+  3865,
+  4503,
+  4553,
+  4601,
+  4646
+ ],
+ "completion": 1004,
+ "tools": [
+  [
+   "read_file",
+   ".claude/skills/deep-code-review/SKILL.md"
+  ],
+  [
+   "read_file",
+   "change.patch"
+  ],
+  [
+   "read_file",
+   ".claude/skills/deep-code-review/references/compact-mode.md"
+  ],
+  [
+   "glob",
+   "lib/ipc/*.js"
+  ],
+  [
+   "glob",
+   "**/*.js"
+  ],
+  [
+   "glob",
+   "*"
+  ]
+ ],
+ "matched": [
+  false,
+  false,
+  false
+ ],
+ "verdicts": {
+  "0": {
+   "verdict": "not_a_bug",
+   "reason": "The code correctly uses optional chaining and the removeListener call is safe even if the listener was never attached, as removeListener is a no-op in that case.",
+   "judge": "DeepSeek-V4-Flash"
+  },
+  "1": {
+   "verdict": "not_a_bug",
+   "reason": "The claim that waitForOutgoingMessages may never resolve is speculative; the deferred promises are always resolved in endSendMessage's finally block, so the loop terminates unless there is an actual bug in the send path, which is not demonstrated.",
+   "judge": "DeepSeek-V4-Flash"
+  },
+  "2": {
+   "verdict": "gt_same",
+   "reason": "This finding describes the same root cause as the reference bug: waitForOutgoingMessages waits for all outgoing messages, including the response being sent, causing a deadlock when two processes await each other's acknowledgements.",
+   "judge": "DeepSeek-V4-Flash"
+  }
+ },
+ "verify_error": ""
+}
