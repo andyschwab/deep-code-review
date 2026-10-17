@@ -14,3 +14,8 @@ Paired ship minus v0: +0.025 [-0.075, +0.125] (9 tickets up, 7 down).
 Decision: the preregistered rule needs the paired lower bound above 0; it is -0.075, so the edit is not shown to help and does not ship. `SKILL.md` and its eval were reverted to the branch base. No superiority claim over Superpowers is made: the unedited skill's lower bound is 0.487, and the edited arm's 0.512 is for a text that does not ship. All three judges are position-biased (slot-1 rates 0.65 to 0.88), so 29 to 31 of 40 tickets are 0.5 under strict agreement. At n=40 a true lift of +0.075 would usually leave the lower bound below 0, so this reads "not shown", not "shown harmful". The round-1 40-ticket numbers are contaminated; see `../delivery-r1-1017/ERRATA.md`.
 
 Files: `bench.py`, `run.sh`, `prompts/` (seeds, v0, ship), `tickets.json`, `outputs/<arm>/<ticket>.txt`, `judge/<judge>/<arm>__sp/<order>/<ticket>.json`, `ledger.jsonl`. Score with `python3 -I bench.py score v0 sp` and `... score ship sp`, then `... paired v0 ship` (writes `results/`, not committed). Re-run needs `PCSS_KEY` in the environment.
+
+## Review notes
+
+- **Preregistration hash.** The `preregistered` ledger entry (line 1, 2026-10-17T21:32:56Z) hashes the first 10 lines of `SHA256-frozen.txt`: `head -10 SHA256-frozen.txt | shasum -a 256` gives `3082bbec…`, which matches. The 11th line (`tickets.json`) was appended after the ticket writer ran, at the `tickets_frozen` ledger event (line 43). The tickets were therefore generated after preregistration, as the protocol intends, and frozen before any plan was generated.
+- **v0 prompt.** `prompts/v0.txt` is the `origin/main` `SKILL.md` at the time of the run (1.590.0). It differs from the current `origin/main` only in the `version:` line (1.591.0).

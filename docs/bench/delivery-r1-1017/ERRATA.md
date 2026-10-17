@@ -13,3 +13,5 @@ Recomputed on the 30 clean tickets (same per-ticket majority scores, same bootst
 Paired difference vs v0 on the clean 30: ship minus v0 = -0.050 [-0.183, 0.083] (6 up, 8 down); e1 minus v0 = 0.000 [-0.133, 0.150] (7 up, 8 down). The ship lower bound against Superpowers (0.483) is below 0.5, so the keep rule, as written in `PREREGISTERED.md` (Amendment A2), fails on the clean tickets. The 40-ticket figures in `README.md` and `PREREGISTERED.md` (ship 0.688 [0.588, 0.775]) are contaminated and must not be cited.
 
 Follow-up: `../delivery-r2-1017` repeats the test on 40 new tickets (ids `h2-01` to `h2-40`, new output directories) under a preregistered rule.
+
+Files affected: `results/ship__sp__held.json`, `results/v0__sp__held.json` and `results/e1__sp__held.json` are computed over all 40 held ids, including the 10 collided ones, so they carry the contaminated figures (for example ship 0.6875). They are kept unchanged as the record of what was run; cite the clean-30 numbers above instead.
