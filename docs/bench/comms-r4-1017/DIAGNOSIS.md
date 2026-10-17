@@ -4,6 +4,8 @@ Reproduce every number with `python3 diagnose.py` (output in diagnosis_output.tx
 
 ## Result history (rival = humanizer v3.1.0; win rate of our arm, both orders strict)
 
+The figures in this table and in items 2 and 3 below come from the earlier rounds' own READMEs and records, not from diagnosis_output.txt.
+
 | Round | Edit | Edited | Unedited (v0) |
 |---|---|---|---|
 | round 2 (DeepSeek, n=40) | email form + derived lean | 0.438 [0.312, 0.562] | 0.312 |
@@ -14,7 +16,7 @@ Every edit was a wording or template change to the same text. Each moved the sco
 
 ## Reason clusters (rival-win reasons vs ours-win reasons; keyword regexes in diagnose.py, approximate)
 
-- Completeness or a stated recommendation appears in 64% of rival-win reasons (completeness 34%, recommendation or next step 44%). Typical: "includes key metrics and financial impact", "gives Priya a direct recommendation with specific reasoning", "Response 2 only presents options and unknowns without guidance", "omits key details".
+- Completeness or a stated recommendation appears in 64% of rival-win reasons (completeness 34%, recommendation or next step 44%). Typical: "includes key metrics and financial impact", "gives Priya a direct recommendation with specific reasoning", "Response 2 only presents options and unknowns without guidance", "omits key details". These are keyword matches; for a base rate, the recommendation theme also appears in 37% of the reasons our arm won.
 - Ready-to-send form (placeholders, sign-off, subject line, "needs edits") 39%; meta-notes, emoji, clutter 24% (3% of ours-win reasons). These are the surface problems rounds 2 and 3 fixed; they explain the small gains.
 - Fabrication or unsupported additions by our arm: 5%. Conciseness is cited in 23% of rival-win reasons and 42% of ours-win reasons, so judges do reward concision when content is equal; it is not what separates the arms.
 
