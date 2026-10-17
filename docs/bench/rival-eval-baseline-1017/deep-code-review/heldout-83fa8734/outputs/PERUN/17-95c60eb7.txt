@@ -1,0 +1,69 @@
+### 1. Logic Error: Incorrect Source Recording on Loss (Data Integrity)
+**File:** `src/click/core.py`
+**Location:** Hunk 3, lines 2658–2660 (`elif existing_source is None:` block)
+
+**Why it is wrong:**
+The code records `source` into the context even when `is_winner` is `False` (i.e., this parameter lost the arbitration), provided `existing_source` is `None`.
+However, if `existing_source` is `None`, it implies no previous parameter has written to this slot. If `is_winner` is `False` in this state, it logically implies `slot_empty` was `False` (value exists) but `existing_source` is `None`. This state is inconsistent: `ctx.params` has a value, but `ctx._parameter_source` does not.
+More critically, if a parameter *loses* arbitration, its `source` should **not** be recorded as the authoritative source for that parameter name. By writing `ctx.set_parameter_source(self.name, source)` for a loser, you corrupt the metadata. Downstream code querying `get_parameter_source` will believe the *winning* value came from the *losing* parameter's source (e.g., believing a CLI argument came from a Default because a later Default lost to an earlier Environment Variable).
+
+**Fix:**
+Remove the `elif` block entirely. The source should only be set when the parameter successfully claims the slot (`is_winner` is `True`). The existing `if is_winner:` block already handles `ctx.set_parameter_source`.
+
+```python
+# Remove lines 2658–2660:
+# elif existing_source is None:
+#     # Nothing has claimed the slot yet. Record at least our source so downstream
+#     # lookups don't return ``None``.
+#     ctx.set_parameter_source(self.name, source)
+```
+
+### 2. Race Condition / State Corruption: Non-Atomic Context Update
+**File:** `src/click/core.py`
+**Location:** Hunk 3, lines 2653–2657 (`is_winner` assignment and subsequent block)
+
+**Why it is wrong:**
+The logic updates three distinct state containers (`ctx.params`, `ctx._parameter_source`, `ctx._param_default_explicit`) conditionally based on `is_winner`.
+In the `is_winner` block:
+1. `ctx.set_parameter_source` is called.
+2. `ctx.params` is updated.
+3. `ctx._param_default_explicit` is updated.
+
+If `ctx.params[self.name] = value` raises an exception (e.g., memory error, or a weird `__setitem__` override), the context is left in a torn state: `parameter_source` indicates this parameter won, but `params` still holds the old value (or is missing), and `_param_default_explicit` is unupdated.
+While less likely in standard CPython lists/dicts, the logic flaw is that `ctx._param_default_explicit` is updated *only* when `self.expose_value` is true (inside the nested `if`). However, `ctx.set_parameter_source` is called regardless of `expose_value`.
+If `expose_value` is `False`, the source is recorded as "Winner", but the explicit-default flag is not stored. If a subsequent parameter queries `_param_default_explicit` to decide tie-breaking, it gets `False` (default), potentially causing it to incorrectly override the non-exposed winner in a complex chain, or simply losing the "explicit" provenance required for the issue fix (#3403).
+
+**Fix:**
+Ensure `_param_default_explicit` is updated whenever the source is updated for a winner, regardless of `expose_value`, if that flag is intended to track the *slot's* history rather than just the exposed value.
+If the flag is only for exposed values, the logic holds, but the comment "Tracks whether the option... had its default set explicitly" implies it tracks the *slot*.
+Assuming it tracks the slot state for tie-breaking:
+```python
+if is_winner:
+    ctx.set_parameter_source(self.name, source)
+    ctx._param_default_explicit[self.name] = self._default_explicit  # Move outside expose_value check
+    if self.expose_value:
+        ctx.params[self.name] = value
+```
+
+### 3. Logic Error: Misinterpretation of "Empty" Slot
+**File:** `src/click/core.py`
+**Location:** Hunk 3, line 2643 (`slot_empty = existing_value is UNSET`)
+
+**Why it is wrong:**
+The variable `existing_value` is fetched via `ctx.params.get(self.name, UNSET)`.
+The logic assumes that if `existing_value` is `UNSET`, the slot is empty.
+However, a user can explicitly pass `UNSET` as a valid value if they manipulate the context directly, or if a previous parameter legitimately resolved to `UNSET` (though `consume_value` usually prevents this, `value = UNSET` is possible in the deprecation block above).
+If a previous parameter legitimately set the value to `UNSET` (representing "no value"), and the current parameter has a higher priority source, `slot_empty` is `True`, so `more_explicit` is skipped. This is likely fine.
+But the real defect is the dependency on `ctx.params` for control flow *before* the value is committed. `ctx.params` is the *output* buffer. Using it as the source of truth for arbitration logic couples the decision to the side-effect buffer. If `expose_value` was `False` for the previous winner, `ctx.params` would not contain the value, making `slot_empty` `True` even though the slot is logically occupied by a non-exposed winner. This causes a lower-priority parameter to overwrite a higher-priority non-exposed parameter.
+
+**Fix:**
+Arbitration must rely solely on `ctx._parameter_source` (and the new `_param_default_explicit`), not `ctx.params`. `ctx.params` is irrelevant if `expose_value` can be `False`.
+Change `slot_empty` logic to check if `self.name` exists in `ctx._parameter_source` (or a dedicated tracking map), not `ctx.params`.
+
+```python
+# Replace:
+# slot_empty = existing_value is UNSET
+# With:
+slot_occupied = self.name in ctx._parameter_source
+# Then invert logic where slot_empty is used.
+```

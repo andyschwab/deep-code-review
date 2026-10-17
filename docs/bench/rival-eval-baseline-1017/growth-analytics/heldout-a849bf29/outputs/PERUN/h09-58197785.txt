@@ -1,0 +1,27 @@
+### Taxonomy Consolidation Strategy for WanderLust
+
+**Phase 1: The Mapping Layer (Immediate Action)**
+Do not delete or overwrite historical event names yet. Instead, implement a **canonical mapping layer** in your data transformation pipeline (e.g., dbt, Spark, or your warehouse view layer).
+1.  **Define the Standard:** Select one clear name per action (e.g., `booking_initiated`) and strict property schemas.
+2.  **Create Aliases:** Build a lookup table mapping all 300+ variants (`click_book`, `book_click`, etc.) to the single canonical name.
+3.  **Backfill Views:** Update all BI dashboards and SQL queries to select from the *canonical* view, not the raw event table. This instantly unifies reporting (eliminating the 15% variance) while preserving raw data for auditability. Historical comparisons remain valid because the raw data is untouched; only the interpretation layer changes.
+
+**Phase 2: The Transition Period (3–6 Months)**
+Run a dual-track system to ensure stability before full migration.
+*   **Read Path:** All new reports and dashboards must use the canonical names. Deprecate access to raw variant names for general analysts.
+*   **Write Path:** Instrumentation teams must immediately adopt the new standard for all *new* code. For existing services, schedule incremental updates to emit only the canonical event name.
+*   **Validation:** Run a daily reconciliation job comparing the count of the canonical view against the sum of its legacy aliases. Any divergence >1% triggers an alert.
+*   **Sunset:** Once confidence is high and no active queries reference legacy names directly, archive the raw variant columns or move them to cold storage. The "breaking" of dashboards is avoided because the view interface remains constant even if the underlying logic tightens.
+
+**Phase 3: Governance Rules (Prevention)**
+To prevent recurrence, enforce these three gates:
+1.  **The "Named Question" Rule:** No event is instrumented unless it answers a specific, documented business question (e.g., "Do users complete payment after viewing insurance?"). If there is no question, there is no event.
+2.  **Schema Registry Gate:** Integrate event definition into the CI/CD pipeline. New event names or property changes require approval from a data steward and must exist in a central schema registry before code merges. Reject any PR that introduces unregistered events.
+3.  **Lifecycle Management:** Assign an owner and a review date to every event. If an event has not been queried in 90 days, it is automatically flagged for deprecation. "Just in case" instrumentation is banned; it creates cost and noise.
+
+**Execution Checklist for This Week:**
+*   **Data Engineering:** Draft the canonical mapping table for the top 20 conflicting events causing the 15% variance.
+*   **BI Team:** Identify the top 5 dashboards relying on conflicting queries and switch their source to the new canonical view prototype.
+*   **Leadership:** Publish the "Named Question" policy and announce the freeze on new event names until the registry is live.
+
+Note: This approach prioritizes reading consistency over immediate write-side refactoring, reducing risk to your 2M daily events. Ensure user identifiers in these events remain pseudonymous to comply with privacy standards.

@@ -1,0 +1,41 @@
+### Implementation Plan: Strict Email Validation & Propagation
+
+**1. Validation Logic Definition (src/signup_handler.go)**
+We will implement a two-stage validation pipeline to balance strictness with legitimacy:
+*   **Syntax Check:** Use a compiled regular expression compliant with RFC 5322 (simplified for practical use) to validate structure. It must allow standard special characters (dots, plus signs, hyphens) and international domain names to avoid blocking legitimate complex addresses.
+*   **Disposable Domain Check:** Integrate a read-only lookup against a maintained blocklist of known disposable email providers (e.g., via a local map or embedded JSON updated weekly). If the domain matches, reject immediately.
+*   **Logging:** Insert a structured log entry for every rejection *before* returning the error response. The log must include: timestamp, IP address (anonymized last octet), the specific rejection reason (syntax vs. disposable), and the attempted email hash (never log the raw email for privacy).
+
+**2. Propagation Strategy to Three Microservices**
+To prevent inconsistency and code duplication:
+*   **Extract Shared Library:** Refactor the new validation logic into a standalone internal package (e.g., `internal/validation/email`). This package will expose a single function: `ValidateEmail(string) error`.
+*   **Update Consumers:** Replace the copied logic in the three other microservices by importing this new package. Each service will call `ValidateEmail` at the entry point of their respective signup flows.
+*   **Dependency Management:** Ensure all four services point to the same module version in their `go.mod` files to guarantee identical behavior across the fleet.
+
+**3. Test Refactoring (tests/test_signup.go)**
+*   **Remove Weak Tests:** Delete the existing test cases that currently accept invalid emails.
+*   **Add Strict Cases:** Implement new table-driven tests covering:
+    *   Valid complex emails (e.g., `user+tag@sub.domain.co.uk`) → **Pass**.
+    *   Malformed syntax (missing @, invalid chars) → **Fail**.
+    *   Known disposable domains → **Fail**.
+    *   Edge cases (long TLDs, numeric domains) → **Pass** if valid.
+*   **Verification:** Run `go test ./...` to ensure the new strict rules pass and no regressions occur in unrelated modules.
+
+**4. Verification of False Rejections (Quality Assurance)**
+To ensure no valid users are blocked before the Friday deadline:
+*   **Allowlist Dry-Run:** Deploy the change to a staging environment with logging enabled but enforcement set to "warn-only" for 24 hours. Compare rejected emails against a known allowlist of enterprise/customer domains.
+*   **Shadow Traffic Replay:** If available, replay production signup traffic from the last week through the new validator in a sandbox. Analyze any discrepancies where the old system accepted but the new one rejects.
+*   **Manual Review:** Any rejection flagged during the dry-run involving non-disposable, standard-looking domains will be manually reviewed by engineering to tune the regex if necessary.
+
+**5. Timeline & Approval**
+*   **Wednesday EOD:** Complete refactoring and shared library extraction.
+*   **Thursday Noon:** Update all three microservices and finalize tests.
+*   **Thursday EOD:** Deploy to staging for dry-run verification.
+*   **Friday 10 AM:** Review dry-run logs; finalize tuning.
+*   **Friday 2 PM:** Code freeze and final review.
+*   **Friday 4 PM (Deadline):** Merge and deploy to production.
+
+**Required Human Approval:**
+Please confirm approval to proceed with extracting the shared library and updating the three dependent microservices simultaneously. Additionally, David (Compliance) must verify that the proposed log format (hashed email, anonymized IP) meets privacy requirements before implementation begins.
+
+*Note: This plan assumes the disposable domain list is available or can be embedded without external network calls during runtime. If the list requires fetching, a startup load mechanism must be added.*

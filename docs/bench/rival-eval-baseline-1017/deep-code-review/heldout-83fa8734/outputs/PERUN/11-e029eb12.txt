@@ -1,0 +1,43 @@
+### Critical: Premature Process Termination Prevents Cleanup and Error Propagation
+
+**File:** `internal/cli/cli.go`
+**Lines:** Multiple (e.g., 184, 340, 419, 593, 657, 729, 740, 761, 822, 885, 892, 899, 905, 947, 1043, 1102, 1160, 1182, 1207, 1212, 1227, 1239, 1270, 1281, 1284, 1314, 1345, 1429, 1434, 1444, 1453)
+
+**Why it is wrong:**
+The patch systematically replaces `os.Exit(1)` with `cli.OsExiter(1)` inside functions that return errors, often immediately before a `return err` statement or inside blocks where deferred functions (like `defer file.Close()`) are expected to run.
+
+1.  **Bypasses Defers:** In Go, `os.Exit()` (and likely `cli.OsExiter()` if it wraps `os.Exit` or behaves similarly) terminates the process immediately. It **does not** run deferred statements. If any of these functions have deferred cleanup operations (closing files, removing temporary directories, releasing locks), those operations will never execute, leading to resource leaks or data corruption.
+2.  **Swallows Context:** In many instances (e.g., lines 593, 761, 1444), the code calls the exiter and *then* returns the error. The exit call halts execution, so the `return err` is unreachable. Even if the exiter were mockable for tests, the logical flow intended to propagate the error up the stack to be handled by the caller (which might want to perform its own cleanup or formatting) is broken. The application dies instantly at the point of failure rather than failing gracefully at the top level.
+3.  **Inconsistent Error Handling:** The `app.Run` pattern (lines 338-341) correctly moves the exit logic to the outermost scope after `Run` returns. However, the internal command functions (like `pluginRemoveCommand`, `execCommand`) still contain hardcoded exit calls. This creates a mixed model where some errors propagate and others cause immediate crashes, making the CLI behavior unpredictable and hard to test.
+
+**Fix:**
+Remove all calls to `cli.OsExiter(1)` (and the original `os.Exit(1)`) from within the internal command functions. Allow the functions to simply `return err`. Centralize the exit logic entirely within the `Execute` function or the `app.Run` error handler.
+
+**Example Correction:**
+
+*Current (Broken):*
+```go
+err = hook.RunWithOutput(...)
+if err != nil {
+    cli.OsExiter(1) // Kills process, skips defers, makes next line unreachable
+    return err
+}
+```
+
+*Corrected:*
+```go
+err = hook.RunWithOutput(...)
+if err != nil {
+    return err // Propagate error to caller
+}
+```
+
+*Centralized Handler (in `Execute`):*
+```go
+if err := app.Run(os.Args); err != nil {
+    // Log error if needed
+    cli.OsExiter(1) // Exit only once, at the very end, after all defers in sub-commands have run
+}
+```
+
+By removing the internal exits, you ensure that `defer` statements execute properly, errors bubble up to a single control point for consistent handling, and the application state remains clean upon failure.

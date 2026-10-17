@@ -8,10 +8,12 @@ usage: rival_eval.py run [--skills a,b | --changed [BASE]] [--split heldout|tune
        rival_eval.py check [SKILL ...]      (split hygiene only; offline)
 
 Per skill: Perun arm = the skill's SKILL.md as a system prompt; rival arm = the rival's public text; both answer the same
-scenarios with no tools. A blind pairwise judge with no rubric picks the better answer, in both orders. The default judge
-is DeepSeek-V4-Flash; a scenario counts as a win or loss only when both orders agree, else it is a tie (0.5). A judge whose
-slot-1 rate (share of non-tie picks that chose Response 1) leaves 0.4-0.6 is dropped and GLM-5.2 judges instead; when both are
-biased the skill gets no verdict. The generator is never a judge. Each judge's slot-1 rate is reported as a health metric.
+scenarios with no tools. A blind pairwise judge with no rubric picks the better answer, in both orders. The two answers
+carry random three-letter labels (never "Response 1"/"Response 2") and the judge writes a short comparison before its verdict,
+because models lean toward a literal slot 1 and a verdict-first reply gives no room to reason. The default judge is GLM-5.1;
+a scenario counts as a win or loss only when both orders agree, else it is a tie (0.5). A judge whose slot-1 rate (share of
+non-tie picks that sat in the first position) leaves 0.4-0.6 is dropped and GLM-5.2, then gpt-oss_120b, judges instead; when all
+are biased the skill gets no verdict. The generator is never a judge. Each judge's slot-1 rate is reported as a health metric.
 Output per skill: win rate, bootstrap 95% CI (10,000 resamples, seed 1, over scenarios), PASS only if the lower bound
 is above 0.5, and cost. The default generator and judges are PCSS models (free, $0); `--gen claude` is opt-in, one probe call
 first, aborts when plan-quota utilization is at or above 0.8, and is capped per skill run (--cap) and in total.
@@ -37,8 +39,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FIX = ROOT / "scripts/eval-fixtures/rival"
 PCSS = "https://llm.hpc.psnc.pl/v1"
-GEN_MODEL, JUDGE_MODEL, TIE_MODEL = "Qwen3.5-397B-A17B", "DeepSeek-V4-Flash", "GLM-5.2"  # TIE_MODEL = fallback judge
-JUDGES = (JUDGE_MODEL, TIE_MODEL)  # tried in order; the first with a healthy slot-1 rate scores a skill
+GEN_MODEL, JUDGE_MODEL, TIE_MODEL, LAST_MODEL = "Qwen3.5-397B-A17B", "GLM-5.1", "GLM-5.2", "gpt-oss_120b"  # TIE/LAST = fallback judges
+JUDGES = (JUDGE_MODEL, TIE_MODEL, LAST_MODEL)  # tried in order; the first with a healthy slot-1 rate scores a skill
+NO_THINK = (GEN_MODEL, JUDGE_MODEL, TIE_MODEL)  # run in non-thinking mode: ~15x faster, and the judge reasons in its own "analysis" field
 SLOT1_OK = (0.4, 0.6)  # a judge whose share of "Response 1" picks leaves this band is position-biased and dropped
 CLAUDE_MODEL, QUOTA_STOP = "haiku", 0.8
 MIN_HELDOUT, MIN_TUNE = 10, 5
@@ -47,12 +50,14 @@ GEN_TASK = ("Respond to the request below as the assistant the requester has ask
             "network and no files: do not claim to have checked or run anything, and use only the facts given. Keep "
             "your whole answer under 600 words. Put the deliverable first; add at most two short lines of note after "
             "it, and only if essential. Do not describe which skills, rules or frameworks you are using.\n\nREQUEST:\n")
-JUDGE_SYSTEM = ("You are an impartial judge. Two assistants (Response 1 and Response 2) answered the same request from a "
-                "working professional. You do not know which system wrote which. Decide which response you would rather "
-                "receive if you were the requester: the one that would best help you make the right call or do the work "
-                "with the fewest follow-up questions, given the situation described. Do not prefer a response for length, "
-                "formatting or tone. No checklist is provided; use your own judgement.\n\n"
-                'Output only JSON: {"verdict": "1" or "2" or "tie", "reason": "<one sentence>"}')
+JUDGE_SYSTEM = ("You are an impartial judge. Two assistants (Response {a} and Response {b}) answered the same request from a "
+                "working professional. You do not know which system wrote which, and the order they appear in carries no "
+                "information. Decide which response you would rather receive if you were the requester: the one that would "
+                "best help you make the right call or do the work with the fewest follow-up questions, given the situation "
+                "described. Do not prefer a response for length, formatting, tone or position. No checklist is provided; use "
+                "your own judgement.\n\nFirst compare what each response gets right and wrong for the requester in "
+                '"analysis" (two or three sentences), then decide. Output only JSON: '
+                '{{"analysis": "<comparison>", "verdict": "{a}" or "{b}" or "tie"}}')
 
 
 class Stop(Exception):
@@ -91,7 +96,7 @@ def chat(model, system, user, max_tokens=6000, temperature=0.0, tries=3):
     """One PCSS chat completion -> text with any <think> block removed. Raises RuntimeError after `tries` failures."""
     req_body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
                 "max_tokens": max_tokens, "temperature": temperature}
-    if model in (GEN_MODEL, TIE_MODEL):  # non-thinking mode: ~15x faster; the fallback judge answers a rubric-free A/B directly
+    if model in NO_THINK:
         req_body["chat_template_kwargs"] = {"enable_thinking": False}
     body = json.dumps(req_body).encode()
     err = ""
@@ -284,20 +289,40 @@ def save(p, text):
     p.write_text("\n".join(x.rstrip() for x in text.splitlines()) + "\n")
 
 
+def labels(sc, a, b):
+    """Two distinct neutral 3-letter tokens for this pair, seeded by scenario and both answers so a cached verdict stays valid.
+    Models lean to the literal slot name "Response 1"; an arbitrary token carries no ordinal."""
+    r, al = random.Random(sha(sc["id"] + a + b)), "BCDFGHJKLMNPQRSTVWXZ"
+    x = "".join(r.choice(al) for _ in range(3))
+    y = x
+    while y == x:
+        y = "".join(r.choice(al) for _ in range(3))
+    return x, y
+
+
+def parse_verdict(txt, x, y):
+    """The last "verdict" value in the judge text, mapped from its labels back to slots: "1", "2", "tie" or None (unusable)."""
+    m = re.findall(r'"verdict"\s*:\s*"([^"]*)"', txt)
+    v = m[-1].strip().split()[-1] if m and m[-1].strip() else ""
+    return {x: "1", y: "2", "tie": "tie"}.get(v)
+
+
 def judge_one(model, sc, a_arm, b_arm, d, outs):
     """Cached judge call -> raw verdict ("1", "2", "tie") for this order, or None when the model gave no usable verdict."""
     a, b = outs[a_arm][sc["id"]], outs[b_arm][sc["id"]]
-    user = f"REQUEST:\n{sc['prompt']}\n\n=== Response 1 ===\n{a}\n\n=== Response 2 ===\n{b}\n"
-    p = d / "judge" / model / f"{a_arm}__{b_arm}" / f"{sc['id']}-{sha(model + JUDGE_SYSTEM + user)[:8]}.json"  # key: judge, rubric, scenario, both answers
+    x, y = labels(sc, a, b)
+    system = JUDGE_SYSTEM.format(a=x, b=y)
+    user = f"REQUEST:\n{sc['prompt']}\n\n=== Response {x} ===\n{a}\n\n=== Response {y} ===\n{b}\n"
+    p = d / "judge" / model / f"{a_arm}__{b_arm}" / f"{sc['id']}-{sha(model + system + user)[:8]}.json"  # key: judge, rubric, scenario, both answers
     if not p.exists():
         for _ in range(2):
             try:
-                j = jparse(chat(model, JUDGE_SYSTEM, user, max_tokens=3000))
+                v = parse_verdict(chat(model, system, user, max_tokens=3000), x, y)
             except RuntimeError:
                 continue
-            if isinstance(j, dict) and j.get("verdict") in ("1", "2", "tie"):
+            if v:
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(json.dumps({"verdict": j["verdict"], "reason": str(j.get("reason", ""))}, indent=1) + "\n")
+                p.write_text(json.dumps({"verdict": v}, indent=1) + "\n")
                 break
         else:
             return None

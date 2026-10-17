@@ -1,0 +1,45 @@
+# ZenFlow Beta Tracking Plan (Priority: Pre-Launch)
+
+**Goal:** Validate retention drivers and trial-to-paid conversion without data noise.
+**Implementation Deadline:** March 15
+**Principle:** Track only actions that inform a specific decision. Do not track every screen view; it creates storage costs and analysis paralysis.
+
+## Tier 1: Critical Events (Must Have for Launch)
+*These events are non-negotiable. Without them, you cannot calculate retention, funnel drop-off, or revenue.*
+
+| Event Name | Trigger | Key Properties | Decision It Informs |
+| :--- | :--- | :--- | : |
+| `app_installed` | First open after download | `install_source`, `device_type` | Validates install attribution vs. waitlist. |
+| `onboarding_completed` | Final step of signup flow | `duration_seconds`, `skipped_steps` | Identifies friction in the critical first minute. |
+| `paywall_viewed` | User lands on subscription screen | `context` (e.g., "post-session", "manual"), `trial_offer_id` | Measures paywall visibility and placement effectiveness. |
+| `trial_started` | Successful subscription init | `plan_type`, `trial_duration_days` | Baseline for trial conversion rate. |
+| `content_started` | Audio begins playing | `content_id`, `content_type` (meditation/sleep), `duration_total` | Engagement baseline. |
+| `content_completed` | Audio finishes naturally | `content_id`, `percent_listened` (should be 100) | **Core Retention Metric.** Did they get value? |
+| `subscription_converted` | Trial expires & payment succeeds | `plan_type`, `revenue`, `days_in_trial` | Primary business success metric. |
+| `subscription_cancelled` | User cancels trial/sub | `cancel_reason` (if collected), `days_remaining` | Churn analysis. |
+
+## Tier 2: High-Value Context (Implement if Time Permits)
+*These events explain **why** Tier 1 metrics are moving. Add these only if Tier 1 is stable.*
+
+| Event Name | Trigger | Key Properties | Decision It Informs |
+| :--- | :--- | :--- | :--- |
+| `session_paused` | User pauses audio | `content_id`, `timestamp_offset` | Detects confusion or interruption patterns. |
+| `settings_changed` | User modifies app config | `setting_name`, `new_value` | Identifies feature adoption (e.g., background play). |
+| `search_performed` | User uses search bar | `query_text`, `result_count` | Content gap analysis (what are they looking for?). |
+| `notification_clicked` | User taps push notification | `campaign_id`, `deep_link_destination` | Push notification efficacy. |
+
+## Explicitly Excluded (Do Not Track Yet)
+*Save engineering time. These create noise without immediate actionable insight for 5k users.*
+*   **Every Screen View:** Instead, rely on `content_started` and `paywall_viewed`. If you need funnel data later, add specific drop-off points, not generic views.
+*   **Button Hovers / Taps without Result:** Only track if the tap fails or leads to an error.
+*   **Volume Changes / Backgrounding:** Unless specifically testing audio engine stability, ignore these for now.
+*   **Scroll Depth:** Irrelevant for an audio-first app.
+
+## Implementation Notes for Engineering
+1.  **Naming Convention:** Use `snake_case` (e.g., `content_completed`).
+2.  **User Identity:** Ensure `user_id` is attached to every event immediately upon `app_installed` to enable cross-device stitching later.
+3.  **Timestamps:** All events must use UTC server time, not device local time, to prevent timezone skew in retention cohorts.
+4.  **PII Warning:** Do **not** send email addresses, names, or exact location data in event properties. Use internal IDs only.
+
+## Why This Approach?
+With 5,000 downloads, your statistical power is low. Tracking "pauses" or "settings" will dilute your dataset with millions of rows that won't yield significant patterns yet. Focus entirely on the **Activation Loop**: Install → Onboard → First Content Complete → Paywall → Trial Start. If users aren't completing content, no amount of setting changes will save retention. Optimize the core loop first; add granularity once you have 50k+ users.

@@ -1,0 +1,65 @@
+**Delivery Plan: Queue Worker Race Condition Fix**
+
+**G0/G1: Scope & Spec**
+*   **Goal:** Eliminate duplicate job processing in `src/queue_worker.py` under heavy load without degrading throughput >10%.
+*   **Non-Goals:** Refactoring unrelated worker logic; changing queue infrastructure.
+*   **Acceptance Criteria:**
+    1.  New concurrent test in `tests/test_worker.py` reliably reproduces duplicate processing (fails on current code).
+    2.  Fix ensures exactly-once processing semantics for job IDs.
+    3.  Performance benchmark confirms latency increase ≤10% vs. baseline.
+    4.  Zero customer complaints regarding Saturday backlogs post-deploy.
+
+**G2: Plan & Work Graph**
+*   **Lane 1: Concurrency Test Harness (QA Hat)**
+    *   Create `tests/test_worker_concurrency.py`.
+    *   Implement a multi-threaded/multi-process test spawning N workers (matching production concurrency) against a shared mock queue.
+    *   Inject controlled delays to maximize collision probability on job claiming.
+    *   Assert: No job ID is processed more than once; all jobs are processed exactly once.
+*   **Lane 2: Synchronization Fix (Builder Hat)**
+    *   Analyze `src/queue_worker.py` claim mechanism.
+    *   Implement atomic claiming strategy (e.g., database-level `UPDATE ... WHERE status='pending' RETURNING id`, Redis `SETNX`, or distributed lock) to replace non-atomic "read-then-write" logic.
+    *   Ensure locks/timeouts prevent deadlocks if a worker crashes mid-job.
+*   **Lane 3: Performance Guardrail (QA Hat)**
+    *   Extend test harness to measure average job completion time.
+    *   Compare fix vs. baseline; fail if degradation >10%.
+
+**G3: Design Decisions**
+*   **ADR:** Atomic Claim Pattern. We will move job claiming to a single atomic operation supported by the backing store (DB/Redis) rather than application-level locking, minimizing contention overhead.
+*   **Safety:** Implement lease timeouts to handle worker crashes, ensuring stuck jobs are reclaimed without duplicates.
+
+**G4: Implementation Steps**
+1.  **Draft Concurrent Test:** Write `test_worker_concurrency.py` using `concurrent.futures` to simulate 10+ workers processing 200 jobs. Verify it fails on `main` (reproduces the race).
+2.  **Implement Fix:** Modify `claim_job()` in `src/queue_worker.py` to use an atomic transaction or distributed lock primitive.
+3.  **Verify Fix:** Run concurrent test; ensure it passes consistently (100+ runs).
+4.  **Benchmark:** Run performance comparison; tune lock granularity if overhead exceeds 10%.
+
+**G5: Verification Strategy**
+*   **Local:** Run `pytest tests/test_worker_concurrency.py --count=50` (requires `pytest-repeat`). Must be 100% green.
+*   **Staging:** Deploy to a staging environment with mirrored production traffic patterns (or synthetic load generator) for 24 hours. Monitor for duplicate logs.
+*   **Metrics:** Verify `job_duration_p95` remains within 110% of baseline.
+
+**G6: Review & Approval**
+*   **Code Review:** Focus on atomicity guarantees and error handling (lock release on exception).
+*   **Security/Privacy:** Ensure no PII is exposed in lock keys or error logs.
+*   **Approval:** Elena (SRE) must approve the staging results and rollback plan before Wednesday EOD.
+
+**G7/G8: Integration & Release**
+*   **Merge:** Land behind a feature flag if possible, or direct to main with immediate deploy.
+*   **Deploy:** Schedule deployment Thursday morning (before weekend peak).
+*   **Rollback:** Automated rollback if error rate spikes or duplicate logs reappear.
+
+**G9: Production Verify**
+*   **Monitor:** Watch Saturday morning queue depth and duplicate log counts.
+*   **Success:** Backlog remains zero; no duplicate processing errors.
+
+**G10: Learn**
+*   **Retro:** Document the specific race condition pattern and the atomic solution in the team wiki to prevent recurrence in other consumers.
+
+**Timeline:**
+*   **Tue EOD:** Lanes 1 & 2 complete, local verification passed.
+*   **Wed AM:** Code review, performance check, merge.
+*   **Wed PM:** Deploy to staging, Elena approval.
+*   **Thu AM:** Deploy to production.
+
+Note: This plan assumes access to the underlying queue's atomic primitives (DB/Redis). If the queue is purely in-memory without shared state, the architecture may require a central coordinator.
+Urgency requires the concurrent test to be written first to prove the bug exists before fixing.

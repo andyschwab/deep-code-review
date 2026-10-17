@@ -1,0 +1,29 @@
+### 1. Critical: Command Injection via Unvalidated Arguments
+**File:** `lib/arguments/options.js`
+**Line:** 18 (`joinCommand`) and 22 (`crossSpawn._parse`)
+**Why it is wrong:** The code accepts `rawArgs` and passes them directly to `joinCommand` and subsequently `crossSpawn._parse` without any validation or sanitization. If `rawArgs` originates from user input (which is typical for argument parsers), an attacker can inject arbitrary shell commands or flags. Specifically, if `joinCommand` simply concatenates arguments into a string for `escapedCommand` (line 19) but `crossSpawn._parse` treats them as a list, there is a risk of argument injection if the resulting `file` or `args` are later executed in a shell context (e.g., if `options.shell` is truthy). More critically, line 22 uses `crossSpawn._parse`, an internal API. Relying on internal APIs is fragile; if the internal implementation changes to auto-escape or handle arguments differently, this code breaks or behaves unexpectedly.
+**Fix:** Explicitly validate `rawArgs` to ensure they are strings and do not contain null bytes or unexpected shell operators if shell execution is intended. Use the public `crossSpawn` API instead of `._parse` unless strictly necessary, and ensure `shell` option is explicitly `false` unless shell features are required.
+
+### 2. High: Hardcoded Resource Limit (DoS Risk)
+**File:** `lib/arguments/options.js`
+**Line:** 64 (`DEFAULT_MAX_BUFFER`)
+**Why it is wrong:** The default `maxBuffer` is hardcoded to 100MB (`1000 * 1000 * 100`). While large buffers prevent truncation, allowing a single process to consume 100MB of memory by default creates a Denial of Service (DoS) vector. An attacker triggering many concurrent commands could exhaust system memory. There is no upper bound check or configuration to lower this limit globally.
+**Fix:** Reduce the default to a safer value (e.g., 1MB or 10MB) and provide a clear mechanism for users to increase it per-command if genuinely needed. Add validation in `addDefaultOptions` to reject negative or unreasonably large values.
+
+### 3. High: Insecure Default for `forceKillAfterDelay`
+**File:** `lib/arguments/options.js`
+**Line:** 53 (`forceKillAfterDelay = true`)
+**Why it is wrong:** Defaulting `forceKillAfterDelay` to `true` means that if a process does not exit gracefully after a timeout, it will be forcibly killed (`SIGKILL`) automatically. While convenient, this can lead to data corruption or orphaned child processes if the spawned command was in the middle of a critical transaction or cleanup routine. The calling code has no opportunity to intercept the timeout and perform custom cleanup before the force kill occurs.
+**Fix:** Default `forceKillAfterDelay` to `false` or a specific numeric delay (e.g., 5000ms) rather than a boolean `true`, forcing the caller to explicitly opt-in to forceful termination and define the grace period.
+
+### 4. Medium: Path Traversal / Arbitrary File Access
+**File:** `lib/arguments/options.js`
+**Line:** 15 (`safeNormalizeFileUrl`) and 17 (`normalizeCwd`)
+**Why it is wrong:** The code normalizes `rawFile` and `cwd` but does not verify that the resolved `filePath` remains within an allowed directory boundary. If `rawFile` is `../../etc/passwd` and `cwd` is user-controllable, the process could execute or access files outside the intended project root. `safeNormalizeFileUrl` likely handles URL syntax but may not enforce sandboxing.
+**Fix:** After normalization, resolve the absolute path and verify it starts with the expected root directory. Throw an error if the resolved path escapes the allowed sandbox.
+
+### 5. Medium: Leakage of Sensitive Environment Variables
+**File:** `lib/arguments/options.js`
+**Line:** 76 (`extendEnv ? {...process.env, ...envOption} : envOption`)
+**Why it is wrong:** When `extendEnv` is true (default), the entire parent `process.env` is inherited. If the parent environment contains secrets (AWS keys, database passwords) and the spawned command is compromised or logs its environment, these secrets are exposed. There is no filtering mechanism for sensitive keys.
+**Fix:** Implement an allowlist for environment variables or provide a `stripEnv` option to explicitly remove known sensitive keys (e.g., `AWS_SECRET_ACCESS_KEY`) before merging.
