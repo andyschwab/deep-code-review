@@ -1,0 +1,58 @@
+### Delivery Plan: Burst-Aware Rate Limiting (Public API v2)
+
+**Strategy:** Isolate logic to prevent cache collisions; verify via simulation (staging cannot reproduce bursts); enforce dual-approval and manual SRE sanity check before merge. No full CI runs until local verification is complete.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Config Definition) – Product Analyst + Conductor**
+    *   **Task:** Define exact "Tier-One" account flags, maintenance window schema, and the 300% capacity math. Draft the `global-throttle.rules` syntax update including the cache-busting flag requirement.
+    *   **Output:** `spec-burst-limiting.md` and a draft config snippet.
+    *   **Dependency:** None.
+*   **Lane B (Implementation) – Builder**
+    *   **Task:** Implement the dynamic rate limiter logic in `nexus-gateway`. Ensure it reads the new config and applies the 300% multiplier only when flags match. Implement separate logging streams for "rejected-burst" vs "rejected-malicious".
+    *   **Constraint:** Must use a dedicated worktree. Must not trigger full CI yet.
+    *   **Dependency:** Waits for Lane A's spec draft (G1).
+*   **Lane C (Verification Simulation) – QA**
+    *   **Task:** Since staging lacks the burst balancer, write a unit/integration harness that mocks the burst-load signal against the new logic. Verify the 300% cap triggers correctly and logs are distinct.
+    *   **Dependency:** Waits for Lane B's code commit (exact SHA).
+*   **Lane D (Security & Risk Review) – Security**
+    *   **Task:** Review logic for bypass risks (can non-Tier-One spoof a burst?). Verify rollback procedure (DB snapshot restore) is documented and tested in a sandbox.
+    *   **Dependency:** Parallel to Lane C, post-Lane B.
+
+**Serialization:** Lane A → Lane B → (Lane C || Lane D).
+**Collision Control:** `global-throttle.rules` is shared; Lane B must claim this file exclusively. No other changes to this file permitted during the lane.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Conductor approves `spec-burst-limiting.md`. Pin base SHA.
+*   **G4 (Build & Local Test):** Builder runs local lint/type checks. **No full CI ($45/55m)** yet. Verify cache-busting flag logic locally.
+*   **G5 (Verification):** QA runs the mock harness on Lane B's exact SHA.
+    *   *Pass Criteria:* 300% limit applied only to Tier-One + Window; distinct log entries generated; baseline limits unchanged for others.
+    *   *Note:* Staging load test is skipped as unreliable; mock harness is the gate.
+*   **G6 (Independent Review):**
+    *   **Code:** Senior Platform Engineer (not the Builder).
+    *   **Security:** AppSec Specialist (independent of Builder/QA).
+    *   **Scope:** Full diff against pinned base SHA.
+*   **G7 (Integration):** Merge to integration branch. Trigger **one** full CI run here only. Verify cache-busting flag works in a dry-run deployment config.
+
+#### 3. Review & Independence
+*   **Builder** cannot review their own code or the security implications.
+*   **QA** verification must be independent of the Builder's local test results.
+*   **Security** review is mandatory and blocks merge if any bypass vector is found.
+
+#### 4. Landing & Human Gates
+*   **Merge Train:** Once G7 CI passes, the Conductor prepares the merge request.
+*   **Human Approvals Required (G8):**
+    1.  **Platform Team Lead:** Approval on code logic.
+    2.  **Billing Team Lead:** Approval on Tier-One accounting impact.
+    3.  **Site Reliability Lead:** Manual sanity check of the deployment plan and cache-busting procedure.
+*   **Deployment:**
+    *   Deploy behind a feature flag (disabled).
+    *   Enable flag for one Tier-One account only (Canary).
+    *   Monitor logs for distinct rejection types.
+    *   Roll out to all Tier-One accounts.
+*   **Rollback:**
+    *   **Trigger:** Any critical sync failure or logging error.
+    *   **Action:** Immediate feature flag disable. If logic corruption occurs, execute **DB snapshot restore** (2-hour downtime). This is irreversible; use only if flag toggle fails.
+*   **Post-Deploy (G9):** Verify logs distinguish attacks from config errors. Confirm no session disruptions for non-Tier-One users.
+
+**Cost Control:** Zero full CI runs until G7. All earlier validation is local or mocked.
+**Risk Mitigation:** Separate logging ensures support can triage immediately without guessing.

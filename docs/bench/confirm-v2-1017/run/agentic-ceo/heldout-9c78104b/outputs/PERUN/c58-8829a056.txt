@@ -1,0 +1,33 @@
+**Decision:** Halt the "big bang" 20-day full infrastructure rewrite immediately; it carries an unacceptably high probability of system failure given the irreversible schema risk and lack of rollback. The only viable path to guarantee stability is a **phased deployment with a read-only fallback**, decoupling the schema migration from the load-handling upgrades.
+
+**Figures:** 10,000 daily visitors over a 12-hour peak window equals ~833 requests/hour or ~14 requests/minute average. Even at 10x peak concentration, demand is ~140 requests/minute. Your current capacity is 200 requests/minute. **The stated need to replace the entire backend to handle 10,000 daily visitors is factually incorrect based on the provided math; the current system theoretically handles the load if optimized, not replaced.** The risk is not volume, it is the schema change.
+
+**Corrected Plan & Assignments:**
+
+1.  **First Action Item (Day 1):** Initiate a **database shadowing pilot**. Do not touch the production schema yet. Spin up a parallel database instance with the new zoning schema. Write a dual-write adapter that sends live traffic to the old schema (source of truth) and mirrors writes to the new schema for validation. This validates data integrity without risking corruption.
+    *   **Owner:** Lead Database Engineer.
+
+2.  **Load Testing Protocol:**
+    *   **Initiator:** Senior Performance Engineer.
+    *   **Scope:** Test the *current* system under 500 requests/minute (2.5x stated peak) to identify bottlenecks unrelated to the schema. Then, test the *new* infrastructure in the staging environment using the shadowed data.
+    *   **Goal:** Prove the current system can survive the surge with minor tuning, removing the pressure to rush the risky schema change.
+
+3.  **Contingency Plans Requiring Director Approval:**
+    *   **The "Circuit Breaker" Clause:** If error rates on the new schema shadow exceed 0.1% during the pilot, the migration halts automatically. The booking window opens using the *existing* infrastructure with rate-limiting applied, deferring the new zoning rules to a post-spring-break update.
+    *   **Manual Override Protocol:** A pre-approved script to instantly disable the new zoning logic and revert all routing to the legacy schema without downtime, should data divergence be detected.
+    *   **Traffic Shedding Agreement:** Authorization to temporarily deny 5% of incoming requests with a polite "try again" message if latency spikes above 2 seconds, preserving system stability over 100% availability.
+
+**Failure Modes & Triggers:**
+*   **Data Divergence:** If shadow DB records do not match production byte-for-byte within 5 seconds, the migration is aborted.
+*   **Latency Spike:** If p95 latency exceeds 1.5s during load tests, the full rewrite is scrapped in favor of caching layers on the existing DB.
+
+**Sign-offs Required:**
+*   **Director:** Approve the "Circuit Breaker" clause and the authority to defer zoning rules if the pilot fails.
+*   **Lead Architect:** Sign off on the dual-write adapter design before code is written.
+*   **QA Lead:** Certify the data reconciliation reports from the shadow pilot.
+
+**Halt Trigger:** If the shadow pilot reveals any data corruption or loss after 48 hours of mirrored traffic, stop all migration work immediately.
+**Fallback Trigger:** If the load test on the *current* system shows crashes at >300 requests/minute, implement aggressive caching and queueing immediately rather than attempting a schema change.
+
+**Note:** The math indicates your capacity is sufficient for the projected volume; the panic is driven by the schema risk, not the load.
+**Note:** Do not allow the team to start coding the new schema until the shadowing strategy is approved.

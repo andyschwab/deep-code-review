@@ -1,0 +1,40 @@
+**Delivery Plan: Refund Policy Wording Update**
+
+**Risk Assessment & Constraints**
+This is a **high-risk, low-complexity** change. While the diff is trivial (one sentence), the deployment is **irreversible** for static assets and bypasses staging due to instability. The "docs-only" CI skip is dangerous here because it bypasses the build verification for a user-facing legal claim. The Site Reliability Lead (SRL) being offline until 16:00 UTC creates a hard **Human Gate** at G8 (Release). We cannot meet the "end of day" live requirement if "end of day" precedes 16:00 UTC.
+
+**Lanes & Serialization**
+*   **Lane 1: Implementation (Builder)**
+    *   **Work:** Edit `/apps/checkout/src/locales/en.json`. Change "5-7 business days" to "3-5 business days".
+    *   **Constraint:** Do **not** use the `docs:` commit prefix. We must force the build/lint gates to run to ensure the JSON is valid and the app builds, even if we skip the 45-minute integration suite.
+    *   **Verification:** Local server start. Navigate to checkout confirmation. Visually verify the text. Take a screenshot (evidence).
+    *   **Output:** Commit with message `fix(checkout): update refund policy timeline to 3-5 days`.
+
+*   **Lane 2: Independent Verification (QA)**
+    *   **Trigger:** Runs only after Lane 1 commits and pushes.
+    *   **Work:** Pull the exact commit SHA. Run the local build. Do not rely on the Builder's screenshot; perform an independent local verification of the string in the running local instance.
+    *   **Constraint:** Since staging is unstable, this lane **must** confirm the change renders correctly locally. No "trust the diff" allowed.
+
+**Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Confirmed by ticket. Scope is strictly the English locale file.
+*   **G2 (Plan):** Approved. Skipping integration tests is accepted *only* if the commit message does not trigger the skip logic erroneously (i.e., do not label it `docs:` if that skips *build* checks, only if it skips *integration* checks. If `docs:` skips *all* CI, we must not use it). *Correction based on facts:* The prompt says `docs:` skips the 45-min suite. We **will** use `docs:` to save cost/time, but we must ensure the *build* and *lint* steps still run. If `docs:` skips *everything*, we must not use it. Assuming standard CI where `docs:` skips heavy E2E but keeps lint/build: Use `docs: fix refund wording`.
+*   **G4 (Implement):** Builder commits to a feature branch.
+*   **G5 (Verify):** Builder and QA both confirm local green. **Hard Condition:** The app must start locally. If the local build fails, the lane is red.
+*   **G6 (Review):** A senior engineer (not the Builder) reviews the PR. Focus: Is it exactly the requested text? Are there no accidental whitespace changes?
+*   **G7 (Integrate):** Merge to main is prepared but **held**.
+*   **G8 (Release - HUMAN GATE):** **BLOCKED** until 16:00 UTC. The SRL must manually approve the production deploy. This is non-negotiable. The auto-deployer pushes immediately upon approval; there is no staging safety net.
+
+**Landing Strategy**
+1.  **Builder** opens PR immediately.
+2.  **QA** verifies locally and approves.
+3.  **Reviewer** approves code.
+4.  **Conductor** marks the PR as "Ready to Merge, Pending Human Gate."
+5.  **Merge:** Do **not** merge to `main` until 16:00 UTC when the SRL is available. Merging earlier triggers the auto-deployer, pushing an unapproved legal change to production.
+6.  **Deployment:** At 16:00 UTC, notify SRL. Upon SRL approval in the deployment tool, merge the PR.
+7.  **Rollback:** Since assets are immutable and irreversible once cached/pushed, rollback requires an immediate hotfix commit reverting the text and a forced cache invalidation. Prepare the revert PR now, but do not open it unless the deploy fails or legal recalls the change.
+
+**Summary of Decisions**
+*   **Parallelism:** Builder and QA work sequentially on the same commit (QA waits for Builder's push).
+*   **CI Strategy:** Use `docs:` prefix to skip the 45-min suite, assuming build/lint remain active. If `docs:` skips build, omit prefix and accept the cost.
+*   **Critical Block:** The merge is physically delayed until the SRL returns. "End of day" live deployment is impossible if the deadline is before 16:00 UTC.
+*   **Verification:** Local-only due to staging instability. Double-verification (Builder + QA) is mandatory to compensate for lack of staging.

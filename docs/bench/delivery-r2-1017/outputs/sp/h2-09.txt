@@ -1,0 +1,60 @@
+# Delivery Plan: ApexPay to NexusStream Webhook Migration
+
+## Lanes and Parallelism
+
+**Lane A (Configuration & Routing):** Update `gateway-routes.json` to register the new NexusStream endpoint while preserving the legacy listener. This lane handles the dual-listener state required for the six-hour retry window.
+**Lane B (Idempotency Logic):** Implement deduplication logic to prevent double-processing of the 400 stranded transactions. This must verify transaction IDs against the ledger before acceptance.
+**Lane C (Observability):** Add specific logging tags to distinguish "Legacy-Retry" traffic from "Nexus-Fresh" traffic for finance reconciliation.
+
+*Parallel Execution:* Lanes A, B, and C can proceed in parallel on feature branches.
+*Serialization:* Lane B must merge before Lane A activates the new route in production to ensure deduplication is live before fresh traffic arrives. Lane C must merge with Lane A to ensure logs are coherent upon activation.
+
+## Gates and Checks
+
+**Gate 1: Pre-Merge Validation**
+*   **Revision:** Latest `main` + Feature Branches.
+*   **Check:** Static analysis of `gateway-routes.json` to confirm the legacy listener path is untouched and only the new route is appended.
+*   **Constraint:** Verify no changes affect the refund service paths within the shared config.
+
+**Gate 2: Pipeline Execution**
+*   **Trigger:** Merge to staging branch.
+*   **Duration:** 22 minutes.
+*   **Flake Handling:** If the database migration step fails, inspect logs. If the error matches the known 15% false-positive pattern, manually re-trigger immediately. Do not alter code.
+*   **Cost Control:** Only one pipeline run permitted per code push. Code review must be signed off before triggering to avoid the $45 cost and 1-hour lockout on failure.
+
+**Gate 3: Security & Audit Approval**
+*   **Timing:** Post-staging verification, pre-production.
+*   **Requirement:** Explicit written approval from the Chief Security Officer and Lead Auditor via the internal ticketing system.
+*   **Evidence:** Provide staging logs showing successful dual-listener operation and deduplication tests.
+
+## Review Process
+
+**Primary Reviewer:** Senior Ledger Team Engineer (independent of the implementer).
+**Focus:**
+1.  Confirm `gateway-routes.json` changes do not break the refund service.
+2.  Verify deduplication logic covers the specific ID format of the 400 stranded transactions.
+3.  Ensure the legacy listener remains active and bound to the correct port.
+
+**Secondary Reviewer (Security):** CSO Delegate.
+**Focus:** Verification that the new NexusStream endpoint uses the correct TLS certificates and authentication headers.
+
+*Independence:* The Primary Reviewer cannot be the author of Lane A or B. The Security Reviewer must validate the config independently of the functional review.
+
+## Landing and Rollback
+
+**Activation Strategy:**
+1.  Deploy to Production upon receipt of both CSO and Auditor approvals.
+2.  Monitor "Legacy-Retry" vs. "Nexus-Fresh" log tags.
+3.  **Hard Constraint:** Do NOT deactivate the legacy listener. It must remain active until the requester confirms the retry queue is empty (approx. 6 hours).
+
+**Human Decision Points:**
+*   **Go/No-Go:** The Lead Auditor must explicitly sign off in the ticket before the production toggle.
+*   **Legacy Sunset:** The requester (Finance) must confirm the retry queue is empty before the legacy listener is removed in a subsequent patch.
+
+**Rollback Protocol:**
+*   **Trigger:** Any failure in fresh transaction processing or deduplication errors.
+*   **Action:** Immediate full rollback to the previous daily snapshot. The switch is irreversible via config change alone.
+*   **Constraint:** Rollback restores the state prior to Lane A's merge, re-enabling the old gateway exclusively. Finance reconciliation will be delayed until the next stable window.
+
+**Post-Landing:**
+Once the retry queue is confirmed empty, a follow-up ticket will be issued to remove the legacy listener code and clean up `gateway-routes.json`. This plan covers only the migration and coexistence period.

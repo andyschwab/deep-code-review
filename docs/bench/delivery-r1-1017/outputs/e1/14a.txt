@@ -1,0 +1,58 @@
+**Delivery Plan: 90-Day Archive & Purge Cycle**
+
+**Scope & Constraints**
+*   **Goal:** Automate move (90d) and delete (365d) of patient logs; daily audit report; zero downtime; silent expected deletions.
+*   **Critical Constraints:** Dual human approval (Lead Eng + Compliance) for prod deploy; CI cost ($12/45m) requires minimal commits; `global-rules.json` locked 08:00–18:00; irreversible deletion logic.
+*   **Base SHA:** To be pinned at G1 (Spec) after initial branch creation.
+
+**Work Lanes**
+
+1.  **Lane A: Logic Implementation (Builder)**
+    *   **Work:** Implement archive query (90d), transfer logic to cold bucket, purge query (365d), and atomic transaction wrappers for partial failure handling. Suppress alerts for expected deletions.
+    *   **Parallelism:** Can run parallel to Lane B.
+    *   **Serialization:** Must complete before Lane C (Integration).
+    *   **Output:** Patch set with unit tests for date logic and failure recovery.
+
+2.  **Lane B: Configuration & Reporting (Builder)**
+    *   **Work:** Create cron/scheduler entry for 03:00 execution. Implement daily summary report generator (moved vs. purged counts). Update `global-rules.json` (scheduled outside 08:00–18:00 window).
+    *   **Parallelism:** Can run parallel to Lane A.
+    *   **Serialization:** Config change must be merged with Lane A code in G7.
+    *   **Output:** Config diff, report schema, scheduler manifest.
+
+3.  **Lane C: Independent Verification (QA)**
+    *   **Work:** Spin up isolated DB snapshot. Verify 90d/365d boundary conditions. Simulate network failure mid-transfer to assert no data loss. Validate report accuracy.
+    *   **Dependency:** Runs on the exact merged SHA of Lanes A+B.
+    *   **Check Strategy:** Run full CI suite *once* on the candidate SHA. Ignore network latency flake if logs confirm connectivity.
+
+4.  **Lane D: Security & Compliance Review (Security)**
+    *   **Work:** Verify "no recovery" deletion mechanism is irreversible. Audit that PII is handled correctly in transit to cold storage. Confirm alert suppression scope is narrow.
+    *   **Dependency:** Reviews exact SHA + QA receipts.
+
+**Gates & Checks**
+
+*   **G0/G1 (Intake/Spec):** Define acceptance criteria: "Report received by 04:00 daily," "Zero data loss on simulated crash." Pin base SHA.
+*   **G2 (Plan):** Set token/cost budget for Lane C (CI run). Confirm `global-rules.json` edit window.
+*   **G3 (Design):** ADR confirming atomic transfer pattern and audit log format.
+*   **G4 (Implement):** Lanes A & B commit to feature branch. Tests included.
+*   **G5 (Verify):** Lane C executes. **Condition:** Local stack up, CI green (ignoring known flake with evidence), report generated successfully in test env.
+*   **G6 (Review):** Lane D (Security) and Lead Engineer (Code) review independently of Builder. Compliance Officer reviews logic for regulatory adherence.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected CI gates on final merge SHA.
+
+**Landing & Human Gates**
+
+*   **Merge Strategy:** Merge train to `main` (or release branch) only after G7 success.
+*   **Human Approval (G8):**
+    *   **Action:** Deploy to Production.
+    *   **Approvers:** Lead Engineer AND Compliance Officer (Dual approval via portal).
+    *   **Timing:** Deployment script prepared; execution waits for explicit portal authorization.
+*   **Rollback Plan:**
+    *   **Trigger:** Data mismatch in first daily report or failed archive transfer.
+    *   **Action:** Disable 03:00 scheduler immediately. Restore from cold bucket backup (if available pre-purge) or replay logs from source.
+    *   **Constraint:** Deletion script is irreversible; rollback prevents *future* loss, does not recover purged data.
+
+**Risk Mitigation**
+*   **CI Cost:** Squash commits in Lanes A/B to ensure only one costly CI run on the candidate SHA.
+*   **Config Lock:** Lane B's commit to `global-rules.json` is timed or staged to avoid 08:00–18:00 lockout.
+*   **Data Safety:** "Delete" logic is deployed behind a feature flag initially; enabled only after first successful archive-only run.
+
+**Next Step:** Awaiting owner confirmation on the 03:00 timezone specification and cold bucket access credentials to finalize G1 Spec.

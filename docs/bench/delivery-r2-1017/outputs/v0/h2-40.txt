@@ -1,0 +1,48 @@
+### Delivery Plan: Payment Gateway Timeout Hotfix
+
+**Strategy:** Isolate the fix on a release branch cut from the stable tag. Do not touch `main` or the platform overhaul.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Conductor/Prep):** Identify the exact SHA of "last week's stable tag" and the specific commit hash for the "connection pool adjustment" validated in staging.
+    *   *Constraint:* Must complete before Lane B starts.
+*   **Lane B (Builder):** Create a new branch `hotfix/payment-timeout-v1` from the stable tag SHA. Cherry-pick *only* the pool adjustment commit. Verify the diff contains no schema changes or unrelated features.
+    *   *Constraint:* Must complete before Lane C.
+*   **Lane C (QA/Verification):** Run the regression suite against the `hotfix/payment-timeout-v1` SHA.
+    *   *Parallelism:* None. The pipeline is expensive; do not run until the commit is finalized.
+    *   *Specific Action:* Monitor the "third-party latency" check. If it fails, flag for manual override by the on-call lead (do not auto-retry).
+*   **Lane D (Security/Compliance):** Verify the changelog and diff to ensure no unapproved configuration files (specifically the manually versioned DB config) were altered.
+    *   *Parallelism:* Can run alongside Lane C.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Immediate):** Confirm the target stable tag SHA and the cherry-pick commit SHA. Document these in the PR body.
+*   **G4 Implement:** The branch `hotfix/payment-timeout-v1` must exist with exactly one new commit (the cherry-pick) on top of the stable tag.
+*   **G5 Verify (Exact Revision):**
+    *   CI Pipeline must pass on the `hotfix/payment-timeout-v1` head SHA.
+    *   **Exception Handling:** The known flaky latency check requires a manual "Override" stamp from the on-call lead in the CI system. This is a hard gate; the build is `UNVERIFIED` without it.
+    *   **Scope Check:** Automated diff scan to confirm zero changes to the shared DB configuration file.
+*   **G6 Review:**
+    *   **Reviewer:** Two distinct members of the Senior Architecture Council (mandatory per repo policy).
+    *   **Independence:** Reviewers cannot be the Builder (Lane B) or the Conductor who authored the cherry-pick logic. They must review the exact head SHA of the hotfix branch.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:** Linear history required. The PR will be rebased if necessary to maintain linearity before merging to `main` (or the specific production release branch if `main` is not the deploy target).
+*   **Human Gates (Requires Owner/Lead Action):**
+    1.  **CI Override:** On-call lead must manually override the flaky latency gate upon failure.
+    2.  **Approval:** Two Senior Architecture Council members must approve the PR.
+    3.  **Deployment:** The actual push to production is **irreversible**. An executive must explicitly sign off on the deploy command. This is not covered by the code review.
+*   **Rollback Plan:**
+    *   Since production deploys are irreversible without a full database restore, there is no "quick revert" button.
+    *   **Contingency:** If the hotfix causes instability, the only recovery path is a full database restore to the pre-deploy state. This requires immediate executive sign-off.
+    *   **Mitigation:** Ensure the staging validation evidence (from yesterday) is attached to the PR to minimize the risk of needing a rollback.
+
+#### 4. Execution Order
+1.  **Conductor** identifies SHAs.
+2.  **Builder** creates branch and cherry-picks.
+3.  **QA** triggers pipeline on that specific SHA.
+4.  **On-Call Lead** overrides flaky test if needed.
+5.  **Security** confirms no config drift.
+6.  **Architects** review and approve.
+7.  **Executive** signs off on deploy.
+8.  **Release** deploys.
+
+**Risk Note:** The manual DB config versioning is a single point of failure. If the pool adjustment implicitly relies on a config change not in the code repo, this hotfix will fail in production. Verify staging validation included the *exact* production config snapshot.

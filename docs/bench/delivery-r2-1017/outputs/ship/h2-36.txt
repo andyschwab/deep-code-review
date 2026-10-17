@@ -1,0 +1,56 @@
+**Delivery Plan: Billing Service Vulnerability Mitigation**
+
+**G0 Intake & G1 Spec**
+*   **Owner:** Product Analyst + Security Lead.
+*   **Action:** Define "mitigation" strictly as input validation or internal proxying. Explicitly list "forking library" and "direct code modification" as non-goals per legal.
+*   **Output:** Testable spec naming the exact vulnerable function, the required validation rules, and the pinned base SHA for the `finance-core` repo.
+
+**G2 Plan & G3 Design**
+*   **Owner:** Conductor + Architect.
+*   **Work Graph:**
+    1.  **Lane A (Validation Logic):** Implement strict input validation layer.
+    2.  **Lane B (Proxy Stub):** Build internal proxy interface (if validation is insufficient).
+    3.  **Lane C (Security Test Suite):** Create targeted tests simulating the exploit vector (since E2E staging lacks the fraud gateway).
+*   **Constraints:** Lanes A and B are mutually exclusive; select one after a 30-minute design spike. Lane C runs in parallel to implementation.
+*   **Budget:** Cap CI runs at 3 per candidate SHA to manage the $45/55min cost. Flaky network tests are excluded from the mandatory gate; they run only on the final candidate.
+
+**G4 Implementation**
+*   **Owner:** Builder (isolated worktree).
+*   **Action:** Implement the selected mitigation (Validation or Proxy) against the pinned base SHA.
+*   **Requirement:** Unit tests for the new logic must commit with the change. No changes to the third-party library source.
+
+**G5 Verification**
+*   **Owner:** QA (independent of Builder).
+*   **Environment:** Local stack up.
+*   **Checks:**
+    1.  Run Lane C's targeted security tests locally (green required).
+    2.  Run lint/type/unit suites locally (green required).
+    3.  **Skip:** Full expensive CI suite and flaky network tests at this stage.
+*   **Evidence:** Test receipts showing the exploit vector is blocked.
+
+**G6 Review**
+*   **Owner:** Security Team + Senior Engineer (neither is the Builder).
+*   **Scope:** Full diff against the base SHA.
+*   **Focus:** Verify no direct library modification occurred; confirm input validation covers all edge cases identified in G1.
+*   **Verdict:** Security sign-off is mandatory before integration.
+
+**G7 Integration**
+*   **Owner:** Release Engineer.
+*   **Action:** Merge approved lane into the integration branch.
+*   **CI Strategy:** Trigger the full expensive CI suite *once* on the merged SHA. If flaky network tests fail, a Lead Engineer performs a manual retry (per repo facts). Do not re-run the suite if the SHA has not changed.
+*   **Output:** Integration receipt confirming green build.
+
+**G8 Release & Human Gates**
+*   **Required Approvals:** Platform Lead AND Chief Security Officer (dual approval mandatory).
+*   **Action:** Deploy to production.
+*   **Rollback Plan:** If deployment fails or introduces regression, trigger immediate rollback. Acknowledge the automatic 4-hour freeze on finance services as a consequence.
+
+**Failure & Escalation**
+*   **Flaky CI:** If the full suite fails due to known network flakiness, do not retry automatically. Escalate to Lead Engineer for manual intervention.
+*   **Mitigation Failure:** If the validation/proxy does not block the exploit in G5, stop. Do not attempt to fork the library. Return to G1 for alternative scoping.
+*   **Cost Control:** If CI costs exceed the cap, halt non-essential runs and report to Conductor.
+
+**Summary of Serialization**
+*   **Parallel:** Design Spike, Lane C (Test Dev).
+*   **Serialized:** Design Decision → Implementation (Lane A or B) → Security Review → Integration CI → Human Approval → Deploy.
+*   **Critical Path:** Security Review and Dual Human Approval are the primary bottlenecks; prepare evidence early to minimize wait time.

@@ -1,0 +1,69 @@
+**Delivery Plan: Unified Core Validator Consolidation**
+
+**Strategy:** Phased rollout with backward compatibility. No "big bang" swap. We will build the unified library alongside existing ones, migrate consumers team-by-team, then delete the old code.
+
+**Lane Decomposition & Parallelism**
+
+*   **Lane 1: Architecture & Contract (Serial, First)**
+    *   **Actor:** Lead Architect (Human) + Builder Agent.
+    *   **Work:** Define the unified API surface that satisfies Billing, Logistics, and Identity requirements. Create the `core-validator` package skeleton.
+    *   **Constraint:** Must complete before any migration code is written.
+    *   **Output:** Interface definition and ADR (Architecture Decision Record) signed off by stakeholders.
+
+*   **Lane 2: Implementation & Unification (Parallelizable Sub-lanes)**
+    *   **Actor:** Builder Agents (3 distinct worktrees).
+    *   **Work:** Port logic from the three source folders into `core-validator`.
+        *   Sub-lane 2a: Billing rules port.
+        *   Sub-lane 2b: Logistics rules port.
+        *   Sub-lane 2c: Identity rules port.
+    *   **Constraint:** Each sub-lane writes to the same `core-validator` directory but must serialize commits to avoid merge conflicts. Use a shared integration branch for coordination.
+    *   **Output:** Unified library code with 100% logic coverage of original three folders.
+
+*   **Lane 3: Adapter & Compatibility Layer (Parallel to Lane 2)**
+    *   **Actor:** Builder Agent.
+    *   **Work:** Create thin wrapper adapters in the three microservices that point to the new `core-validator` but fallback to local logic if a specific flag is disabled.
+    *   **Constraint:** Must not alter existing behavior when the flag is off.
+    *   **Output:** Three PRs (one per service) introducing the adapter with the migration flag defaulting to "OFF".
+
+*   **Lane 4: Verification & Flakiness Mitigation (Independent)**
+    *   **Actor:** QA Agent (Independent of Builders).
+    *   **Work:**
+        1.  Run full build on the exact SHA of Lane 2's completion.
+        2.  Execute integration tests. If run falls on a Tuesday, automatically schedule a retry window or flag for manual authorization; do not mark red immediately on Tuesday failures.
+        3.  Verify error message consistency across all three domains.
+    *   **Constraint:** Cannot review its own code changes. Must verify against the exact SHA produced by Lane 2.
+    *   **Output:** Test receipts, performance comparison (ensure no bloat), and flake-report.
+
+**Gates & Checks**
+
+*   **G0/G1 (Spec):** Review unified API against all three team requirements. *Gatekeeper:* Product Owner.
+*   **G2 (Plan):** Confirm serialization strategy for Lane 2 sub-lanes to prevent worktree collisions. *Gatekeeper:* Conductor.
+*   **G4 (Implement):** Code freeze on `core-validator`. All three sub-lanes merged to integration branch.
+*   **G5 (Verify):**
+    *   **Check:** Full Nebula build (Cost: $45, Time: 22m). Limit to 2 attempts max before human triage.
+    *   **Check:** Integration suite pass (excluding known Tuesday flakes without retry).
+    *   **Check:** Backward compatibility test (Flag OFF = old behavior; Flag ON = new behavior).
+*   **G6 (Review):** Independent code review of the unified library. *Reviewer:* Senior Engineer not involved in Lanes 1-3.
+*   **G7 (Integrate):** Merge adapters to main branches behind the feature flag.
+
+**Landing & Rollout**
+
+1.  **Merge Strategy:**
+    *   Merge Lane 1 (ADR) and Lane 2 (Library) to `main` as a non-breaking addition.
+    *   Merge Lane 3 (Adapters) to respective service branches.
+    *   **Human Decision Required:** Explicit written approval from Jane Smith AND John Doe is required before merging the *final* cleanup PR (deleting old libraries). Since they are on leave, this step is blocked until their return or an authorized delegate is named in writing.
+
+2.  **Phased Adoption (Post-Merge):**
+    *   **Week 1:** Enable flag for 5% of traffic in Billing. Monitor logs.
+    *   **Week 2:** Enable for Logistics and Identity (5%).
+    *   **Week 3:** Ramp to 100% if no regressions.
+    *   **Week 4:** Delete old libraries (Requires G8 Human Approval).
+
+3.  **Rollback Plan:**
+    *   If regressions occur: Toggle the feature flag to "OFF" in the configuration service. No code revert needed initially.
+    *   If code corrupt: Revert the specific service PR introducing the adapter. The unified library remains but is unused.
+
+**Risks & Mitigations**
+*   **Cost:** Excessive Nebula builds. *Mitigation:* Run full builds only on integration branch, not per commit. Use local linting/type-checking for iteration.
+*   **Flakes:** Tuesday test failures. *Mitigation:* Automated retry logic or manual bypass authorization pre-approved for Tuesday runs.
+*   **Approval Bottleneck:** Architects on leave. *Mitigation:* Prepare the cleanup PR now; park it in "Ready for Approval" state. Do not attempt to merge without the dual signature.

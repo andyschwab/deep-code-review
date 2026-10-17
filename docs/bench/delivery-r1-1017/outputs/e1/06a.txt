@@ -1,0 +1,79 @@
+### Delivery Plan: Bulk Status Update for Logistics Manifests
+
+**Scope & Constraints**
+Implement a CSV upload interface for bulk manifest status updates.
+*   **Hard Limits:** DB lock < 30s; prevent updates to 'Delivered'/'Archived'; strict legacy audit log format.
+*   **Approvals:** DB migrations require Jane Smith + Lead DBA.
+*   **CI Strategy:** Minimize $45/50min runs; mock carrier APIs locally to avoid staging timeouts.
+
+---
+
+#### Lanes & Parallelism
+
+**Lane A: Specification & Data Contract (Serial Pre-requisite)**
+*   **Owner:** Product Analyst
+*   **Work:** Define CSV schema, exact legacy audit log string format, and error response structure. Explicitly list valid status transitions.
+*   **Output:** `spec/bulk-update-contract.md` and `templates/manifest-update.csv`.
+*   **Gate:** G1 Spec sign-off by Operations Lead.
+
+**Lane B: Core Logic & Validation (Parallel with C)**
+*   **Owner:** Builder
+*   **Work:** Implement batch processor in isolated worktree.
+    *   Stream CSV parsing (no full load).
+    *   Pre-flight validation: Reject rows targeting 'Delivered'/'Archived'.
+    *   Chunked DB updates to ensure <30s lock windows.
+    *   Generate success/failure log per row.
+*   **Check:** Unit tests for validation logic and chunking math. No DB integration yet.
+
+**Lane C: Interface & Integration (Parallel with B)**
+*   **Owner:** Builder (Same writer, separate worktree or sequential if resource constrained)
+*   **Work:** Build admin UI endpoint for CSV upload. Integrate Lane B logic. Implement local mock for carrier APIs to bypass staging timeout issues during testing.
+*   **Check:** Local functional test with sanitized data subset.
+
+**Lane D: Migration & Safety (Serialized after B/C local green)**
+*   **Owner:** Builder + DBA Liaison
+*   **Work:** Draft migration script (if schema changes needed) or index optimization plan.
+*   **Gate:** **Human Approval Required.** Submit to Jane Smith + Lead DBA. Do not merge until dual approval is recorded.
+
+**Lane E: Independent Verification (Sequential after B/C/D)**
+*   **Owner:** QA (Independent of Builder)
+*   **Work:**
+    *   Run against exact revision from Lanes B/C.
+    *   Execute data integrity check (trigger once on candidate SHA).
+    *   Verify audit logs match legacy format exactly.
+    *   Confirm 'Delivered'/'Archived' protection via negative testing.
+    *   Measure DB lock duration under load.
+
+**Lane F: Security & Compliance (Sequential with E)**
+*   **Owner:** Security
+*   **Work:** Review CSV injection risks, authorization checks for supervisors, and audit trail integrity.
+
+---
+
+#### Gates & Checks
+
+*   **G2 Plan:** Confirm token budget for CI (max 2 runs: one candidate, one integration).
+*   **G4 Implement:** Code frozen. Unit tests green locally.
+*   **G5 Verify:**
+    *   **Revision:** Exact SHA from Lane B/C.
+    *   **Checks:** Local stack up. Unit + Integration (with mocks) green.
+    *   **Evidence:** Log sample showing rejected rows and successful chunks. DB lock metric < 30s.
+*   **G6 Review:**
+    *   **Reviewers:** Senior Dev (Code), QA (Function), Security (Risk).
+    *   **Constraint:** Builder does not self-review.
+*   **G7 Integrate:** Merge to integration branch. Run **one** full data integrity CI check ($45 cost).
+
+---
+
+#### Landing & Rollback
+
+*   **Merge Strategy:** Squash merge to `main` only after G7 CI passes.
+*   **Human Decisions:**
+    1.  **DB Migration:** Explicit approval from Jane Smith + Lead DBA (Lane D).
+    2.  **Deployment:** Ops Lead approves production rollout.
+*   **Rollback Plan:**
+    *   Feature flag disabled immediately if error rate > 1%.
+    *   Database: Revert migration (if applicable) via DBA script.
+    *   Data: Use generated failure logs to script reverse-transaction for affected manifests.
+
+**Cost Control:** CI triggered only on final candidate SHA and post-merge. Local testing uses mocks to avoid staging flakiness.

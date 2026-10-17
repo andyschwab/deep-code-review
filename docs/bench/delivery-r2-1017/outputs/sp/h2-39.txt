@@ -1,0 +1,67 @@
+# Delivery Plan: Archive Legacy Billing Gateway
+
+## Lanes and Parallelism
+
+**Lane A: Data Integrity & Export (Serialized)**
+1.  **Freeze Writes:** Immediately disable write endpoints in the gateway code.
+2.  **Full Export:** Trigger the export script to move customer records to cold storage.
+3.  **Verification:** Compare row counts between the source database and the cold storage bucket. This must succeed before any infrastructure changes.
+
+**Lane B: Communication & Configuration (Parallel to Lane A)**
+1.  **Status Page:** Update the internal status page to announce the maintenance window and potential lookup failures.
+2.  **Mesh Prep:** Draft the service mesh configuration update to redirect traffic to the Payment Hub, but do not apply it yet.
+
+**Lane C: Cleanup Preparation (Blocked until Lane A Verification)**
+1.  **Deletion Script:** Prepare the database deletion command, gated strictly behind the successful row-count verification from Lane A.
+
+## Gates and Checks
+
+**Gate 1: Write Freeze Confirmation**
+*   **When:** Before export begins.
+*   **Check:** Verify no new write logs are appearing in the gateway monitoring stream.
+*   **Revision:** Applied to the currently running production instance (no new build required).
+
+**Gate 2: Data Consistency Check**
+*   **When:** After export completes, before traffic redirection.
+*   **Check:** Automated script compares source row count vs. cold storage row count. Must be an exact match.
+*   **Revision:** Run against the specific export job ID generated in Lane A.
+
+**Gate 3: Dual Approval Sign-off**
+*   **When:** Before applying the service mesh update and before database deletion.
+*   **Check:** Explicit written approval from both the Platform Lead and the Finance Compliance Officer.
+*   **Revision:** The approval must reference the specific commit hash of the mesh configuration and the export verification log.
+
+**Gate 4: Health Check Suppression**
+*   **When:** During traffic redirection.
+*   **Check:** Temporarily disable or raise the threshold for the flaky health check endpoint to prevent false-positive rollbacks during the high-load transition.
+
+## Review Process
+
+**Independent Data Review:**
+*   **Who:** A senior engineer not involved in writing the export script.
+*   **What:** Manually inspect the row count verification logs and sample three random customer records in cold storage to ensure data fidelity.
+*   **When:** After Gate 2 passes, before Gate 3 is sought.
+
+**Configuration Review:**
+*   **Who:** Platform Lead.
+*   **What:** Verify the service mesh redirect rules point exclusively to the new Payment Hub and include no legacy routes.
+*   **When:** Prior to Gate 3.
+
+## Landing Strategy
+
+**Phase 1: Traffic Redirection**
+*   Once Gate 3 is cleared, apply the service mesh configuration.
+*   Monitor error rates for 15 minutes. If errors spike (excluding known health check flaps), trigger an immediate rollback of the mesh config.
+
+**Phase 2: Final Cleanup**
+*   Only after 30 minutes of stable traffic on the Payment Hub, execute the database deletion script (Lane C).
+*   **Human Decision Required:** The Finance Compliance Officer must give a final "Go" based on the stable traffic report before the deletion key is turned.
+
+**Rollback Plan:**
+*   **Traffic:** Revert the service mesh config to point back to the Legacy Gateway (read-only mode) if the Payment Hub fails.
+*   **Data:** If the export verification fails, abort the entire process. The legacy database remains untouched.
+*   **Irreversible Point:** Once the database shard is deleted, rollback is impossible. Audit logs not exported are permanently lost. This step is the final point of no return.
+
+**Completion:**
+*   Archive the legacy code repository as read-only.
+*   Close the status page maintenance window.

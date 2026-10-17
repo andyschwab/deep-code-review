@@ -1,0 +1,57 @@
+### Delivery Plan: Ledger Dual-Write & Backfill
+
+**Strategy:** Phased rollout with strict serialization between code deployment and data migration. The "point of no return" (10% backfill) dictates a hard stop for manual verification before proceeding.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Code Implementation):** Implement dual-write logic (write to legacy + columnar) and read-fallback switch.
+    *   *Owner:* Builder.
+    *   *Constraint:* Must target the specific commit SHA where the migration script is approved in the external repo.
+*   **Lane B (Migration Script Coordination):** Prepare the pull request for the read-only Data Governance repo.
+    *   *Owner:* Conductor (manual coordination).
+    *   *Constraint:* Cannot merge until Lane A's code is ready to consume it.
+*   **Lane C (Audit & Performance Harness):** Build the data integrity auditor and latency spike detector.
+    *   *Owner:* QA (independent of Builder).
+    *   *Parallel:* Runs alongside Lane A.
+
+**Serialization Point:** Lane A and B must be code-complete before the backfill job (Lane D) is triggered. Lane D cannot start until Lane C verifies the initial dual-write consistency on staging.
+
+#### 2. Gates & Checks
+*   **G2 (Plan):** Define the exact "latency threshold" number for rollback. Confirm the specific commit SHA of the external migration script.
+*   **G4 (Implement):**
+    *   *Check:* Unit tests for dual-write atomicity.
+    *   *Check:* Dry-run of the backfill job on sanitized staging data (ignoring known false-positive flakiness by whitelisting specific reconciliation errors).
+*   **G5 (Verify):**
+    *   *Environment:* Staging (sanitized prod data).
+    *   *Action:* Deploy Lane A code. Trigger small-scale backfill (<1%).
+    *   *Gate:* QA runs integrity audit. **Hard Fail** if data mismatch > 0%.
+*   **G6 (Review):**
+    *   *Reviewer:* Security (for data privacy in new columnar format) + Senior Payments Engineer (independent of Builder).
+    *   *Scope:* Full diff of Lane A + Audit logic.
+*   **G7 (Integrate):** Merge to main. Build artifact.
+    *   *Constraint:* Schedule this build to finish >2 hours before the month-end freeze window opens.
+
+#### 3. Review Protocol
+*   **Code Review:** Senior Engineer reviews Lane A. They must not be the Builder.
+*   **Security Review:** AppSec reviews the new columnar storage access patterns.
+*   **Data Approval:** Chief Data Officer (external) approves the migration script in the separate repo. This is a blocking human gate before G8.
+
+#### 4. Landing & Rollback
+*   **Deployment (G8):**
+    *   *Human Decision:* Product Owner authorizes the switch to "Dual-Write" mode in all three regional clusters.
+    *   *Timing:* Must complete before the finance freeze.
+*   **Backfill Trigger:**
+    *   *Human Decision:* Once dual-write is live and stable for 1 hour, Owner authorizes the full historical backfill.
+    *   *Checkpoint:* **STOP** automatically at 10% completion.
+*   **The 10% Gate:**
+    *   *Action:* Pause pipeline. Human verifies integrity audit results on the 10% sample.
+    *   *Decision:* If pass, authorize remaining 90%. If fail, initiate rollback.
+*   **Rollback Plan:**
+    *   *Trigger:* Latency spikes above threshold OR integrity failure at 10% check.
+    *   *Action:* Flip feature flag to read *only* from legacy table.
+    *   *Constraint:* Since schema change is irreversible after 10%, the rollback is **read-only**. The new columnar data remains but is ignored. No data loss occurs as dual-write was active.
+    *   *Verification:* Confirm latency returns to baseline immediately after flag flip.
+
+**Risk Mitigation:**
+*   **CI Bottleneck:** Only 6 builds/day. Ensure Lane A passes local lint/type checks before triggering CI to avoid wasting a slot.
+*   **Staging Flakiness:** QA must explicitly document which reconciliation errors are "known false positives" in the G5 receipt to prevent blocking valid deployments.
+*   **Freeze Window:** If G7 integration slips within 4 hours of the freeze, abort deployment. Do not attempt to rush the month-end closing window.

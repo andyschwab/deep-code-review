@@ -1,0 +1,47 @@
+### Delivery Plan: Enforce Code Owners and Branch Protection on `release-v2`
+
+**Objective:** Secure `release-v2` against direct pushes and unreviewed merges while validating existing workflows against new constraints.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Analysis & Impact - Serial First):**
+    *   **Actor:** Product Analyst / Conductor.
+    *   **Task:** Inventory all open PRs targeting `release-v2`. Map their file changes against the proposed `CODEOWNERS` rules to identify missing approvers. Simulate the branch protection rules locally (dry-run) to predict which CI checks will trigger.
+    *   **Constraint:** Must complete before Lane B starts.
+*   **Lane B (Configuration Draft - Parallel to C):**
+    *   **Actor:** Builder.
+    *   **Task:** Draft the `CODEOWNERS` file assigning explicit ownership to the three global teams and Jane Smith. Prepare the branch protection configuration payload (no direct pushes, require PR, require checks, require Code Owner review).
+    *   **Output:** A commit ready for review, not yet applied to the remote branch settings.
+*   **Lane C (Flake Mitigation - Parallel to B):**
+    *   **Actor:** QA / Builder.
+    *   **Task:** Analyze the flaky connectivity check. Define a retry strategy or mark it as "non-blocking" for the initial rollout if false positives are confirmed, documenting the risk.
+    *   **Output:** Updated CI configuration or waiver documentation.
+*   **Lane D (Verification - Serial after B+C):**
+    *   **Actor:** QA (Independent).
+    *   **Task:** Apply changes to a *staging* branch or fork mimicking `release-v2`. Verify that existing open PRs from Lane A can still merge under the new rules. Confirm the $45/run cost trigger logic is sound.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Spec):** Define the exact list of required approvers and the specific CI checks mandated. Confirm the "flaky check" handling strategy.
+*   **G2 (Plan):** Review the impact analysis on existing PRs. Ensure no PR is stranded without a path to merge.
+*   **G3 (Design):** Finalize `CODEOWNERS` paths and protection rule JSON.
+*   **G4 (Implement):** Commit `CODEOWNERS` and CI tweaks. **Do not** enable branch protection yet.
+*   **G5 (Verify):** Run the validation pipeline on the new configuration in a safe environment. Confirm the connectivity check behavior.
+*   **G6 (Review):** Independent review by a Senior Engineer (not the Builder) and the Release Manager (Jane Smith) to validate ownership mapping.
+*   **G7 (Integrate):** Merge `CODEOWNERS` and CI fixes to `release-v2`.
+*   **G8 (Release - Human Gate):** **Jane Smith** manually enables the Branch Protection rules on `release-v2` via the repository settings UI. This is irreversible without escalation; human confirmation is mandatory.
+
+#### 3. Review Strategy
+*   **Code/Config Review:** Performed by a Senior Engineer independent of the Builder. Focus: Correctness of ownership paths and CI logic.
+*   **Authority Review:** Performed by Jane Smith. Focus: Verification that she is the sole designated approver for deployment configs and that the three global teams are correctly mapped.
+*   **Security/Process Review:** Conductor verifies that direct pushes are technically impossible once G8 is executed.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge `CODEOWNERS` and CI updates (G7) via a standard PR.
+    2.  Pause. Verify existing open PRs update their status checks successfully.
+    3.  **Human Decision:** Jane Smith enables Branch Protection (G8).
+*   **Rollback Plan:**
+    *   Since rule changes are irreversible without admin escalation, the rollback is procedural: Admin escalation to temporarily disable protection if a critical hotfix is blocked.
+    *   If `CODEOWNERS` blocks a merge incorrectly, the immediate fix is a follow-up PR adjusting the owners file (requires admin bypass if protection is already active).
+*   **Post-Landing:** Monitor the first 5 merges for flaky check false positives and budget impact. If the flaky check causes >20% failure rate, trigger the pre-approved mitigation (Lane C output).
+
+**Risk Note:** The $45/run cost means we cannot afford to re-run the full suite unnecessarily. The flaky check mitigation must be active before G8 to prevent budget bleed and merge gridlock.

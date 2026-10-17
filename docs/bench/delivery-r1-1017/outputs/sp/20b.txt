@@ -1,0 +1,64 @@
+# Delivery Plan: Inventory Sync Conflict Resolution
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+*Owner: Backend Engineer*
+1.  **Analyze `conflict_handler.py`:** Determine if the merge logic can be added without changing the module's public signature.
+    *   *If signature change is required:* Stop immediately. Request formal sign-off from Marcus Thorne (Billing Team Lead). Do not proceed until written approval is received.
+    *   *If no signature change:* Implement the merge algorithm that preserves both offline counts and dispatcher adjustments.
+2.  **Unit Tests:** Write tests specifically for the merge logic, ensuring no regression in the shared billing functionality.
+
+**Lane B: Mobile UI (Parallel to Lane A)**
+*Owner: Mobile Engineer*
+1.  **Design Mockups:** Create the "Stock Audit" merge prompt UI. Must clearly distinguish "Device Value" vs. "Cloud Value" visually (e.g., color coding or icons).
+2.  **Implementation:** Build the UI component to accept the conflict payload from Lane A and display the merge prompt.
+3.  **Integration Stub:** Use a mock data layer to simulate conflict states until Lane A is ready.
+
+**Lane C: Infrastructure & CI (Parallel to Lanes A & B)**
+*Owner: DevOps/SRE*
+1.  **CI Optimization:** Audit the test suite for flakiness. Isolate tests triggering the emulated hardware cluster to prevent unnecessary $45 runs.
+2.  **Log Filtering:** Update log aggregation rules to ignore known false positives from the `nightly-reconcile` job on large datasets to reduce noise during validation.
+
+## Gates & Checks
+
+**Gate 1: Architecture Review (Before Code Merge)**
+*   **Trigger:** Lane A completes the algorithm design; Lane B completes UI mockups.
+*   **Check:** Verify the merge strategy mathematically preserves data integrity (no loss of agent count or dispatcher adjustment).
+*   **Reviewer:** Senior Architect (Independent of implementation team).
+*   **Revision:** Latest `develop` branch head.
+
+**Gate 2: Integrated Verification (Pre-Freezes)**
+*   **Trigger:** Lanes A and B merged to a feature branch.
+*   **Check:** End-to-end sync test on an emulated device. Verify the prompt appears only on actual conflicts.
+*   **Constraint:** Must pass before Thursday 14:00 (before the Friday change freeze).
+*   **Cost Control:** Run only if Gate 1 passed. If CI fails, fix flaky tests immediately before re-running to save budget.
+
+**Gate 3: Compliance Validation (Critical)**
+*   **Trigger:** Successful Integrated Verification.
+*   **Check:** Manual verification by a QA Lead simulating a Q3 audit scenario. Confirm audit logs correctly record who resolved the conflict and what values were chosen.
+*   **Reviewer:** QA Lead (Independent of devs).
+
+## Review Strategy
+
+*   **Code Review:**
+    *   `conflict_handler.py`: Reviewed by a Backend Engineer *not* on the Billing team to ensure no side effects, plus a mandatory final look by Marcus Thorne if *any* logic touching shared structures was touched.
+    *   UI Code: Reviewed by a Senior Mobile Engineer.
+*   **Independence:** The QA Lead performing Gate 3 must not be the same person who wrote the integration tests in Gate 2.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+*   Merge to `staging` on Wednesday.
+*   Deploy to Production on Thursday morning (providing a 24-hour buffer before the Friday freeze).
+*   **Human Decision Required:** Final "Go/No-Go" for production deploy requires confirmation from the Logistics Operations Manager that the UI is intuitive enough for field agents.
+
+**Rollback Plan:**
+*   **Condition:** If data corruption is detected or agents report inability to sync within 1 hour of deploy.
+*   **Action:** Initiate full database rollback.
+*   **Warning:** This process takes **four hours**. During this window, field agents must switch to paper-based logging.
+*   **Communication:** Notify all field agents and dispatchers immediately via SMS alert system upon rollback initiation.
+
+**Post-Landing:**
+*   Monitor `nightly-reconcile` logs for 48 hours, ignoring known false positives but watching for new error patterns.
+*   Verify Q3 audit trail integrity in the first subsequent compliance report.

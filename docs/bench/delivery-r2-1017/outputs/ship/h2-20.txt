@@ -1,0 +1,65 @@
+**Delivery Plan: Q3 Balance Correction (One-Off)**
+
+**Constraints & Risks**
+*   **Time:** Must complete before morning billing (hard deadline).
+*   **Data:** 412 specific accounts; source data in encrypted vault.
+*   **Env:** Prod write requires 15-min token; Mirror lags 4h (cannot verify recent state).
+*   **Security:** High-volume writes trigger false positives; Prod write is irreversible.
+*   **Approval:** Dual approval required (Jane Smith + CRO).
+
+**Lane Decomposition**
+
+**Lane 1: Script Construction & Local Verification (Builder)**
+*   **Work:** Write a read-only script that ingests the vault data, calculates expected deltas, and outputs a "dry run" manifest. It must include logic to tag the audit log with this ticket number.
+*   **Constraint:** No database writes yet. Must handle the vault decryption locally or in a secure sandbox.
+*   **Parallelism:** Can run immediately.
+
+**Lane 2: Security & Token Strategy (Security Hat)**
+*   **Work:** Define the procedure for obtaining the 15-minute elevation token. Pre-draft the justification to suppress false-positive alerts regarding high-volume writes. Verify the audit logging format matches compliance requirements.
+*   **Dependency:** None, but must complete before Lane 4.
+
+**Lane 3: Mirror Validation (QA)**
+*   **Work:** Execute Lane 1's script against the read-only mirror.
+*   **Caveat:** Explicitly document the 4-hour lag limitation. Verify that the *logic* holds for available data and that the output format matches expectations.
+*   **Dependency:** Requires Lane 1 script.
+
+**Serialization Point: The Dry Run Review**
+*   **Gate:** G5 (Verify).
+*   **Condition:** Lane 3 output matches expected totals for accessible data. Security (Lane 2) confirms alert suppression strategy.
+*   **Review:** Independent review by a Senior Engineer (not the Builder) + Jane Smith.
+
+**Lane 4: Production Execution (Release/Conductor)**
+*   **Work:**
+    1.  Request dual approval (Jane Smith + CRO) based on the signed-off Dry Run.
+    2.  Upon approval, request the 15-minute elevation token.
+    3.  Execute the write-mode script against Production.
+    4.  Capture the execution log and audit tags immediately.
+*   **Constraint:** Must be a single, atomic execution window (<15 mins).
+*   **Dependency:** Dual human approval + Token.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Confirm the list of 412 IDs and deltas are immutable. Pin the base SHA of the ledger service to ensure no logic drift.
+*   **G3 (Design):** ADR confirming the "read-only mirror" limitation is accepted risk due to the 4h lag. Decision: Trust the vault data as the source of truth for the delta.
+*   **G5 (Verify - Mirror):** Run script on Mirror. Exit 0 only if calculated totals match the vault summary.
+*   **G6 (Review):** Code review of the script focusing on: (a) exact ID matching, (b) audit tag injection, (c) no side effects beyond the 412 rows.
+*   **G8 (Release):** **Human Gate.** Dual approval required before token request.
+*   **G9 (Prod Verify):** Post-execution, run a read-only query on Prod (using elevated read if needed) to confirm the 412 balances are now zero.
+
+**Landing & Rollback**
+
+*   **Merge Strategy:** This is a one-off script, not a permanent code change. It does not merge to `main` unless converted into a permanent migration tool later. It runs as an ephemeral job.
+*   **Human Decisions:**
+    1.  **Jane Smith & CRO:** Must explicitly approve the execution plan and the specific delta totals before the token is requested.
+    2.  **Operator:** Must confirm the "Go" command within the 15-minute token window.
+*   **Rollback:**
+    *   Since direct writes are irreversible and no backup snapshot is mentioned in the facts, a "code rollback" is impossible.
+    *   **Contingency:** If the script fails mid-batch, the state is partial. The rollback plan is a *compensating transaction*: a second script to reverse applied deltas for any failed batch. This compensating script must be drafted and reviewed alongside the primary script (Lane 1 extension) before G8.
+
+**Execution Order**
+1.  Build Script (Lane 1) & Security Plan (Lane 2).
+2.  Dry Run on Mirror (Lane 3).
+3.  Review & Sign-off (G6).
+4.  **Human Approval (G8)**.
+5.  Token Acquisition & Prod Execution (Lane 4).
+6.  Immediate Post-Run Verification (G9).

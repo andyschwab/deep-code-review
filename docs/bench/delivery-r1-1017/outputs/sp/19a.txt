@@ -1,0 +1,60 @@
+# Delivery Plan: BillingCycle to SubscriptionTerm Rename
+
+## Lanes & Parallelization
+
+**Lane A: Automated Refactoring (Parallel)**
+*   **Owner:** Senior Engineer
+*   **Scope:** Application logic, API contracts, comments, error messages, and log outputs across the 200+ files.
+*   **Action:** Execute global find/replace for `BillingCycle` → `SubscriptionTerm`.
+*   **Constraint:** Explicitly exclude database migration scripts and the shared configuration file used by other microservices.
+
+**Lane B: Compatibility Shield (Serialized before A)**
+*   **Owner:** Integration Specialist
+*   **Scope:** The shared configuration file.
+*   **Action:** Implement an alias layer ensuring the config file accepts both `BillingCycle` and `SubscriptionTerm` keys. This ensures the three dependent microservices remain functional during the transition.
+*   **Gate:** Unit tests confirming backward compatibility must pass before Lane A merges.
+
+**Lane C: Data Safety (Parallel to A, Serialized before Merge)**
+*   **Owner:** Database Administrator
+*   **Scope:** Migration scripts.
+*   **Action:** Update script references to use the new terminology in comments/variables only. **Do not** alter underlying data structures or column names as per ticket constraints.
+*   **Gate:** Local dry-run validation against a production mirror snapshot is mandatory. No CI run required for this lane until merge.
+
+## Gates & Checks
+
+1.  **Pre-Commit Gate (Local):**
+    *   Lane A engineers must run the full test suite locally. Given the 55-minute CI duration, local verification is critical to prevent wasted compute credits.
+    *   Lane C must produce a signed "Dry-Run Successful" artifact.
+
+2.  **CI Pipeline Gate (Revision: `feat/flexpay-rename-rc1`):**
+    *   Trigger full regression suite on the combined changes from Lanes A, B, and C.
+    *   **Flake Mitigation:** If the known flaky network check fails, the Tech Lead must manually verify the logs and trigger a retry. Do not auto-retry to save credits.
+
+3.  **Staging Verification:**
+    *   Deploy to staging only after CI passes.
+    *   Verify dependent microservices can still read the shared configuration.
+
+## Review Protocol
+
+*   **Primary Reviewer:** Tech Lead (Core Ledger Team).
+    *   **Focus:** Code correctness, completeness of the rename (ensuring no `BillingCycle` instances remain in logic/logs), and validation of the backward compatibility layer.
+*   **Independent Compliance Reviewer:** Compliance Officer.
+    *   **Focus:** Verification that all user-facing error messages and logs strictly adhere to the new "SubscriptionTerm" terminology for EU regulatory compliance.
+*   **Constraint:** These reviews are independent; approval from both is required before merge. The Compliance Officer does not review code logic, only text strings and contracts.
+
+## Landing Strategy
+
+**Target Branch:** Release 4.2 (Frozen)
+**Method:** Cherry-Pick via Pull Request.
+
+1.  **Merge Decision:** Requires dual approval (Tech Lead + Compliance Officer) in the ticketing system.
+2.  **Integration:**
+    *   Once approved, the change is cherry-picked onto the `release/4.2` branch.
+    *   A final "Smoke Test" deployment occurs on the production mirror (read-only) to confirm no schema drift occurred.
+3.  **Rollback Plan:**
+    *   If staging verification fails or dependent services break: Revert the cherry-pick immediately.
+    *   The alias layer (Lane B) allows dependent services to function even if the main rename is reverted, provided the config change is retained or reverted atomically.
+4.  **Human Decision Point:**
+    *   If the flaky network check fails twice in CI, a human admin must intervene to bypass or fix the staging environment before the final merge can proceed. No automated force-merge is permitted.
+
+**Timeline:** Execution begins immediately upon plan approval. Targeting completion within 24 hours to meet the FlexPay launch window.

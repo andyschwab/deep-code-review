@@ -1,0 +1,65 @@
+# Delivery Plan: Partial Refund Logic Fix
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+*   **Owner:** Ledger Team Engineer
+*   **Work:** Modify `refund_calculator.py` to prorate processing fees based on `cancelled_seats / total_seats` rather than total order value. Ensure the logic explicitly checks `cancellation_date >= deployment_date` to prevent retroactive application to historical records.
+*   **Dependency:** None. Starts immediately.
+
+**Lane B: Test Harness (Parallel to A)**
+*   **Owner:** QA Automation
+*   **Work:** Isolate the integration test suite. Configure the runner to filter out the known flaky currency conversion check (ignore specific timeout errors in logs). Prepare a specific test case for "Corporate Bulk Cancel" (e.g., 10 seats, 1 cancelled) to verify fee proration.
+*   **Dependency:** None. Starts immediately.
+
+**Serialization Point:** Lane A must merge into Lane B's harness before the final gate. The code change must be committed before the expensive integration tests run.
+
+## Gates & Checks
+
+**Gate 1: Unit Verification (Local/CI)**
+*   **Trigger:** Commit to feature branch `fix/prorate-refunds`.
+*   **Check:** Standard unit tests only. Must pass 100%.
+*   **Revision:** Latest commit on feature branch.
+
+**Gate 2: Integration & Cost Control (Staging)**
+*   **Trigger:** Merge to `staging` candidate branch.
+*   **Check:** Run the filtered integration suite (45 mins).
+*   **Constraint:** Execute exactly once per candidate revision to save costs ($12/run). If the flaky currency timeout appears, verify logs and proceed if functionality is intact.
+*   **Revision:** Staging candidate head.
+
+**Gate 3: Compliance & Data Safety (Pre-Prod)**
+*   **Trigger:** Successful Gate 2.
+*   **Check:** Dry-run of the database migration script against a production snapshot.
+*   **Critical Constraint:** Verify the script does not touch rows with `transaction_date < current_date`. Since the migration is irreversible on the shared audit ledger, this check requires manual sign-off.
+*   **Revision:** Same as Gate 2.
+
+## Review Process
+
+**Independent Code Review:**
+*   **Reviewer:** One Senior Engineer from the Payments Team (external to Ledger Team).
+*   **Focus:** Verify the proration math and the "future-only" guard clause. Ensure no historical data mutation logic exists.
+*   **Timing:** Before Gate 2.
+
+**Operational Review:**
+*   **Reviewer:** Second Senior Engineer (Ledger Team).
+*   **Focus:** Deployment rollback strategy and migration safety.
+*   **Timing:** Before Gate 3.
+
+## Landing Strategy
+
+**Approval Window:**
+*   Production deployment is locked to **Tuesdays, 2 PM – 4 PM**.
+*   **Sign-off Required:** Compliance Officer. Must present evidence of Gate 3 (migration safety) and Gate 2 (integration pass).
+
+**Merge & Deploy:**
+1.  Merge to `main` only after Compliance Officer approval within the window.
+2.  Trigger production deployment pipeline.
+3.  Apply database migration immediately upon code deploy start.
+
+**Rollback Plan:**
+*   **Code:** Revert the `main` commit and redeploy the previous stable image.
+*   **Data:** **NO AUTOMATED ROLLBACK.** Since the database migration is irreversible on the shared audit ledger, a code revert will simply stop *new* incorrect calculations. It will not fix any data corrupted during the window if the logic failed.
+*   **Human Decision:** If the migration corrupts data, a manual forensic repair script must be written and approved by Compliance before execution.
+
+**Risk Mitigation:**
+*   Deploy to a canary group (5% of traffic) first if the architecture allows, monitoring refund amounts for 30 minutes before full rollout. If canary is not possible, rely strictly on the Staging dry-run results.

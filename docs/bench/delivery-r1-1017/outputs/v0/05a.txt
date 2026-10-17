@@ -1,0 +1,72 @@
+**Delivery Plan: DST Shift Fix for Helios Energy Ledger**
+
+**Objective:** Patch the scheduler to detect non-existent local times (DST gaps) and shift execution to the next valid minute, ensuring all Pacific zone commercial accounts are processed for the regulatory report due tomorrow at noon.
+
+**Constraints & Risks:**
+- **Critical Path:** Regulatory deadline (noon tomorrow); missing accounts triggers an audit.
+- **Collision Risk:** Scheduler shares config with Tax Service; changes must be isolated to prevent tax assessment breakage.
+- **Verification Gap:** Staging is UTC-only; cannot reproduce DST. Local verification is mandatory.
+- **Approval Gate:** Production deploy requires written approval from the traveling Chief Compliance Officer (CCO).
+- **Cost Constraint:** Full CI regression (45 mins) is expensive; reserved for release candidates only.
+
+---
+
+### **Lanes & Parallelism**
+
+**Lane 1: Core Logic & Isolation (Builder)**
+- **Work:** Implement DST gap detection in the scheduler module. Refactor time parsing to isolate scheduler logic from the shared global config, ensuring Tax Service remains unaffected.
+- **Parallelism:** Runs immediately. Must complete before Lane 2.
+- **Output:** Patch commit + unit tests simulating DST gaps (mocked local time).
+
+**Lane 2: Local Verification Environment (QA)**
+- **Work:** Spin up a local instance mirroring production's Pacific zone settings. Script a reproduction of the 02:00 DST gap scenario.
+- **Parallelism:** Starts concurrently with Lane 1 but blocks on Lane 1's patch for final testing.
+- **Output:** Verified receipt showing successful processing of the three skipped accounts at the exact patched SHA.
+
+**Lane 3: Compliance & Communication (Conductor)**
+- **Work:** Draft the approval request for the CCO. Prepare the "rollback proven" manifest and the specific evidence of the fix (logs from Lane 2).
+- **Parallelism:** Runs parallel to Lane 1.
+- **Output:** Pre-filled approval artifact ready for CCO signature once Lane 2 verifies.
+
+**Serialization Point:** Lane 2 cannot finalize verification until Lane 1 commits the patch. Lane 3 cannot seek approval until Lane 2 provides the "green" receipt.
+
+---
+
+### **Gates & Checks**
+
+- **G1 (Spec):** Confirm acceptance criteria: "Job shifts to next valid minute on DST gap; zero accounts skipped." Pin base SHA before coding.
+- **G3 (Design):** Review the isolation strategy for the shared config. **Check:** Dry-run tax calculation with the new config to prove no regression (local only, no CI).
+- **G4 (Implement):** Builder commits patch. Unit tests must pass locally.
+- **G5 (Verify):** **Critical Gate.** QA runs the full ledger generation locally against the Pacific DST scenario.
+    - **Condition:** Must see all three commercial accounts processed.
+    - **Evidence:** Logs showing the time shift and successful meter processing.
+    - **Rule:** Since Staging cannot verify this, local success is the hard gate. No CI full suite yet (cost/save time); rely on targeted local regression.
+- **G6 (Review):** Independent review of the diff and Lane 2's logs. Reviewer must not be the Builder. Focus on the config isolation.
+- **G7 (Integrate):** Merge to release candidate branch. Trigger the 45-minute full CI regression suite now (as this is now an RC).
+- **G8 (Release):** **Human Gate.** Present evidence package to CCO for written approval.
+- **G9 (Production Verify):** Post-deploy check of the regulatory report generation.
+
+---
+
+### **Review Strategy**
+
+- **Code Review:** Senior Engineer (independent of Builder) reviews the DST logic and config isolation.
+- **QA Review:** Product Analyst verifies the local test logs against the three specific missed accounts.
+- **Security/Compliance:** Conductor validates that no PII was exposed during local testing and that the audit trail is intact.
+
+---
+
+### **Landing & Rollback**
+
+- **Merge:** Merge to `release-candidate` after G6. Full CI runs asynchronously. If CI fails, revert immediately (rollback plan ready).
+- **Human Decision:** CCO approval is required before deploying to Production. The Conductor will present the approval packet via secure channel.
+- **Deploy:** Upon CCO approval, deploy the verified SHA.
+- **Rollback:** If the regulatory report fails post-deploy, immediately revert to the previous stable SHA and manually trigger the ledger generation with a hardcoded time override (contingency script prepared in Lane 1).
+
+**Timeline:**
+- **Now:** Start Lanes 1 & 2.
+- **+2 Hours:** Local verification complete (G5).
+- **+3 Hours:** Code review complete (G6), Merge to RC, Start Full CI.
+- **+4 Hours:** CI complete (G7). Approval request sent to CCO.
+- **+6 Hours (Target):** CCO approval received, Deploy to Prod (G8).
+- **+7 Hours:** Production verification (G9) before noon deadline.

@@ -1,0 +1,71 @@
+# Delivery Plan: LedgerSync Migration to West-2
+
+## Lanes & Parallelism
+
+**Lane A: Infrastructure (Starts Immediately)**
+*   **Owner:** Infra Engineer
+*   **Tasks:** Manually configure West-2 network peering rules via the infrastructure portal. Provision West-2 compute resources.
+*   **Dependency:** None. Must complete before Lane B's final validation.
+
+**Lane B: Application & Cache Strategy (Starts Immediately)**
+*   **Owner:** Backend Lead
+*   **Tasks:**
+    1.  Extract cache configuration from the monolithic `global-settings` file to a service-specific config for LedgerSync (to avoid breaking the three dependent services).
+    2.  Implement the "Cache Warmup" script to replicate active session tokens from East-1 to West-2.
+    3.  Update deployment manifests to target West-2.
+*   **Dependency:** None initially. Final integration test requires Lane A completion.
+
+**Lane C: Database Coordination (Starts Friday 18:00 UTC)**
+*   **Owner:** DBA Team
+*   **Tasks:** Verify East-1 to West-2 read-replica lag is near-zero. Prepare promotion scripts for the Saturday window.
+*   **Dependency:** None.
+
+**Serialization Point:** Lane A and Lane B must converge for a single **Pre-Cutover Integration Test** on Friday 20:00 UTC. Lane C operates independently until the cutover window.
+
+## Gates & Checks
+
+**Gate 1: Configuration Isolation (Friday 12:00 UTC)**
+*   **Check:** Code review confirming `global-settings` remains untouched for the three other services.
+*   **Revision:** Latest commit on `feature/west2-migration` branch.
+*   **Approver:** Senior Architect (independent of Backend Lead).
+
+**Gate 2: Infrastructure Readiness (Friday 18:00 UTC)**
+*   **Check:** Manual verification of West-2 network peering connectivity.
+*   **Approver:** Infra Lead.
+
+**Gate 3: Pre-Cutover Integration Test (Friday 20:00 UTC)**
+*   **Check:** Full CI pipeline run (45 mins). Validates cache warmup script against peered West-2 environment.
+*   **Constraint:** This is the second allowed daily run. If it fails, the migration is postponed to next Saturday.
+*   **Revision:** Release Candidate tag `rc-sat-migration`.
+
+**Gate 4: The "Go/No-Go" (Saturday 01:30 UTC)**
+*   **Check:** Written approval from Jane Smith AND the Security Lead.
+*   **Prerequisite:** Gate 3 passed; DBA confirms replica lag < 100ms.
+
+## Review Strategy
+
+*   **Code Review:** Independent Senior Architect reviews the config extraction and warmup logic. Focus: Ensuring no side effects on the three shared services.
+*   **Ops Review:** Infra Lead reviews the network peering steps and rollback DNS procedures.
+*   **Security Review:** Security Lead reviews the handling of session tokens during replication (encryption in transit/at rest).
+*   **Final Validation:** During the smoke test (02:15 UTC), an independent SRE monitors latency dashboards. They hold the authority to call rollback without developer consultation if latency > 200ms.
+
+## Landing & Rollback
+
+**The Cutover (Saturday 02:00 – 04:00 UTC)**
+1.  **02:00:** Stop writes to East-1 LedgerSync.
+2.  **02:10:** DBA promotes West-2 read-replica to primary.
+3.  **02:20:** Execute Cache Warmup script (verify token count matches East-1 checksum).
+4.  **02:30:** Switch DNS traffic to West-2.
+5.  **02:35 – 03:30:** **Smoke Test Window.** Monitor latency.
+    *   **Pass Condition:** Latency stabilizes < 200ms; checksums match.
+    *   **Fail Condition:** Latency > 200ms for >5 minutes OR checksum mismatch.
+
+**Rollback Procedure**
+*   **Trigger:** SRE calls "Rollback" upon fail condition.
+*   **Action:** Revert DNS to East-1 immediately.
+*   **Data Integrity:** Since West-2 writes occurred during the smoke test, a differential sync script (pre-prepared by DBA) must replay West-2 transactions back to East-1 before resuming full service.
+*   **Human Decision:** Post-rollback, a formal incident review is required before rescheduling. No automated retry.
+
+**Finalization**
+*   Upon successful 1-hour stability, tag commit `prod-west2-live`.
+*   Decommission East-1 resources only after 48 hours of stability.

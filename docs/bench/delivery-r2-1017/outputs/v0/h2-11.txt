@@ -1,0 +1,53 @@
+### Delivery Plan: 2FA for Support Admin Console
+
+**Strategy:** Parallel implementation of core auth and UI, serialized integration due to database risk, and a human-gated phased rollout to ensure zero downtime during incidents.
+
+#### 1. Lanes & Work Decomposition
+*   **Lane A (Core Auth & DB):** Implement TOTP generation/validation and recovery key logic within the central identity module.
+    *   *Constraint:* High risk (irreversible DB change). Must run in an isolated worktree.
+    *   *Dependency:* None, but must finish before Lane C integration.
+*   **Lane B (Frontend & UX):** Build enrollment flows, error messaging, and grace period logic in the ops-portal UI.
+    *   *Constraint:* Can run parallel to Lane A.
+    *   *Dependency:* Requires API contract from Lane A.
+*   **Lane C (Integration & Audit):** Wire UI to Auth, implement audit logging with race-condition mitigation, and configure the grace period timer.
+    *   *Constraint:* Serialized after A and B are unit-tested.
+    *   *Focus:* Mitigate the known audit log race condition during high write volumes.
+
+#### 2. Gates & Verification
+*   **G0/G1 (Spec & Plan):** Define exact TOTP standards (RFC 6238), recovery key format, and the specific duration of the "grace period." Confirm API contracts between A and B.
+    *   *Check:* Security Officer sign-off on crypto implementation details before code is written.
+*   **G4 (Implementation):**
+    *   Lane A: Unit tests for token validation and key generation.
+    *   Lane B: Component tests for UI states (success, fail, locked).
+    *   *Cost Control:* Run linters and type checks locally to avoid unnecessary $12 CI runs.
+*   **G5 (Verify):**
+    *   **Exact Revision:** The merged SHA of A+B+C on the integration branch.
+    *   **Staging Execution:** Deploy to staging.
+        *   *Automated:* Run non-SMS tests (TOTP only). Skip flaky SMS notification tests.
+        *   *Manual:* Verify enrollment flow, recovery key usage, and error messages. Simulate high-write volume to observe audit log behavior.
+    *   **Condition:** Gate fails if SMS tests are relied upon; manual receipt required for notification flows.
+*   **G6 (Review):**
+    *   **Security Review:** Independent Security Engineer reviews Lane A (crypto, DB migration) and Lane C (audit integrity).
+    *   **Code Review:** Senior Reliability Engineer reviews Lane B and integration logic.
+    *   *Rule:* Builder of Lane A cannot review Lane A.
+
+#### 3. Landing & Rollout
+*   **G7 (Integrate):** Merge to `main` behind a feature flag (`2FA_ENABLED=false`). This triggers the 45-minute CI pipeline once.
+*   **G8 (Release - Human Gated):**
+    *   **Decision:** Requires dual approval (Shift Lead + Security Officer) via the change board.
+    *   **Phased Rollout:**
+        1.  Enable flag for 5% of admins (non-critical staff) during low-traffic window.
+        2.  Monitor audit logs and incident response times for 24 hours.
+        3.  Enable for all admins with a 7-day grace period enforced by the backend.
+    *   **Constraint:** No changes during declared major incidents.
+*   **Rollback Plan:**
+    *   *Scenario:* Critical failure in login or audit logging.
+    *   *Action:* Flip feature flag `2FA_ENABLED=false` (instant).
+    *   *Deep Rollback:* If DB corruption occurs, execute the 4-hour database restore procedure (last resort).
+
+#### 4. Risks & Mitigations
+*   **Lockout Risk:** Recovery keys are mandatory during enrollment. If lost, only the Security Officer can reset via a verified offline process.
+*   **Audit Race Condition:** Lane C must implement a retry mechanism or queue-based write for audit logs to prevent data loss during spikes.
+*   **Compliance Deadline:** The 7-day grace period ensures full compliance before the review date, even if rollout starts late.
+
+**Next Step:** Draft the technical spec (G1) detailing the crypto library choice and DB migration script for Security Officer approval.

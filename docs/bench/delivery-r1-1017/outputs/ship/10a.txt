@@ -1,0 +1,68 @@
+**Delivery Plan: GDPR-Compliant Export Filter**
+
+**Objective:** Strip patient names/SSNs and add `anonymized` header for `Region-Nordic` tenants only; verify US reports remain unaffected. Deadline: Thursday noon.
+
+### Lanes & Serialization
+
+**Lane 1: Specification & Test Design (Product Analyst + Security)**
+*   **Work:** Define exact regex/masking logic for SSNs/names. Draft acceptance criteria: "Nordic export contains `anonymized:true`, no PII"; "US export unchanged."
+*   **Output:** Testable spec + test cases for Nordic/US paths.
+*   **Parallelism:** Runs immediately. Must complete before Lane 2.
+
+**Lane 2: Implementation (Builder)**
+*   **Work:** Modify `BillingCore/ReportGenerator`. Implement region check (`Region-Nordic`), masking logic, and header flag. Add unit tests for both regions.
+*   **Constraint:** Work in isolated worktree. Do not touch US logic paths except for regression tests.
+*   **Parallelism:** Starts after Lane 1 spec approval.
+
+**Lane 3: Independent Verification (QA)**
+*   **Work:** Execute functional tests on the exact build SHA from Lane 2.
+*   **Constraint:** Run `patient_masking` check under <50 concurrent users to avoid flake. Verify CSV content manually or via script.
+*   **Serialization:** Must wait for Lane 2 build. Runs *after* local unit tests pass, *before* full CI.
+
+**Lane 4: Compliance Review (Compliance Officer)**
+*   **Work:** Review diff and test evidence for GDPR adherence.
+*   **Constraint:** Scheduled for Tuesday/Thursday. **Critical Path.**
+*   **Serialization:** Blocks merge. Must be booked for Tuesday review to meet Thursday deadline.
+
+### Gates & Checks
+
+*   **G1 Spec:** Analyst confirms scope covers only `Region-Nordic`.
+*   **G4 Implement:** Builder commits to `feature/gdpr-nordic-export`. Base SHA recorded.
+*   **G5 Verify (Local/Staging):**
+    *   Run unit tests (fast).
+    *   Run staging integration with sanitized data. **Action:** Limit load to <50 users to prevent `patient_masking` flake.
+    *   **Evidence:** CSV samples showing masked Nordic data, unmasked US data, and `anonymized` header.
+*   **G6 Review:**
+    *   **Code:** Lead Backend Engineer reviews logic isolation.
+    *   **Compliance:** Compliance Officer verifies PII removal (Tuesday slot).
+    *   **CI:** Run full regression suite **once** on the candidate SHA. Do not re-run on merge if SHA is unchanged.
+*   **G7 Integrate:** Merge to `main` only after G6 green.
+
+### Review Strategy
+
+*   **Builder:** Implements change. Never self-approves.
+*   **Lead Backend Engineer:** Reviews code structure, ensuring `ReportGenerator` changes do not bleed into US logic. Independent of Builder.
+*   **Compliance Officer:** Reviews functional outcome (data stripping). Independent of Builder and Lead Engineer.
+*   **QA:** Validates runtime behavior on staging. Independent of Builder.
+
+### Landing & Human Decisions
+
+**Merge Strategy:**
+1.  **Pre-Merge:** Ensure Compliance Officer approval is attached to PR (Tuesday review).
+2.  **CI:** Trigger full regression (45 mins) only once on the final PR SHA.
+3.  **Human Gate (Deploy):** Production deploy is **irreversible** without full DB restore. Requires explicit approval from Lead Backend Engineer post-G6.
+4.  **Rollback:** If production fails, immediate rollback requires restoring from nightly backup. No hotfix path for data corruption.
+
+**Critical Path Risks:**
+*   **Compliance Schedule:** If Tuesday review is missed, Thursday deadline is at risk. Book slot immediately.
+*   **Flaky Test:** If `patient_masking` fails in CI due to load, retry with limited concurrency; do not treat as code failure.
+*   **Cost:** One full CI run per candidate. Avoid rebasing/re-running unless logic changes.
+
+**Execution Order:**
+1.  Finalize Spec (Lane 1).
+2.  Implement & Unit Test (Lane 2).
+3.  Local/Staging Verify (Lane 3) → Ensure <50 users.
+4.  Submit PR.
+5.  **Tuesday:** Compliance Review (Lane 4) + Lead Backend Review.
+6.  Run CI (45 mins).
+7.  **Thursday AM:** Human Deploy Approval → Deploy → Verify production header/PII status.

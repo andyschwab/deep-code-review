@@ -1,0 +1,53 @@
+### Delivery Plan: 90-Day Archive & Purge Cycle
+
+**Scope:** Implement automated lifecycle management for patient logs (90-day archive, 365-day purge) with audit reporting and zero downtime.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Logic & Transfer):** Implement the archival script (hot → cold) and purge logic (cold → delete). Must include atomic transfer validation to prevent mid-transfer data loss.
+    *   *Constraint:* Silent execution; suppress alerts for expected deletions.
+    *   *Parallelism:* Can run parallel to Lane B.
+*   **Lane B (Reporting & Scheduling):** Develop the daily summary report (moved vs. purged counts) and configure the 03:00 cron/scheduler trigger.
+    *   *Constraint:* Report must be generated post-execution.
+    *   *Parallelism:* Independent implementation, but integration testing requires Lane A.
+*   **Lane C (Config & Guardrails):** Update `global-rules.json` to allow the new process, ensuring edits occur outside 08:00–18:00 business hours.
+    *   *Serialization:* Must be merged and deployed before Lane A/B logic goes live in production.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define acceptance criteria: "Records >90d move; >365d delete; daily report generated; no downtime." Pin base SHA.
+*   **G3 Design:** Architect atomic transfer mechanism (write to cold, verify checksum, then unlink hot). Define alert suppression rules to distinguish "expected purge" from "error."
+*   **G4 Implement:**
+    *   Code changes in isolated worktrees.
+    *   Unit tests for date logic and failure recovery (simulated partial failure).
+    *   **Check:** Run CI only on final commit per lane to avoid $12/run waste. Ignore network latency flake if logs confirm connectivity.
+*   **G5 Verify:**
+    *   **Exact Revision:** Deploy to staging with a snapshot of production data.
+    *   **Run:** Execute full cycle at 03:00 simulated time.
+    *   **Validate:** Confirm record counts match expectations, report accuracy, and zero downtime metrics.
+*   **G6 Review:**
+    *   **Security/Compliance:** Independent review of deletion irreversibility and audit trail integrity.
+    *   **Code:** Peer review (not self-review).
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lane A, B, C.
+*   **Reviewer 1 (Technical):** Senior Engineer (independent of Builder) reviews code quality, error handling, and atomicity.
+*   **Reviewer 2 (Compliance):** Compliance Officer verifies that the 365-day purge meets "no recovery" mandates and audit reports are accurate.
+*   **Constraint:** Builder never approves their own merge.
+
+#### 4. Landing & Human Decisions
+*   **Integration:** Merge Lanes A, B, C into a single integration branch. Run full CI suite (45 mins) once on the combined SHA.
+*   **Human Gate (Dual Approval):**
+    *   **Who:** Lead Engineer AND Compliance Officer.
+    *   **When:** Before merging to `main`/production branch.
+    *   **Action:** Approve via internal portal.
+*   **Deployment:**
+    *   Schedule config change (`global-rules.json`) outside 08:00–18:00.
+    *   Deploy code during low-traffic window.
+*   **Rollback Plan:**
+    *   **Trigger:** Data mismatch in audit report or failed transfer verification.
+    *   **Action:** Revert deployment immediately. Since deletion is irreversible, the rollback restores service but cannot recover purged data; thus, G5 staging verification is critical.
+    *   **Fallback:** Disable the 03:00 job manually if the script misbehaves in prod.
+
+**Risk Mitigation:**
+*   **Partial Failure:** Script must log progress; on restart, it resumes from the last verified checkpoint, preventing data loss.
+*   **Flaky Check:** CI pipeline configured to bypass network latency failure if connectivity logs are present.
+*   **Cost:** Minimize CI runs by validating locally and squashing commits before pushing.

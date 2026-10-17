@@ -1,0 +1,64 @@
+**Delivery Plan: Stabilize Checkout V2 E2E Suite**
+
+**Objective:** Eliminate flakiness in `HappyPath_Checkout` caused by resource contention with Inventory sync jobs and stale data, enabling merge queue resumption by Friday without disabling compliance coverage.
+
+### 1. Lanes & Parallelism
+
+**Lane A: Root Cause Isolation (Serial Pre-requisite)**
+*   **Actor:** Senior SDET (Builder).
+*   **Work:** Reproduce the race condition locally using containerized simulation of the barcode scanner and Inventory sync. Confirm the 10-second reset window collision and database state conflicts.
+*   **Dependency:** None. Must complete before Lane B.
+*   **Output:** Diagnostic log proving the scanner lock contention and DB dirty-state failure mode.
+
+**Lane B: Infrastructure & Test Harness Fix (Parallelizable after A starts)**
+*   **Actor:** DevOps Engineer (Builder).
+*   **Work:** Implement a mutex/lock mechanism in the CI pipeline for the barcode simulator resource. Modify the test harness to inject a fresh, isolated database snapshot per job run instead of relying on the nightly refresh.
+*   **Dependency:** Requires findings from Lane A to target the correct lock primitive.
+*   **Parallelism:** Can run concurrently with Lane C once the lock strategy is defined.
+
+**Lane C: Test Logic Hardening (Parallelizable)**
+*   **Actor:** QA Automation Engineer (Builder).
+*   **Work:** Refactor `HappyPath_Checkout` to explicitly wait for the scanner "ready" signal rather than using fixed timeouts. Add pre-flight checks to abort cleanly if the Inventory sync job holds the lock, ensuring retries are intelligent, not blind.
+*   **Dependency:** None, but coordinates with Lane B on the locking protocol.
+
+**Serialization Constraint:** Lane A must validate the hypothesis before Lane B commits infrastructure code. Lanes B and C can proceed in parallel once the lock strategy is agreed upon.
+
+### 2. Gates & Checks
+
+*   **G1 Spec (Immediate):** Define the locking protocol and DB isolation strategy. Pin base SHA to current `main`.
+*   **G4 Implement:**
+    *   **Revision:** Each lane commits to its own isolated worktree/branch.
+    *   **Check:** Unit tests for the new locking logic must pass locally.
+*   **G5 Verify (Critical):**
+    *   **Revision:** Exact merge commit of Lanes B+C on a throwaway integration branch.
+    *   **Action:** Run the full suite *with* concurrent Inventory sync jobs triggered artificially.
+    *   **Success Criteria:** 10 consecutive green runs without manual intervention. No payment gateway rate limits hit (verified by mock/sandbox logs).
+    *   **Constraint:** Do not run against the shared staging environment until local simulation proves stability to avoid rate-limit lockout.
+*   **G6 Review:**
+    *   **Reviewer:** Independent Staff Engineer (not involved in implementation).
+    *   **Scope:** Full diff + G5 receipts. Focus on whether the mutex prevents race conditions without introducing deadlocks.
+
+### 3. Landing & Human Decisions
+
+**Merge Strategy:**
+1.  **Integration:** Merge Lanes B and C into a staging branch. Run the full pipeline ($45 cost).
+2.  **Human Gate (Jane Smith Substitute):** Since Jane Smith is on leave, the plan requires a **temporary delegation**.
+    *   *Action:* Prepare a brief for the Acting Senior Manager (or Jane's designated delegate) detailing the fix, the G5 success receipts (10/10 green runs), and the compliance impact.
+    *   *Decision:* Approval to merge to `main` and waive the "Jane Smith only" bypass rule for this specific emergency fix, documented in the commit message.
+3.  **Deployment:** Merge to `main` triggers the holiday pricing update pipeline.
+
+**Rollback Plan:**
+*   **Trigger:** If `HappyPath_Checkout` fails post-merge in production monitoring or the first scheduled post-deploy run.
+*   **Action:** Immediate revert of the merge commit.
+*   **Fallback:** Enable a feature flag to decouple Checkout V2 from the new locking mechanism (if implemented behind a flag) or revert to the previous stable test runner configuration while keeping the code change, pending further investigation.
+
+**Timeline:**
+*   **Day 1:** Lane A diagnosis, Lanes B/C design.
+*   **Day 2:** Implementation and local verification.
+*   **Day 3:** G5 rigorous verification (10 runs) and Independent Review.
+*   **Day 4:** Human approval and Merge.
+*   **Day 5:** Buffer for rollback/retry if needed to meet Friday deadline.
+
+**Risk Mitigation:**
+*   **Rate Limits:** All verification uses mocked payment gateways or cached responses until the final candidate is ready.
+*   **Cost:** Limit full $45 runs to the final integration candidate; use lightweight unit/integration tests for iterative development.

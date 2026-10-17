@@ -1,0 +1,27 @@
+### Delivery Plan: Payment Gateway Timeout Hotfix
+
+**Lanes & Parallelism**
+*   **Lane A (Preparation):** Isolate the fix. Create `hotfix/payment-timeout` strictly from `v2.4.0-stable` (last week's tag). Cherry-pick *only* the connection pool adjustment commit validated in staging. Verify via `git diff` that no schema changes from the pending platform overhaul are present.
+*   **Lane B (Configuration):** Since the DB config is manually versioned, the On-Call Lead must immediately draft the corresponding config update ticket and prepare the manual config snippet to be applied during deployment. This runs parallel to Lane A's code prep but must be ready before the final merge.
+*   **Serialization Point:** Lane A cannot proceed to final review until Lane B confirms the config snippet matches the cherry-picked code logic.
+
+**Gates & Checks**
+*   **Revision Control:** All checks run exclusively on the `hotfix/payment-timeout` branch head.
+*   **CI Pipeline:** Trigger the full regression suite once. To avoid credit waste, ensure no other commits are pushed during the 40-minute run.
+*   **Flaky Test Gate:** Upon CI completion, if the "third-party latency" check fails, the On-Call Lead must manually override this specific gate immediately. Do not re-run the suite.
+*   **Content Gate:** A Senior Architect must verify the commit list contains exactly one feature commit (the pool adjustment) and zero schema modifications.
+
+**Review Process**
+*   **Primary Review:** Two members of the Senior Architecture Council must perform independent code reviews. They are reviewing *only* the diff between `v2.4.0-stable` and `hotfix/payment-timeout`.
+*   **Independence:** Reviewers must not coordinate their findings until both have submitted approval. This ensures two distinct sets of eyes verify the absence of the breaking schema changes.
+*   **Config Review:** The On-Call Lead reviews the manual config snippet (Lane B) against the code change.
+
+**Landing Strategy**
+*   **Merge:** Once both Council approvals are recorded and CI is green (with the flaky gate overridden if necessary), merge `hotfix/payment-timeout` into `main`. Because `main` is protected, the merge requires the two recorded approvals.
+*   **Deployment:** Deploy immediately post-merge. The Operations team applies the manual config update (from Lane B) simultaneously.
+*   **Human Decisions Required:**
+    1.  **On-Call Lead:** Authorization to override the flaky latency test gate.
+    2.  **Executive Sign-off:** Required *only* if the deployment fails and a full database restore is needed (rollback scenario).
+*   **Rollback:** If transaction timeouts persist or errors spike post-deployment, do not attempt a code revert immediately. Since production deployments are irreversible without a restore, the immediate mitigation is to route traffic away from the updated nodes if possible, or prepare for the executive decision to trigger a full database restore to the pre-deployment state.
+
+**Timeline Constraint:** All steps, including the 40-minute CI window and dual reviews, must complete before the end of the business day. If the CI run or reviews threaten this deadline, the On-Call Lead must decide whether to deploy with only one approval (if policy allows emergency bypass) or delay until morning.

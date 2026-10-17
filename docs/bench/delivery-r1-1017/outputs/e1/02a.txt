@@ -1,0 +1,54 @@
+### Delivery Plan: Seasonal Trend Filter
+
+**Scope & Constraints**
+*   **Goal:** Add "Seasonal View" toggle to overlay last year's data; persist state via URL/local storage.
+*   **Constraints:** Visualization library frozen (v2.4); CI costs $45/55m (minimize runs); Linux screenshot flakiness (avoid animation frames in CI); Enterprise urgency.
+*   **Appetite:** 2 days max.
+
+#### Lanes & Parallelism
+*   **Lane A (Data & Logic):** Implement date-mapping algorithm to fetch/align previous year's data points. *Writer: Backend/Data Engineer.*
+*   **Lane B (UI & State):** Build toggle component, integrate overlay rendering using existing frozen lib APIs, and implement state persistence. *Writer: Frontend Engineer.*
+*   **Lane C (Verification - Independent):** Draft acceptance criteria, prepare manual test script for low-res screens, and record the required browser session video. *Writer: QA Specialist (Not Lane B).*
+*   **Serialization:** Lane A and B run in parallel on separate worktrees. Lane C begins only after A+B merge to integration branch.
+
+#### Gates & Checks
+*   **G0/G1 (Intake/Spec):** Confirm exact date logic (e.g., handling leap years) with Product Lead. Define "low-resolution" thresholds.
+*   **G2 (Plan):** Freeze base SHA. Set lane budgets (max 2 CI runs per lane).
+*   **G3 (Design):** ADR confirming no changes to the frozen visualization library; state persistence mechanism (URL params vs. LocalStorage).
+*   **G4 (Implement):**
+    *   Unit tests for date mapping (Lane A).
+    *   Component tests excluding animation frames (Lane B).
+    *   **Check:** Local build + lint + type check.
+*   **G5 (Verify):**
+    *   **Local Stack:** Bring up dev server. Verify toggle renders overlay correctly.
+    *   **Browser Evidence:** QA executes manual script on staged build; records video on target resolution. *Unit tests alone are insufficient for UI gate.*
+    *   **CI Strategy:** Run full suite **once** on the merged candidate SHA. Configure screenshot check to ignore animation frames or use static snapshots to bypass Linux flakiness.
+*   **G6 (Review):**
+    *   **Code:** Independent review by Senior Frontend (not Lane B).
+    *   **Product:** Approval from Product Lead on visual fidelity.
+    *   **Accessibility:** Mandatory sign-off from Accessibility Champion (keyboard nav, screen reader labels for toggle).
+*   **G7 (Integrate):** Merge to `main`. Re-run affected CI gates on final SHA.
+
+#### Landing & Human Gates
+*   **Merge Strategy:** Train land. Lanes A and B merge to a feature branch, then to `main` only after G6 approvals.
+*   **Human Decisions Required:**
+    1.  **Product Lead:** Approves spec (G1) and visual output (G6).
+    2.  **Accessibility Champion:** Mandatory sign-off (G6).
+    3.  **VP of Engineering:** Manual production sign-off (G8) during business hours.
+*   **Deployment:**
+    *   **Staging:** Auto-deploy post-merge (G7).
+    *   **Production:** Manual trigger by VP after verifying staging video evidence.
+*   **Rollback:**
+    *   Feature flag the toggle. If overlay causes performance regression or rendering errors in production, flip flag off immediately.
+    *   Code revert requires VP approval if post-deploy.
+
+#### Risk Mitigation
+*   **CI Cost/Time:** Only one full CI run per candidate SHA. Local verification is primary for iterative dev.
+*   **Flaky Tests:** Explicitly exclude animation frames from screenshot comparisons; rely on QA video evidence for visual proof.
+*   **Library Freeze:** Strict adherence to existing v2.4 APIs; no version bumps.
+
+**Output Contract:**
+*   Patch sets for Lane A and B.
+*   QA video artifact (MP4) showing toggle interaction on low-res screen.
+*   Verified SHA with green CI (excluding known flake).
+*   Rollback plan documented in PR body.

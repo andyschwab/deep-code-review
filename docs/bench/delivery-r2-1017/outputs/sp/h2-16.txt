@@ -1,0 +1,68 @@
+### Delivery Plan: Core Billing Module Strict Type Checking
+
+**Objective:** Enable strict type checking by next Friday, resolving 3,000 violations while maintaining build stability and documenting legacy exemptions.
+
+#### 1. Work Lanes & Parallelization
+
+*   **Lane A: Configuration & Infrastructure (Owner: DevOps Engineer)**
+    *   **Task:** Optimize the CI validation step to prevent 25-minute timeouts. Implement incremental type checking or caching strategies to reduce the 18-minute overhead.
+    *   **Parallel:** Runs concurrently with Lane B.
+    *   **Dependency:** Must complete before Gate 2.
+
+*   **Lane B: Code Remediation (Owner: Payments Squad Lead)**
+    *   **Task:** Systematically resolve 3,000 implicit `any` violations in `services/billing-core`.
+    *   **Legacy Handling:** For high-risk legacy payment gateway wrappers, apply specific `@ts-ignore` or configuration exemptions *only* where refactoring risks downtime.
+    *   **Documentation:** Generate a machine-readable suppression list mapping every exemption to a ticket ID or risk justification.
+    *   **Parallel:** Runs concurrently with Lane A.
+
+*   **Lane C: Stability Verification (Owner: QA Automation)**
+    *   **Task:** Isolate and stabilize the flaky network test suite. Create a retry mechanism or mock layer to prevent false negatives during type definition shifts.
+    *   **Serialization:** Must run after every major batch of fixes in Lane B.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Local Validation (Pre-Commit)**
+    *   **Revision:** Feature branch head.
+    *   **Check:** Run optimized strict check locally. Ensure zero new runtime errors.
+    *   **Owner:** Implementer.
+
+*   **Gate 2: Suppression Review (Tuesday Meeting)**
+    *   **Revision:** Candidate release branch.
+    *   **Check:** Review the generated suppression list line-by-line. Verify every legacy exemption has a documented justification.
+    *   **Owner:** Requester & Payments Squad Lead.
+    *   **Constraint:** No code committing regarding exemptions until this list is signed off.
+
+*   **Gate 3: CI Stability Run**
+    *   **Revision:** Post-review merge candidate.
+    *   **Check:** Full CI pipeline including the optimized 18-minute strict check and the stabilized network tests.
+    *   **Constraint:** Requires manual retry logic if network tests fail initially. Must complete under 25 minutes.
+    *   **Owner:** CI System + QA.
+
+#### 3. Review Process
+
+*   **Independent Code Review:**
+    *   **Reviewer:** Senior Engineer from a different squad (not Payments Squad) to ensure objectivity regarding technical debt.
+    *   **Focus:** Verify that "fixes" are actual type corrections, not blanket suppressions. Confirm the shared validation library remains untouched.
+    *   **Timing:** After Gate 2 approval, before Gate 3.
+
+*   **Compliance Audit Check:**
+    *   **Reviewer:** Compliance Officer (automated check via audit log simulation).
+    *   **Focus:** Ensure the configuration change does not trigger an irreversible audit alert prematurely. Verify documentation completeness.
+
+#### 4. Landing Strategy
+
+*   **Merge Window:** Wednesday (Production Deployment Day).
+*   **Approvals Required:**
+    1.  Independent Code Review sign-off.
+    2.  Requester confirmation of Tuesday's suppression list.
+    3.  **Jane Smith's** explicit sign-off for Production deployment.
+*   **Deployment Steps:**
+    1.  Merge to main branch Wednesday morning.
+    2.  Trigger deployment pipeline.
+    3.  Monitor audit logs immediately post-deploy.
+*   **Rollback Plan:**
+    *   **Constraint:** Reverting configuration triggers an irreversible compliance alert.
+    *   **Mitigation:** If critical failure occurs, do *not* revert immediately. Instead, deploy a "hotfix" branch that temporarily relaxes strictness rules via a new config commit (forward-fix), then investigate. The irreversible alert is only for direct reverts; a forward-fix avoids this trigger while restoring service.
+    *   **Decision Point:** Jane Smith must authorize the forward-fix strategy if production breaks.
+
+**Risk Note:** The shared validation library is frozen. If strict typing reveals errors originating from there, they must be suppressed in `services/billing-core` with a documented VP-approval placeholder, not by modifying the library.

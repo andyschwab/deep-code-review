@@ -1,0 +1,29 @@
+**Decision Memo: Proceed with Parallel Shadow-System Architecture**
+
+The only viable path to meet the January 20th deadline without violating the legal constraint on schema changes or risking data corruption is to build a parallel, real-time ingestion layer that operates alongside the legacy system, rather than attempting to modify the core database directly.
+
+**Figures:**
+*   **Timeline:** Today to Jan 20th (~6–8 weeks depending on current date).
+*   **Capacity:** 7 developers × 8 weeks = ~224 developer-days available.
+*   **Load:** 25,000 shipments/day = ~1,042 records/hour. This is well within the throughput of modern streaming tools, confirming the bottleneck is architectural, not volume.
+*   **Downtime Budget:** 5 minutes/day. A "big bang" migration exceeds this risk profile; a parallel run reduces cutover downtime to <60 seconds.
+
+**Strategic Decisions (Director Ownership)**
+You must resolve these immediately to unblock the team:
+1.  **Compliance Reporting Strategy:** Decide if the regulatory report will be generated from the new parallel system (recommended for speed) or if a nightly batch job must synthesize data from both legacy and new systems for a single source of truth. *Recommendation: Generate from the new system to ensure real-time capability, using the legacy system only as a read-only archive.*
+2.  **Risk Acceptance for Data Reconciliation:** Authorize a "dual-write" validation period where every shipment is logged in both systems for 72 hours prior to cutover. You must formally accept the cost of this redundancy as the insurance policy against data corruption.
+3.  **Vendor vs. Build for Ingestion:** Approve the use of a managed cloud streaming service (e.g., Kafka/Kinesis) to handle the 25k daily events, rather than building custom polling logic, to ensure reliability within the team's capacity.
+
+**Technical Tasks (Team Ownership)**
+Once you approve the strategy above, the seven developers will execute:
+1.  **Build the Ingestion Adapter:** Create a microservice that intercepts shipment data at the source (before it hits the legacy DB) and pushes it to the new real-time store.
+2.  **Develop the Real-Time Store:** Stand up a new, compliant database schema optimized for time-series temperature data (no legal approval needed as this is new infrastructure, not a change to the legacy schema).
+3.  **Implement the "Shadow Mode" Validator:** Write scripts to compare legacy 6-hour logs against the new real-time stream to detect drift without altering legacy data.
+4.  **Construct the Dashboard Layer:** Build the frontend view for regulators using only the new data store.
+5.  **Execute the Cutover Plan:** Script the final switch-over to route read-requests to the new system during a non-business hour window in the primary time zone to meet the 5-minute downtime constraint.
+
+**First Concrete Move (Today)**
+**Instruct the lead developer to provision a isolated sandbox environment and ingest a sample of 1,000 historical shipments into a new time-series database format.** Do not touch the production legacy system. This proves the new schema can hold the data and that the team can access the source feeds without triggering the legal approval process for schema alteration.
+
+**Halt Trigger:** If the sample ingestion reveals that source data lacks the granularity required for real-time tracking (e.g., timestamps are only generated at hub arrival, not during transit), stop all development and escalate to logistics operations immediately.
+**Fallback Trigger:** If the legal team rejects the "parallel system" approach by [Date: 3 days from now], revert to a manual compliance workaround plan involving increased human spot-checks while negotiating an emergency waiver.

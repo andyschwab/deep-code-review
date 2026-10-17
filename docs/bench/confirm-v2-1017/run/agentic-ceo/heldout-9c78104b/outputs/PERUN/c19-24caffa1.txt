@@ -1,0 +1,38 @@
+**DECISION: HALT THE 6 AM CUTOVER.**
+
+The constraint "rolling back is impossible without canceling all confirmed stays" combined with "zero downtime" and "no data loss" creates a mathematical impossibility for a same-night migration of 450 hotels without a prior dry-run proving the rollback strategy. Proceeding tonight risks total business continuity failure. The plan must shift from "migrate tonight" to "stabilize current system and execute a verified cutover window later."
+
+**Figures:** 450 hotels × ~200 rooms/hotel × 48 hours of volatile data = ~4.3 million transactional states requiring perfect synchronization. Stated tolerance: 0 records lost. Probability of success without a rehearsed, reversible cutover script: <1%.
+
+**Immediate 8-Hour Structure (Crisis Stabilization Mode):**
+
+1.  **Hours 0–2: Triage & Containment (All Hands)**
+    *   **Database Specialists:** Stop all migration scripts. Audit the current production database for locks, replication lag, or corruption caused by previous load tests. Verify the integrity of the last 48 hours of bookings.
+    *   **Frontend Team:** Implement a "Maintenance Mode" banner *only* if the current system is actively crashing. If stable, disable non-essential features (reviews, profile edits) to reduce load. Prepare static fallback pages for critical paths (check-in/out).
+    *   **You (Engineering Lead):** Declare a "Code Freeze." No new deploys to production or staging until the cutover plan is rewritten.
+
+2.  **Hours 2–5: The "Reversible" Plan (Architects + DB Leads)**
+    *   **Task:** Design a cutover mechanism that *does not* require canceling stays to roll back. This usually implies a dual-write period or a read-only fallback mode where the old system serves data while the new system catches up.
+    *   **Decision Required:** You must authorize a "Degraded Mode" protocol. If the new system fails, can we accept read-only access to bookings (no new changes) on the old system for 24 hours? If the answer is "no," the migration cannot happen tomorrow.
+
+3.  **Hours 5–8: Verification & Communication**
+    *   **Database Specialists:** Run the data validation suite on a *clone* of production, not live. Verify row counts and checksums for the last 48 hours.
+    *   **Frontend Team:** Draft customer communication templates for "scheduled maintenance" (honest but reassuring) in case a delayed window is needed.
+    *   **You:** Present the revised timeline to leadership. Negotiate a 24–48 hour delay to perform one full dry-run of the rollback.
+
+**Delegation Matrix:**
+
+*   **Database Specialists:** Own data integrity. Their only KPI is "zero divergence" between source and target during the dry-run. They must write the script that proves we can revert without data loss.
+*   **Frontend Team:** Own user perception. Their task is to ensure that even if the backend is struggling, the user sees a clear, honest status and cannot perform actions that would create orphaned records. They prepare the "circuit breaker" UI.
+
+**Decisions You Must Make Now:**
+
+1.  **Fallback Protocol:** Authorize a "Read-Only Fallback." If the new system fails, the old system becomes read-only. Users can view bookings but not modify them. This prevents the "cancel all stays" scenario. If you cannot authorize this, you must delay the launch.
+2.  **Launch Window:** Move the cutover to a lower-traffic window (e.g., 3 AM–5 AM) *after* a successful dry-run, likely pushing the go-live to the following night.
+3.  **Communication:** Approve a pre-emptive notice to stakeholders that "system hardening" is occurring, managing expectations before a crisis becomes public.
+
+**First Concrete Action:**
+Order the Database Lead to **terminate all active migration processes immediately** and produce a signed statement confirming the current production database is stable and locked for writes only from the application layer (no background jobs). Do not write another line of migration code until the rollback strategy allows for data preservation without cancellation.
+
+*Note: This plan prioritizes business survival over the arbitrary 6 AM deadline. A failed migration with no rollback is an existential threat; a delayed launch is an operational inconvenience.*
+*The "impossible rollback" constraint dictates that speed is irrelevant; only verifiable reversibility matters.*

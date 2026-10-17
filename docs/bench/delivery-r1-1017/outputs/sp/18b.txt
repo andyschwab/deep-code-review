@@ -1,0 +1,30 @@
+### Delivery Plan: Loyalty Tier SMS Template Update
+
+#### 1. Lanes and Parallelism
+Work is divided into three lanes to maximize parallel efficiency while respecting serialization constraints.
+
+*   **Lane A (Configuration & Legal):** Extracts new point thresholds and approved legal copy (including opt-out phrasing) from the configuration service and legal documents. This lane produces a read-only data manifest.
+*   **Lane B (Logic Implementation):** Updates the template logic in the messaging service to consume the new thresholds dynamically rather than using hardcoded values. This work occurs in a feature branch isolated from `main`.
+*   **Lane C (Safety Harness):** Develops a local verification script that mocks the carrier gateway. This script asserts that no outbound network calls reach production phone numbers during local testing.
+
+**Serialization:** Lane B cannot finalize until Lane A provides the exact threshold values. Lane C runs parallel to A and B but must be integrated before any pipeline execution.
+
+#### 2. Gates and Checks
+All checks run on the specific feature branch commit prior to any merge attempt.
+
+*   **Gate 1: Dual Sign-Off Trigger:** Before modifying the shared read-only configuration file, a pull request is opened specifically for this file. It requires explicit approval from both the Engagement Squad Lead and the Billing Team Lead. No code merge proceeds without this metadata tag.
+*   **Gate 2: The "No-Leak" Verification:** The CI pipeline is triggered only after Lane C's mock script is committed. The pipeline's 45-minute carrier simulation run is mandatory. Success is defined as the simulation completing without attempting to contact any number not explicitly whitelisted in the test fixture.
+*   **Gate 3: Flaky Test Handling:** The known timezone conversion test failure is documented in the PR description as a non-blocker. If this specific test fails while all others pass, the build is considered green for review purposes, provided the failure signature matches the known false positive pattern.
+
+#### 3. Review Process
+Reviews are strictly independent to prevent groupthink on compliance risks.
+
+*   **Code Review:** Performed by a senior engineer from a squad *other* than Engagement or Billing to ensure unbiased scrutiny of the template logic and the safety harness.
+*   **Compliance Review:** The final rendered message templates (generated from the new logic and config) are sent to the Legal/Compliance team for exact string matching against the approved text. This is a manual, out-of-band check.
+*   **Operational Review:** The VP of Customer Experience reviews the deployment plan and the "No-Leak" verification logs. This review happens on Friday morning to meet the deployment window.
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:** Once Gate 1 and Gate 2 are passed, the feature branch is merged to `main`.
+*   **Deployment Window:** Deployment to production occurs strictly on Friday, contingent on the VP of Customer Experience's explicit approval. No Thursday or weekend deployments are permitted.
+*   **Human Decision Point:** The VP must manually authorize the production push. Automated deployment is disabled for this service on Fridays.
+*   **Rollback Protocol:** Since production message batches are irreversible, "rollback" means immediately disabling the template trigger in the feature flag system and reverting the configuration reference to the previous stable version. A pre-drafted apology communication template will be prepared but held in reserve, only to be used if a leak is detected post-deployment. There is no technical way to recall sent messages; damage control is purely procedural.

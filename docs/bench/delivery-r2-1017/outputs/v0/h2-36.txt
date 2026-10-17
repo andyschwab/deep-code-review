@@ -1,0 +1,38 @@
+**Delivery Plan: Billing Service Vulnerability Mitigation**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Design):** Product Analyst and Security define the exact attack vector and the required input validation schema or proxy contract. *Output:* A testable spec and ADR detailing the mitigation pattern (proxy vs. validation layer). **Must complete first.**
+*   **Lane B (Implementation):** Builder implements the mitigation in an isolated worktree based on Lane A's spec. No direct library modification. Includes unit tests for the validation logic. **Starts after G1.**
+*   **Lane C (Security Verification):** Security team prepares a targeted attack script against the proposed mitigation logic (not the live service yet). **Starts after G1, runs parallel to Lane B.**
+*   **Lane D (Cost/Flake Analysis):** QA analyzes the flaky network tests to isolate them, ensuring the CI run for this specific change does not trigger the 55-minute full suite unnecessarily. **Starts immediately, must finish before G5.**
+
+**Serialization:** Lane A blocks B and C. Lane D must complete before the final integration test (G5) to avoid costly retries. B and C run in parallel.
+
+**2. Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Owner approves the mitigation approach (proxy vs. validation) and the specific attack vectors to block. *Exact Revision:* Main branch head at ticket start.
+*   **G2 (Plan):** Confirm Lane D's test isolation strategy to prevent CI waste. Confirm Security (Lane C) has the exact revision hash of Lane B's branch before testing begins.
+*   **G3 (Design):** ADR signed off by Security. Explicitly states no third-party code was modified.
+*   **G4 (Implement):** Builder commits code + unit tests. *Exact Revision:* The specific commit SHA of the mitigation branch.
+*   **G5 (Verify):**
+    *   Run isolated unit/integration tests (excluding flaky network tests identified in Lane D).
+    *   **Security Gate:** Security runs Lane C's attack script against the built artifact in a contained environment. Since staging lacks the fraud gateway, verification is limited to the input validation layer's rejection of malicious payloads.
+    *   *Condition:* Green build + Security attack script fails (meaning mitigation works).
+*   **G6 (Review):** Independent review by a senior engineer (not the Builder) and a second Security member. They review the diff against the G1 spec and G5 receipts.
+*   **G7 (Integrate):** Merge to the integration branch. Re-run the specific affected test suite on the final merge SHA.
+
+**3. Review Strategy**
+*   **Code Review:** Senior Engineer (independent of Builder). Focus: Logic correctness, no side effects on Payments/Invoicing.
+*   **Security Review:** Second Security Member (independent of Lane C). Focus: Does the mitigation actually close the vector? Is the "no fork" rule strictly followed?
+*   **Constraint:** Builder never reviews their own code. Security verifier (Lane C) never approves their own test script.
+
+**4. Landing & Human Decisions**
+*   **Merge:** Automated merge to the integration branch upon G6 approval.
+*   **Human Gate (Deployment):** Requires dual approval from Platform Lead and Chief Security Officer.
+    *   *Action:* Present the G5 Security Receipt (attack script failure) and G6 Review summary.
+    *   *Decision:* Explicit "Deploy" command required. No auto-deploy.
+*   **Rollback Plan:**
+    *   Trigger: If production logs show valid transactions being rejected (false positives) or new error spikes.
+    *   Action: Immediate revert of the merge commit.
+    *   *Consequence:* Acknowledge the automatic 4-hour freeze on finance services. The revert command itself requires one of the two original approvers.
+
+**Risk Note:** Staging cannot validate end-to-end security due to missing fraud gateway. Production deployment is the true verification. Mitigation is temporary; a follow-up ticket for the vendor patch is mandatory (G10).

@@ -1,0 +1,70 @@
+### Delivery Plan: Tenant-Specific PII Exclusion
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Dynamic filtering of `driver_name` and `license_plate` in nightly exports based on tenant compliance tier, with immutable audit logging.
+*   **Constraints:** Output format unchanged; filtering before temp storage; no irreversible writes to cold storage during dev; synthetic test data limitations.
+*   **Appetite:** 3 days max. ISO audit deadline is hard.
+
+**G2 Plan: Work Lanes**
+*   **Lane A (Logic & Filtering):** Implement tenant-tier check and field masking in the manifest generator.
+    *   *Worker:* Builder.
+    *   *Dependency:* None.
+    *   *Parallel:* Yes.
+*   **Lane B (Audit Logging):** Implement immutable log entry generation (fields suppressed, reason, timestamp, job ID).
+    *   *Worker:* Builder (same worktree as A if small, else separate).
+    *   *Dependency:* Lane A's data flow definition.
+    *   *Parallel:* No (must align with A's filter points).
+*   **Lane C (Test Data & Validation):** Generate realistic healthcare edge cases (license plates) and verify downstream format stability.
+    *   *Worker:* QA.
+    *   *Dependency:* Lane A/B code freeze.
+    *   *Parallel:* No (requires code to test).
+
+**Serialization Strategy**
+Lanes A and B proceed in parallel initially but merge into a single integration branch for Lane C. Lane C cannot start until A+B provide a testable build. Schema registry access is serialized during business hours; all schema checks must run off-hours or against a local copy.
+
+**G3 Design**
+*   **ADR:** Define "Compliance Tier" lookup mechanism and audit log schema.
+*   **Security Review:** Verify PII never touches temp storage unmasked.
+
+**G4 Implementation**
+*   **Worktrees:** One isolated worktree for Builder (A+B). One pinned checkout for QA (C).
+*   **Base SHA:** Pinned at G1 start.
+*   **Cost Control:** Local unit tests only during dev. CI integration suite ($45/run) restricted to final candidate SHA only.
+
+**G5 Verification**
+*   **Local Stack:** Spin up generator locally; verify JSON/CSV output format matches legacy exactly for retail tenants.
+*   **Healthcare Scenario:** Run synthetic + manually crafted edge-case license plates. Assert `driver_name` and `license_plate` are absent in output, present in audit log.
+*   **Flow Check:** Confirm filtering occurs *before* temp storage write (mock storage layer).
+*   **CI Gate:** Run full integration suite once on final candidate SHA. If flaky network check fails, manual retry allowed once; second failure blocks merge.
+
+**G6 Review**
+*   **Code Review:** Lead Architect (independent of Builder). Focus: Logic correctness, format stability.
+*   **Security/Compliance Review:** Compliance Officer (independent). Focus: PII exclusion guarantee, audit log immutability, ISO readiness.
+*   **Deep Code Review:** Automated scan for secrets/PII leakage patterns.
+
+**G7 Integration**
+*   **Merge Train:** Merge A+B+C into integration branch. Re-run affected tests on merged SHA.
+*   **Receipt:** Integration test pass + Architect + Compliance sign-off.
+
+**G8 Release (Human Gated)**
+*   **Approval Required:** Lead Architect AND Compliance Officer must explicitly approve deploy.
+*   **Deploy Window:** Off-peak to avoid schema registry lock conflicts.
+*   **Rollback:** Immediate revert of merge commit if audit logs fail or format breaks. Note: Cold storage writes are irreversible; rollback prevents *future* jobs only.
+
+**G9 Production Verify**
+*   **First Run:** Monitor first nightly job. Verify audit log entry exists and output file is clean for healthcare tenants.
+*   **SLO:** Zero PII in healthcare exports.
+
+**G10 Learn**
+*   **Retro:** Post-ISO audit. Add realistic license plate patterns to permanent test suite to close synthetic data gap.
+
+**Risks & Mitigations**
+*   **Flaky CI:** Run integration suite only once per candidate.
+*   **Schema Lock:** Perform schema validation locally or off-hours.
+*   **Irreversible Writes:** Ensure dev/test jobs target ephemeral storage, never cold archive.
+*   **Synthetic Data:** QA manually crafts edge cases to supplement synthetic set.
+
+**Human Decisions Required**
+1.  Approve G8 Deploy (Architect + Compliance).
+2.  Waive any High security findings (Compliance only).
+3.  Authorize cold-storage cleanup if test pollution occurs (Legal hold check).

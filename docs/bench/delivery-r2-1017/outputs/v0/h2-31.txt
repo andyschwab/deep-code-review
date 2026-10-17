@@ -1,0 +1,53 @@
+### Delivery Plan: Sync SDK Default Timeout (30s → 45s)
+
+**Objective:** Simultaneous release of Python, Go, and TypeScript bindings with aligned versions and updated specs.
+**Constraint:** No incremental rollout; irreversible binary caching; high-cost integration build.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec Update - Serialized):**
+    *   **Actor:** Conductor.
+    *   **Task:** Update the shared versioned specification file in the private artifact bucket. Increment version number (e.g., v2.4.0).
+    *   **Dependency:** None, but must complete before Lane B starts to trigger the integration build.
+    *   **Risk:** Triggers the 4-hour integration build. Must be correct on the first attempt.
+*   **Lane B (Implementation - Parallel):**
+    *   **Actors:** Three distinct Builders (Python, Go, TS).
+    *   **Task:** In isolated worktrees, update default timeout constant (30s → 45s) and bump package versions to match the new spec. Update changelogs explicitly stating the behavioral change for SLA calculations.
+    *   **Parallelism:** All three run concurrently after Lane A triggers the spec build.
+    *   **Constraint:** Go lane must anticipate the flaky network latency check.
+*   **Lane C (Verification - Parallel):**
+    *   **Actors:** Independent QA (one per language).
+    *   **Task:** Validate exact revision receipts. Confirm timeout behavior in testbeds. Verify changelog clarity.
+    *   **Specific Go Check:** QA must confirm code quality is high despite potential CI flakiness, preparing evidence for the manual override.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Completed by ticket definition. Appetite: One-shot success due to build cost.
+*   **G2 (Plan):** Verify version alignment strategy. Confirm maintenance window availability.
+*   **G3 (Design):** N/A (Configuration change).
+*   **G4 (Implement):**
+    *   **Check:** Lint, Type-check, Unit Tests green on exact SHAs.
+    *   **Go Specific:** Builder documents the known flake pattern for David Chen.
+*   **G5 (Verify):**
+    *   **Check:** Functional tests confirming 45s timeout.
+    *   **Integration:** Wait for the 4-hour spec build to complete green. If red, halt all lanes; do not retry spec update without root cause analysis.
+    *   **Go Specific:** If CI network check fails, QA attaches "False Positive" evidence receipt.
+*   **G6 (Review):**
+    *   **Reviewers:** Security Officer + Peer Reviewers (distinct from Builders).
+    *   **Action:** Security signs off on no regression. Peer verifies version alignment.
+    *   **Go Specific:** Platform Lead (David Chen) reviews flake evidence and pre-approves the manual override.
+*   **G7 (Integrate):** Merge PRs to release branches. Ensure all three SHAs are recorded in a single integration receipt.
+
+#### 3. Human Gates & Decisions
+*   **Go CI Override:** David Chen must manually override the network latency gate upon merge.
+*   **Dual Approval for Publish:** Security Officer AND Product Owner must both explicitly approve the deployment command. No single approval suffices.
+*   **Schedule Confirmation:** Human confirms the "Next Tuesday maintenance window" slot before final execution.
+
+#### 4. Landing & Rollback Strategy
+*   **Merge Train:** All three PRs merge only after G6 clearance.
+*   **Publish Event:** Coordinated execution during the maintenance window.
+    *   Sequence: Publish Spec → Verify Integration → Publish Python/Go/TS simultaneously.
+*   **Rollback:**
+    *   **Status:** Impossible (binaries cached irreversibly).
+    *   **Mitigation:** If a defect is found post-publish, the only path is an immediate hotfix release (v2.4.1) with corrected values. Pre-release validation (G5) is the sole quality barrier.
+*   **Post-Deploy (G9):** Monitor dashboards immediately for false positives. If dashboards flag errors despite correct rollout, verify monitoring config against new 45s baseline.
+
+**Failure Mode:** If the 4-hour spec build fails, the entire release slips. No partial retries. If any language binding fails G5, all three hold; no staggered release permitted.

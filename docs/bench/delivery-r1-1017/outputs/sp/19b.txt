@@ -1,0 +1,30 @@
+### Delivery Plan: CargoManifest to FreightDeclaration Refactor
+
+**Lanes & Parallelism**
+*   **Lane A (Compliance & Definition):** The Compliance Officer immediately verifies the exact string "FreightDeclaration" and case sensitivity against legal docs. This is a serial gate; no code changes occur until this is signed off in writing.
+*   **Lane B (Safe Refactoring):** Once Lane A clears, engineers execute global find-and-replace for variable names, class names, and comments in application logic (approx. 180 files). This excludes database migration scripts and shared environment configs.
+*   **Lane C (High-Risk Changes):** A separate senior engineer handles the database migration scripts and shared configuration files. This lane is serialized behind Lane B's initial success to minimize exposure of irreversible changes.
+
+**Gates & Checks**
+*   **Gate 1 (Pre-Flight):** Create a full backup of the staging database. Verify restore integrity before touching migration scripts.
+*   **Gate 2 (The Dual-Approval Lock):** Changes to shared configuration files require explicit written approval from both the Platform Lead and Security Officer *before* commit. These files are committed in a separate, isolated change set.
+*   **Gate 3 (CI Execution):** Trigger the full regression suite on the specific commit hash resulting from Lane B. Due to the 45-minute runtime and cost, this runs only once per major iteration.
+*   **Gate 4 (Flaky Test Filter):** Upon CI completion, a human engineer must manually inspect logs for "network connectivity" failures. Automated pass/fail is insufficient; false positives must be documented and cleared manually before proceeding.
+*   **Gate 5 (Customs Module Verification):** Specific manual verification of the customs calculation module outputs against baseline data from version 4.1 to ensure no logic drift occurred during renaming.
+
+**Review Process**
+*   **Independent Code Review:** A senior engineer not involved in Lane B or C reviews the diff. They focus strictly on:
+    1.  Ensuring no "CargoManifest" strings remain in public APIs or serialized JSON.
+    2.  Verifying database migration idempotency and rollback safety (where possible).
+    3.  Confirming shared config changes match the dual-approval request exactly.
+*   **Compliance Sign-off:** The Compliance Officer performs a final spot-check on the deployed staging environment to ensure UI labels match the legal mandate.
+
+**Landing Strategy**
+*   **Merge Window:** Merging to the 4.2 release branch occurs only after Gate 4 and Gate 5 are cleared.
+*   **Human Decision Point:** If the CI pipeline fails due to legitimate regressions (not flaky network tests), the Team Lead must decide whether to hotfix or revert based on the proximity to the Friday code freeze.
+*   **Rollback Plan:**
+    *   *Application Code:* Immediate revert of the refactor commit.
+    *   *Database:* If migration scripts have run on staging, execute the full restore from the Gate 1 backup. Do not attempt forward-fixes on the schema if the staging data is corrupted.
+*   **Final Verification:** Post-merge, a smoke test on the production-like environment confirms the terminology shift before the Friday freeze.
+
+**Timeline Constraint:** All lanes must complete by Thursday EOD to allow Friday for final stabilization and unexpected rollback recovery.

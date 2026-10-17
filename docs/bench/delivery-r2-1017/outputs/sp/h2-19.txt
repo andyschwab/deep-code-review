@@ -1,0 +1,26 @@
+### Delivery Plan: Production Memory Leak Resolution
+
+**1. Lanes & Parallelism**
+*   **Lane A (Forensics - Serial):** Senior Engineer analyzes the captured production heap dumps immediately. Since dumps rotate after 4 hours, this is the critical path. They will identify the accumulating object graph and trace it to the specific code path in the payment gateway.
+*   **Lane B (Hypothesis & Staging Prep - Parallel):** While Lane A works, a second engineer reviews recent deployments prior to the first Tuesday crash. They will prepare a isolated staging branch with enhanced logging hooks specifically targeting the suspected subsystems (e.g., connection pools, cache layers) without waiting for the root cause confirmation.
+*   **Lane C (Traffic Simulation - Parallel):** Ops engineer configures a high-fidelity traffic replay tool using sanitized production logs to attempt reproduction in a memory-constrained staging environment that mirrors production heap limits, bypassing standard load tests which have failed.
+
+**2. Gates & Checks**
+*   **Gate 1 (Root Cause Confirmation):** Lane A must produce a definitive map of the leak (e.g., "Listener objects accumulating in `PaymentProcessor` due to missing deregistration"). No code changes proceed without this evidence.
+*   **Gate 2 (Fix Verification):** The fix is applied to the branch prepared in Lane B. Verification requires a successful 4-hour stress test in the memory-constrained staging environment (Lane C) showing stable heap usage.
+*   **Check Point (CI Pipeline):** The fix runs against the full 45-minute integration suite on the specific commit hash of the fix branch. If the flaky network check fails, the on-call lead must manually authorize a retry immediately to avoid pipeline delays.
+
+**3. Review Strategy**
+*   **Independent Code Review:** The fix requires approval from a Senior Engineer *outside* the Transactions Squad to ensure objectivity. They will verify that the fix addresses the root cause identified in Gate 1 and introduces no new retention paths.
+*   **Operational Review:** The on-call lead reviews the rollback plan and the monitoring dashboard updates to ensure the leak is visible in real-time metrics before deployment.
+
+**4. Landing & Merge**
+*   **Pre-Deployment:** The build is promoted to a "Canary" production slot (5% traffic) specifically timed before the next peak window.
+*   **Human Decision Gate:** Deployment to 100% traffic requires explicit written approval from both Jane Smith and the on-call lead via the deployment ticket. They must confirm Canary metrics show zero OOM errors and stable latency.
+*   **Rollback Protocol:** If memory usage trends upward in the Canary slot within 15 minutes, an automated rollback triggers immediately to the previous stable version. No manual debugging occurs in production; the system reverts first, investigates second.
+*   **Post-Mortem:** Once stable, a report is generated detailing the code path fixed and why staging previously failed to reproduce the issue, updating the testing strategy to prevent recurrence.
+
+**Constraints Adherence:**
+*   No direct database copying; all testing uses sanitized logs or synthetic data.
+*   CI costs are minimized by ensuring the fix is validated locally/staging before the single required pipeline run.
+*   Heap dump analysis is prioritized above all else due to the 4-hour rotation window.

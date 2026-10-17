@@ -1,0 +1,30 @@
+### Delivery Plan: Fraud Detection Model v4.2 Promotion
+
+**1. Lanes & Parallelism**
+*   **Lane A (Infrastructure & Config - Serialized):** Prepare the `global-fraud-rules.json` update. Since this file is shared and locked, the Trust & Safety Lead must initiate the Merge Request (MR) immediately. This lane is blocked until both the Lead Architect and Compliance Officer approve. No code changes occur here; only configuration pointers shift from v4.1 to v4.2.
+*   **Lane B (Validation - Parallel to Lane A prep, Serialized before Merge):** Execute the automated accuracy gate. Trigger the CI pipeline *only* against the shadow traffic dataset using the v4.2 artifact. This must complete successfully before Lane A's MR can be merged.
+*   **Lane C (Observability Setup - Parallel):** Configure monitoring dashboards specifically for latency (>200ms threshold) and error rates. This must be live before any traffic shifts.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Merge):** The CI pipeline on the `payment-guardian-core` repository must pass using the shadow dataset. If it fails, the process stops; no MR is merged.
+*   **Gate 2 (Latency Check):** During the Tuesday maintenance window, deploy the configuration to the canary group (5% traffic). An automated script must verify p99 latency remains under 200ms for 15 minutes.
+*   **Revision Control:** All checks run against the specific commit hash where `global-fraud-rules.json` points to v4.2. No other changes are permitted in this commit.
+
+**3. Review Strategy**
+*   **Config Review:** The `global-fraud-rules.json` MR requires independent review by the Lead Architect (technical correctness) and Compliance Officer (regulatory alignment). Neither can be the author.
+*   **Validation Review:** The CI accuracy report is reviewed by the Data Science Lead (verifying the 12% false positive reduction claim) and the Trust & Safety Lead.
+*   **Go/No-Go Decision:** The Risk Operations Lead performs the final manual sign-off. This is a hard gate; without their explicit confirmation, the canary traffic cannot scale beyond 5%.
+
+**4. Landing & Rollback**
+*   **Deployment Window:** Tuesday maintenance window.
+*   **Phase 1 (Canary):** Apply the merged configuration to 5% of live traffic.
+*   **Phase 2 (Hold):** Pause automatically. Wait for the Risk Operations Lead's manual sign-off based on real-time metrics.
+*   **Phase 3 (Scale):** Upon sign-off, gradually increase traffic to 25%, 50%, then 100% over 30-minute intervals, monitoring latency at each step.
+*   **Automatic Abort:** If latency exceeds 200ms or the accuracy gate fails at any point, the system automatically reverts the configuration pointer to v4.1.
+*   **Rollback Protocol:** Since production deploys are irreversible without a full database rollback (40 minutes), the primary recovery mechanism is the configuration revert to v4.1. A full database rollback is the last resort, requiring the VP of Engineering's approval key.
+*   **Finalization:** Once at 100% traffic with stable metrics for 1 hour, the VP of Engineering applies the production promotion tag to the commit.
+
+**Critical Constraints:**
+*   Do not trigger CI pipelines unnecessarily due to high GPU costs ($45/run). Run only once for the final validation.
+*   Do not rely on staging for end-to-end timeout tests due to missing bank webhook simulators; rely on shadow traffic in production.
+*   The 5% canary start is mandatory; do not attempt a "big bang" release.

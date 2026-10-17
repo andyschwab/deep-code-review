@@ -1,0 +1,39 @@
+### Delivery Plan: Daily LLM Spend Cap
+
+**1. Lanes & Parallelism**
+*   **Lane A (Backend Logic):** Develop the quota enforcement middleware. This includes reading the daily ledger, calculating remaining budget, and implementing the "hard limit" check. This lane must also implement the "Senior Lead Override" bypass logic based on existing role headers.
+*   **Lane B (Frontend UI):** Develop the state-aware summary button. This component will consume the new backend status endpoint to toggle between "Active," "Disabled," and the "Limit Reached" tooltip.
+*   **Lane C (Configuration & Ops):** Draft the update strategy for `global_limits.json`. Since editing this triggers a 12-minute cluster restart and flaky health checks, this lane must prepare a maintenance window proposal and a manual health-check script to verify stability post-restart.
+
+**Parallel Execution:** Lanes A and B can proceed simultaneously. Lane C runs in parallel but must coordinate the timing of the config change with the deployment of Lanes A and B.
+
+**Serialization Constraint:** The integration of the backend quota check (Lane A) and the frontend button state (Lane B) must occur only after both units pass local unit tests. The configuration update (Lane C) must be the final step before full production validation.
+
+**2. Gates & Checks**
+*   **Gate 1 (Code Freeze):** All code must be committed to revision `feat/llm-cap-v1`. No further changes allowed after this point without re-running the expensive CI pipeline.
+*   **Check 1 (Local Simulation):** Before triggering the $15 CI run, developers must simulate the "Limit Reached" state and the "Override" scenario locally using mocked API responses.
+*   **Gate 2 (CI Pipeline):** Trigger the single allowed CI run on `feat/llm-cap-v1`. This run must include:
+    *   Unit tests for quota math.
+    *   Integration tests for the role-based override.
+    *   Verification that the UI correctly disables the button when the mock returns "quota exceeded."
+*   **Check 2 (Staging Dry-Run):** Deploy to a isolated staging node (if available) or perform a logic walk-through. *Crucial:* Do not modify `global_limits.json` in staging if it triggers a full restart of shared resources; simulate the config load instead.
+
+**3. Review Strategy**
+*   **Independent Code Review:** A senior engineer not involved in Lanes A or B must review the merged pull request. They must specifically verify that the override logic cannot be exploited by non-lead roles and that the tooltip text matches the requirement exactly.
+*   **Financial Logic Audit:** The Finance Ops Manager must review the ledger calculation logic to ensure the "daily reset" aligns with the midnight UTC close. This is a non-negotiable sign-off before deployment.
+
+**4. Landing & Merge**
+*   **Deployment Window:** Schedule for a low-traffic period to absorb the 12-minute cluster restart caused by the `global_limits.json` update.
+*   **The Human Decision (Dual Approval):**
+    1.  **Security Lead:** Must approve the deployment package, confirming the role hierarchy logic is secure.
+    2.  **Finance Ops Manager:** Must approve the specific dollar limits set in `global_limits.json` and confirm the ledger logic.
+    *   *Constraint:* Both approvals must be present in the deployment ticket before the pipeline executes.
+*   **Execution Sequence:**
+    1.  Deploy application code (Lanes A+B).
+    2.  Apply `global_limits.json` update (Lane C), triggering the cluster restart.
+    3.  Manually verify health checks (bypassing the automated flaky check) to confirm the cluster is stable.
+*   **Rollback Protocol:**
+    *   **Pre-Midnight UTC:** If issues arise before the daily ledger closes, revert the application code immediately. The config change requires a coordinated rollback of `global_limits.json` and another cluster restart.
+    *   **Post-Midnight UTC:** Reversion is **irreversible** for the billing cycle. If the cap fails or blocks valid users after the ledger closes, the team must issue manual credits/refunds rather than attempting a technical rollback. The system must remain live until the next cycle.
+
+**Risk Mitigation:** To avoid the $15 CI cost on re-runs, the "Local Simulation" gate is mandatory. If the CI fails, the code must be fixed and locally re-verified before requesting a second CI run.

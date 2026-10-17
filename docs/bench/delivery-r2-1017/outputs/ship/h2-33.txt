@@ -1,0 +1,71 @@
+### Delivery Plan: Q4 Invoice PDF Template
+
+**G0/G1 Intake & Spec**
+*   **Scope:** Update rendering service to support new Q4 template ID; enforce `finance-approved` flag logic with legacy fallback.
+*   **Constraints:** No font cache modifications (weekend-only); CI cost avoidance (45m/run); Finance manual sign-off required before live enablement.
+*   **Appetite:** Staging link ready by Tuesday noon. Production deploy gated until Finance Director approval.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A (Builder):** Implement template ID routing and flag check in the rendering service.
+    *   *Worktree:* Isolated `feature/q4-invoice-render`.
+    *   *Constraint:* Must not touch font cache configuration.
+    *   *Output:* Patch with unit tests for flag logic (defaulting to legacy).
+*   **Lane B (QA - Parallel to A):** Prepare staging environment data.
+    *   *Work:* Generate test payloads with/without the flag.
+    *   *Dependency:* None.
+*   **Lane C (Security/Compliance - Serial after A):** Verify no unauthorized config changes.
+    *   *Check:* Diff against locked compliance config; ensure font cache references remain untouched.
+*   **Serialization:** Lane A must complete and pass unit tests before Lane C runs. Lane B runs in parallel. All must pass before G5.
+
+**G3 Design**
+*   **ADR:** Document the fallback mechanism: `if !finance_approved -> legacy_template`.
+*   **NFR:** Zero text corruption risk (explicitly exclude font cache mods).
+
+**G4 Implement**
+*   **Builder Action:** Commit code to `feature/q4-invoice-render`.
+*   **Tests:** Unit tests for routing logic included in commit.
+*   **Base SHA:** Pinned to current `main` head before implementation starts.
+
+**G5 Verify (Staging)**
+*   **Trigger:** Merge to `staging` branch (exact SHA recorded).
+*   **Checks:**
+    1.  **Local/Unit:** Run immediately in Lane A worktree (fast, free).
+    2.  **CI Pipeline:** Trigger *once* on the `staging` merge SHA. If red, triage immediately to avoid repeat 45m penalty.
+    3.  **Functional:** Deploy to staging. Generate sample invoices:
+        *   With `finance-approved=true` → Q4 Template.
+        *   With `finance-approved=false` (or missing) → Legacy Template.
+    4.  **Visual Check:** Verify no text corruption (confirm font cache untouched).
+*   **Receipt:** Staging URL + screenshot evidence of both template paths.
+
+**G6 Review**
+*   **Code Review:** Senior Engineer (independent of Builder) reviews logic and test coverage.
+*   **Compliance Review:** Compliance Officer verifies config diff (no font/cache changes).
+*   **Security:** Verify no new injection vectors in template rendering.
+
+**G7 Integrate**
+*   **Merge:** Merge `staging` to `release/candidate` branch.
+*   **Re-verification:** Run CI *only* if the merge SHA differs from the tested staging SHA (otherwise skip to save cost/time).
+
+**G8 Release (Human Gate)**
+*   **Pre-condition:** Finance Director reviews staging link and signs off via change management portal.
+*   **Approval:** Dual approval required (Engineering Lead + Head of Finance).
+*   **Action:** Deploy `release/candidate` to production.
+*   **Rollback:** Immediate revert to previous release tag if any invoice generation fails or shows corruption.
+
+**G9 Production Verify**
+*   **Monitor:** First 100 generated invoices.
+*   **Check:** Confirm 100% legacy fallback for unflagged requests; correct Q4 layout for approved ones.
+*   **Logs:** Capture `postdeploy-logs` for rendering errors.
+
+**G10 Learn**
+*   **Retro:** Post-deployment review of CI cost vs. value; update runbook for future template swaps.
+
+**Human Decisions Required**
+1.  **Staging Sign-off:** Finance Director must approve the staging link by Tuesday noon.
+2.  **Production Deploy:** Engineering Lead + Head of Finance must approve in the change portal.
+3.  **Rollback:** Triggered automatically on error, but execution requires Engineer on-call confirmation.
+
+**Risk Mitigation**
+*   **CI Cost:** Only one full CI run per candidate SHA. Local unit tests gate all pushes.
+*   **Font Corruption:** Explicit exclusion of font cache files in the PR diff; automated compliance check fails build if touched.
+*   **Non-compliant Invoices:** Hard-coded default to legacy template if flag is missing; verified by QA before Finance review.

@@ -1,0 +1,29 @@
+### Delivery Plan: Schema Evolution for Legacy Mobile Compatibility
+
+**Lanes & Parallelism**
+*   **Lane A (Backend Logic - Platform Team):** Modify the `UserProfile` serialization logic to make `verifiedBadge` optional with a default `null`. This work is isolated to the API layer and does not touch the database schema.
+*   **Lane B (Contract Verification - QA):** Draft integration tests simulating legacy client payloads (missing field) and new client payloads (present field).
+*   **Serialization Constraint:** Lane A and Lane B run in parallel. They merge only at the **Pre-Deploy Gate**. No database migration is permitted in this cycle due to the irreversible rollback risk; this is strictly a code-level tolerance fix.
+
+**Gates & Checks**
+*   **Revision Control:** All work branches from `main` at revision `HEAD` prior to the Tuesday maintenance window. The `schema-registry` file must be edited only after business hours to avoid lock conflicts.
+*   **Gate 1: Local Validation (Before CI):** Developers must manually verify that the `verifiedBadge` field defaults to `null` in the local serialization output. This prevents wasting the $45 CI cost on obvious syntax errors.
+*   **Gate 2: CI Pipeline (Monday PM):** Trigger the full pipeline on the release candidate branch.
+    *   *Success Criteria:* All unit tests pass; integration tests confirm legacy clients receive valid JSON without the field, and new clients receive the field when populated.
+    *   *Flakiness Protocol:* If network checks fail on the third retry, the Platform Lead must manually intervene to re-trigger or approve the partial result. Do not auto-fail the build on network flakiness if code tests pass.
+*   **Gate 3: Staging Smoke Test:** Deploy to the staging environment (which mirrors production routing). Verify specifically against the legacy load balancer configuration to ensure no routing errors occur, even though canary releases are unsupported there.
+
+**Review Process**
+*   **Code Review:** Independent review required from a Senior Engineer *not* on the Platform Team (e.g., from the Mobile Team) to verify that the JSON output matches what the old mobile clients expect. This ensures the "optional" implementation is truly backward compatible.
+*   **Approval Gate:** Explicit written approval from **Jane Smith** is required before any production deployment. This approval must be secured by Monday EOD to meet the Tuesday window.
+
+**Landing Strategy**
+*   **Deployment Window:** Tuesday Maintenance Window only.
+*   **Merge Strategy:** Once Jane Smith approves and CI passes, merge to `main`. The deployment script must target the production cluster directly.
+*   **Rollback Plan:**
+    *   *Scenario A (Code Bug):* If the app crashes due to a code error (not data), revert the git commit and redeploy the previous stable image. Estimated time: 30 minutes.
+    *   *Scenario B (Data Corruption):* If the change inadvertently corrupts the database state, **do not attempt a migration rollback**. Initiate the full restore from the nightly snapshot immediately. Estimated downtime: 4+ hours.
+*   **Human Decision Point:** If the CI pipeline fails twice due to network flakiness, the Platform Lead must decide whether to manually bypass the flaky check based on local test evidence or delay the launch to Wednesday, risking the marketing push.
+
+**Risk Mitigation**
+Since legacy traffic cannot be canaried, the "optional" default must be verified in staging with 100% certainty. The marketing push depends on this stability; if the staging smoke test reveals any ambiguity in the null handling, the deployment is aborted until resolved.

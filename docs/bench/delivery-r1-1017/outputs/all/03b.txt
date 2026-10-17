@@ -1,0 +1,47 @@
+### Delivery Plan: Restrict Legacy Billing API Access
+
+**Goal:** Restrict `LedgerSync` endpoint to `Finance-Admins` only, ensuring 403 for others, audit logging, and zero downtime during the fiscal close window.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Risk Analysis):** Define the exact JSON patch for `global_access_matrix.json`, verify the `Finance-Admins` group ID, and document the irreversible cache purge procedure. **Serialized:** Must complete before Lane B starts to prevent configuration errors.
+*   **Lane B (Implementation):** Modify the authentication middleware to enforce the new rule and inject the security audit log entry. Implement a feature flag `ledger_sync_strict_mode` to allow dark launching. **Parallel:** Can run alongside Lane C once Lane A's spec is frozen.
+*   **Lane C (Test Harness):** Build a lightweight unit test suite mocking the auth check and the immutable config file. **Parallel:** Runs independently of Lane B but requires Lane A's spec.
+*   **Lane D (Reconciliation Dry-Run):** Simulate the nightly batch process against a production snapshot using the new logic in "log-only" mode (flag off) to prove no interruption. **Serialized:** Must wait for Lane B's code and Lane A's config definition.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Owner validates Lane A's JSON patch and cache purge steps. **Base SHA:** `abc123` (current main).
+*   **G4 (Build & Unit):** Lane B and C merge into a temporary integration branch. Run local unit tests and linting. **Check:** Must pass 100% locally; CI skipped here to save cost/time.
+*   **G5 (Verification):** Deploy to a staging environment mirroring production cache behavior.
+    *   *Check 1:* Verify 403 response for non-Finance users.
+    *   *Check 2:* Verify audit log entry exists.
+    *   *Check 3:* Run Lane D's reconciliation simulation.
+    *   *Constraint:* If CI flake occurs (Stage 3), retry once with logs cited; do not skip.
+*   **G6 (Security Review):** Independent Security Engineer reviews the diff against Lane A's spec. **Reviewer:** Must not be the implementer (Lane B). **Scope:** Full diff on `abc123` vs integration SHA.
+*   **G7 (Integration):** Merge to release candidate branch. Run full CI regression ($120 cost) **once** on this exact SHA. If flaky, retry once; if fail again, escalate.
+
+#### 3. Review Strategy
+*   **Code Review:** Senior Platform Engineer (non-author) reviews logic and flag implementation.
+*   **Security Review:** Head of Security (or delegate) validates the access matrix change and audit trail completeness.
+*   **Compliance Review:** Finance representative confirms `Finance-Admins` group mapping is correct.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** Land G7-approved SHA to `release-candidate`. Do not merge to `main` until the change window opens.
+*   **Human Decisions (G8):**
+    *   **Approval:** CFO and Head of Security must approve via governance portal before the flag flip.
+    *   **Cache Purge:** Trigger the manual 20-minute cache purge immediately after approval, coordinated to finish before the fiscal close window.
+*   **Deployment:**
+    1.  Deploy code with `ledger_sync_strict_mode` = **OFF** (dark launch).
+    2.  Verify live traffic logs for expected 403s (sampled).
+    3.  Flip flag **ON** post-cache purge.
+*   **Rollback Plan:**
+    1.  **Immediate:** Turn `ledger_sync_strict_mode` **OFF** (code revert not needed initially).
+    2.  **Secondary:** Revert commit if flag flip fails to restore access.
+    3.  **Data:** No data repair expected; access denial is stateless.
+
+**Constraints Acknowledged:**
+*   **Cost:** CI run limited to one execution on the final candidate SHA.
+*   **Flakiness:** Stage 3 network checks retried once with logs; no silent skips.
+*   **Immutability:** `global_access_matrix.json` change triggers manual purge; scheduled strictly before the fiscal close window.
+*   **Downtime:** Feature flag ensures zero downtime; logic is live but inactive until the purge completes.
+
+**Next Step:** Await owner confirmation on the `Finance-Admins` group ID to finalize Lane A.

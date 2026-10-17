@@ -1,0 +1,54 @@
+**Delivery Plan: Cap Daily LLM Spend for Claim Summaries**
+
+**G0 Intake & G1 Spec**
+*   **Owner Approval Required:** Confirm the exact dollar threshold per department and the specific list of "Senior Leads" authorized for overrides before work begins.
+*   **Spec:** Implement a middleware check in the claims service. Logic: If `department_spend >= limit`, disable UI button and show tooltip. Exception: If `user_role == Senior Lead`, allow call but log warning.
+*   **Constraint:** No changes to `global_limits.json` to avoid cluster restarts; state must be held in the application layer or a low-latency sidecar.
+
+**G2 Plan & Lanes**
+*   **Lane A (Backend Logic):** Implement the spend-tracking middleware and override logic.
+    *   *Parallel:* Yes.
+    *   *Budget Cap:* $15 (One CI run).
+*   **Lane B (Frontend UI):** Update the claims portal to conditionally render the button/tooltip based on the backend state.
+    *   *Parallel:* Yes.
+    *   *Budget Cap:* $15 (One CI run).
+*   **Lane C (Integration & Security):** Assemble A and B. Verify role hierarchy enforcement and ensure no calls occur when limits are hit.
+    *   *Serialization:* Must wait for A and B to pass unit tests.
+    *   *Budget Cap:* $30 (Two CI runs max; flaky health check risk).
+
+**G3 Design**
+*   **ADR:** Document the decision to bypass `global_limits.json` to prevent 12-minute restarts and flaky health failures. Define the data source for real-time spend tracking.
+
+**G4 Implementation**
+*   **Worktrees:** Three isolated worktrees (one per lane).
+*   **Discipline:** Tests written before or with code. Lane A must mock the billing API to prevent real charges during dev.
+
+**G5 Verification (Exact Revision)**
+*   **QA Gate:** Deploy to a staging environment mirroring Zone-B.
+    *   *Test 1:* Exhaust a test department's quota; verify button disables and tooltip appears.
+    *   *Test 2:* Attempt call as Senior Lead; verify success and warning log.
+    *   *Test 3:* Verify zero external API calls occur when limit is reached for standard users.
+*   **Security Gate:** Independent review of the override logic to ensure privilege escalation is impossible for non-leads.
+*   **Cost Check:** Confirm CI pipeline ran exactly once per lane.
+
+**G6 Review**
+*   **Reviewer:** Senior Engineer (independent of Lanes A/B/C).
+*   **Scope:** Full diff against pinned base SHA. Focus on the irreversibility of billing logic and the correctness of the role check.
+
+**G7 Integration**
+*   **Merge Strategy:** Merge Lanes A and B into a temporary integration branch. Run Lane C's integration tests on this exact SHA.
+*   **Receipt:** Generate a test receipt showing the "Limit Reached" state and a successful "Override" state.
+
+**G8 Release (Human Gate)**
+*   **Required Approvals:** Explicit written approval from **Security Lead** AND **Finance Ops Manager** (Dual approval rule for Zone-B).
+*   **Timing:** Deploy before the new quarter starts.
+*   **Rollback Plan:** Since billing logic reverts are irreversible after midnight UTC:
+    *   Deploy during early business hours (e.g., 08:00 UTC).
+    *   If failure occurs, feature-flag the summary module OFF immediately rather than attempting a code revert.
+    *   Manual ledger correction process must be ready if any erroneous charges occur before the kill-switch activates.
+
+**Risk Mitigation**
+*   **Flaky Health Check:** The deployment pipeline must ignore the known flaky health check associated with config changes (since we are not touching `global_limits.json`), or the monitoring team must whitelist this specific deployment hash.
+*   **Cost Overrun:** If Lane C fails, do not re-run CI automatically. Investigate locally to avoid the $15/run penalty.
+
+**Next Step:** Awaiting Owner confirmation on dollar thresholds and Senior Lead roster to finalize G1 Spec.
