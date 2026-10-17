@@ -46,7 +46,7 @@ Every pair is already judged in both orders. The scoring that decides KEEP/REVER
 
 ## Outcome (written after the held-out run)
 
-Decision: REVERT. The one tune-only iteration (PERUN2: a "Plan shape" section in `agentic-delivery/SKILL.md` plus three `plan-shape-*` evals, `prompts/perun2.txt`) did not clear the keep rule: held-out PERUN2 vs SP is 0.542, CI [0.396, 0.688], lower bound below 0.5. The SKILL.md and `evals/evals.json` edits were reverted; only bench artifacts ship. Strict scoring (A2), thinking DeepSeek-V4-Flash judge (A1), n=24 held, n=16 tune:
+Decision: REVERT. The one tune-only iteration (PERUN2 was add-plus-compress: a new "Plan shape" section in `agentic-delivery/SKILL.md` plus rewording of existing text to stay under the size budget, and three `plan-shape-*` evals; see `prompts/perun2.txt`) did not clear the keep rule: held-out PERUN2 vs SP is 0.542, CI [0.396, 0.688], lower bound below 0.5. The SKILL.md and `evals/evals.json` edits were reverted; only bench artifacts ship. Strict scoring (A2), thinking DeepSeek-V4-Flash judge (A1), n=24 held, n=16 tune:
 
 | Arm | Rival | Tune | Held | Held W/L/mixed |
 |---|---|---|---|---|
@@ -57,11 +57,11 @@ Decision: REVERT. The one tune-only iteration (PERUN2: a "Plan shape" section in
 
 Non-thinking frozen judge, baseline, strict: held 0.542 [0.458, 0.625] vs SP, 0.562 [0.500, 0.625] vs GS.
 
-Slot-1 rate (share of verdicts naming Response 1; 0.5 is unbiased), DeepSeek-V4-Flash: non-thinking 0.875 (GLM-5.2 0.933); thinking baseline 0.638 vs SP and 0.650 vs GS; thinking PERUN2 0.688 vs SP and 0.763 vs GS. Thinking judges are still position-biased, which is why the strict two-order rule decides.
+Slot-1 rate (share of verdicts naming Response 1; 0.5 is unbiased), DeepSeek-V4-Flash: non-thinking 0.875 (GLM-5.2 0.933); thinking baseline 0.638 vs SP and 0.650 vs GS; thinking PERUN2 0.688 vs SP and 0.763 vs GS (both above the 65% threshold set in A1, so the PERUN2 verdicts are more position-biased than the baseline's). Thinking judges are still position-biased, which is why the strict two-order rule decides.
 
-Reading: the baseline already beats GS on held-out (lower bound 0.521) and ties SP (0.490). The edit moved held-out vs SP by +0.052, inside noise at n=24, so it is not kept. The baseline's tune vs held gap against SP (0.781 vs 0.490) shows the 16-ticket tune set is noisy too.
+Reading: the baseline scores 0.667 against GS on held-out (lower bound 0.521, but the DeepSeek slot-1 rate is 0.65, outside the 0.4-0.6 bar, it is a single judge, and the non-thinking judge gives 0.562 [0.500, 0.625], which is not a win) and ties SP (0.490). The edit moved held-out vs SP by +0.052, inside noise at n=24, so it is not kept. The baseline's tune vs held gap against SP (0.781 vs 0.490) shows the 16-ticket tune set is noisy too.
 
-Further caveats: GLM-5.2 with thinking timed out on most tiebreak calls (44 logged errors in `ledger.jsonl`), so `judge/glm-t` was deleted at finalize and the thinking `tiebroken` column equals `strict`; a GLM tiebreak is reported only for the non-thinking baseline. Some background `bench.py` jobs could not be stopped from the sandbox (no PIDs available); they only write judge files for the same pairs, and `finalize.sh` was run last. Tickets, plans and judges are all LLM output and the arms run without tools, as declared above.
+Further caveats: GLM-5.2 with thinking timed out on most tiebreak calls (46 logged GLM-5.2 errors in `ledger.jsonl`: 43 timeouts, 3 HTTP 500), so `judge/glm-t` was deleted at finalize and the thinking `tiebroken` column equals `strict`; a GLM tiebreak is reported only for the non-thinking baseline. Some background `bench.py` jobs could not be stopped from the sandbox (no PIDs available); they only write judge files for the same pairs, and `finalize.sh` was run last. Tickets, plans and judges are all LLM output and the arms run without tools, as declared above.
 
 ## Spend
 

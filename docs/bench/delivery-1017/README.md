@@ -2,7 +2,7 @@
 
 Question: does `agentic-delivery` produce better delivery plans (lanes, gates, review, landing) than Superpowers (subagent-driven-development + writing-plans) and gstack `ship`? Preregistered in `PREREGISTERED.md`, rubric-free, blind, both judge orders, PCSS models only (0 paid calls).
 
-Result: the baseline skill beats gstack ship on held-out tickets (0.667, 95% CI [0.521, 0.792]) and ties Superpowers (0.490, [0.354, 0.625]). One tune-only edit was tried and rejected (held-out vs Superpowers 0.542, [0.396, 0.688]; keep rule needs a lower bound above 0.5 against both rivals), so `SKILL.md` is unchanged. The full table, judge position-bias numbers and caveats are in the Outcome section of `PREREGISTERED.md`.
+Result: the baseline skill scores 0.667 (95% CI [0.521, 0.792]) against gstack ship on held-out tickets (judge slot-1 0.65, outside the 0.4-0.6 bar; single judge; strict two-order agreement only; the non-thinking judge vs GS gives 0.562 [0.500, 0.625], which is not a win) and ties Superpowers (0.490, [0.354, 0.625]). One tune-only edit was tried and rejected (held-out vs Superpowers 0.542, [0.396, 0.688]; keep rule needs a lower bound above 0.5 against both rivals), so `SKILL.md` is unchanged. The full table, judge position-bias numbers and caveats are in the Outcome section of `PREREGISTERED.md`.
 
 Files:
 - `tickets.json`: 40 fictional tickets, 16 tune and 24 held-out (frozen split).
