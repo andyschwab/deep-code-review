@@ -1,0 +1,63 @@
+# Delivery Plan: Deprecate `--format-type` Flag
+
+## Lanes & Parallelism
+
+**Lane A: Core Implementation (Backend)**
+*   **Owner:** Senior Engineer
+*   **Work:** Modify `core-utils` CLI parser to accept both `--format-type` and `--output-schema`. Map both to the same internal logic. Inject a stderr deprecation warning specifically when `--format-type` is detected. Update help text to prioritize `--output-schema` while listing the legacy flag as deprecated.
+*   **Constraint:** Changes must be isolated to the argument parsing layer; no business logic alterations.
+
+**Lane B: Documentation & Comms (Frontend/External)**
+*   **Owner:** Technical Writer + Partner Success Lead
+*   **Work:** Update CLI documentation to reflect the new standard. Draft the migration notice for external partners.
+*   **Parallelism:** Runs concurrently with Lane A.
+*   **Serialization Point:** Cannot finalize the "Partner Notification" until Lane A confirms the warning message text is stable.
+
+**Lane C: Validation (QA)**
+*   **Owner:** QA Engineer
+*   **Work:** Verify that both flags produce identical output. Confirm the deprecation warning appears *only* on stderr and *only* for the legacy flag.
+*   **Optimization:** Run unit tests and fast lint checks locally. Do **not** trigger the full 45-minute OS integration suite yet.
+
+## Gates & Checks
+
+**Gate 1: Code Review & Static Analysis**
+*   **Trigger:** PR opened against `develop`.
+*   **Checkers:** Platform Lead (Logic), Security Officer (Input sanitization).
+*   **Requirement:** Must pass all unit tests. The `partner-compatibility` check on Windows is expected to be flaky; if it fails, a senior maintainer must manually re-run it once. Do not merge if it fails twice consecutively.
+
+**Gate 2: Staging Verification**
+*   **Trigger:** Merge to `staging` branch.
+*   **Action:** Deploy to a staging environment.
+*   **Check:** Run a targeted integration test (single OS container) to verify the flag behavior. This avoids the full 45-minute suite while validating runtime behavior.
+*   **Approval:** Platform Lead must sign off on the staging deployment logs showing the deprecation warning.
+
+**Gate 3: Partner Coordination**
+*   **Trigger:** Pre-release candidate tagged.
+*   **Action:** Partner Success Team sends migration notice to external engineering leads.
+*   **Hard Block:** No public release until Partner Success confirms the notification window has opened.
+
+## Review Strategy
+
+*   **Code Review:** Independent review by the Security Officer (focusing on parser safety) and a Peer Engineer (focusing on backward compatibility). Neither reviewer may be the author of the PR.
+*   **Functional Review:** QA validates the dual-flag behavior.
+*   **Documentation Review:** Partner Success Lead verifies the clarity of the migration message before it goes external.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge Lane A and B into `develop` after Gate 1.
+2.  Promote to `staging` for Gate 2.
+3.  Once Gate 3 is cleared, merge `staging` into `main`.
+
+**Release Execution:**
+*   Tag the version on `main`.
+*   **Human Decision Required:** The Platform Lead and Security Officer must both explicitly approve the production deploy command.
+*   Push to the public package registry. **Warning:** This action is immutable.
+
+**Rollback Plan:**
+*   Since the artifact is immutable, rollback involves reverting the code in the repository, creating a new patch version (e.g., v1.0.1 -> v1.0.2) that restores the previous behavior if a critical failure occurs, and urging partners to delay adoption.
+*   If the issue is purely the warning noise, a hotfix branch will suppress the stderr output while maintaining dual-flag support, requiring an expedited review cycle.
+
+**Risk Mitigation:**
+*   To avoid the 45-minute CI tax on non-code changes, documentation updates in Lane B will bypass the full integration suite, relying instead on a localized link check.
+*   The known Windows flakiness requires a designated senior maintainer to be on standby during the merge window to manually verify the compatibility check.

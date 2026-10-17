@@ -1,0 +1,59 @@
+# Delivery Plan: Legacy Billing Coverage Boost
+
+## Lanes & Parallelism
+
+**Lane A: Discovery & Mapping (Single Engineer)**
+*   **Work:** Static analysis of the billing module to identify all public entry points, internal branches, and current coverage gaps. Map dependencies on the shared currency utility without modifying signatures.
+*   **Parallelism:** Runs first; blocks Lane B.
+
+**Lane B: Test Implementation (Single Engineer, distinct from Lane A if possible)**
+*   **Work:** Write unit tests targeting the identified gaps. Prioritize edge cases for currency conversion (rounding, precision loss) and historical tax rates (date boundaries, rate changes).
+*   **Constraint:** Tests must be deterministic; mock all network calls to avoid flaky build failures. Keep suite execution under 5 minutes to protect CI credits.
+*   **Parallelism:** Can run parallel to Lane C once the interface map from Lane A is stable.
+
+**Lane C: CI Optimization (DevOps Engineer)**
+*   **Work:** Configure a specific CI job for this module that isolates it from the full monorepo suite. Implement caching for dependencies and ensure network mocks are enforced at the pipeline level to prevent flakiness.
+*   **Parallelism:** Runs parallel to Lane B.
+
+## Gates & Checks
+
+**Gate 1: Local Verification (Pre-Commit)**
+*   **Revision:** Feature branch head.
+*   **Check:** Engineer runs the new test suite locally. Coverage report must show ≥80% line and branch coverage for the target module only.
+*   **Stop Condition:** If coverage <80% or any test relies on external network access.
+
+**Gate 2: Isolated CI Run**
+*   **Revision:** Feature branch head.
+*   **Check:** Trigger the new isolated CI job. Must pass within 10 minutes.
+*   **Stop Condition:** Timeout >15 mins or any flaky failure. Manual retry is forbidden here; the test must be fixed.
+
+**Gate 3: Security & Logic Audit**
+*   **Revision:** Feature branch head (frozen).
+*   **Check:** Independent review of test data values (tax rates, currency factors) against official finance documentation. Ensure no logic was inadvertently refactored.
+*   **Stop Condition:** Any discrepancy in expected calculation results.
+
+## Review Process
+
+**Primary Reviewer:** Senior Backend Engineer (not the author of Lane A or B).
+*   **Focus:** Test quality, edge case completeness, and strict adherence to "no refactoring" rule. Verify mocks are used correctly.
+
+**Independent Approvers (Mandatory for Merge):**
+1.  **Security Lead:** Verifies no sensitive data leakage in test logs and no new attack surfaces via error handling.
+2.  **Finance Director:** Validates that the test cases for tax rates and currency conversions align with current compliance requirements.
+
+*Note: These two approvals are serialized after the Primary Reviewer signs off. They do not review code style, only risk and compliance.*
+
+## Landing Strategy
+
+**Merge Protocol:**
+1.  Once both independent approvers sign off, the merge request is unlocked.
+2.  Merge to `prod-fin` candidate branch.
+3.  **Human Decision Required:** The Release Manager must manually trigger the deployment to the `prod-fin` environment during a low-traffic window. Automatic deployment is disabled for this change due to the critical nature of the billing module.
+
+**Rollback Plan:**
+*   **Trigger:** Any production alert regarding calculation mismatches or CI pipeline failure post-merge.
+*   **Action:** Immediate revert of the merge commit. Since no logic was changed, only tests were added, a rollback simply removes the safety net but restores the exact previous binary behavior.
+*   **Constraint:** Do not attempt to fix failing tests in production. Revert first, investigate later.
+
+**Risk Mitigation:**
+*   The shared currency utility signature remains untouched. If tests require new helper functions, they must be internal to the test file or a new test-only utility to prevent breaking the nightly data sync job.

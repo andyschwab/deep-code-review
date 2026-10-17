@@ -1,0 +1,54 @@
+### Delivery Plan: Winter Sale Quiet Hours Enforcement
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Logic Implementation):** Engineer updates the campaign trigger service.
+    *   *Task:* Implement local time suppression (22:00–07:00) using user profile timezone data.
+    *   *Task:* Integrate global opt-out registry check, specifically filtering users who opted out within the last 48 hours.
+    *   *Constraint:* Do not modify the database migration script; it is irreversible. Logic must reside in the application layer.
+*   **Lane B (Test Stabilization):** QA Engineer addresses the flaky `quiet-hour-validator`.
+    *   *Task:* Isolate the timezone mocking issue causing Tuesday failures. Create a manual inspection protocol rather than an automatic retry loop.
+    *   *Dependency:* Must be ready before Lane A merges to prevent CI credit waste.
+*   **Lane C (Compliance Prep):** Project Manager prepares approval documentation.
+    *   *Task:* Draft the compliance impact statement for Jane Smith (Compliance Officer).
+    *   *Dependency:* Requires final code diff from Lane A.
+
+**Parallel Execution:** Lanes A, B, and C start immediately. Lane A and B run in parallel but must synchronize before the final CI run.
+
+**2. Gates & Checks**
+*   **Gate 1: Pre-Commit Static Analysis (Local)**
+    *   *Runner:* Engineer (Lane A).
+    *   *Check:* Verify logic handles edge cases (e.g., users near timezone boundaries). Ensure no direct DB writes are introduced.
+*   **Gate 2: Staging Data Window**
+    *   *Timing:* Execution must occur **before 06:00 UTC** tomorrow.
+    *   *Reason:* Staging data refreshes nightly; testing on stale data invalidates the 48-hour opt-out verification.
+*   **Gate 3: CI Pipeline (The Costly Gate)**
+    *   *Trigger:* Only after Lane B confirms the `quiet-hour-validator` mock is stabilized.
+    *   *Revision:* Exact commit hash from Lane A post-review.
+    *   *Protocol:* If the validator fails, **STOP**. Do not auto-retry. Manual inspection required to distinguish timezone mock errors from actual logic regressions.
+    *   *Duration:* 45 minutes.
+
+**3. Independent Review**
+*   **Code Review:** Senior Backend Engineer (not the author of Lane A).
+    *   *Focus:* Verify the 22:00–07:00 window calculation uses local user time, not server time. Confirm the 48-hour opt-out window logic excludes recently opted-out users regardless of prior activity.
+*   **Compliance Review:** Jane Smith (Compliance Officer).
+    *   *Input:* Summary of logic changes + assurance that no irreversible DB scripts were executed.
+    *   *Requirement:* Explicit written approval required before production deployment. This cannot be bypassed.
+
+**4. Landing & Rollback Strategy**
+*   **Staging Deployment:**
+    *   *Target:* Noon tomorrow (post-06:00 UTC test window).
+    *   *Condition:* Successful CI pass + Jane Smith's written approval.
+*   **Production Deployment:**
+    *   *Timing:* Post-sign-off, prior to 09:00 UTC launch window.
+    *   *Human Decision:* Final "Go/No-Go" requires confirmation from both the Tech Lead (system stability) and Jane Smith (compliance).
+*   **Rollback Plan:**
+    *   *Trigger:* Any compliance breach detection or critical failure in staging.
+    *   *Method:* Revert to the previous stable commit hash.
+    *   *Caveat:* Since no DB migration was run, rollback is purely a code revert. No data cleanup is needed.
+    *   *Communication:* Immediate notification to Marketing to halt the burst if rollback occurs.
+
+**Critical Path Summary:**
+Stabilize Test Mock → Implement Logic → Pre-06:00 UTC Staging Test → CI Run (Manual Check on Failure) → Compliance Approval → Staging Sign-off → Production Deploy.
+
+**Risk Mitigation:**
+The primary risk is the flaky test consuming cloud credits and delaying the noon deadline. By mandating manual inspection of the specific validator failure before any retry, we prevent infinite loops and ensure genuine failures are caught without financial waste. The 06:00 UTC hard stop for testing ensures data freshness for the 48-hour opt-out rule verification.

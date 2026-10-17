@@ -1,0 +1,54 @@
+### Delivery Plan: Fleet Runtime Upgrade (v10 → v12)
+
+**Strategy:** Phased rollout with automatic rollback. One writer per worktree; serialized base image build; parallel service validation.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Base Image Build) – Serialized First**
+    *   **Worker:** Platform Builder.
+    *   **Task:** Update shared `Dockerfile` to Runtime v12. Build base image in an isolated worktree. Push to staging registry *only*.
+    *   **Constraint:** Must complete before any service lanes start. The image is immutable once published; no overwrites allowed.
+*   **Lane B (Service Validation) – Parallel Fan-out (12 lanes)**
+    *   **Workers:** 12 Service Implementers (or one worker cycling through 12 isolated worktrees if resource-constrained).
+    *   **Task:** Pin each of the 12 microservices to the new base image SHA from Lane A. Run local build and unit tests.
+    *   **Constraint:** Cannot start until Lane A produces a valid staging image SHA.
+*   **Lane C (Integration & Smoke) – Serialized Last**
+    *   **Worker:** QA Lead.
+    *   **Task:** Deploy all 12 services to Staging using the new base. Execute smoke tests.
+    *   **Critical Manual Step:** Due to 15% DB connection flakiness, QA must manually verify database connectivity for every service after automated suites run.
+
+#### 2. Gates & Checks
+*   **G2 (Plan):** Define per-lane token budgets. Confirm low-traffic window (next Tuesday) is reserved.
+*   **G3 (Design):** Document rollback triggers (e.g., error rate >1%, latency spike). Explicitly note the "Hardware Encryption Module" gap in Staging; plan a targeted manual check for this in Production Canary.
+*   **G4 (Implement):**
+    *   Lane A commits the `Dockerfile` change.
+    *   Lane B commits service manifest updates pinning the *exact* base image SHA.
+*   **G5 (Verify):**
+    *   **Base:** Verify Lane A build logs green.
+    *   **Services:** Verify Lane B unit tests green at the exact commit SHA.
+    *   **Staging:** Lane C confirms all 12 services running. **Manual verification of DB connections is mandatory** before marking green.
+*   **G6 (Review):**
+    *   **Security Review:** Independent Security Lead reviews the base image change and supply chain provenance.
+    *   **Code Review:** Peer review of service pins (cannot be self-reviewed).
+    *   **QA Sign-off:** QA Lead signs off on Staging stability and manual DB checks.
+
+#### 3. Landing & Human Gates
+*   **Merge Strategy:**
+    1.  Merge Lane A (Base) to `main` (triggers base image publish to global registry).
+    2.  Merge Lane B (Services) as a train or single batch PR once Staging is green.
+*   **Human Approval (Hard Gate):**
+    *   **Required:** Explicit written approval from **Security Lead** AND **Product Owner** before merging to `main` for Production deployment.
+    *   **Action:** Present the G6 verification receipt, Staging green status, and manual DB check confirmation.
+*   **Rollout (Tuesday Window):**
+    *   Deploy to Production Canary (1 service). Monitor encryption module behavior.
+    *   If stable, proceed to phased rollout (25% → 50% → 100%).
+    *   **Automatic Rollback:** Triggered immediately if error rates exceed defined thresholds or transaction logic breaks.
+*   **Post-Deploy:**
+    *   Verify transaction logic in Production (closing the Staging encryption gap).
+    *   Close ticket only after 100% rollout and 1-hour stability window.
+
+**Risk Mitigation:**
+*   **Flaky Tests:** Automation is insufficient; manual DB verification is the gatekeeper.
+*   **Encryption Gap:** Staging cannot validate hardware encryption; Canary deployment is the true test.
+*   **Cost:** No speculative branches; lanes run only after G2 budget approval and serialized dependency resolution.
+
+**Next Step:** Await confirmation of the Tuesday window and assign the Platform Builder to Lane A.

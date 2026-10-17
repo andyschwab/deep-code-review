@@ -1,0 +1,48 @@
+**Delivery Plan: PaymentEvent Schema Update (Refund Flow)**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Contract):** Owner: Product Analyst + Builder.
+    *   Task: Draft the schema update adding `refund_reason_code` (optional, deprecated marker on old field). Define backward compatibility guarantees.
+    *   Constraint: Must define the exact deprecation timeline and validation rules for downstream teams.
+    *   Parallelism: Can run immediately.
+*   **Lane B (Validation Suite):** Owner: QA.
+    *   Task: Prepare the CI validation job configuration. Since the full suite takes 45 minutes and is limited to 3/day, this lane prepares the *exact* trigger command and verifies the target branch is clean before requesting a slot.
+    *   Constraint: Must account for the "flaky nested array" check; include a manual re-trigger protocol in the runbook.
+    *   Parallelism: Runs after Lane A produces the draft schema, but before final merge.
+*   **Lane C (Rollout Coordination):** Owner: Conductor.
+    *   Task: Contact Data Engineering Lead to secure the specific rollout window. Draft the communication to the five downstream teams (Billing, Logistics, Analytics, Fraud, Support).
+    *   Constraint: Cannot finalize the merge plan without the confirmed window.
+    *   Parallelism: Runs parallel to Lane A.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Review the schema diff. Verify `refund_reason_code` is optional. Confirm deprecation metadata is present.
+    *   *Exact Revision:* Draft commit SHA from Lane A.
+*   **G2 (Plan):** Verify the CI slot reservation and the rollout window confirmation from the Data Engineering Lead.
+    *   *Check:* Written confirmation of the window; proof of CI slot availability.
+*   **G3 (Design/Compatibility):** Explicit review of backward compatibility.
+    *   *Check:* Simulation or dry-run of how old consumers handle the new optional field.
+*   **G5 (Verify - Staging):** Execute the 45-minute validation suite on the exact draft SHA in the staging environment.
+    *   *Condition:* All tests green. If the "schema-compatibility" check fails due to known flakiness, perform one manual re-trigger. If it fails again, halt for investigation (do not merge).
+*   **G6 (Review):** Independent review by a senior engineer *not* involved in Lane A.
+    *   *Focus:* Schema correctness, deprecation strategy, and test results.
+
+**3. Review Strategy**
+*   **Builder Review:** The Builder (Lane A) cannot approve their own schema change.
+*   **Independent QA:** QA (Lane B) must sign off on the staging results explicitly.
+*   **Domain Review:** A representative from one downstream team (e.g., Billing or Analytics) should skim the contract change to validate the "no breaking change" claim before G8.
+
+**4. Landing & Human Decisions**
+*   **Integration:** Once G5 and G6 pass, the Conductor prepares the merge to the integration branch.
+*   **Human Gate (G8 - Release):**
+    *   **Required Approvers:** Platform Architect AND Data Governance Officer.
+    *   **Condition:** Both must approve the *exact* final SHA post-integration.
+    *   **Timing:** Merge must occur strictly within the coordinated rollout window.
+*   **Rollback Strategy:**
+    *   *Constraint:* Published schemas are irreversible.
+    *   *Plan:* If a critical issue is found post-publish, the rollback is a "supersede" operation. A new patch version (vNext) must be immediately drafted to revert the field behavior or mark it ignored, then published following the same dual-approval gate. No deletion is possible.
+
+**5. Risk Mitigation**
+*   **CI Cost:** Only one full validation run is authorized for this plan. If the flaky check requires >1 re-trigger, the lane escalates to the Conductor to assess if the window is still viable.
+*   **Downtime:** The change is additive (optional field); downtime is theoretically impossible if consumers ignore unknown fields. Verification focuses on ensuring no consumer rejects the new schema due to strict validation.
+
+**Next Step:** Await confirmation of the rollout window from the Data Engineering Lead before finalizing the G2 Plan.

@@ -1,0 +1,49 @@
+### Delivery Plan: `--format-type` Deprecation
+
+**Scope:** Rename flag to `--output-schema` with a two-version deprecation cycle. Maintain backward compatibility for `--format-type` with stderr warnings. Update help text immediately.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** Modify `core-utils` CLI parser.
+    *   Add `--output-schema` as the primary flag.
+    *   Alias `--format-type` to the same logic but inject a stderr deprecation warning.
+    *   Update help text to feature `--output-schema` prominently, noting the legacy flag.
+    *   *Constraint:* Must run in an isolated worktree; no other writers in `core-utils`.
+*   **Lane B (Documentation & Comms Draft):**
+    *   Update user-facing docs to reflect the new standard.
+    *   Draft the notification email for the Partner Success team (content only, do not send).
+    *   *Parallel:* Can run simultaneously with Lane A.
+*   **Lane C (Targeted Verification):**
+    *   Write unit tests specifically for the dual-flag behavior and warning output.
+    *   *Serialization:* Must wait for Lane A to produce the patch before executing tests.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Confirm the exact warning message string and the specific release version scheduled for removal (next quarter).
+*   **G4 Implement:** Lane A commits the patch. Lane B commits docs/draft.
+*   **G5 Verify (Exact Revision):**
+    *   Run unit tests on the exact commit SHA from Lane A.
+    *   **CI Strategy:** Trigger only unit/integration tests for `core-utils`. Do **not** trigger the full 45-minute OS container suite unless the change touches those specific containers.
+    *   **Flake Handling:** If the `partner-compatibility` check fails on Windows, flag it for manual re-execution by a senior maintainer; do not auto-retry.
+*   **G6 Review:**
+    *   **Independent Reviewer:** A senior engineer not involved in Lane A/B/C.
+    *   **Focus:** Verify the warning triggers on stderr, help text clarity, and that no functionality is broken for legacy scripts.
+
+#### 3. Human Gates & Coordination
+*   **Partner Coordination:** Before merging, the drafted notification (Lane B) must be reviewed and sent by the Partner Success team. This is a hard gate; do not merge until they confirm readiness to notify engineering leads.
+*   **Approvals:**
+    *   **Platform Lead:** Required for merge approval.
+    *   **Security Officer:** Required for merge approval (due to public CLI surface change).
+*   **Decision Point:** Confirm the specific removal version date with the Product Owner if not explicitly defined in the ticket.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    *   Merge to the integration branch only after G6 passes and Partner Success confirms notification.
+    *   Ensure the merge triggers the specific `core-utils` validation pipeline, not the full suite.
+*   **Release:**
+    *   Tagging and pushing to the public registry requires explicit human approval from both the Platform Lead and Security Officer.
+    *   **Immutability Warning:** Once tagged, this version cannot be recalled. Double-check the deprecation warning logic before tagging.
+*   **Rollback Plan:**
+    *   Since the old flag remains functional, a "rollback" is technically unnecessary for partner scripts.
+    *   If the new `--output-schema` flag causes issues, the immediate mitigation is to revert the commit introducing the new flag while keeping the legacy alias, or to hotfix the specific parser logic.
+    *   No database migration or data cleanup is required; this is purely a CLI interface change.
+
+**Risk Note:** The primary risk is partners missing the deprecation warning if it is suppressed or logged incorrectly. Verification must explicitly capture stderr output in the test receipts.

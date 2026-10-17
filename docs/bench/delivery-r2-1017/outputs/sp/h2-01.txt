@@ -1,0 +1,32 @@
+### Delivery Plan: Fleet Runtime v12 Upgrade
+
+**1. Lanes & Parallelism**
+*   **Lane A (Platform Team):** Rebuild the shared base image with Runtime v12. This is the critical path dependency. All other work is blocked until this image is published to the global registry.
+*   **Lane B (Service Owners):** Prepare deployment manifests for the phased rollout and configure automatic rollback triggers. This can run in parallel with Lane A, provided it targets the *future* image tag.
+*   **Serialization Point:** No service build or integration test runs until Lane A publishes the immutable base image. Once published, all twelve services must be rebuilt sequentially or in small batches to avoid saturating the CI pipeline, given the 45-minute build time per fleet run.
+
+**2. Gates & Checks**
+*   **Gate 1 (Base Image Validation):** Before publishing, Lane A must verify the base image locally against a mock of the hardware encryption module. Since staging lacks this module, this local check is the only defense against encryption-specific compatibility issues.
+*   **Gate 2 (Staging Deployment):** Deploy the full fleet to staging using the new base image.
+    *   *Check:* Run the automated smoke test suite.
+    *   *Constraint:* Due to the 15% flakiness rate on database connections, a human engineer must manually verify any failed tests before proceeding. A "green" status requires manual confirmation that failures are false positives, not regression.
+*   **Gate 3 (Security & Product Sign-off):** Once staging is manually verified as green, obtain explicit written approval from both the Security Lead and the Product Owner. No code merges or production deploys occur without these two specific approvals.
+
+**3. Review Strategy**
+*   **Independent Reviewer:** A senior engineer *not* on the Platform Team and *not* owning any of the twelve payment services must review the base image Dockerfile changes and the rollback configuration.
+*   **Review Scope:** The reviewer checks only the diff between Runtime v10 and v12 configurations and the rollback logic. They do not review application logic, as that remains unchanged.
+*   **Timing:** This review happens after Gate 1 (local validation) but before Gate 2 (staging deploy).
+
+**4. Landing & Rollout**
+*   **Schedule:** Execution begins next Tuesday during the defined low-traffic window.
+*   **Phased Approach:**
+    1.  Deploy 1 non-critical service. Monitor for 15 minutes.
+    2.  Deploy 3 low-volume services. Monitor for 30 minutes.
+    3.  Deploy remaining 8 services in two batches of 4.
+*   **Automatic Rollback:** If any service fails health checks or transaction error rates spike >0.1% during any phase, the system automatically reverts to the previous base image tag.
+*   **Human Decision Points:**
+    *   Proceeding from Staging to Production (requires the dual sign-offs).
+    *   Aborting the phased rollout if automatic rollback fails or if manual intervention is required to stabilize the cluster.
+*   **Final Merge:** The commit updating the base image reference in the main branch is merged only after the full production rollout is confirmed stable. Since the registry image is immutable, if a post-merge issue arises, the rollback mechanism reverts the *deployment*, not the registry artifact.
+
+**Risk Mitigation:** The lack of hardware encryption in staging is the highest risk. If Lane A's local mock validation is inconclusive, the first production phase must include a specific transaction test involving encrypted data before proceeding to the next batch.

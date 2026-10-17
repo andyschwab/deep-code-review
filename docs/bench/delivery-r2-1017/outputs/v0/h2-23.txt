@@ -1,0 +1,72 @@
+### Delivery Plan: LedgerSync West-2 Migration
+
+**Objective:** Migrate LedgerSync from East-1 to West-2 with zero data loss, cache continuity, and verified latency <200ms.
+**Constraints:** Hard-coded shared config, manual network peering, expensive/slow CI, strict human gates.
+
+#### 1. Lanes & Parallelism
+
+**Lane A: Infrastructure Prep (Serial Prerequisite)**
+*   **Actor:** DevOps Engineer (Human) + Builder Agent.
+*   **Work:** Manually add West-2 network peering rules via portal. Provision West-2 cache cluster.
+*   **Dependency:** Must complete before Lane B starts.
+*   **Output:** Verified connectivity between West-2 app and DB/Cache.
+
+**Lane B: Configuration & Code (Parallel to C, Serial after A)**
+*   **Actor:** Builder Agent (Isolated Worktree).
+*   **Work:**
+    1.  Extract hard-coded cache config from `global-settings` into a LedgerSync-specific override to avoid breaking the three other services.
+    2.  Update region endpoints to West-2.
+    3.  Implement cache warmup script (replicate active session tokens from East-1 to West-2).
+*   **Output:** Patch set + Warmup script.
+
+**Lane C: Database Coordination (Parallel to B)**
+*   **Actor:** DBA (Human) + QA Agent.
+*   **Work:** Plan read-replica promotion. Define checksum verification queries.
+*   **Output:** DB promotion runbook + Verification SQL.
+
+**Lane D: Cache Warmup Strategy (Serial after B)**
+*   **Actor:** Builder Agent.
+*   **Work:** Execute warmup script in West-2 staging against a snapshot of East-1 cache. Verify token integrity.
+*   **Output:** Warmup receipt with token count match.
+
+#### 2. Gates & Checks
+
+*   **G2 Plan (Now):** Finalize the extraction strategy for `global-settings` to ensure no regression in the three other services. Define exact checksums for stateful tokens.
+*   **G3 Design:** Approve the cache warmup mechanism and rollback trigger logic (latency >200ms).
+*   **G4 Implement:** Code freeze Friday 18:00 UTC.
+*   **G5 Verify (Staging):**
+    *   **Revision:** Exact SHA of Lane B + D.
+    *   **Check:** Run integration tests (limit to critical path only to save cost/time, given the $120/45min constraint).
+    *   **Check:** Simulate cache warmup; verify token validity.
+*   **G6 Review:**
+    *   **Reviewer 1:** Senior Engineer (Independent of Builder) – Code & Config extraction logic.
+    *   **Reviewer 2:** Security Lead – Token replication safety.
+    *   **Reviewer 3:** QA – Test coverage of warmup and rollback.
+*   **G7 Integrate:** Merge to release branch only after G6 sign-off.
+
+#### 3. Execution Window (Saturday 02:00 – 04:00 UTC)
+
+1.  **02:00:** Trigger DB replica promotion (Lane C). Verify checksums.
+2.  **02:15:** Execute Cache Warmup (Lane D) to populate West-2.
+3.  **02:45:** **Human Gate:** Jane Smith + Security Lead explicitly approve deployment manifest.
+4.  **03:00:** Switch DNS traffic to West-2.
+5.  **03:05:** **Automated Gate:** Monitor latency.
+    *   If latency >200ms for >2 mins: **Auto-Rollback** to East-1 immediately.
+    *   If latency <200ms: Proceed to smoke tests.
+6.  **03:30:** Verify active sessions (no forced logouts).
+7.  **04:00:** Confirm success or declare incident.
+
+#### 4. Rollback Plan
+
+*   **Trigger:** Latency >200ms or checksum mismatch or active session failure.
+*   **Action:** Revert DNS to East-1.
+*   **Data Safety:** Since East-1 remains the source of truth until cutover confirmation, no data is lost. West-2 writes (if any occurred) are discarded or queued for replay.
+*   **Preparation:** Rollback script pre-dry-run Friday; DNS TTL minimized prior to window.
+
+#### 5. Human Decisions Required
+
+*   **Friday:** Approval of `global-settings` refactor plan (to protect other services).
+*   **Saturday 02:45:** Explicit written approval from Jane Smith and Security Lead to proceed with DNS switch.
+*   **Post-Migration:** Sign-off on checksum verification results.
+
+**Risk Mitigation:** The expensive CI pipeline will run once on Friday (critical path only) and once post-migration on a lower-priority branch for full regression. No full CI runs during the live window.

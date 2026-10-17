@@ -1,0 +1,30 @@
+### Delivery Plan: Billing Service Vulnerability Mitigation
+
+**Lanes & Parallelism**
+*   **Lane A (Security Architecture):** The Security Lead defines the exact input validation schema and proxy allow-list based on the vulnerability vector. This is the critical path; no code is written until this spec is signed off.
+*   **Lane B (Implementation):** Once the spec is ready, a Senior Backend Engineer implements the internal proxy or validation wrapper in the `finance-core` repo. They work in an isolated Git worktree to avoid blocking other teams.
+*   **Lane C (Test Stabilization):** A DevOps engineer prepares a deterministic mock for the external fraud detection gateway. This runs in parallel to Lane B to ensure the CI pipeline does not fail due to flaky network tests during the critical verification phase.
+
+**Serialization Constraints**
+Lane B cannot start until Lane A produces the validation spec. The final merge gate cannot proceed until Lane C's mock is integrated and verified to prevent CI flakiness from delaying the security fix.
+
+**Gates & Checks**
+1.  **Design Gate:** The Security Lead must approve the mitigation strategy document before implementation begins. This ensures the proxy/validation logic actually closes the exploit vector without breaking billing flows.
+2.  **Code Freeze Point:** Implementation occurs on a fresh branch `mitigation/billing-vuln-{date}`. No other changes are permitted in this branch.
+3.  **CI Execution:** The full test suite runs on the isolated hardware only once the DevOps mock is confirmed. If the build fails due to network flakiness, the DevOps lead manually retries immediately; no code changes are made to "fix" the build unless a regression is proven.
+4.  **Staging Verification:** Deployment to staging occurs only after a successful CI run. Since staging lacks the external fraud gateway, the verification relies entirely on the mock data prepared in Lane C to simulate attack vectors and legitimate traffic.
+
+**Review Process**
+*   **Independent Code Review:** A Senior Engineer from the Invoicing team (not Payments, to ensure independence) reviews the implementation against the Security Lead's spec. They verify that no third-party code was forked or modified directly, adhering to legal constraints.
+*   **Security Validation:** The Security Team performs a targeted review of the diff, specifically checking that the vulnerable transitive dependency is never reached with malicious input. They must explicitly comment "Approved for Compliance" on the pull request.
+
+**Landing Strategy**
+*   **Merge Authority:** The merge requires dual approval via the deployment tool: one from the Platform Lead and one from the Chief Security Officer. No merge occurs without both digital signatures.
+*   **Deployment Window:** The fix deploys during a low-traffic window to minimize risk.
+*   **Rollback Protocol:** If post-deploy monitoring detects billing anomalies, the rollback is immediate. The team acknowledges that this triggers an automatic four-hour freeze on all finance services. The rollback decision requires only the Platform Lead's authorization to bypass the dual-approval rule for speed, given the emergency context.
+*   **Human Decision Points:**
+    1.  Acceptance of the mitigation spec by Security (Go/No-Go for coding).
+    2.  Final dual-approval for production promotion.
+    3.  Rollback invocation if anomalies occur.
+
+This plan prioritizes the compliance audit deadline while respecting legal constraints and the high cost of CI failures.

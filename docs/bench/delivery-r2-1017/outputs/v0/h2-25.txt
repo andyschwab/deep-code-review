@@ -1,0 +1,37 @@
+### Delivery Plan: Nightly Sync Schedule Adjustment
+
+**1. Lanes & Serialization**
+*   **Lane A (Specification & Compliance):** Draft the change request for the Change Management Portal. This lane identifies the exact `global-cron.yaml` path, proposes the `04:30 UTC` shift, and documents the risk of delayed dashboard data.
+    *   *Constraint:* Must complete before any code change. Requires **Platform Lead** and **Finance Director** approval.
+*   **Lane B (Staging Verification):** Once approval is granted, update `global-cron.yaml` in a dedicated worktree. Trigger the CI pipeline against the staging environment.
+    *   *Parallelism:* Can prepare the diff while Lane A awaits approval, but cannot merge or trigger full CI until approval is secured.
+    *   *Verification:* Monitor the 45-minute regression suite. Specifically validate that reporting dashboards in staging ingest data correctly at the new latency (T+4.5 hours vs T+2.0 hours). Note: Staging will not reproduce lock contention; verification relies on functional data ingestion checks only.
+*   **Lane C (Deployment Readiness):** Prepare the production deployment manifest. Since the merge window is restricted to Tuesdays/Thursdays 06:00–08:00 UTC, this lane calculates the exact merge time to ensure the 45-minute CI finishes before the 08:00 cutoff.
+
+**2. Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Confirm the `04:30 UTC` slot does not conflict with other known batches (beyond Finance). Define "success" as: Cron updated, CI green, staging dashboards populated.
+*   **G2 (Plan):** Serialize Lane A (Approval) → Lane B (CI). The human approval is a hard block; no code moves without the portal ticket ID.
+*   **G4 (Implement):** Commit hash pinned. Diff contains only the cron expression change in `global-cron.yaml`.
+*   **G5 (Verify):**
+    *   *Revision:* Exact SHA of the staging merge.
+    *   *Check:* CI pipeline exit status 0 (after ~45 mins).
+    *   *Functional:* Manual or automated check of staging dashboards confirming data presence.
+    *   *Caveat:* Explicitly mark "Lock Contention" as `UNVERIFIED` in staging due to dataset scaling; rely on the scheduled time separation as the mitigation.
+*   **G6 (Review):** Independent review by a senior engineer not involved in drafting the change. Focus: Correct YAML syntax, correct timezone conversion, and confirmation of the two required approvals attached to the PR.
+
+**3. Landing & Human Decisions**
+*   **Merge Strategy:**
+    *   The PR remains in "Draft" or "Ready" state until the specific Tuesday/Thursday window opens.
+    *   **Human Decision 1:** Platform Lead & Finance Director approve the change request (Lane A).
+    *   **Human Decision 2:** Release Engineer merges the PR *only* if the current time allows the 45-minute CI to complete before 08:00 UTC on a Tuesday or Thursday. If merging at 07:20 UTC, the CI will finish after the window closes, stalling deployment. The merge must occur by **07:15 UTC** at the latest.
+*   **Deployment:** Automated promotion to production upon successful CI in the main branch, provided it is within the allowed window.
+*   **Rollback:**
+    *   *Trigger:* Staging dashboards fail to populate or critical morning metrics are missing post-deployment.
+    *   *Action:* Revert the `global-cron.yaml` change to `02:00 UTC` immediately.
+    *   *Constraint:* If the rollback occurs outside the Tue/Thu window, it requires an emergency change approval (expedited portal ticket) to bypass the standard deployment freeze.
+
+**4. Risk Summary**
+*   **Primary Risk:** Missing the 08:00 UTC deployment cutoff due to the 45-minute CI duration, delaying the fix by 2+ days.
+*   **Mitigation:** Strict timing calculation for the merge trigger.
+*   **Secondary Risk:** Staging false negatives on lock contention.
+*   **Mitigation:** Acceptance of time-based separation as the primary control; monitoring production logs closely on the first run.

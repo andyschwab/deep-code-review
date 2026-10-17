@@ -1,0 +1,66 @@
+### Delivery Plan: Nexus Core Build Migration
+
+**Objective:** Migrate build pipelines to the new internal platform with zero missed weekly releases, ensuring artifact parity and compliance data integrity.
+
+#### 1. Lanes & Parallelism
+*Work is isolated into dedicated worktrees. One writer per worktree.*
+
+*   **Lane A (Spec & Parity Definition) [Product Analyst + Conductor]**
+    *   **Task:** Define "identical artifacts" cryptographically. Map legacy steps to new constraints (30m timeout). Document the `global-rules.json` backward compatibility contract.
+    *   **Dependency:** None. Starts immediately.
+    *   **Output:** Testable spec with acceptance criteria for artifact hash matching and timeout budgets.
+
+*   **Lane B (Pipeline Implementation & Optimization) [Builder]**
+    *   **Task:** Port pipelines to the new provider. Refactor the integration suite to fit the 30-minute limit (parallelization/caching). Remove the legacy flaky network check logic. Ensure `global-rules.json` sync works across all three microservices.
+    *   **Dependency:** Waits for Lane A's spec (G1).
+    *   **Constraint:** Must not modify production deployment logic yet.
+
+*   **Lane C (Data Migration & Compliance) [Data Engineer]**
+    *   **Task:** Migrate historical build data. Verify compliance report accuracy against legacy snapshots.
+    *   **Dependency:** None (can run parallel to Lane B).
+    *   **Output:** Verification receipt showing 100% data integrity.
+
+*   **Lane D (Documentation & Training) [Docs Lead]**
+    *   **Task:** Update runbooks. Create training materials for shift leads on new approval triggers.
+    *   **Dependency:** Waits for Lane B's final workflow definition.
+
+#### 2. Gates & Checks
+*Every gate runs on an exact, immutable SHA. Missing evidence is UNVERIFIED.*
+
+*   **G1 (Spec Freeze):** Lane A output reviewed by Conductor. Must explicitly name the 30-minute budget cap.
+*   **G4 (Implementation Complete):** Lane B commits pipeline code. Unit tests for pipeline logic included.
+*   **G5 (Parallel Verification):**
+    *   **Action:** Trigger builds for the *same* commit hash on both Legacy and New providers simultaneously.
+    *   **Check:** Compare artifact checksums (SHA256). Verify new build duration < 28 minutes (buffer for timeout). Confirm `global-rules.json` validity in all three microservices.
+    *   **Requirement:** 3 consecutive successful dual-builds required to prove stability.
+*   **G6 (Independent Review):**
+    *   **Reviewer:** Security Lead (independent of Builder).
+    *   **Scope:** New pipeline permissions, secret handling, and the removal of the flaky network check.
+    *   **Verifier:** QA Engineer (independent of Builder) validates G5 receipts.
+*   **G7 (Integration):** Merge verified lanes to a staging integration branch. Run a full end-to-end dry run.
+
+#### 3. Review Strategy
+*Builder never reviews their own work.*
+*   **Code/Logic:** Reviewed by a senior Platform Engineer not involved in Lane B.
+*   **Security:** Reviewed by the Security Lead (mandatory for deployment config).
+*   **Compliance:** Reviewed by the Data Owner against Lane C's receipts.
+
+#### 4. Landing & Human Gates
+*Merge train strategy to protect the Friday window.*
+
+*   **Shadow Mode (Week 1):** New pipeline runs on every commit but does not publish. Results are logged and compared silently.
+*   **Dual-Run (Week 2):** Both providers build and push artifacts. The release process pulls from Legacy by default; New is the fallback.
+*   **The Flip (Human Gate):**
+    *   **Approvers:** Jane Smith AND Security Lead (Dual approval required).
+    *   **Trigger:** After 2 successful weeks of Dual-Run with zero discrepancies.
+    *   **Action:** Switch release process to pull exclusively from New Provider. Decommission Legacy writer access.
+*   **Rollback Plan:**
+    *   If New Provider fails a Friday build: Immediately revert the release process config to pull from Legacy artifacts (pre-built in Dual-Run).
+    *   Condition: Rollback script must be dry-run verified in G5.
+
+**Risk Mitigation:**
+*   **Timeout Risk:** If integration tests exceed 28 minutes in G5, Lane B must split the suite before G6.
+*   **Data Risk:** If Lane C finds discrepancies, the flip is blocked until resolved.
+*   **Schedule Risk:** If Shadow Mode reveals instability, the Flip date slides, but the Legacy pipeline remains active to ensure the Friday release occurs.
+
+**Next Step:** Conductor to initiate Lane A and request owner confirmation on the "identical artifact" definition (hash algorithm and included metadata).

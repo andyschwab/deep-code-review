@@ -1,0 +1,53 @@
+### Delivery Plan: Q4 Invoice PDF Template
+
+**Objective:** Deploy new Q4 template with a flawless fallback to legacy format, securing Finance sign-off before enabling live traffic.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Implementation):** Update rendering service logic to support the new Template ID and enforce the `finance-approved` flag.
+    *   *Constraint:* Must **not** modify the cached font library (weekend-only window).
+    *   *Output:* Code patch + Unit tests for flag logic.
+*   **Lane B (Staging Data Prep):** Generate a static batch of sample invoices using the new template in an isolated environment.
+    *   *Dependency:* Requires Lane A's code to be built but not merged.
+    *   *Output:* PDF artifacts for Finance review.
+*   **Lane C (CI Optimization):** Analyze the 45-minute pipeline to identify non-essential integration tests for this specific change (e.g., skip full ledger replay if only template ID changes).
+    *   *Goal:* Reduce compute penalty on failure.
+*   **Serialization:** Lane A must complete unit verification before Lane B generates the final review batch. Lane C runs parallel to A but must complete before the final merge request to ensure the efficient pipeline is used.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Confirm exact Template ID and the precise string value of the `finance-approved` flag. Define "legacy format" behavior explicitly.
+*   **G4 Implementation Review:**
+    *   *Check:* Static analysis on the fallback logic. Verify that missing/invalid flags *always* route to legacy.
+    *   *Revision:* Exact commit SHA of Lane A.
+*   **G5 Staging Verification:**
+    *   *Action:* Deploy Lane A to staging. Generate the batch (Lane B).
+    *   *Check:* Visual diff of new vs. legacy outputs. Confirm font rendering integrity (no corruption).
+    *   *Revision:* Staging deployment SHA.
+*   **G6 Finance Gate (Human):**
+    *   *Input:* The specific PDF batch generated in G5.
+    *   *Actor:* Finance Director.
+    *   *Condition:* Explicit written approval required before any production flag flip.
+*   **G7 Security/Compliance:** Verify no unauthorized changes to the shared configuration file locked by Compliance.
+
+#### 3. Review Strategy
+*   **Code Review:** Performed by a Senior Engineer **independent** of the implementer (Lane A). Focus strictly on the fallback mechanism and flag evaluation logic.
+*   **Functional Review:** Performed by QA using the exact staging SHA. Must verify that removing the flag reverts the output instantly.
+*   **Business Review:** Finance Director (G6). This is a hard gate; no code merges to production without this signature.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A to the integration branch only after G5 (Staging) and Code Review pass.
+    2.  Trigger the optimized CI pipeline (Lane C).
+    3.  **Hold** deployment pending G6 (Finance Sign-off).
+*   **Human Decisions Required:**
+    1.  **Engineering Lead:** Approves the code merge and CI optimization strategy.
+    2.  **Finance Director:** Approves the visual batch (G6).
+    3.  **Head of Finance:** Co-signs the production deployment request (dual approval rule).
+*   **Deployment:**
+    *   Deploy to production with the `finance-approved` flag **disabled** by default (serving legacy).
+    *   Once G6 is signed, toggle the feature flag for enterprise clients.
+*   **Rollback:**
+    *   *Immediate:* Disable the feature flag to force 100% legacy traffic.
+    *   *Code:* Revert the merge if the fallback logic proves flawed in production monitoring.
+    *   *Constraint:* Do not attempt to rollback font changes (none should exist); if corruption occurs, the service must be reverted to the pre-weekend state immediately.
+
+**Timeline Critical Path:** Code complete by Monday EOD → Staging batch ready Tuesday AM → Finance Review Tuesday Noon → Deployment pending sign-off.

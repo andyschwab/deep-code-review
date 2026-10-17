@@ -1,0 +1,43 @@
+### Delivery Plan: Lockdown of `release-v2`
+
+#### 1. Lanes and Parallelism
+*   **Lane A (Configuration Drafting):** The Platform Engineer drafts the branch protection rules locally. This includes defining "Release Manager" (Jane Smith) as the sole required approver and identifying the specific validation checks to enforce.
+    *   *Constraint:* Must explicitly exclude the known flaky connectivity check from the "required" list to prevent false-positive blocking.
+*   **Lane B (PR Triage):** The Release Lead audits all open Pull Requests (PRs) targeting `release-v2`.
+    *   *Action:* Identify PRs with pending merges or outdated bases.
+    *   *Parallel:* This runs simultaneously with Lane A.
+
+#### 2. Gates and Checks
+*   **Gate 1: Dry-Run Validation (Pre-Execution)**
+    *   *Revision:* Run against the current `HEAD` of `release-v2`.
+    *   *Check:* Simulate the new protection rules against the open PRs identified in Lane B. Verify that the required checks (excluding the flaky one) are marked as "optional" or "required" correctly in the simulation.
+    *   *Pass Condition:* No open PR is rendered unmergeable solely due to the exclusion of the flaky check or missing owner approval that can be immediately satisfied.
+*   **Gate 2: Stakeholder Sign-off**
+    *   *Who:* Jane Smith (Release Manager).
+    *   *Check:* Explicit written approval of the drafted rule set, confirming she accepts sole approver responsibility and validating the excluded flaky check.
+    *   *Timing:* Must occur before any API call to modify repository settings.
+
+#### 3. Review Process
+*   **Independent Reviewer:** The Security Lead (distinct from the Platform Engineer and Release Lead).
+*   **Scope:** Review the drafted configuration script/payload and the Triage Report from Lane B.
+*   **Focus:** Ensure no other users are accidentally granted approve permissions and that the "no direct push" rule is absolute.
+*   **Timing:** After Gate 1 passes, before Gate 2 sign-off.
+
+#### 4. Landing Strategy
+*   **Serialization:**
+    1.  Notify all three global teams via urgent channel: "Branch lockdown imminent; hold non-critical merges."
+    2.  Execute Lane B Triage (resolve conflicts in shared dependency manifest now).
+    3.  Pass Gate 1 & 3 (Security Review).
+    4.  Obtain Gate 2 (Jane Smith's approval).
+    5.  **Apply Configuration:** Enable branch protection, enforce Code Owners, disable direct pushes, and set required checks.
+*   **Human Decision Point:** If any open PR fails the simulation (Gate 1), the Release Manager must decide whether to merge it *before* lockdown (waiving checks temporarily) or close/rebase it *after* lockdown. No automatic force-merges.
+*   **Rollback Protocol:**
+    *   *Trigger:* If legitimate hotfixes are blocked for >1 hour due to configuration error.
+    *   *Action:* Requires administrative escalation (ticket + verbal confirmation from CTO/VP) to disable protection temporarily.
+    *   *Cost:* Acknowledged risk of silent failure returns until re-enabled.
+
+#### 5. Post-Landing Verification
+*   **Smoke Test:** Attempt a direct push (must fail). Attempt a merge without Jane's approval (must fail). Attempt a merge with the flaky check failed but Jane's approval present (must succeed).
+*   **Budget Watch:** Monitor pipeline costs for 24 hours to ensure the flaky check isn't triggering expensive re-runs due to misconfiguration.
+
+This plan prioritizes preventing the "silent failure" mentioned in the ticket while mitigating the risk of breaking existing workflows due to the flaky test and merge conflicts.

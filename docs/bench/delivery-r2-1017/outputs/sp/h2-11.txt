@@ -1,0 +1,71 @@
+# Delivery Plan: 2FA for Support Admin Console
+
+## Lanes & Parallelism
+
+**Lane A: Core Implementation (Serialized)**
+*Owner: Engineering Lead*
+1.  **Database Migration:** Add columns for TFA secrets and backup keys to the identity module. *Constraint: Irreversible without 4-hour DB rollback. Must be first.*
+2.  **Logic Implementation:** Implement TOTP generation/validation and backup key logic within the identity module.
+3.  **UI Integration:** Build enrollment flows, QR code display, and input fields in the Admin Console.
+4.  **Grace Period Logic:** Implement the time-based enforcement toggle.
+
+**Lane B: Verification & Comms (Parallel to Lane A Steps 2-4)**
+*Owner: QA & Support Lead*
+1.  **Manual Staging Verification:** Since SMS is missing in staging, manually verify TOTP flows using authenticator apps. Test backup key recovery specifically.
+2.  **Documentation:** Draft user guides for enrollment and recovery procedures.
+3.  **Comms:** Prepare "Coming Soon" notifications for the support team regarding the grace period start date.
+
+**Serialization Constraints:**
+*   Lane A Step 1 (DB Migration) must complete before Lane A Step 2.
+*   Lane B Step 1 cannot begin until Lane A Step 2 is deployed to Staging.
+*   Production deployment requires both Lane A (Code Complete) and Lane B (Sign-off) to be finished.
+
+## Gates & Checks
+
+**Gate 1: Pre-Migration Review**
+*   **Trigger:** Before merging Lane A Step 1.
+*   **Check:** Schema review by Security Officer.
+*   **Revision:** Latest `main` branch commit hash.
+*   **Stop Condition:** Any schema change that breaks existing read paths without backward compatibility.
+
+**Gate 2: Staging Verification**
+*   **Trigger:** Deployment to Staging Environment.
+*   **Check:** Manual execution of 5 critical paths (Login, Enroll, Fake Loss, Recover, Disable) by QA.
+*   **Revision:** The specific CI build artifact passing the 45-minute pipeline.
+*   **Note:** Ignore SMS notification failures in CI logs; verify only TOTP/Backup flows manually.
+
+**Gate 3: Change Board Approval**
+*   **Trigger:** Post-Staging Sign-off.
+*   **Check:** Dual approval required from Shift Lead and Security Officer.
+*   **Evidence:** Link to Staging verification report and rollback procedure document.
+
+## Review Process
+
+**Independent Code Review:**
+*   **Reviewer:** Senior Engineer from a team *other than* Reliability or Security (e.g., Platform Team) to ensure neutrality.
+*   **Scope:** Focus on the identity module changes and the race condition mitigation in the audit log service.
+*   **Timing:** Occurs after Lane A Step 2 is complete, before merging to `main`.
+
+**Security Audit:**
+*   **Reviewer:** Security Officer.
+*   **Scope:** Verification of backup key storage encryption and TOTP secret handling.
+*   **Timing:** Parallel to Code Review.
+
+## Landing Strategy
+
+**Deployment Window:**
+*   **Time:** Off-peak hours (defined as 02:00–04:00 local time) to minimize incident response impact.
+*   **Mode:** Canary rollout. Enable 2FA enforcement for 5% of users (internal test group) first.
+
+**Rollback Protocol:**
+*   **Trigger:** Critical failure in login flow or audit log race condition manifests as data loss.
+*   **Action:** Revert code immediately. If DB migration is the cause, initiate the 4-hour database rollback procedure.
+*   **Decision Authority:** Shift Lead has final say on initiating rollback; Security Officer must be notified within 15 minutes.
+
+**Human Decisions Required:**
+1.  **Grace Period Duration:** Product Owner must define the exact number of days for the enrollment grace period before deployment.
+2.  **Enforcement Hard-Date:** Security Officer must sign off on the date when 2FA becomes mandatory for all accounts.
+
+**Post-Landing:**
+*   Monitor audit logs for high-write volume spikes indicating the known race condition.
+*   Verify compliance review artifacts are generated correctly.

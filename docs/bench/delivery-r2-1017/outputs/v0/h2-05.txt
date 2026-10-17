@@ -1,0 +1,50 @@
+**Delivery Plan: Hybrid Object Storage Migration**
+
+**Strategy**
+Implement a "Hybrid Storage Adapter" pattern. The backend will intercept file requests: new uploads generate signed URLs for the object store; existing requests for files in `/var/uploads` serve directly from the local disk (lazy migration). This ensures zero downtime for legacy data and preserves existing public links without a bulk migration script.
+
+**Lanes & Parallelism**
+
+*   **Lane A: Backend Storage Adapter (Builder)**
+    *   **Work:** Create a new service module implementing the storage interface. Logic: If path starts with `/var/uploads`, serve local; otherwise, generate/get signed URL from the new object store. Update the upload endpoint to return signed URLs instead of local paths.
+    *   **Constraint:** Must *not* modify `shared-config.yaml`. Configuration for the new store must be injected via environment variables or a new, non-locked config file.
+    *   **Parallelism:** Can run parallel to Lane B, but must finish before Lane C.
+
+*   **Lane B: Frontend Upload Flow (Builder)**
+    *   **Work:** Update the frontend upload component to handle the new API response (signed URL). Implement direct-to-cloud upload logic using the provided URL.
+    *   **Constraint:** Ensure fallback compatibility if the backend temporarily reverts (though not expected).
+    *   **Parallelism:** Independent of Lane A's internal logic, but requires the API contract defined in Lane A's design phase.
+
+*   **Lane C: Integration & Link Preservation (QA/Builder)**
+    *   **Work:** Verify that existing public links (pointing to old paths) still resolve correctly via the hybrid adapter. Confirm email campaign links remain functional.
+    *   **Constraint:** Must explicitly ignore the known flaky staging network error if logs confirm connectivity.
+
+**Gates & Checks**
+
+*   **G1 Spec:** Define the API contract for the signed URL response. Confirm the "lazy migration" logic covers all edge cases for `/var/uploads`.
+*   **G2 Plan:** Acyclic graph confirming Lane A and B can proceed in parallel after design sign-off. Explicitly note the exclusion of `shared-config.yaml` changes.
+*   **G3 Design:** Review the security of the signed URL generation (expiration, scope). Ensure no credentials are hardcoded.
+*   **G4 Implement:** Code changes in isolated worktrees. Unit tests must mock the storage layer; **no heavy integration tests** in the main CI to avoid runner timeouts/costs.
+*   **G5 Verify:**
+    *   **Revision:** Exact SHA of the merged feature branch.
+    *   **Checks:** Run unit tests and lightweight smoke tests on CI.
+    *   **Manual/Staging:** Deploy to staging. Verify: (1) New upload returns a signed URL and stores in cloud. (2) Accessing an old file path serves the local disk file. (3) Public links work. Ignore the specific flaky network error if connectivity is proven.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Backend Engineer (independent of Builder).
+    *   **Focus:** Security of signed URLs, correctness of the hybrid routing logic, and adherence to the "no `shared-config.yaml`" rule.
+
+**Landing & Human Gates**
+
+*   **Merge Strategy:** Merge Lane A and B into a staging branch. Once G5/G6 pass, merge to the integration branch.
+*   **Human Approval (G8):**
+    *   **Required:** Approval from **two senior leads** is mandatory before production deploy.
+    *   **Presentation:** Present the "Hybrid Adapter" approach, emphasizing zero manual migration and preserved links. Show staging verification receipts.
+    *   **Irreversibility Warning:** Explicitly state that once the database schema marker updates during deploy, the process is irreversible.
+*   **Rollback:**
+    *   Since the database schema change is irreversible, the rollback plan relies on the **code-level toggle**. The Hybrid Adapter must include a feature flag to force all traffic back to the local disk implementation if the object store fails.
+    *   If the object store integration fails post-deploy, flip the flag to bypass the new code path entirely, reverting to pure local disk usage immediately while keeping the new schema.
+
+**Risk Mitigation**
+*   **CI Costs/Timeouts:** Heavy integration tests are excluded from the default pipeline. They will be run manually on demand or in a separate, non-blocking job.
+*   **Config Lock:** No changes proposed to `shared-config.yaml`.
+*   **Legacy Data:** No bulk script; access triggers the hybrid logic, ensuring immediate availability.

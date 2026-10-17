@@ -1,0 +1,36 @@
+### Delivery Plan: Q3 Balance Correction
+
+**1. Lanes & Parallelism**
+*   **Lane A (Preparation - Serialized):** Engineer extracts the 412 account IDs and delta values from the encrypted vault. They construct the idempotent correction script. The script must include a hard-coded guard to execute *only* against the specific list of IDs and tag the audit log with this ticket number.
+*   **Lane B (Environment Sync - Parallel):** While the script is written, the Operations Lead verifies the read-only mirror status. Given the 4-hour lag, they confirm the mirror contains the pre-migration state required for validation. If recent test data is missing, they note the specific gap to avoid false negatives during the dry run.
+*   **Lane C (Access Provisioning - Serialized):** The Lead requests the temporary 15-minute elevation token for the primary cluster. This is timed to coincide exactly with the final production execution window, not the dry run.
+
+**2. Gates & Checks**
+*   **Gate 1: Code Review (Pre-Dry Run):** The script is reviewed by a Senior Engineer *not* involved in writing it. Focus: Idempotency, strict ID allow-listing, audit logging, and absence of logic changes to core calculation modules.
+*   **Gate 2: Dry Run Execution (Mirror Environment):**
+    *   **Revision:** The script is run against the latest stable revision currently deployed to the mirror.
+    *   **Check:** Verify the output totals match the expected sum of deltas for the 412 accounts.
+    *   **Constraint:** If the mirror lag causes validation failure, the team proceeds only if a mathematical proof of the delta correctness is signed off by the Chief Risk Officer (CRO).
+*   **Gate 3: Security Pre-Flight:** Before production access, the pipeline configuration is temporarily adjusted to whitelist the high-volume write pattern for this specific job ID to prevent false-positive security alerts from halting the process mid-execution.
+
+**3. Review & Approval**
+*   **Independent Review:** The script and dry run results are reviewed by Jane Smith (Finance Platform) and a designated delegate from the Risk team. They verify the "negative to zero" correction logic applies strictly to the provided list.
+*   **Dual Approval Trigger:** The production deployment job requires explicit digital sign-off from both Jane Smith and the CRO. This approval must occur within the 15-minute window of the token validity.
+
+**4. Landing & Execution**
+*   **Timing:** Execution is scheduled for the immediate window prior to the morning billing cycle, ensuring the token is requested only when approvers are online.
+*   **Execution:**
+    1.  Token is minted (15-min expiry).
+    2.  Approvers sign off.
+    3.  Script runs against the **Primary Cluster**.
+    4.  Audit log is verified immediately post-run for the ticket tag.
+*   **Rollback Strategy:** Since direct writes are irreversible and no backup snapshot is mentioned for immediate restore:
+    *   The script must generate a reverse-delta report *before* execution.
+    *   If the correction causes immediate system instability, a manual reverse-script (using the generated report) must be ready to run under a new elevation token to neutralize the accounts, not necessarily restore history.
+*   **Human Decision Point:** If the dry run on the mirror fails due to data lag, the CRO must decide whether to proceed based on offline calculation verification or delay the billing cycle.
+
+**5. Post-Execution**
+*   Confirm the 412 accounts reflect zero balance.
+*   Revoke the elevation token immediately.
+*   Restore pipeline security thresholds to standard levels.
+*   Document the execution time and token usage for compliance audit.
