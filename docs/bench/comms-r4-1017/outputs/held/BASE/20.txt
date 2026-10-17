@@ -1,0 +1,24 @@
+**Search queries now use a new multi-column index, cutting typical customer search time from 850 ms to 120 ms on staging.**
+
+**Why:** The previous query scanned the `orders` table without an efficient path for combined `customer_id` and `created_at` filters, causing latency up to 1.4 seconds.
+
+**Change:**
+- Added migration to create index on `(customer_id, created_at)`.
+- Updated search query to leverage the new index.
+- Verified all 85 existing tests pass.
+
+**Benchmarks (Staging, 500k rows):**
+- Typical customer search: 850 ms → 120 ms (86% reduction).
+- Complex date-range search: 1.4 s → 380 ms.
+
+**Risk and rollback:**
+- Blast radius: Limited to search query performance; write operations may see slight overhead (unmeasured).
+- Rollback: Revert migration to drop index and restore previous query version.
+- Unknowns: Index size on production (4.2M rows) is estimated at ~250 MB but unverified. Performance impact on very large date ranges (e.g., 2 years) is not yet benchmarked.
+
+**Verified:**
+✅ All 85 tests pass.
+✅ Benchmark results on staging (500k rows).
+⏳ Production index size and storage budget approval (DBA).
+
+**Ask:** Reviewer please approve the code changes. DBA please verify the production index size and confirm it fits the storage budget.
