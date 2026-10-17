@@ -1,0 +1,25 @@
+### Critical Defects
+
+**1. Unreachable Code and Resource Leaks**
+*   **File:** `internal/cli/cli.go`
+*   **Location:** Multiple instances (e.g., Lines 590, 654, 726, 737, 758, 819, 882-885, 944, 1040, 1099, 1157, 1179, 1204, 1224, 1236, 1267, 1278, 1311, 1342, 1426, 1441, 1450).
+*   **Why it is wrong:** The pattern `cli.OsExiter(1); return err` (or `return nil`) is logically flawed. `cli.OsExiter` terminates the process immediately. Any code following this call on the same logical path is unreachable. More critically, if the function has registered `defer` statements (common for closing files, releasing locks, or cleanup), they will **not execute** because `OsExiter` halts the process abruptly. This replaces a controlled error return (which allows the caller or deferred functions to handle cleanup) with a hard process kill, leading to resource leaks and potential data corruption.
+*   **Fix:** Revert to `return err` (or the appropriate error value). Allow the error to propagate up to the main execution flow where `app.Run` or the specific command handler can decide to exit, ensuring `defer` chains execute first. If an immediate exit is absolutely required at that specific spot, ensure all necessary cleanup happens *before* the call, but returning the error is the idiomatic and safe Go approach.
+
+**2. Loss of Error Context in Global Handler**
+*   **File:** `internal/cli/cli.go`
+*   **Location:** Lines 338-341 (`CommandNotFound` handler).
+*   **Why it is wrong:** The original code returned an error from the default `Action`, allowing the framework or upstream logic to handle the error potentially with stack traces or specific error types. The new `CommandNotFound` function calls `helpCommand`, ignores its returned error, and then immediately exits via `cli.OsExiter(1)`. If `helpCommand` fails (e.g., cannot write to stdout), this failure is silently swallowed, and the process exits with a generic code 1, losing the specific cause of the failure.
+*   **Fix:** Capture the error from `helpCommand`. If it returns an error, log it specifically before exiting. Better yet, return the error to the framework if the CLI library supports error propagation from `CommandNotFound`, rather than calling `OsExiter` directly inside the handler.
+
+**3. Incorrect Error Handling Flow in `execCommand`**
+*   **File:** `internal/cli/cli.go`
+*   **Location:** Lines 590-592.
+*   **Why it is wrong:** The code executes `cli.OsExiter(1)` and then `return err`. As noted in defect #1, the return is unreachable. However, specifically here, the `pre_` hook failed. By exiting immediately, the function prevents any subsequent logic that might have been intended to handle partial failures or log specific context after the hook failure but before termination. It also bypasses any deferred cleanup in `execCommand`.
+*   **Fix:** Remove `cli.OsExiter(1)`. Return the error `err` to the caller. Let the central error handler in `Execute` manage the exit code after all defers have run.
+
+**4. Premature Exit in `pluginAddCommand` and `pluginRemoveCommand`**
+*   **File:** `internal/cli/cli.go`
+*   **Location:** Lines 726, 737, 758.
+*   **Why it is wrong:** These commands perform state changes (adding/removing plugins, removing shims). If an error occurs partway through, calling `OsExiter` immediately prevents the function from returning the error to the test harness or caller, making automated testing of failure modes difficult and bypassing any transactional cleanup logic that might exist in the caller's scope.
+*   **Fix:** Replace `cli.OsExiter(1)` with `return err` (or `return nil` if no error variable is present but a failure occurred, though an error should be constructed). Allow the standard control flow to manage the exit.

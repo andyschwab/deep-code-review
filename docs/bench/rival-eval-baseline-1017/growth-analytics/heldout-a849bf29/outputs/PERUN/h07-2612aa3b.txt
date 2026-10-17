@@ -1,0 +1,19 @@
+**Verdict: Invalid Data. Do not treat as a win, loss, or actionable trend.**
+
+The result is `UNVERIFIED` because the test violates two non-negotiable rules of experiment rigor: it lacked a pre-committed sample size/duration, and the randomization integrity is compromised by the server outage. A p-value of 0.12 indicates the observed 5% lift is statistically indistinguishable from noise; combined with early stopping, this is a classic "peeking" failure where the false-positive rate is inflated far above the nominal 5%. Your assumption that the trend is real is a rationalization unsupported by the numbers.
+
+**Risks of Acting on This Data**
+1.  **False Positive (Type I Error):** Stopping early because a metric looks good ("peeking") dramatically increases the chance you are shipping a change that actually has zero or negative impact. The 5% lift is likely an artifact of random variance or the outage itself, not the algorithm.
+2.  **Selection Bias:** If the server outage affected the treatment and control groups unevenly (e.g., if the new algorithm triggered more database calls that failed during the outage), the comparison is broken. You cannot isolate the algorithm's effect from the infrastructure failure.
+3.  **Corrupted Randomization:** If the outage caused data loss that was not uniform across groups, the "random" assignment is no longer valid. Any difference in time spent could be due to which users' sessions were recorded, not what they saw.
+
+**Immediate Steps for the Steering Committee**
+1.  **Declare the Test Void:** Present the data as inconclusive and the test design as compromised. Explicitly state that the 5% lift is `UNVERIFIED` and that acting on it would be gambling, not engineering.
+2.  **Audit the Outage Impact:** Before re-running, engineering must verify if the server outage logs show equal error rates and data completeness for both control and treatment groups. If the outage impacted one group more, the entire dataset must be discarded.
+3.  **Re-run with Pre-Commitment:** Design a new test with a **pre-committed sample size and duration** calculated to detect a 5% lift with adequate power (typically 80%+). Define the primary metric (time spent) and a guardrail metric (e.g., crash rate or latency) upfront.
+4.  **Enforce Strict Stopping Rules:** Commit to reading the results **only once** at the end of the pre-determined period. Do not monitor daily p-values. If continuous monitoring is required for business reasons, implement a sequential testing framework (like mSPRT) with valid stopping boundaries, but do not apply fixed-horizon logic to a flexible timeline.
+
+**This Week's Action:** Cancel any rollout plans based on this test. Task engineering with the outage audit and product analytics with calculating the required sample size for a valid re-run. The decision to ship waits for a clean, pre-committed test result.
+
+*Note: Never assert a benchmark for "good" time-spent lifts; compare only against your own baseline once the new test completes.*
+*The identifier seam for this re-run must ensure stable per-user tracking while remaining pseudonymous, per privacy compliance.*

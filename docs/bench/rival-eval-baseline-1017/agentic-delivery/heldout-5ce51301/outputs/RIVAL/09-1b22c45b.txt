@@ -1,0 +1,37 @@
+# Delivery Plan: Safe Connection Pool Rollout
+
+**Objective:** Increase default connection pool from 20 to 50 in `config/app_defaults.yaml` without disrupting nightly batch jobs or the 1.2M record data sync.
+
+### Phase 1: Discovery & Impact Analysis (Wednesday AM)
+1.  **Static Analysis:** Scan the codebase for explicit overrides of the connection pool setting. Identify all services and scripts that rely on the implicit default in `config/app_defaults.yaml`.
+2.  **Batch Job Audit:** Specifically inspect `src/batch_runner.js` and any cron configurations triggering nightly jobs. Document exactly which processes will inherit the new default of 50.
+3.  **Resource Calculation:** Calculate the maximum potential connection count if all identified batch jobs run concurrently with the new default (50) versus the old (20). Verify this total does not exceed the database server's `max_connections` limit.
+
+### Phase 2: Implementation & Local Verification (Wednesday PM)
+1.  **Configuration Update:** Modify `config/app_defaults.yaml`, changing the pool size from 20 to 50.
+2.  **Explicit Overrides (Safety Net):** If the resource calculation in Phase 1 indicates risk, modify `src/batch_runner.js` to explicitly set the pool size back to 20 (or a calculated safe limit) for that specific process, ensuring it remains unaffected by the global default change.
+3.  **Full Test Suite:** Run `yarn test-all`. **Constraint:** Do not skip the 15-minute integration test for the batch runner. This is mandatory to verify connection handling under the new configuration.
+
+### Phase 3: Staging Verification – Split Approach (Thursday AM)
+*Deadline: Verification complete by 11:00 AM to meet noon delivery.*
+
+**Step A: Low-Traffic Validation**
+Deploy the change to a isolated staging environment. Run standard smoke tests to ensure the application starts correctly and picks up the new default (50).
+
+**Step B: High-Load Simulation (Marcus's Requirement)**
+1.  **Traffic Replay:** Use a traffic replay tool or load generator to simulate the concurrency levels of the holiday rush against the staging database.
+2.  **Batch Simulation:** Trigger a manual run of the nightly data sync logic in staging with a representative data subset. Monitor database connection metrics (`pg_stat_activity` or equivalent) to ensure no exhaustion occurs.
+3.  **Endurance Check:** Let the simulation run for at least 30 minutes to detect connection leaks.
+
+### Phase 4: Deployment & Rollback Strategy (Thursday Noon)
+1.  **Merge Condition:** Proceed only if Phase 3 Step B shows stable connection counts under load and zero errors in the batch simulation.
+2.  **Deployment:** Merge and deploy during a low-traffic window before the holiday rush begins.
+3.  **Rollback Plan:** If production metrics show connection spikes or batch failures immediately after deploy:
+    *   Revert `config/app_defaults.yaml` to 20.
+    *   Redeploy immediately.
+    *   Investigate logs for specific connection exhaustion errors.
+
+**Deliverable:** A merged PR with the updated config, explicit safeguards in `src/batch_runner.js` (if needed), and a signed-off verification report from the staging load simulation.
+
+Note: This plan prioritizes the 15-minute integration test and high-load simulation as non-negotiable gates.
+Ensure Marcus reviews the staging simulation logs before the noon deadline.

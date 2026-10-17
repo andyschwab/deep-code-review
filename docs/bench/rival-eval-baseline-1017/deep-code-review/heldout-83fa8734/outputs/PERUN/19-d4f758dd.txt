@@ -1,0 +1,46 @@
+### 1. Logic Error: Action Handler Execution Bypasses Event Emission
+**File:** `index.js`
+**Hunk:** `@@ -1501,9 +1502,11 @@` (Lines 1504–1506 in the new code)
+
+**Why it is wrong:**
+The original code emitted the `command:${name}` event immediately after executing `this._actionHandler(args)`. The patch introduces an `if (this.parent)` guard around the emit statement within the `_actionHandler` block.
+If `this._actionHandler` exists but `this.parent` is null or undefined (e.g., if the command is executed in isolation or the parent reference hasn't been set yet), the action runs, but the `command:${name}` event is **never emitted**. This breaks any listeners relying on this event to track command execution, logging, or telemetry for top-level or orphaned commands. The condition `if (this.parent)` was likely intended only for the legacy fallback logic, not the primary success path.
+
+**Fix:**
+Remove the `if (this.parent)` guard for the primary emission after the action handler. The event should be emitted regardless of the parent's existence if the action handler ran. The `if (this.parent)` check should remain only for the `else if` block where the event is re-emitted to the parent as a legacy fallback.
+
+```javascript
+// Corrected logic structure
+if (this._actionHandler) {
+  // ... arg processing ...
+  this._actionHandler(args);
+  // Always emit if action ran, regardless of parent presence
+  this.emit('command:' + this.name(), operands, unknown);
+} else if (this.parent && this.parent.listenerCount(commandEvent)) {
+  // Legacy fallback only if no action handler exists
+  this.parent.emit(commandEvent, operands, unknown);
+}
+// ... rest of logic
+```
+
+### 2. Regression: Variable Rename Obscures Intent without Refactor
+**File:** `index.js`
+**Hunk:** `@@ -1490,6 +1490,7 @@` (Line 1493)
+
+**Why it is wrong:**
+The patch introduces `const commandEvent = \`command:${this.name()}\`;` to replace the inline string concatenation `'command:' + this.name()`. While technically functional, this variable is used in a mixed manner:
+1. It is used in the new `if` condition: `this.parent.listenerCount(commandEvent)`.
+2. It is used in the `emit` calls.
+However, the original explicit emission `this.emit('command:' + this.name(), ...)` inside the `_actionHandler` block is *not* updated to use `commandEvent` in the provided diff (it is replaced by the guarded logic). If the intention was to standardize the string, the patch fails to apply it consistently to the primary execution path before the guard was added, or it creates a dependency on a variable that scopes the event name unnecessarily tightly around the `parent` check logic. More critically, if `this.name()` has side effects (unlikely but possible in dynamic JS), calling it twice (once for the const, once in the original code if it remained) would be bad; here it is called once, but the scope of `commandEvent` suggests it belongs to the `parent` logic branch, yet it is defined in the outer scope. This is a minor maintainability defect that complicates the reading of the control flow introduced in defect #1.
+
+**Fix:**
+If the variable is kept, ensure it is used for *all* instances of that event string in the block to avoid drift. However, given the logic error in #1, the primary fix is restoring the unconditional emit. The variable extraction is optional but should be applied consistently if used.
+
+```javascript
+// If keeping the variable, ensure consistent usage or revert to inline if it adds no value
+const eventName = 'command:' + this.name();
+// Use eventName everywhere
+```
+
+### Summary
+The patch introduces a **Critical** regression where successful command execution no longer triggers the standard event if the command lacks a parent, silently breaking event-driven integrations. The variable extraction is a secondary clarity issue that interacts poorly with the flawed control flow.

@@ -1,0 +1,47 @@
+# Implementation Plan: Safe Removal of `enable_dark_beta` Flag
+
+**Objective:** Remove the `enable_dark_beta` feature flag and associated dead code from `src/ui_theme_manager.ts` while maintaining backward compatibility for ~3,000 mobile users on version 2.1, ensuring no client-side crashes or blank screens.
+
+**Deadline:** Next Tuesday (prior to mobile release cycle)
+**Stakeholder Approval:** Sarah (Mobile Engineering)
+
+## Phase 1: Analysis & Contract Verification (Day 1)
+1.  **Audit Usage:** Grep the codebase for all references to `enable_dark_beta` to ensure `src/ui_theme_manager.ts` is the sole logic holder.
+2.  **API Contract Analysis:** Inspect the mobile API endpoint receiving the legacy parameter from v2.1 clients.
+    *   Identify the specific parameter name (e.g., `use_dark_beta`).
+    *   Verify current behavior: Does the server error if the flag is missing, or does it ignore unknown params?
+3.  **Define Compatibility Strategy:**
+    *   If the server currently *requires* the param: Implement a "silent acceptor" pattern. The API will accept the legacy parameter but map it to the new default behavior without checking the flag value.
+    *   If the server *ignores* unknown params: No API change needed; only internal logic removal is required.
+4.  **Draft Verification Script:** Create a standalone TypeScript/Node script (`verify_mobile_contract.ts`) that simulates a v2.1 client request against the local environment to prove stability.
+
+## Phase 2: Implementation & Refactoring (Day 2-3)
+1.  **Update API Handler:** Modify the API entry point to explicitly accept the legacy v2.1 parameter but decouple it from any feature flag logic. Ensure it returns a valid response structure expected by v2.1.
+2.  **Refactor `src/ui_theme_manager.ts`:**
+    *   Remove the `enable_dark_beta` check entirely.
+    *   Delete the dead code branch associated with the old theme logic.
+    *   Hardcode the new dark mode behavior as the default.
+    *   Remove any configuration definitions related to the flag.
+3.  **Type Safety:** Update TypeScript interfaces to remove the flag property from internal config objects (keep the API input interface tolerant if necessary for parsing).
+
+## Phase 3: Testing & Validation (Day 4)
+1.  **Unit Tests:** Run `npm run test:unit`. Update any tests that previously mocked `enable_dark_beta` to reflect the new default behavior.
+2.  **Integration Test:** Execute the `verify_mobile_contract.ts` script.
+    *   Simulate a request with the v2.1 parameter.
+    *   Assert: HTTP 200 OK, valid JSON response, no console errors, correct theme data returned.
+3.  **Regression Check:** Verify standard web clients receive the new dark mode by default without issues.
+
+## Phase 4: Stakeholder Review & Sign-off (Day 5)
+1.  **Handoff to Sarah:** Provide the following artifacts:
+    *   The PR link containing the changes.
+    *   Instructions to run `verify_mobile_contract.ts` locally or in the staging environment.
+    *   A summary of the "Silent Acceptor" logic ensuring v2.1 compatibility.
+2.  **Approval Gate:** Obtain explicit sign-off from Sarah confirming the simulation passes on her end.
+
+## Phase 5: Deployment & Cleanup (Next Tuesday)
+1.  **Deploy:** Merge and deploy to production.
+2.  **Monitor:** Watch error logs specifically for mobile v2.1 user agents for 2 hours post-deploy.
+3.  **Final Cleanup:** Once confirmed stable, remove the `verify_mobile_contract.ts` script and any temporary compatibility comments added during the transition.
+
+**Note:** This plan prioritizes the "silent acceptor" pattern to ensure the 3,000 legacy users experience zero disruption while allowing full code removal internally.
+**Risk:** If the mobile app v2.1 performs client-side validation of the response based on the flag's existence, a minor hotfix to the mobile app may be required; Phase 1 analysis will confirm this.

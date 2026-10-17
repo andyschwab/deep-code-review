@@ -1,0 +1,56 @@
+# Delivery Plan: Inventory Search Cache with Strict Invalidation
+
+**Objective:** Reduce `src/db_queries.sql` product search latency from ~8s to <200ms via caching, ensuring immediate invalidation (<50ms) upon any write in `src/inventory_writer.py` without compromising data correctness.
+
+### Phase 1: Implementation Strategy (TypeScript Adaptation)
+*Note: The request mentions TypeScript, but source files are `.sql` and `.py`. The plan assumes the SQL is executed via a TypeScript service layer or the Python module is the primary writer. We will target the actual execution layer.*
+
+1.  **Cache Layer Integration**:
+    *   Wrap the specific product search query in a Redis-backed cache layer with a short TTL (e.g., 5 minutes) as a safety net, but rely primarily on explicit invalidation.
+    *   Key structure: `inventory:search:{query_hash}`.
+    *   Target: Achieve <200ms response time on cache hits.
+
+2.  **Strict Invalidation Mechanism**:
+    *   Instrument `src/inventory_writer.py` (or the TypeScript equivalent) to publish an invalidation event immediately after any successful `INSERT`, `UPDATE`, or `DELETE` transaction commits.
+    *   Use a pub/sub channel or direct cache deletion call to purge affected keys.
+    *   **Constraint**: The time between transaction commit and cache clearance must be <50ms.
+
+3.  **Fixing the Flaky Test**:
+    *   Analyze `tests/test_cache_layer.py` to identify the race condition allowing false positives.
+    *   Refactor the test to use deterministic synchronization (e.g., explicit barriers or mocked time) rather than arbitrary sleeps.
+    *   Add a specific assertion that fails if invalidation takes >50ms.
+
+### Phase 2: Verification & Specific Checks
+
+1.  **Latency Verification**:
+    *   Run `npm run verify-db` (or equivalent Python test runner) against a dataset of 50,000+ items.
+    *   **Check 1**: Confirm uncached query time is recorded (baseline ~8s).
+    *   **Check 2**: Confirm cached query time is <200ms.
+
+2.  **Invalidation Timing Check**:
+    *   Implement a high-resolution timer in the test suite that records the timestamp of the write commit and the timestamp of the cache miss immediately following.
+    *   **Pass Criteria**: Delta must be <50ms in 100% of runs over 50 iterations.
+    *   **Stress Test**: Simulate concurrent writes and reads to ensure no stale data is served during high load.
+
+3.  **Correctness Validation**:
+    *   Manual review of the invalidation logic to ensure all write paths in `inventory_writer.py` trigger the purge.
+    *   Verify no "silent failures" where a write succeeds but the cache purge fails (implement error logging for purge failures).
+
+### Phase 3: Deployment Monitoring
+
+1.  **Metrics to Track**:
+    *   **Cache Hit Rate**: Percentage of requests served from cache. Target: >90% for search traffic.
+    *   **Invalidation Latency**: Histogram of time between write commit and cache clear. Alert if p99 > 50ms.
+    *   **Stale Data Incidents**: Log any instance where a read returns data mismatching the immediate post-write state (detected via verification probes).
+
+2.  **Dashboard Alerts**:
+    *   Alert on cache hit rate drop below 80% (indicates potential invalidation storm or key mismatch).
+    *   Alert on search latency p95 > 200ms.
+
+### Schedule
+*   **Morning**: Implement cache wrapper and invalidation hooks; fix flaky test logic.
+*   **Afternoon**: Run verification suite, tune performance, and validate <50ms invalidation metric.
+*   **End of Day**: Code review with focus on Jane's correctness concerns; merge to staging.
+*   **Weekend**: Monitor staging metrics before weekend traffic spike.
+
+**Risk Mitigation**: If the <50ms invalidation cannot be guaranteed due to network overhead, we will implement a "read-through" verification step for critical stock levels immediately post-write for the specific items modified, bypassing the cache for those specific SKUs for 1 second.
