@@ -1,0 +1,52 @@
+### Delivery Plan: Zero-Downtime Reindex (Blue-Green Swap)
+
+**Strategy:** Build a new index (`green`) alongside the live one (`blue`), validate it against the golden dataset, atomically switch the alias, and retain the old index for immediate rollback. No data is deleted until the new index is verified in production.
+
+#### 1. Lanes & Parallelism
+*   **Lane A: Reindex Implementation (Builder)**
+    *   **Work:** Develop the blue-green swap script. It must create `shipment_index_green`, stream the 12M records, and verify document counts.
+    *   **Constraint:** Must handle partial failures without leaving a corrupted index. Must not delete `shipment_index_blue`.
+    *   **Parallelism:** Can run concurrently with Lane B.
+*   **Lane B: Validation Harness (QA)**
+    *   **Work:** Create a verification script that queries `shipment_index_green` against the provided golden dataset.
+    *   **Constraint:** Must run on the exact revision of the new index. Must account for staging disk slowness (adjust timeouts) to avoid false positives.
+    *   **Parallelism:** Runs after Lane A produces a candidate build, but before G5.
+*   **Lane C: Operations Coordination (Conductor)**
+    *   **Work:** Secure the written approval from Jane Smith for the 02:00–04:00 UTC window. Confirm `global-config` lock status during the scheduled window.
+    *   **Serialization:** Must complete before G8 (Release).
+
+#### 2. Gates & Checks
+*   **G2 (Plan):** Define the token budget for the 4-hour reindex job. Explicitly cap costs; no unlimited runs.
+*   **G4 (Implement):** Code committed to a dedicated worktree. Unit tests for the swap logic must pass locally.
+*   **G5 (Verify):**
+    *   **Environment:** Staging (mirroring 12M records).
+    *   **Check:** Run the reindex script. Execute Lane B's validation against the golden dataset.
+    *   **Condition:** `journey: reindex PASS` (Green index populated, counts match, golden dataset queries return correct locations).
+    *   **Note:** Ignore `network-latency` flakiness if the functional result is correct; rely on the golden dataset assertion.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Scope:** Safety of the swap logic, rollback mechanism, and cost caps.
+    *   **Revision:** Exact SHA from G5.
+*   **G7 (Integrate):** Merge to the release branch. Re-run the validation receipt on the merged SHA to ensure no integration drift.
+
+#### 3. Review & Independence
+*   **Builder:** Implements the script. Never reviews their own code.
+*   **QA:** Validates the data integrity independently using the golden dataset. Does not rely on the Builder's local logs.
+*   **Security/Ops:** Verifies that the `global-config` lock handling does not expose race conditions and that the rollback path is immediate.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:** Merge to the release branch only after G6 approval. The code sits dormant until the scheduled window.
+*   **Human Decision (G8):**
+    *   **Approver:** Jane Smith.
+    *   **Action:** Explicit written approval required to execute the deployment script between 02:00 and 04:00 UTC.
+    *   **Trigger:** The Conductor presents the G5 validation receipt and the rollback plan.
+*   **Execution:**
+    1.  Deploy script to production (behind a feature flag or manual trigger).
+    2.  Execute reindex (monitored).
+    3.  Swap alias to `green`.
+    4.  Verify live driver queries (G9).
+*   **Rollback:**
+    *   If latency spikes or errors occur post-swap: Immediately swap alias back to `blue`.
+    *   **Do not delete** the old `blue` index until 24 hours of stable operation are confirmed. Deletion requires a separate, later change request due to the 6-hour restore risk.
+
+**Risk Mitigation:** If the reindex fails halfway, the script must exit cleanly, leaving `blue` untouched and `green` marked for cleanup. No partial data is served. The `global-config` file is accessed only during the approved low-volume window to prevent locks.

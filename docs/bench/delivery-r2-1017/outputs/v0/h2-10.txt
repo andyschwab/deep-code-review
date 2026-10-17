@@ -1,0 +1,64 @@
+### Delivery Plan: Deprecate `legacy_user_segment`
+
+**Goal:** Safely remove `legacy_user_segment` from the `events` table, ensuring no hidden dependencies exist, updating documentation, and securing dual approval before the monthly storage audit.
+
+#### 1. Lanes & Serialization
+Work is split into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is strictly serialized after both succeed.
+
+*   **Lane 1: Dependency Audit (Read-Only)**
+    *   **Actor:** Data Analyst / Search Agent.
+    *   **Task:** Scan all batch job configurations, SQL scripts, and aggregation logic for references to `legacy_user_segment`. Specifically target the nightly aggregation pipeline.
+    *   **Output:** A definitive list of files/jobs using the column or a signed receipt confirming zero matches.
+    *   **Constraint:** Read-only access; no code changes.
+
+*   **Lane 2: Migration & Documentation (Builder)**
+    *   **Actor:** Data Engineer.
+    *   **Task:**
+        1. Draft the versioned migration file to drop the column.
+        2. Implement the mandatory rollback script (re-add column, backfill with NULL/default).
+        3. Update the data dictionary to reflect the deprecation.
+    *   **Constraint:** Must include the rollback plan. No execution yet.
+
+*   **Lane 3: Staging Verification (QA)**
+    *   **Actor:** Independent QA Engineer.
+    *   **Task:** Execute the migration from Lane 2 against the **Staging** environment (which mirrors prod volume).
+    *   **Critical Check:** Run the 45-minute data integrity check.
+    *   **Flake Handling:** Manually verify the known flaky null-handling test result; do not ignore it without visual confirmation of data correctness.
+    *   **Constraint:** Must wait for Lane 1 (Audit Clean) and Lane 2 (Migration Ready).
+
+#### 2. Gates & Checks
+
+*   **G1 Spec (Current):** Scope defined by ticket. Base SHA: `HEAD` of main branch.
+*   **G3 Design Review:**
+    *   **Reviewer:** Lead Engineer.
+    *   **Check:** Verify rollback logic correctness and data dictionary accuracy.
+    *   **Input:** Artifacts from Lane 2.
+*   **G5 Verify (Staging):**
+    *   **Exact Revision:** The merge commit of Lane 2 + Lane 1 audit receipt.
+    *   **Check:** Full 45-minute integrity suite must pass green.
+    *   **Condition:** If the flaky test triggers, QA must manually validate the specific null handling case. If data is corrupt, gate fails.
+    *   **Timing:** Schedule immediately after Lane 1 & 2 complete to minimize wait for weekly staging refresh relevance.
+*   **G6 Security/Governance Review:**
+    *   **Reviewer:** Data Governance Officer (Independent of Builder).
+    *   **Check:** Confirm audit trail, rollback viability, and compliance with storage audit requirements.
+
+#### 3. Review Strategy
+*   **Code/Migration:** Reviewed by Lead Engineer (cannot be the Builder).
+*   **Audit Results:** Verified by QA (cannot be the Analyst who ran the search).
+*   **Governance:** Approved by Data Governance Officer (independent of engineering implementation).
+*   **Rule:** Builder never reviews their own migration script. QA never approves their own staging run.
+
+#### 4. Landing & Human Decisions
+
+*   **Integration:** Once G5 (Staging) and G6 (Governance) are green, the change is merged to the integration branch.
+*   **Human Gates (Dual Approval Required):**
+    1.  **Lead Engineer:** Must explicitly approve the merge to the deployment branch.
+    2.  **Data Governance Officer:** Must explicitly approve the production deployment request.
+    *   *Note:* Neither approval can be automated or self-approved.
+*   **Deployment:** Triggers the production pipeline. Direct DB modification is forbidden; only the pipeline may execute the migration.
+*   **Rollback Plan:**
+    *   **Trigger:** If production integrity checks fail or undocumented dependencies surface post-deploy.
+    *   **Action:** Execute the pre-approved rollback script via the deployment pipeline immediately.
+    *   **Post-Mortem:** If rollback occurs, a G10 Learn session is mandatory to identify the missed dependency.
+
+**Risk Mitigation:** The 45-minute CI cost dictates a "one-shot" discipline. No retries allowed without code fixes. The weekly staging refresh means if the current staging data is >6 days old, the verification must note this limitation, though the volume match remains valid for performance testing.

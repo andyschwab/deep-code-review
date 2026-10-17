@@ -1,0 +1,48 @@
+**Delivery Plan: Inventory Schema Update (warehouse_zone)**
+
+**Strategy:** Coordinate a synchronized cutover to prevent consumer crashes. The work is split into three serialized phases with parallel preparation.
+
+**Lane 1: Schema & Contract (Builder)**
+*   **Work:** Modify the protobuf definition to add `warehouse_zone` (required string). Update the provider service to populate this field.
+*   **Parallel Prep:** Draft API documentation and migration notes for ShopFast/MegaMart teams.
+*   **Constraint:** Do not merge until G3 Sign-off.
+
+**Lane 2: Consumer Coordination (Product Analyst)**
+*   **Work:** Contact ShopFast and MegaMart integration teams. Confirm they have updated their parsers to accept the new field.
+*   **Critical Path:** Obtain written confirmation of readiness from both vendors.
+*   **Gate:** No deployment without explicit "Ready" signals from both external teams.
+
+**Lane 3: Cutover Planning (Conductor)**
+*   **Work:** Meet with Jane Smith to define the exact cutover time (must be after vendor readiness, before weekend shipping window).
+*   **Output:** A signed Change Management ticket with the specific timestamp and rollback contact tree.
+
+**Gates & Checks**
+
+*   **G1/G2 (Spec & Plan):** Verify vendor readiness emails and Jane Smith's approved time window.
+*   **G3 (Design):** Review protobuf change for backward compatibility risks. *Security Review* required here due to schema change.
+*   **G4 (Implement):** Builder commits code. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Environment:** Run ONLY on Wednesday morning (avoid Tuesday DB locks).
+    *   **Scope:** Run CI pipeline once on the candidate SHA. Do not re-run on merge if SHA is unchanged.
+    *   **Validation:** Verify payload includes `warehouse_zone` in Staging. Simulate bulk restock.
+*   **G6 (Review):**
+    *   **Independent Review:** Senior Engineer (not the Builder) reviews code + protobuf diff.
+    *   **Security:** Security Officer verifies no data exposure risks.
+*   **G7 (Integrate):** Merge to release branch. Trigger final CI ($45 cost) only if SHA changed during review.
+
+**Landing & Deployment**
+
+*   **Human Gates (G8):**
+    *   **Dual Approval:** Logistics Lead AND Security Officer must approve the production deploy ticket.
+    *   **Go/No-Go:** Conductor confirms vendor readiness + Jane Smith's time window immediately before approval.
+*   **Execution:** Deploy exactly at the agreed cutover time.
+*   **Rollback:**
+    *   **Constraint:** Reverting is impossible without a 4-hour data migration (column is non-nullable).
+    *   **Mitigation:** If deployment fails validation post-deploy, do not revert code. Instead, hotfix the provider to send a default dummy value for `warehouse_zone` to keep the pipeline moving while data is stabilized.
+*   **Post-Deploy (G9):** Monitor bulk restock logs for both partners for 1 hour. Confirm successful processing with Jane Smith.
+
+**Risk Controls**
+*   **Cost:** CI triggered max twice (Candidate + Final).
+*   **Timing:** All testing strictly Wednesday AM.
+*   **Collision:** No other schema changes allowed in the window.
+*   **Failure Mode:** If vendors are not ready by Tuesday EOM, delay cutover; do not ship early.

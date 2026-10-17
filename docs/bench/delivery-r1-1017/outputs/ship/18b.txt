@@ -1,0 +1,37 @@
+**Delivery Plan: SMS Template Loyalty Tier Update**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Legal Lock):** Product Analyst extracts exact thresholds and opt-out phrasing from approved legal text. Output: A strict string-manifest file. *Serial prerequisite for all coding.*
+*   **Lane B (Logic Implementation):** Builder updates template logic to fetch thresholds from the configuration service instead of hardcoded values. Works in an isolated worktree. Must not edit the shared read-only config file directly; implements the fetch adapter.
+*   **Lane C (Safety Harness):** QA builds a "Dry-Run Simulator" that intercepts any SMS dispatch call. This tool must prove it blocks 100% of outbound traffic to production numbers during testing.
+*   **Lane D (Config Coordination):** Conductor initiates the dual sign-off process for the Engagement and Billing leads to update the shared configuration file with new thresholds. This runs parallel to coding but must complete before final integration.
+
+**2. Gates & Checks**
+*   **G1 (Spec Freeze):** Owner confirms the string-manifest from Lane A matches legal text exactly. No code starts before this signature.
+*   **G4 (Build):** Lane B commits code. Lane C commits the simulator. Base SHA is pinned.
+*   **G5 (Verification - Critical):**
+    *   Run unit tests locally. Ignore the known flaky timezone check but log it as a documented exception.
+    *   **Mandatory Safety Check:** Run the Dry-Run Simulator (Lane C) against the new logic using production-scale dummy data. Verify zero packets leave the sandbox.
+    *   **Cost Control:** Do *not* trigger the full CI pipeline yet. Verify locally first.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (not the Builder) reviews Lane B.
+    *   **Safety Review:** QA Lead reviews Lane C's interception logic.
+    *   **Config Review:** Both Team Leads (Engagement & Billing) approve the config change (Lane D).
+*   **G7 (Integration):** Merge code and config into a release candidate branch. Run the **one** mandatory CI simulation ($200 cost) on this exact SHA only. Verify the flaky test is marked "known non-blocker" in the report.
+
+**3. Review Strategy**
+*   **Independence:** The Builder (Lane B) cannot approve their own code. The Safety Harness (Lane C) must be verified by QA, not the Builder.
+*   **Scope:** Review focuses strictly on the threshold fetch logic and the absolute block on production SMS dispatch.
+
+**4. Landing & Human Gates**
+*   **Merge Train:** Once CI passes on the release candidate, the Conductor prepares the merge.
+*   **Human Gate 1 (Config):** Dual sign-off from Team Leads must be physically present in the PR comments before merging.
+*   **Human Gate 2 (Deploy):** The VP of Customer Experience must explicitly approve the deployment ticket before Friday EOD. The request will present two options:
+    *   *Option A:* Deploy immediately upon VP approval (Recommended if VP approves early Friday).
+    *   *Option B:* Schedule deployment for a specific Friday window to align with marketing.
+*   **Rollback Plan:** Since production batches are irreversible, rollback means immediately disabling the template feature flag and reverting to the previous static template version via a hotfix. This path must be tested in the Dry-Run Simulator before deployment.
+
+**5. Risk Mitigation**
+*   **Compliance:** The Dry-Run Simulator is the single point of failure prevention. If it cannot prove 100% blocking of production numbers, deployment is aborted.
+*   **Flaky Test:** The timezone test failure is documented in the release notes as a known issue, explicitly excluded from the "Red Gate" status to prevent false blocking.
+*   **Timing:** All work targets completion by Thursday EOD to ensure the VP has Friday available for approval and deployment before the weekend push.

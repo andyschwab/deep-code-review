@@ -1,0 +1,30 @@
+### Delivery Plan: Prevent Duplicate Invoice Emails
+
+**1. Lanes & Parallelism**
+*   **Lane A (Investigation & Logic):** Engineer A isolates the retry logic in the billing service. They will implement an idempotency key mechanism using the existing database transaction ID as the unique constraint. This work is serialized; it must complete before Lane B begins testing.
+*   **Lane B (Data Validation):** Engineer B extracts last month's raw batch logs and database state from the lower environment. They will prepare a replay script to simulate the 01:55–02:05 UTC flaky window conditions. This runs in parallel with Lane A's coding but cannot execute the replay until Lane A's fix is deployed to lower.
+*   **Lane C (Process & Comms):** The Team Lead drafts the incident communication template and prepares the Finance Ops Manager for the upcoming approval request. This runs fully in parallel.
+
+**2. Gates & Checks**
+*   **Gate 1 (Code Freeze):** Once Lane A commits the idempotency fix, a feature branch is created. No other merges to this branch are permitted.
+*   **Gate 2 (Lower Env Verification):** The fix is deployed to the lower environment. Engineer B executes the replay script against last month's data.
+    *   *Check:* Verify zero duplicate emails in logs despite simulated timeouts.
+    *   *Check:* Verify no valid invoices were dropped (false positives).
+*   **Gate 3 (Quick-Check Suite):** Before requesting full regression, run the 15-minute "quick-check" suite on the specific billing module. If this fails, the branch is rejected immediately.
+*   **Gate 4 (Full Regression):** Only after Gates 2 and 3 pass, trigger the full 45-minute CI pipeline on the release candidate. Cost accepted ($150) only at this stage.
+
+**3. Review Process**
+*   **Technical Review:** A senior engineer from the *Payments* team (not the author) reviews the idempotency logic and database constraint changes. They must verify that the unique constraint handles concurrent retries correctly.
+*   **Operational Review:** The Notifications Team Lead reviews the logging changes to ensure support can trace individual send attempts during future incidents.
+*   **Independence:** The Technical Reviewer cannot be the same person who wrote the replay script in Lane B to prevent confirmation bias.
+
+**4. Landing & Rollback**
+*   **Approval:** Upon passing all gates, the Deployment Request is sent simultaneously to the Team Lead and Finance Ops Manager. Both must explicitly approve; a single veto halts the process.
+*   **Merge Strategy:** The fix merges to `main` only after approval. It is deployed immediately to production before the next 02:00 UTC cycle.
+*   **Rollback Plan:**
+    *   *Scenario:* If the fix causes valid invoices to fail sending.
+    *   *Action:* Revert the commit immediately. Since database records marked "completed" cannot be auto-reverted, a manual SQL script (pre-written and reviewed by Lane C) will reset the status of any invoices falsely marked as "sent" during the failed window.
+    *   *Contingency:* If the database reset fails, the Notifications team will manually trigger a one-off send job for the affected IDs after the root cause is patched.
+*   **Human Decision Point:** The Finance Ops Manager must decide whether to manually refund any customers who received duplicates *after* the fix was deployed but before the monitoring alert triggered (if any).
+
+This plan prioritizes data integrity over speed, utilizing the lower environment to de-risk the logic before incurring CI costs or seeking production approval.

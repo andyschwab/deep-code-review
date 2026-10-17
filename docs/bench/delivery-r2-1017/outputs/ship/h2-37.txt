@@ -1,0 +1,50 @@
+**Delivery Plan: Hybrid Billing Metering**
+
+**Scope & Constraints**
+*   **Goal:** Implement usage meters (API calls, storage GB) for 'Pro' tier; calculate overage; display real-time dashboard.
+*   **Constraints:** Immutable tenant schema (no DB changes); legacy monolith + separate portal; 4h reconciliation job (do not run in dev); 30m config cache; flaky staging network.
+*   **Appetite:** Time-boxed to Q4 target; immediate rollback capability required.
+
+**Lanes & Parallelism**
+*   **Lane A (Backend Metering):** Implement collection logic in the legacy monolith. Since the schema is immutable, this lane must design an append-only audit log or in-memory aggregation strategy that persists without altering tenant tables.
+    *   *Parallel:* Yes.
+*   **Lane B (Billing Engine):** Develop the overage calculation script. Must run against the new meter data, not the nightly reconciliation job.
+    *   *Parallel:* Yes (depends on Lane A's data format definition).
+*   **Lane C (Dashboard):** Update the customer portal microservice to consume real-time counters. Must handle the 30-minute config cache delay gracefully (e.g., client-side polling with cache-busting or stale-while-revalidate).
+    *   *Parallel:* Yes (depends on Lane A's API contract).
+*   **Lane D (Migration Safety):** Create a read-only verification script to assert historical data remains untouched.
+    *   *Serialized:* Must complete before Lane A writes any production data.
+
+**Gates & Checks**
+*   **G1 Spec:** Define the append-only storage mechanism for meters (given immutable schema) and the exact API contract between Monolith and Portal. Pin base SHA.
+*   **G3 Design:** ADR required for the "Immutable Schema" workaround and the "Real-time vs. 30m Cache" consistency model.
+*   **G4 Implement:**
+    *   Unit tests for overage math (Lane B).
+    *   Integration tests for meter ingestion (Lane A) using mocked high-load to simulate flaky staging network; retries must be idempotent.
+    *   **Constraint:** Do not trigger the 4h reconciliation job in dev/staging. Use a scaled-down synthetic dataset.
+*   **G5 Verify:**
+    *   **Exact Revision:** Deploy candidate to staging.
+    *   **Check:** Run Lane D's script to confirm zero deltas on historical tenant rows.
+    *   **Check:** Simulate API bursts to verify meter accuracy despite network timeouts.
+    *   **Check:** Validate dashboard updates within the 30m window constraints.
+*   **G6 Review:**
+    *   **Security:** Independent review of the new billing logic (financial integrity).
+    *   **Architecture:** Independent review of the monolith-portal data flow.
+    *   *Note:* Builder of Lane A cannot review Lane A.
+
+**Landing Strategy**
+*   **Integration:** Merge Lanes A, B, and D into the monolith integration branch; Lane C into the portal main. Run a single integration build verifying the end-to-end flow on the final merged SHA.
+*   **Human Gates (Required):**
+    1.  **Finance Director:** Written approval required for the overage calculation logic and pricing page launch.
+    2.  **Lead Architect:** Written approval required for the deployment to production.
+    *   *Procedure:* Prepare a single decision brief with two options: "Launch with Meters" vs. "Delay." Do not ask open questions.
+*   **Deployment:**
+    *   Deploy behind a feature flag.
+    *   Enable for internal tenants first.
+    *   **Rollback:** Immediate toggle-off of the feature flag; no code revert needed for initial containment. If data corruption is detected, restore from pre-deployment snapshot (verified by Lane D).
+*   **Post-Launch:** Monitor overage calculations for one full cycle before disabling the legacy flat-rate fallback.
+
+**Risk Mitigation**
+*   **Flaky Network:** Implement exponential backoff in the metering agent; treat timeouts as "retry later," not "drop."
+*   **Config Cache:** Dashboard must explicitly state "Usage data delayed by up to 30 minutes" to manage customer expectations.
+*   **Cost:** Ensure the new metering writes do not inadvertently trigger the expensive nightly reconciliation job.

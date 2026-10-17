@@ -1,0 +1,51 @@
+**Delivery Plan: Route Reporting Queries to Read Replica with Lag Guardrails**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Infrastructure - Serialized):** Platform Reliability team only. Provisions the read replica in the secondary zone and configures network access. *Must complete before Lane B.*
+*   **Lane B (Logic Implementation - Parallel Prep):** Developer implements the query router logic in a dedicated worktree.
+    *   Scope: Isolate reporting module traffic.
+    *   Logic: Route to replica; if lag > 3s (with 5s debounce to ignore backup noise), fail over to primary.
+    *   Constraint: Must not touch billing/inventory routes in the shared JSON config yet.
+*   **Lane C (Validation - Parallel):** QA Engineer builds a local simulation of the replica lag.
+    *   Task: Verify the 3s threshold and 5s debounce logic using unit tests and a mock database driver.
+    *   Requirement: Prove transactional screens remain unaffected by the routing logic.
+
+**2. Gates & Checks**
+*   **G1 Spec (Owner + Product Analyst):** Confirm "financial data" definition and explicit acceptance of slower load times during failover.
+*   **G3 Design (Architect + Platform Reliability):** Review the failover state machine and debounce algorithm. *Hard Gate:* Platform Reliability must sign off on the topology change plan in the deployment portal before code merge.
+*   **G4 Implement (Builder):** Code complete in isolated worktree.
+    *   *Check:* Local lint and type check pass.
+    *   *Check:* Unit tests for lag logic pass locally (mandatory to avoid CI cost).
+*   **G5 Verify (QA - Independent):**
+    *   Run full data integrity suite locally against the exact commit SHA.
+    *   Simulate high-write periods to trigger failover; verify dashboard totals match primary.
+    *   Verify no impact on transactional screens.
+*   **G6 Review (Security + Senior Dev):**
+    *   Security: Ensure no credential leakage in new replica config.
+    *   Senior Dev: Verify isolation of reporting module; ensure shared JSON config changes are atomic and backward compatible.
+
+**3. Review Strategy**
+*   **Builder** implements Lane B.
+*   **QA** verifies Lane C and G5 receipts (independent of Builder).
+*   **Platform Reliability** reviews G3 design and G6 topology impact (independent of Builder).
+*   **Security** reviews G6 secrets and access controls.
+*   *Constraint:* Builder never reviews their own code; Platform Reliability never merges their own topology request.
+
+**4. Landing & Human Decisions**
+*   **Merge Train:**
+    1.  Lane A (Infra) is provisioned and validated by Platform Reliability.
+    2.  Lane B (Code) passes G5/G6.
+    3.  **Integration (G7):** Merge code into the integration branch. Run a *single* targeted CI job (not full 45m suite if possible, otherwise rely on local G5 proof) to confirm config syntax.
+*   **Human Gates (Owner/Platform Reliability Required):**
+    *   **Approval 1:** Platform Reliability manual sign-off in deployment portal for topology change.
+    *   **Approval 2:** Owner approval for the Tuesday night coordinated deploy window (due to shared JSON config risk).
+    *   **Approval 3:** Final "Go" command to flip the feature flag or deploy the config update during the window.
+*   **Rollback Plan:**
+    *   If lag guardrails trigger continuously (>5 mins) or data mismatch detected: Immediately revert the query router config to point 100% to primary.
+    *   Mechanism: Pre-prepared revert commit ready for emergency merge by on-call engineer.
+    *   Post-Incident: G10 retrospective to tune debounce or lag threshold.
+
+**Execution Notes:**
+*   Do not push to CI until local validation (G5) is green to save compute costs.
+*   The shared JSON config change must be the *last* step in the deploy window to minimize exposure time.
+*   Monitoring must be active *before* enabling the new route to detect false positives immediately.

@@ -1,0 +1,44 @@
+### Delivery Plan: Monorepo Build Caching Strategy
+
+#### 1. Lanes and Parallelism
+Work is divided into three parallel lanes to maximize velocity while respecting dependencies:
+
+*   **Lane A (Logic & Graph):** Develops the dependency graph validation algorithm and the new cache-key generation logic. This lane owns the core risk of "false negatives."
+*   **Lane B (Compliance & Observability):** Modifies the logging subsystem to ensure every build attempt (hit or miss) generates an immutable audit entry. This work is independent of the caching logic but must share the same interface for build metadata.
+*   **Lane C (Infrastructure & Safety):** Prepares the shared network volume for concurrent write patterns (locking mitigation) and drafts the rollback script for the irreversible production deployment.
+
+**Serialization Point:** Lanes A and B must merge into a single integration branch before final testing. Lane C's rollback script must be validated against the final integrated binary from Lane A+B.
+
+#### 2. Gates and Checks
+All checks run on a dedicated Git worktree isolated from the main branch to prevent pollution.
+
+*   **Gate 1: Unit Validation (Pre-Integration)**
+    *   **Revision:** Feature branch head for each lane.
+    *   **Check:** Lane A must prove graph correctness using a synthetic monorepo fixture containing circular dependencies and isolated leaf nodes. Lane B must demonstrate log capture for a "skipped" build event.
+    *   **Pass Criteria:** 100% pass rate on unit tests; zero false negatives in the synthetic fixture.
+
+*   **Gate 2: The "Staging Flakiness" Filter**
+    *   **Revision:** Integrated candidate (A+B).
+    *   **Check:** Run the full pipeline in the staging environment. Because of the known flaky network check, this gate requires **five consecutive successful runs** without triggering the automatic retry mechanism. If the flake persists, the caching logic is deemed to have exposed a race condition and fails the gate.
+    *   **Pass Criteria:** Five clean runs; audit logs verified by an automated parser.
+
+*   **Gate 3: The Cost-Benefit Analysis**
+    *   **Revision:** Same as Gate 2.
+    *   **Check:** Execute a build triggered by a documentation-only change.
+    *   **Pass Criteria:** Total compute time under 5 minutes; cost under $5. Full rebuild must still trigger for actual code changes.
+
+#### 3. Review Process
+Reviews are strictly independent to prevent groupthink on critical safety logic.
+
+*   **Technical Review:** Conducted by a Senior Engineer from a team *not* on the Platform Reliability group (to ensure the new strategy works for consumers, not just maintainers). They verify the dependency graph logic and the "documentation change" test case.
+*   **Security & Compliance Review:** Conducted by the Security Lead. They verify that audit logs are tamper-proof and that no cached artifact can be injected without a valid signature.
+*   **Architectural Sign-off:** The Chief Architect reviews the final integration only after both previous reviews are approved. They confirm the locking strategy for the shared volume will not cause queue bottlenecks under load.
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:** The change lands via a fast-forward merge to `main` only during the designated weekly release window.
+*   **Human Decision Required:** The Chief Architect and Security Lead must provide written sign-off *in the ticket* before the merge button is enabled. No automated merge is permitted.
+*   **Rollback Protocol:**
+    *   Since production deployments are irreversible without database rollback, the "rollback" is strictly a **configuration revert**.
+    *   The build system must support a feature flag or environment variable to instantly disable the new caching strategy and revert to the "build everything" legacy mode.
+    *   If false negatives occur post-deploy, the on-call engineer flips this flag. This forces a full rebuild on the next job, ensuring freshness at the cost of time, guaranteeing safety.
+    *   A scheduled maintenance window is reserved for 48 hours post-launch solely to perform a full database rollback if the configuration revert fails to stabilize the system.

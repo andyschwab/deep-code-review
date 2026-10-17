@@ -1,0 +1,64 @@
+### Delivery Plan: Async Sync Report Migration
+
+**Objective:** Refactor the monthly compliance summary endpoint to return a job ID immediately, offloading processing to a persistent async queue with a status polling mechanism.
+**Deadline:** Live before next Tuesday (End-of-Month rush).
+**Constraints:** Irreversible DB migration; Staging lacks production worker nodes (false negative risk); CI is expensive ($12/run, 45min); Dual approval required for deploy.
+
+#### 1. Lanes & Parallelism
+
+*   **Lane A: Schema & Persistence (Serialized First)**
+    *   **Owner:** Backend Builder
+    *   **Work:** Create irreversible migration script for job tracking columns. Implement persistence layer ensuring job state survives server restarts.
+    *   **Constraint:** Must merge and run before Lane B logic depends on new columns.
+    *   **Parallelism:** Blocked until G3 Design sign-off due to irreversibility.
+
+*   **Lane B: Core Refactor & Worker Logic**
+    *   **Owner:** Backend Builder (Distinct from Lane A writer if possible, otherwise sequential commits)
+    *   **Work:** Modify endpoint to enqueue job and return ID. Implement background worker consuming from the new priority queue.
+    *   **Parallelism:** Can develop in parallel with Lane C, but integration tests require Lane A's migration applied in the test environment.
+
+*   **Lane C: Frontend Polling Integration**
+    *   **Owner:** Frontend Builder
+    *   **Work:** Implement polling mechanism (5s interval) against the new status endpoint. Handle loading states and final report retrieval.
+    *   **Parallelism:** Fully parallel with Lane B, using mocked API responses initially.
+
+*   **Lane D: Independent Verification (QA & Security)**
+    *   **Owner:** QA Engineer & Security Analyst
+    *   **Work:**
+        *   Verify persistence by simulating server restarts mid-job (must be done in an environment mirroring production workers, not standard staging).
+        *   Validate priority queue ordering.
+        *   Security review of the new job ID exposure and status endpoint.
+    *   **Parallelism:** Starts once Lane A and B provide a candidate SHA.
+
+#### 2. Gates & Checks
+
+*   **G0/G1 (Intake/Spec):** Confirm "persistence" definition (DB vs. durable queue) and exact polling API contract. **Evil Twin** challenge: What happens if the worker crashes *after* DB update but *before* file generation?
+*   **G2 (Plan):** Define token/cost budget for CI runs. Limit full regression suites to the final integration SHA only; use targeted unit/integration tests for intermediate lanes to save the $12/run cost.
+*   **G3 (Design):** **Hard Gate.** Review irreversible migration script. Must include rollback *data* plan (restore from backup procedure) since schema drop is impossible.
+*   **G4 (Implement):** Code complete with unit tests.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA of integrated lanes.
+    *   **Action:** Run full regression (accepting the 45min cost) *once* on the final candidate.
+    *   **Critical:** Execute restart-resilience test in a local environment or production-mirror (not standard staging) to avoid false negatives.
+*   **G6 (Review):** Independent review by Data Integrity team member (not the builder). Security sign-off on data handling.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected subset of CI.
+
+#### 3. Review Strategy
+
+*   **Code Review:** Conducted by a senior Data Integrity engineer independent of the implementation team.
+*   **Security Review:** Focused on the new async boundary and job ID enumeration risks.
+*   **QA Sign-off:** Explicit verification that the "staging false negative" regarding worker nodes did not obscure load issues. Evidence must show testing against a worker-equivalent environment.
+
+#### 4. Landing & Human Gates
+
+*   **Merge Strategy:** Train merge. Lane A (Migration) lands first. Lanes B and C merge together once A is stable.
+*   **Human Approval (G8):**
+    *   **Required Approvers:** Jane Smith AND the Shift Lead.
+    *   **Trigger:** Deployment to Production.
+    *   **Timing:** Must occur before Tuesday. Recommend deploying Monday morning to allow buffer.
+*   **Rollback Plan:**
+    *   **Code:** Revert commit immediately.
+    *   **Data:** Since migration is irreversible, rollback involves restoring the database from the pre-deployment backup. This is a high-cost operation; verify backup integrity at G5.
+    *   **Feature Flag:** If available, wrap the new endpoint logic to toggle back to synchronous mode (if performance allows) or disable the feature entirely while keeping the schema.
+
+**Risk Note:** The irreversible nature of the database migration makes G3 (Design) and G5 (Backup Verification) the critical failure points. No code moves forward without a verified backup strategy.

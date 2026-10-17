@@ -1,0 +1,61 @@
+### Delivery Plan: Redesign Checkout (10% Rollout)
+
+**Strategy:** Isolate UI/Analytics changes from frozen tax logic. Deploy behind a feature flag with an automated kill-switch. Human approval required for production activation.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (UI Implementation):** Builder implements the new checkout layout.
+    *   *Constraint:* Must not touch `currency-utils` or tax logic.
+    *   *Parallel:* Can run alongside Lane B.
+*   **Lane B (Instrumentation):** Builder implements analytics events for both control and variant.
+    *   *Parallel:* Can run alongside Lane A.
+*   **Lane C (Guardrail Config):** Conductor configures the A/B framework.
+    *   *Logic:* Kill experiment if revenue/session drops >2% over any 4-hour window.
+    *   *Dependency:* Requires final feature flag name from Lanes A/B.
+*   **Lane D (Mobile QA):** Independent QA verifies rendering on mobile viewports.
+    *   *Dependency:* Requires build from Lanes A+B.
+*   **Lane E (Data Verification):** Independent QA verifies analytics fire correctly for both variants.
+    *   *Dependency:* Requires build from Lanes A+B.
+
+*Serialization:* Lanes A and B must merge to a single integration branch before Lanes D and E begin. Lane C finalizes after the flag name is locked.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Confirm acceptance criteria: "No tax logic changes," "Mobile responsive," "Analytics dual-fire," "2% revenue guardrail."
+*   **G2 Plan:** Define work graph. Set budget: Max 2 CI runs (cost constraint).
+*   **G3 Design:** ADR confirming isolation from `currency-utils`. Define guardrail threshold logic.
+*   **G4 Implement:**
+    *   Commit UI and Analytics changes to a dedicated worktree.
+    *   Base SHA: Current `main` head.
+*   **G5 Verify (Local/Staging):**
+    *   **CI Run 1:** Full pipeline on integration SHA.
+        *   *Flake Handling:* If `end-to-end payment verification` fails during high-load sim, manually re-run *only* that job. Do not halt.
+    *   **Mobile Check:** Visual regression on mobile breakpoints.
+    *   **Event Check:** Verify payload structure for Control vs. Variant.
+*   **G6 Review:**
+    *   **Code Review:** Senior Engineer (not the Builder) reviews UI/Analytics diff.
+    *   **Security/Compliance:** Verify no tax logic drift (automated diff check against frozen lib).
+*   **G7 Integrate:** Merge to release candidate branch. Generate final SHA.
+
+#### 3. Review & Independence
+*   **Builder:** Implements Lanes A & B. Cannot approve their own code.
+*   **Reviewer 1 (Code):** Senior Transaction Team member. Reviews logic, ensuring no tax calc modifications.
+*   **Reviewer 2 (QA):** Independent QA engineer. Owns G5 sign-off for Mobile and Analytics.
+*   **Guardrail Audit:** Conductor verifies the 2% kill-switch configuration logic before G8.
+
+#### 4. Landing & Human Gates
+*   **Pre-Deploy:** Update monitoring dashboard to track the specific experiment ID.
+*   **G8 Release (Human Gate):**
+    *   **Approver:** Finance Director.
+    *   **Action:** Manual sign-off required to deploy to `payments-prod`.
+    *   **Input:** Final SHA, CI green status, QA receipts, Guardrail config proof.
+*   **Activation:**
+    *   Deploy artifact to cluster.
+    *   Enable feature flag at 10% traffic.
+    *   **Rollback Plan:** If guardrail triggers or critical bug found: Disable flag immediately (instant). If data corruption occurs, execute DB migration rollback (20-min downtime window required).
+*   **Post-Launch:**
+    *   Send confirmation email to requester with dashboard link.
+    *   Monitor 4-hour revenue windows automatically.
+
+**Risk Mitigation:**
+*   **Cost:** Limit CI to essential runs; rely on local linting/type-checking before push.
+*   **Reversion:** Precision is critical due to 20-minute DB rollback. Ensure the feature flag disable path is tested as the primary rollback mechanism before touching DB.
+*   **Freeze:** Strict code ownership rules enforced to prevent accidental `currency-utils` modification.

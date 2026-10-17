@@ -1,0 +1,63 @@
+# Delivery Plan: PaymentEvent Schema Update
+
+## Lanes & Parallelism
+
+**Lane A: Schema Definition (Serialized)**
+*   **Owner:** Platform Engineer
+*   **Work:** Modify `/contracts/events/payment_event.json`. Add `refund_reason_code` (string, optional). Mark old field as `deprecated: true`.
+*   **Constraint:** Must complete before Lane B starts.
+
+**Lane B: Validation & Staging (Serialized, High Cost)**
+*   **Owner:** CI System / Data Eng Lead
+*   **Work:** Trigger `schema-compatibility` check. Deploy to Staging. Run full validation suite (45 mins).
+*   **Constraint:** Limited to 3 runs/day. If `schema-compatibility` fails due to flakiness (nested arrays), manual re-trigger required. Must pass before Lane C.
+
+**Lane C: Downstream Coordination (Parallel to Lane A, Serializes before Lane D)**
+*   **Owner:** Tech Lead
+*   **Work:** Notify Billing, Logistics, Analytics, Fraud, Support teams of the pending change. Confirm backward compatibility testing on their ends using the Staging artifact.
+*   **Constraint:** All five teams must acknowledge readiness before Lane D.
+
+**Lane D: Approval & Landing (Serialized)**
+*   **Owner:** Requester (Coordinator)
+*   **Work:** Secure dual approval. Execute merge.
+*   **Constraint:** Requires explicit sign-off from Platform Architect AND Data Governance Officer.
+
+## Gates & Checks
+
+1.  **Pre-Commit Gate (Local):**
+    *   **Revision:** Working branch `feat/refund-schema-v{next}`.
+    *   **Check:** Manual verification of JSON syntax and deprecation tags. No CI yet to save quota.
+
+2.  **Staging Gate (CI Cluster):**
+    *   **Revision:** Merge commit on `staging` branch.
+    *   **Check:** Full 45-minute validation suite.
+    *   **Flake Handling:** If `schema-compatibility` fails unexpectedly, verify nested array depth manually. If valid, re-trigger job immediately (do not wait for next batch).
+    *   **Pass Criteria:** Zero data loss simulations, 100% backward compatibility report.
+
+3.  **Rollout Window Gate:**
+    *   **Check:** Explicit confirmation from Data Engineering Lead that the proposed merge time aligns with low-traffic windows and downstream maintenance schedules.
+
+## Review Process
+
+*   **Technical Review:** Performed by **Senior Data Architect** (independent of the implementer). Focus: Schema structure, deprecation flags, and nested array depth implications.
+*   **Compliance Review:** Performed by **Data Governance Officer**. Focus: Regulatory alignment of `refund_reason_code` and retention policies.
+*   **Independence:** Neither reviewer may be the author of the schema change. The Data Governance Officer acts as the final blocker regardless of technical approval.
+
+## Landing Strategy
+
+1.  **Merge Protocol:**
+    *   Target Branch: `main` (triggers global registry publish).
+    *   **Irreversibility Warning:** Once merged, this version cannot be deleted.
+    *   **Approval Requirement:** Two distinct approvals required in the merge request: one from Platform Architect, one from Data Governance Officer. No auto-merge.
+
+2.  **Rollback Plan:**
+    *   **Scenario:** Critical failure post-publish (e.g., downstream deserialization crash).
+    *   **Action:** Since the registry is immutable, do not attempt deletion. Immediately publish a superseding version `v{next}+1` that reverts the field addition or fixes the breaking change.
+    *   **Mitigation:** Downstream teams must be alerted to ignore the broken version and upgrade to the superseding version immediately.
+
+3.  **Human Decisions Required:**
+    *   **Timing:** Data Eng Lead sets the exact merge timestamp.
+    *   **Go/No-Go:** Platform Architect and Data Governance Officer must both vote "Approve" after Staging success.
+    *   **Flake Judgment:** If CI flakes, a human must decide whether to re-run or investigate nested array logic before consuming another daily quota slot.
+
+**Summary:** Define → Validate (Staging) → Coordinate → Dual-Approve → Merge (Irreversible).

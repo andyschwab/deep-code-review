@@ -1,0 +1,67 @@
+**Delivery Plan: Monorepo Build Caching Strategy**
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Reduce build time/cost by caching unchanged modules; ensure dependency graph validity and audit log completeness.
+*   **Constraints:** No false negatives (stale code deployment); audit logs must capture cached attempts; requires Chief Architect + Security Lead sign-off before implementation.
+*   **Appetite:** Complete before next fiscal quarter; budget capped at current exhaustion point (zero new spend allowed for experimentation).
+*   **Spec:** Define "affected package" logic based on file diffs vs. dependency graph. Define audit log schema for "skipped" vs. "executed" steps. Pin base SHA for all lanes.
+
+**G2 Plan: Work Graph & Lanes**
+*   **Lane A (Logic & Graph):** *Builder* implements the dependency graph traversal and cache-key generation logic in the shared build script.
+    *   *Parallel:* Yes, independent of Lane B.
+    *   *Budget:* $0 (local simulation only).
+*   **Lane B (Audit & Compliance):** *Security/Compliance Agent* modifies the logging wrapper to emit "cache-hit" events with identical fidelity to "cache-miss" events.
+    *   *Parallel:* Yes, independent of Lane A.
+    *   *Budget:* $0.
+*   **Lane C (Flake Mitigation):** *QA Engineer* isolates the known flaky network check. Creates a deterministic mock or bypass for caching validation runs to prevent false negatives during testing.
+    *   *Serialization:* Must complete before G5 integration to ensure test validity.
+*   **Lane D (Documentation & Sign-off):** *Conductor* drafts the change proposal, risk analysis (false negative prevention), and rollback plan for Chief Architect and Security Lead.
+    *   *Serialization:* **Blocker.** Must receive written approval before Lane A/B code is merged or deployed.
+
+**G3 Design**
+*   **ADR:** Document the cache invalidation algorithm (hash of source + direct dependencies).
+*   **Contract:** Define the exact log entry format for compliance auditing.
+
+**G4 Implement**
+*   **Worktrees:** Three isolated worktrees (one per writer: Builder, Security, QA).
+*   **Discipline:** Tests written before or with logic. Lane A must include unit tests for graph traversal edge cases (circular deps, transitive changes).
+
+**G5 Verify (Exact Revision)**
+*   **Local Stack:** Bring up a local representation of two microservices with a shared dependency.
+*   **Checks:**
+    1.  **Unit/Integration:** Run Lane A logic against a synthetic monorepo. Verify touching `docs/` does *not* trigger Service X rebuild. Verify touching `lib/core` *does* trigger Service X.
+    2.  **Audit Verification:** Assert logs contain entries for both hit and miss scenarios.
+    3.  **False Negative Test:** Force a "stale" state; assert build fails or rebuilds, never passes with old code.
+    4.  **Flake Check:** Run Lane C's mitigation; ensure 100% pass rate on 10 consecutive runs without network reliance.
+*   **Cost Gate:** No full cluster runs until local green. One single cluster dry-run (non-deploy) to measure actual time savings.
+
+**G6 Review**
+*   **Independence:**
+    *   *Builder's Code:* Reviewed by Senior Platform Engineer (not the Builder).
+    *   *Security/Logs:* Reviewed by Security Lead (mandatory per repo facts).
+    *   *Architecture:* Reviewed by Chief Architect (mandatory per repo facts).
+*   **Severity:** Any risk of false negative is a **Blocker**. Missing audit logs is a **Blocker**.
+
+**G7 Integrate**
+*   **Merge Train:** Serialize Lane A and B into a single integration branch.
+*   **Re-verify:** Run the full suite on the *merged* SHA, not individual branch SHAs.
+*   **Receipt:** Integration test passing + Audit log sample attached.
+
+**G8 Release (Human Gate)**
+*   **Approval Required:** Chief Architect and Security Lead must explicitly approve the merge to the integration branch (which triggers deployment).
+*   **Rollback Plan:** Since production deploys are irreversible without DB rollback, the "rollback" is strictly a **revert of the build script** followed by a forced full rebuild of the next release. No partial rollback possible.
+*   **Timing:** Schedule during a maintenance window if the build script change affects running pipelines immediately, or coordinate with the next weekly release window.
+
+**G9 Production Verify**
+*   **Monitor:** Watch the first three weekly builds. Confirm time reduction (<40 mins) and cost reduction.
+*   **Audit:** Verify compliance team receives logs.
+
+**G10 Learn**
+*   **Retro:** If flaky tests persist, update `flake_ledger.py`. If cache hits cause issues, add regression test to G5.
+
+**Risks & Mitigations**
+*   **Risk:** False negative (stale deploy). **Mitigation:** G5 includes a "poison pill" test where known stale code must fail verification.
+*   **Risk:** Cache lock contention. **Mitigation:** Lane A to implement read-lock fallback or local cache layer if network volume locks.
+*   **Risk:** Approval delay. **Mitigation:** Lane D starts immediately; no code merges without the artifact from Lane D.
+
+**Next Step:** Draft G0/G1 brief for Chief Architect and Security Lead review (Lane D).

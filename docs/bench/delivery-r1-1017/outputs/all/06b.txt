@@ -1,0 +1,58 @@
+**Delivery Plan: Cap Daily LLM Spend for Claim Summaries**
+
+**Scope & Constraints**
+Implement a hard daily spend cap per department in the claims portal with a senior-lead override. The feature must disable the UI and prevent API calls once the quota is hit. Due to irreversible billing ledger closure at midnight UTC and a flaky cluster restart health check, the migration must occur in a single, atomic change with a pre-approved rollback window before midnight.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Backend Logic & State (Serial First)**
+    *   **Work:** Implement the spend tracker middleware. It must read `global_limits.json`, track usage against the daily limit, and enforce the block. Include the override logic for senior leads.
+    *   **Constraint:** Must handle the 4-hour cache window correctly; changes must trigger the cluster restart sequence safely.
+    *   **Output:** Patch to the claims service logic and updated `global_limits.json` schema.
+
+2.  **Lane B: Frontend UI (Parallel to A)**
+    *   **Work:** Update the summary button component. It must listen to the backend's "limit reached" state, disable the button, and render the tooltip.
+    *   **Output:** UI component patch.
+
+3.  **Lane C: Integration & Safety Scripts (Serial, after A & B)**
+    *   **Work:** Write the deployment script to handle the cluster restart and the "dry-run" mode for the billing logic. Create the rollback script (code revert + flag reset).
+    *   **Output:** Deploy/rollback scripts.
+
+**Gates & Checks**
+
+*   **G0/G1 (Spec):** Define the exact JSON schema for limits and the role hierarchy mapping. Pin base SHA.
+*   **G2 (Plan):** Set a strict token budget for Lane A's development (no unlimited retries). Classify `global_limits.json` as a shared consumer file requiring serialization.
+*   **G3 (Design):** ADR confirming the "fail-closed" behavior (block call if tracker is uncertain) and the override mechanism.
+*   **G4 (Implement):**
+    *   Lane A and B develop in isolated worktrees.
+    *   Lane A writes unit tests for the quota logic *before* the feature code.
+*   **G5 (Verify):**
+    *   **Local:** Run unit tests for A and B.
+    *   **Integration:** Spin up a local Zone-B simulation. Verify the button disables and the API call is *never* sent when the limit is hit. Verify the override works.
+    *   **Cost Check:** Run the CI pipeline exactly once on the candidate SHA. Do not re-run unless the SHA changes.
+*   **G6 (Review):**
+    *   **Security Lead:** Reviews the billing logic and override permissions (independent of Builder).
+    *   **Finance Ops Manager:** Validates the spend cap logic against the budget requirements.
+    *   **Deep Code Review:** Automated audit for severity Blocker/Critical issues.
+
+**Landing & Human Gates**
+
+*   **Integration (G7):** Merge A, B, and C into a throwaway integration branch. Run the affected integration tests one final time on this exact SHA.
+*   **Human Approval (G8 - Mandatory):**
+    *   **Approvers:** Security Lead AND Finance Ops Manager (Dual approval required for Zone-B).
+    *   **Decision:** Approve the specific SHA for production deployment.
+    *   **Timing:** Must be approved and deployed *before* the new quarter starts, and strictly before midnight UTC to avoid ledger closure issues.
+*   **Deployment:**
+    *   Execute the deployment script (triggers 12-min cluster restart).
+    *   **Dry-Run First:** Execute the billing logic in "dry-run" mode against a production snapshot to verify no unexpected charges occur.
+    *   **Live:** Flip the feature flag to enable the cap.
+*   **Rollback Plan:**
+    *   If the health check fails or spend behaves unexpectedly:
+        1.  **Immediate:** Turn off the feature flag (runtime kill switch).
+        2.  **Code:** Revert the commit (requires dual approval).
+        3.  **Data:** Finance to manually adjust the ledger if any overcharge occurred before the block (last resort).
+
+**Risk Mitigation**
+*   **Flaky Health Check:** The deployment script must distinguish between a "restart in progress" and a "true failure" to avoid false-positive rollbacks.
+*   **Irreversibility:** No intermediate PRs will touch billing logic. The change goes live in one atomic step.
+*   **Cost Control:** CI is limited to one run per candidate. Development uses local mocks to avoid API costs.

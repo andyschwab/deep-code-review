@@ -1,0 +1,69 @@
+# Delivery Plan: CustomerEvents Table Split
+
+## Lanes & Parallelism
+
+**Lane A: Database Engineering (Platform Team)**
+*   **Work:** Design new transactional/audit schemas, write migration scripts (data backfill), and create the compatibility view.
+*   **Parallel:** Can proceed immediately alongside Lane B's code prep.
+
+**Lane B: Application Readiness**
+*   **Work:** Update ORM configurations to point to new tables (if direct access is needed later) and prepare deployment manifests.
+*   **Constraint:** Must wait for Lane A's schema definition to finalize field mappings.
+
+**Lane C: Validation & Staging**
+*   **Work:** Execute dry-run migration on Staging (10% volume). Run full CI pipeline.
+*   **Serialization:** Must occur after Lane A completes scripts but before any Production touch.
+
+## Gates & Checks
+
+**Gate 1: Schema Lock (Pre-Migration)**
+*   **Check:** Lead Architect and Data Governance Officer must sign off on the new schema design and the view definition SQL.
+*   **Revision:** Applied against a frozen `dev` branch snapshot. No code changes allowed during this review.
+
+**Gate 2: Staging Dry-Run (Mandatory)**
+*   **Environment:** Staging (10% data volume).
+*   **Action:** Apply schema changes synchronously across all three zones. Run data backfill.
+*   **Check:** Verify row counts match source. Run Executive Dashboard queries against the new view; compare output byte-for-byte against the old table results.
+*   **Performance:** Load test the view to ensure query latency matches production baselines.
+*   **CI Trigger:** Run the 45-minute pipeline once. If the known flaky connection pooling check fails, manual retry is authorized *only once*. Further failures halt the process.
+
+**Gate 3: Production Readiness**
+*   **Check:** Confirmation that synchronous replication across three zones is healthy.
+*   **Revision:** The exact commit hash that passed Gate 2. No new commits allowed between Staging success and Production deploy.
+
+## Review Process
+
+**Independent Technical Review:**
+*   **Reviewer:** Senior DBA not involved in Lane A.
+*   **Scope:** Audit the migration script for data loss risks and the View SQL for performance bottlenecks (e.g., missing indexes on join keys).
+*   **Timing:** Before Gate 1.
+
+**Functional Review:**
+*   **Reviewer:** Product Owner (Executive Dashboard stakeholder).
+*   **Scope:** Validate dashboard report accuracy in Staging using the View.
+*   **Timing:** During Gate 2.
+
+**Governance Review:**
+*   **Reviewers:** Lead Architect + Data Governance Officer.
+*   **Scope:** Final approval for Production deployment based on Staging results.
+*   **Timing:** After Gate 2 success.
+
+## Landing Strategy
+
+**Deployment Window:** Low-traffic period required, though zero downtime is the target.
+
+**Execution Steps:**
+1.  **Pre-Deploy:** Take a point-in-time backup of the Production `CustomerEvents` table.
+2.  **Schema Apply:** Run migration scripts to create new tables and the View.
+3.  **Data Backfill:** Migrate historical data. This runs online; legacy writes continue to the old table until the cutover switch.
+4.  **Cutover:** Switch application write traffic to new tables. The View now serves live + historical data.
+5.  **Verification:** Run smoke tests on the Executive Dashboard immediately.
+
+**Human Decision Points:**
+*   **Go/No-Go:** Data Governance Officer must explicitly authorize the Production cutover after reviewing Staging metrics.
+*   **Flake Handling:** If the CI pipeline fails twice on the connection pool check, the Lead Architect must decide whether to proceed with manual verification or halt.
+
+**Rollback Plan:**
+*   **Condition:** If data integrity checks fail or dashboard latency spikes >20%.
+*   **Action:** Revert application config to write to the original table. Drop new tables.
+*   **Limitation:** If the migration has already archived/purged data from the old table, rollback is **impossible**. This confirms the critical need for the Staging dry-run to prove data preservation before touching Production.

@@ -1,0 +1,64 @@
+# Delivery Plan: Legacy Inventory Sync API Deprecation
+
+## Lanes & Parallelism
+
+**Lane A: Core Sunset Logic (Platform Integration Team)**
+*   **Work:** Implement HTTP 410 Gone handler for v1 routes; ensure v2 routes remain untouched. Configure logging to capture 410s with the specific retry flag to mitigate known flakiness.
+*   **Parallelism:** Can proceed immediately. Independent of documentation updates.
+
+**Lane B: Documentation Update (Developer Experience Team)**
+*   **Work:** Update developer portal to mark v1 as "Deprecated/Sunset" effective immediately.
+*   **Parallelism:** Runs in parallel with Lane A. No code dependency.
+
+**Lane C: Gateway Configuration (Shared Services Team)**
+*   **Work:** Modify the shared monorepo gateway config file.
+*   **Constraint:** Must be serialized. Requires a coordinated release window on a **Tuesday**. Cannot merge until Lane A is code-complete and tested in isolation.
+
+## Gates & Checks
+
+**Gate 1: Local Verification (Pre-Commit)**
+*   **Revision:** Feature branch head.
+*   **Check:** Unit tests confirming v1 returns 410 and v2 returns 200. Verify log output format includes the retry flag.
+*   **Owner:** Lane A Developer.
+
+**Gate 2: Sandbox Regression (CI Pipeline)**
+*   **Revision:** Merge Request (MR) ready for review.
+*   **Check:** Full 55-minute regression suite against the sandbox.
+*   **Constraint:** Trigger only once the MR is deemed "Ready" to save compute credits. Do not trigger on every push.
+*   **Owner:** CI System.
+
+**Gate 3: Compliance & Technical Review**
+*   **Revision:** The specific commit passing Gate 2.
+*   **Check:**
+    1.  **Tech Lead:** Verifies v2 stability and code quality.
+    2.  **Compliance Officer:** Verifies log format meets audit requirements and the sunset date logic is immutable.
+*   **Owner:** Tech Lead + Compliance Officer (Dual Approval Required).
+
+**Gate 4: Gateway Coordination**
+*   **Revision:** The approved commit from Lane A merged into the shared monorepo.
+*   **Check:** Verification that the three other dependent services remain operational with the new config.
+*   **Owner:** Shared Services Team Lead.
+
+## Review Strategy
+
+*   **Code Review:** Conducted by the Tech Lead (independent of the author). Focus on the separation of v1/v2 logic to prevent accidental v2 regression.
+*   **Compliance Review:** Conducted by the Compliance Officer (independent of the Tech Lead). Focus strictly on audit trail integrity and legal deadline enforcement.
+*   **Documentation Review:** Conducted by a Senior Developer or Product Manager not involved in Lane B writing.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  **Lane B (Docs):** Merge immediately upon approval. No deployment dependency.
+2.  **Lane A (Logic):** Merge to `staging` after dual approval. Deploy to staging for final smoke test.
+3.  **Production Deployment:**
+    *   Deploy Lane A to production during a low-traffic window prior to the Tuesday gateway release.
+    *   **Tuesday Release Window:** Merge Lane C (Gateway Config) and deploy coordinated release.
+
+**Human Decisions Required:**
+*   **Go/No-Go for Tuesday Window:** The Shared Services Team Lead must confirm the other three services are ready for the config change.
+*   **Audit Log Verification:** Compliance Officer must sign off on a sample of 410 logs in production before the September 30th deadline.
+
+**Rollback Plan:**
+*   **Logic Rollback:** Revert Lane A commit. Immediate redeployment (approx. 15 mins). Risk: v1 calls will succeed again (violating legal deadline), but restores service for any stragglers if the 410 logic caused unforeseen side effects.
+*   **Gateway Rollback:** Revert shared monorepo config. Requires waiting for the next available maintenance window if the Tuesday slot has passed, unless an emergency hotfix window is authorized by the VP of Engineering.
+*   **Trigger:** If v2 latency increases by >10% or if 410 logs are confirmed missing despite the retry flag.

@@ -1,0 +1,72 @@
+### Delivery Plan: 90-Day Archive & Purge Cycle
+
+**G0/G1 Intake & Spec**
+*   **Scope:** Implement nightly archival (>90d) and permanent purge (>365d) for patient logs in `CareFlow-Core`.
+*   **Constraints:** Zero downtime; silent expected deletions; daily audit summary; graceful partial failure handling.
+*   **Non-Goals:** Data recovery for purged items; alerting on expected deletions.
+*   **Appetite:** 2 days implementation + 1 day verification.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A (Logic & Safety):** Implement archive/purge logic with transactional safety (move-then-delete pattern) and dry-run mode.
+    *   *Worker:* Builder.
+    *   *Parallel:* Yes.
+*   **Lane B (Scheduler & Config):** Configure 03:00 cron job and update `global-rules.json` (scheduled outside 08:00–18:00).
+    *   *Worker:* Builder.
+    *   *Dependency:* Requires Lane A's config schema.
+*   **Lane C (Audit Reporting):** Build daily summary generator (moved vs. purged counts) and logging suppression for expected actions.
+    *   *Worker:* Builder.
+    *   *Parallel:* Yes.
+*   **Lane D (Verification):** Independent functional test of data integrity, partial failure simulation, and audit report accuracy.
+    *   *Worker:* QA (Independent of Builder).
+    *   *Serialization:* Must run after Lanes A-C merge to integration branch.
+
+**G3 Design**
+*   **ADR:** Define "permanent deletion" verification (checksum pre/post) and rollback strategy (restore from cold archive only if <365d).
+*   **Security:** Confirm purge script has no network egress except to cold bucket; verify IAM roles for least privilege.
+
+**G4 Implementation**
+*   **Worktrees:** Isolated worktree per lane (A, B, C) to prevent collision on `global-rules.json` and dependency installs.
+*   **Tests:** Unit tests for date logic and transaction rollback included in commits.
+*   **Base SHA:** Pinned to current `main` head before branching.
+
+**G5 Verification (Exact Revision)**
+*   **Local Stack:** Bring up local DB with seeded data (90d, 365d, fresh).
+*   **Checks:**
+    *   Run archive job: Verify >90d records move, <90d stay.
+    *   Run purge job: Verify >365d records deleted, audit log updated.
+    *   Simulate network failure mid-transfer: Verify no data loss (atomicity).
+    *   **UI/Log Evidence:** Capture audit report output; confirm no alerts triggered for expected deletions.
+*   **CI Strategy:** Run full 45-min suite once on candidate SHA. Ignore flaky network latency check if logs confirm connectivity.
+
+**G6 Review**
+*   **Reviewers:**
+    *   *Code:* Senior Engineer (independent of Builder).
+    *   *Compliance:* Compliance Officer (verifies 365d irreversibility and audit format).
+    *   *Security:* AppSec (verifies delete scope and IAM).
+*   **Severity Rubric:** Any risk of premature deletion = Blocker. Missing audit count = High.
+
+**G7 Integration**
+*   **Merge Train:** Serialize lanes into single integration branch.
+*   **Final Check:** Re-run affected CI gates on merged SHA.
+*   **Receipt:** Integration commit SHA + QA sign-off.
+
+**G8 Release (Human Gate)**
+*   **Approval Required:** Dual approval via internal portal (Lead Engineer + Compliance Officer).
+*   **Deployment Window:** Off-peak; config change to `global-rules.json` executed between 18:00–08:00.
+*   **Rollback:** Disable cron job; revert config; restore from cold archive if <365d (manual intervention).
+
+**G9 Production Verify**
+*   **Observation:** Monitor first 3 nightly runs.
+*   **Receipt:** Daily audit reports match expected counts; zero unintended deletions; no downtime incidents.
+
+**G10 Learn**
+*   **Retro:** Document partial failure handling pattern for future data pipelines.
+
+**Failure Mode Handling**
+*   If CI flakes: Verify logs, proceed if connectivity confirmed.
+*   If partial transfer fails: Transaction rollback ensures no data loss; job retries next window.
+*   If human approval delayed: Park at G8; do not auto-deploy.
+
+**Cost Control**
+*   Limit CI runs to one per candidate SHA.
+*   Lane budgets capped; no unlimited token spend.

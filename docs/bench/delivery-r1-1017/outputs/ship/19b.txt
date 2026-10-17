@@ -1,0 +1,69 @@
+**Delivery Plan: Terminology Shift (CargoManifest → FreightDeclaration)**
+
+**Constraints & Strategy**
+The release branch is open; code freeze is Friday. The CI pipeline is expensive (45m) and flaky. Database migrations are irreversible on staging without full restore. Shared config requires dual approval. Strategy: Local verification first to avoid CI costs; serialize DB changes; parallelize code refactoring; human-gate shared config.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Specification & Compliance (Product Analyst + Conductor)**
+    *   **Work:** Confirm exact spelling/casing of "FreightDeclaration" with the Compliance Officer. Define scope: 200 files, customs module, DB schema, frontend.
+    *   **Output:** A signed spec document (G1) listing exact string replacements and edge cases (comments, logs, API contracts).
+    *   **Parallel:** Can run immediately.
+
+2.  **Lane B: Codebase Refactoring (Builder)**
+    *   **Work:** Isolated worktree. Rename entities, variables, and imports in backend/frontend (excluding DB scripts and shared config).
+    *   **Constraint:** Do not touch `shared/` config or `db/migrations` yet.
+    *   **Check:** Local build, lint, and type-check. Run unit tests locally. **Do not trigger full CI yet.**
+    *   **Parallel:** Runs parallel to Lane A (once spec is draft) and Lane C (after DB plan is fixed).
+
+3.  **Lane C: Database Migration Script (Builder + DBA Review)**
+    *   **Work:** Write irreversible migration script renaming tables/columns.
+    *   **Check:** Dry-run analysis on a local dump. **No execution on staging yet.**
+    *   **Serialization:** Must be reviewed and approved (G6) before any staging touch.
+
+4.  **Lane D: Shared Configuration Update (Builder)**
+    *   **Work:** Update shared config files.
+    *   **Serialization:** Blocked until Lane B and C are verified locally. Requires explicit human approval (Platform Lead + Security Officer) before commit.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Conductor validates spec against Compliance Officer input.
+*   **G4 (Implement):**
+    *   Lane B: Local green (build/test). Commit to feature branch.
+    *   Lane C: Script review complete.
+    *   Lane D: Draft PR created, **not merged**.
+*   **G5 (Verify - Local/Cheap):**
+    *   Run customs calculation module tests locally in Lane B's worktree.
+    *   Manually simulate the "flaky network check" logic locally to ensure no false positives in the new naming context.
+    *   **Decision Point:** Only if local customs tests pass, proceed to CI.
+*   **G5 (Verify - CI/Expensive):**
+    *   Trigger full regression suite **once** on the combined SHA of Lane B + C (pre-merge).
+    *   **Flake Handling:** If network check fails, human must manually inspect logs before marking red. Do not auto-retry.
+*   **G6 (Review):**
+    *   **Code:** Independent Senior Engineer (not the Builder) reviews Lane B & C diffs.
+    *   **Security/Compliance:** Security Officer + Platform Lead review Lane D (Shared Config).
+*   **G7 (Integrate):**
+    *   Merge Lane B & C into release branch.
+    *   **Human Gate:** Dual approval required to merge Lane D (Shared Config).
+
+**Landing & Rollback**
+
+*   **Merge Strategy:**
+    1.  Merge Lane B (Code) and Lane C (DB Script) after CI green.
+    2.  Pause. Human verification of staging deployment (if auto-deploy exists).
+    3.  Merge Lane D (Config) only after explicit dual-approval comment.
+*   **Human Decisions Required:**
+    *   Approval of the final spec (G1).
+    *   Manual log verification if CI flake occurs.
+    *   Dual-approval signature for Shared Config merge.
+    *   Go/No-Go for applying DB migration to Staging (due to irreversibility).
+*   **Rollback Plan:**
+    *   **Code/Config:** Revert merge commits.
+    *   **Database:** Since migration is irreversible on staging, rollback requires a **full restore from backup**. Verify backup integrity before applying Lane C to staging. If customs calculations fail post-migration, initiate immediate restore procedure.
+
+**Timeline**
+*   **Day 1:** Spec (Lane A), Local Refactor (Lane B), Script Draft (Lane C).
+*   **Day 2:** Local Customs Tests, CI Run (Single shot), Reviews.
+*   **Day 3:** Merge Code/DB, Dual-Approval Config Merge, Staging Verification.
+*   **Day 4:** Buffer for flake triage or backup restore if staging fails.
+*   **Day 5:** Code Freeze.

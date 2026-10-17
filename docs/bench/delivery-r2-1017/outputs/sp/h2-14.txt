@@ -1,0 +1,67 @@
+# Delivery Plan: Inventory Sync Worker
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic & Rate Limiting (Owner: Senior Backend Dev)**
+*   **Work:** Implement the worker loop, exponential backoff logic, and strict 40 req/min enforcement using a local token bucket algorithm.
+*   **Parallel:** Runs concurrently with Lane B.
+*   **Constraint:** Must not modify the shared configuration file yet. Use environment variables for local sandbox URLs.
+
+**Lane B: Dead-Letter Queue (DLQ) & Payload Handling (Owner: Mid-level Backend Dev)**
+*   **Work:** Implement the retry counter (max 3 attempts) and DLQ insertion logic. Ensure payload serialization preserves data >2KB (bypassing standard logger truncation by writing full payloads to a sidecar debug file locally).
+*   **Parallel:** Runs concurrently with Lane A.
+*   **Dependency:** Requires interface definition from Lane A for message structure.
+
+**Lane C: Configuration & Security (Owner: Lead Ops + Security)**
+*   **Work:** Prepare the dual-approval change request for the shared configuration file to register the new worker credentials and production endpoints.
+*   **Serialization:** Must complete before Lane D (Integration).
+*   **Timing:** Initiate immediately to account for approval latency.
+
+**Lane D: Integration & Sandbox Testing (Owner: Senior Platform Engineer - David Chen)**
+*   **Work:** Merge Lanes A & B. Execute rigorous testing against the VendorAPI sandbox.
+*   **Serialization:** Waits for Lane A, B, and C completion.
+*   **Critical Path:** This lane contains the highest risk due to the 4-run/day CI cap and 35-minute duration.
+
+## Gates & Checks
+
+**Gate 1: Local Rate-Limit Simulation (Pre-CI)**
+*   **Where:** Developer Workstation.
+*   **Revision:** Feature branch head before PR.
+*   **Check:** A dedicated unit test must simulate 50 rapid requests and prove exactly 40 are sent, with 10 delayed correctly. **Fail condition:** Any test run that does not explicitly log the token bucket state.
+
+**Gate 2: Payload Integrity Check (Pre-CI)**
+*   **Where:** Developer Workstation.
+*   **Revision:** Feature branch head.
+*   **Check:** Verify that payloads >2KB are written to the debug sidecar file intact, not truncated. Manual inspection of the debug file required.
+
+**Gate 3: CI Pipeline Execution**
+*   **Where:** CI Runner.
+*   **Revision:** Squashed commit on `feature/inventory-sync`.
+*   **Check:** Full suite pass within the 35-minute window.
+*   **Strategy:** Due to the 4-run daily cap, a "Dry Run" mode (skipping external sandbox provisioning) must be used for the first two attempts. Only the final two slots are reserved for full sandbox integration.
+
+## Review Process
+
+**Primary Reviewer:** Principal Engineer (Independent of implementation team).
+**Secondary Reviewer (Security):** Security Lead (Specifically for the shared config change and DLQ data sensitivity).
+**Independence:** Neither reviewer authored code in Lanes A or B.
+**Focus Areas:**
+1.  Verify the backoff math prevents exceeding 40 req/min under network jitter.
+2.  Confirm DLQ messages contain full context for Operations.
+3.  Ensure no hardcoded secrets exist; verify reliance on the shared config file.
+
+## Landing Strategy
+
+**Merge Protocol:**
+1.  **Approval:** Requires sign-off from Primary Reviewer, Security Lead, and Lead Ops (for config).
+2.  **Timing:** Merge to `main` on Thursday morning. This allows one full day of monitoring in Staging before the Friday business deadline.
+3.  **Deployment:** Executed solely by **David Chen** using production credentials. No automated deployment to production is permitted for this worker.
+
+**Human Decisions Required:**
+*   **Lead Ops & Security:** Must approve the shared config modification.
+*   **David Chen:** Must manually trigger the production deployment after verifying Staging metrics for 4 hours.
+
+**Rollback Plan:**
+*   **Trigger:** If error rate >1% or any 429 (Too Many Requests) responses received from VendorAPI in production.
+*   **Action:** David Chen to kill the worker process immediately.
+*   **Recovery:** Messages will remain in the source queue (unconsumed). Once the rate-limit logic is patched, the worker can be restarted to process the backlog safely. No data loss occurs as long as the worker acknowledges messages only after successful API confirmation.

@@ -1,0 +1,58 @@
+**Delivery Plan: Refund Policy Wording Update**
+
+**Scope & Constraints**
+Change is limited to `/apps/checkout/src/locales/en.json` (English locale).
+- **Binding Constraint:** Staging is unstable; verification must be local.
+- **Binding Constraint:** Production deploy is irreversible for static assets and requires manual approval (Site Reliability Lead offline until 16:00 UTC).
+- **Decision:** The request to skip regression based on commit message is rejected. A "docs-only" skip does not apply to user-facing legal text affecting financial expectations. Verification is mandatory before merge.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Implementation (Builder)**
+    *   **Work:** Update `en.json` key corresponding to refund timeline from "5-7 business days" to "3-5 business days".
+    *   **Parallelism:** Can start immediately.
+    *   **Output:** Commit with message `fix(checkout): update refund policy timeline to 3-5 days`. No `docs:` prefix used to ensure CI gates remain active for safety, though we will optimize execution.
+
+2.  **Lane B: Local Verification (QA)**
+    *   **Trigger:** Depends on Lane A commit.
+    *   **Work:** Run local build of `/apps/checkout`. Render the confirmation page component. Visually confirm the string "3-5 business days" appears correctly in the DOM. Check for JSON syntax errors.
+    *   **Constraint:** Do not run the 45-minute integration suite locally. Rely on unit tests (if any touch this file) and visual inspection.
+    *   **Serialization:** Must complete before G6 Review.
+
+3.  **Lane C: Security & Legal Sanity (Security/Legal)**
+    *   **Trigger:** Depends on Lane A commit.
+    *   **Work:** Verify the new string matches the legal counsel's directive exactly. Ensure no other locale files are accidentally modified.
+    *   **Serialization:** Independent of Lane B, but must complete before G6.
+
+**Gates & Checks**
+
+*   **G4 (Implement):** Builder commits to a feature branch `fix/refund-timeline-update`. Base SHA recorded.
+*   **G5 (Verify):**
+    *   **Local:** QA runs `npm run build` and inspects the rendered component.
+    *   **CI:** Push triggers CI. We will allow the linter and unit tests to run. If the 45-minute integration suite triggers, we will **not** skip it via commit message hackery; instead, we will monitor it. If it hangs due to staging instability, we will mark it as "non-blocking for this specific text change" *only* after confirming local green and obtaining explicit waiver from the Conductor (me), citing the staging outage. However, the plan is to rely on the local verification receipt since staging is unusable.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Developer (independent of Builder).
+    *   **Scope:** Diff check (only `en.json` changed), string accuracy, JSON validity.
+    *   **Verdict:** Pass/Fail based on exact string match and no collateral changes.
+
+**Landing & Release**
+
+*   **Merge Strategy:** Squash merge to `main` after G6 approval.
+*   **Human Gate (G8 - Release):**
+    *   **Blocker:** The auto-deployer pushes immediately upon merge, but the production deploy requires manual approval from the Site Reliability Lead.
+    *   **Action:** Merge is **held** until 16:00 UTC when the Lead returns.
+    *   **Procedure:** Once the Lead is online, present the G5 local verification receipt and G6 review approval. Request explicit "Approve Deploy" confirmation.
+    *   **Timing:** Merge and approval must occur after 16:00 UTC. Merging before then triggers an immediate, unapproved production push (violation of policy).
+*   **Rollback:**
+    *   Since this is a static asset change with immediate effect, rollback requires a revert commit and a re-deploy.
+    *   **Plan:** If the string is incorrect or causes layout issues, immediately revert the merge commit. This requires the same human approval from the Site Reliability Lead.
+
+**Summary of Critical Path**
+1.  Builder commits change (Now).
+2.  QA verifies locally (Immediate).
+3.  Reviewer approves PR (Immediate).
+4.  **WAIT** until 16:00 UTC.
+5.  Site Reliability Lead approves deployment.
+6.  Merge to `main` -> Auto-deploy triggers.
+
+**Risk Note:** Merging before 16:00 UTC bypasses the required human approval for production deployment. This is strictly forbidden. The PR will be created and approved but **not merged** until the approver is available.

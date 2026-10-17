@@ -1,0 +1,40 @@
+**Delivery Plan: Monorepo Build Cache Migration**
+
+**Appetite:** 4 hours max. If 20% reduction isn't proven in staging by then, revert.
+
+**Lane 1: Specification & Safety Guardrails (Conductor + Product Analyst)**
+*   **Work:** Define the content-addressable schema. Explicitly map the "partial failure" logic: if one of 30 services fails, only that service's cache entry is invalidated, not the global lock. Document the exact interface between the new cache and the existing artifact signing workflow to ensure zero interference.
+*   **Gate G1 (Spec):** Output is a testable spec naming the exact base SHA. Must include a rollback trigger: if signing latency increases by >5%, abort.
+*   **Parallel:** Runs immediately.
+
+**Lane 2: Implementation (Builder)**
+*   **Work:** In an isolated worktree (cleaned to base SHA), replace timestamp logic with content-hash logic in the root build tool. Implement the graceful degradation handler for partial failures. **Constraint:** Do not touch `core-utils` version pins or signing keys.
+*   **Gate G4 (Implement):** Commit includes unit tests for the hash collision edge case and the partial failure path.
+*   **Serialization:** Must wait for Lane 1's spec approval (G1).
+
+**Lane 3: Independent Verification (QA)**
+*   **Work:** Run the full 90-minute build suite on the exact SHA from Lane 2.
+    *   **Metric Check:** Verify compute time reduction ≥20% (target: ≤72 mins).
+    *   **Signing Integrity:** Confirm artifact signatures remain valid using a non-production key copy (simulated).
+    *   **Flake Mitigation:** Retry the known flaky network check 3 times; if it fails all three, flag as environment noise, not code failure.
+*   **Gate G5 (Verify):** **Hard Condition:** Local stack up, build green, metrics met. If the build never completes or signing breaks, result is `UNVERIFIED`.
+*   **Serialization:** Waits for Lane 2 commit.
+
+**Lane 4: Security & Supply Chain (Security)**
+*   **Work:** Review the caching logic for supply chain poisoning risks (e.g., hash collision attacks). Verify no secrets are exposed in the new cache keys.
+*   **Gate G6 (Review):** Independent of Builder. Must sign off on the "partial failure" logic to ensure it doesn't create a denial-of-service vector.
+
+**Integration & Landing (G7–G8)**
+*   **Integration (G7):** Merge Lanes 2, 3, and 4 into a throwaway integration branch. Re-run the full pipeline once on this exact SHA to confirm no merge-induced regressions.
+*   **Human Gate (G8 - Release):**
+    *   **Approval Required:** Chief Architect (for build tool logic change) AND one of the two Senior Engineers (to verify signing workflow integrity).
+    *   **Decision Format:** "Approve merge to main" vs "Reject."
+    *   **Timing:** Must occur before 03:00 UTC to allow rollback before the 04:00 irreversible manifest generation.
+*   **Rollback Plan:** If post-merge monitoring shows signing delays or cache corruption, immediately revert the merge commit. Do not attempt hotfixes after 03:30 UTC.
+
+**Risk Controls**
+*   **Cost Cap:** Lane 3 (QA) runs the expensive 90-minute suite exactly once per candidate SHA. No re-runs unless the SHA changes.
+*   **Collision Avoidance:** Only one writer in the build tool directory. No other lanes may modify root build configuration simultaneously.
+*   **Evidence:** All claims of "20% faster" must include raw CI logs showing start/end times. Missing logs = `UNVERIFIED`.
+
+**Next Step:** Await owner confirmation of the 4-hour appetite and Chief Architect availability window before starting Lane 1.

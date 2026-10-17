@@ -1,0 +1,71 @@
+**Delivery Plan: Burst-Aware Rate Limiting (Public API v2)**
+
+**G0/G1: Intake & Spec**
+*   **Scope:** Modify `nexus-gateway` to detect 'Tier-One' accounts during maintenance windows, apply 300% burst limit, log rejections separately. Zero disruption to active sessions.
+*   **Constraints:** Staging load tests are unreliable; production deploy requires dual approval (Platform + Billing) + SRE sanity check. Revert is high-cost (2hr DB restore). CI is expensive ($45, 55m); run only on final candidate SHA.
+*   **Appetite:** 4 hours max.
+
+**G2: Plan & Lanes**
+*   **Lane A (Logic & Config):** Implement burst detection logic and update `global-throttle.rules`.
+    *   *Writer:* Builder (Platform Team).
+    *   *Worktree:* Isolated `feature/burst-logic`.
+    *   *Budget:* $15 (local unit tests only).
+*   **Lane B (Logging & Observability):** Implement separate rejection logging stream.
+    *   *Writer:* Builder (Billing Team).
+    *   *Worktree:* Isolated `feature/burst-logging`.
+    *   *Budget:* $15 (local unit tests only).
+*   **Lane C (Integration & Verification):** Merge A+B, verify cache-busting flag, dry-run deploy script.
+    *   *Writer:* Conductor (serialized after A & B green).
+    *   *Worktree:* Fresh integration worktree.
+    *   *Budget:* $45 (One CI run on final SHA).
+
+**Serialization:**
+Lanes A and B run in parallel. Lane C starts only after A and B return verified receipts. No CI runs until Lane C assembles the final SHA.
+
+**G3: Design**
+*   **ADR:** Define "maintenance window" verification source (config vs. external signal).
+*   **Contract:** Log format for "legitimate config error" vs. "malicious attack" must be distinct.
+*   **Safety:** Cache-busting flag mechanism documented; rollback plan confirmed as "do not deploy" (since revert is destructive).
+
+**G4: Implementation**
+*   **Lane A:** Code changes + unit tests for throttle math.
+*   **Lane B:** Code changes + unit tests for log routing.
+*   **Rule:** Tests written before or with code. No changes to production config files directly.
+
+**G5: Verification (Local Only)**
+*   **Constraint:** Staging load tests skipped (unreliable).
+*   **Action:**
+    1.  Bring up local stack in each worktree.
+    2.  Run unit tests (must pass).
+    3.  **Lane C Specific:** Manually verify `global-throttle.rules` parsing with cache-busting flag in a local sandbox. Simulate burst logic with mocked time.
+    4.  **UI/Behavior:** Verify log output format matches spec for both rejection types.
+*   **Gate:** Local stack must start; tests green. If local stack fails to start, status is `UNVERIFIED`.
+
+**G6: Review**
+*   **Reviewer 1 (Security):** Independent of Builders. Focus: Can non-Tier-One escalate? Is log data PII-safe?
+*   **Reviewer 2 (Peer):** One from Platform, one from Billing (cross-review). Focus: Logic correctness, cache handling.
+*   **Base SHA:** Immutable SHA from G1.
+*   **Verdict:** Blocker/Critical fixes required before merge. High needs Lead acceptance.
+
+**G7: Integrate**
+*   **Action:** Merge A and B into integration branch.
+*   **Check:** Run **one** full CI pipeline ($45) on the exact merged SHA.
+*   **Receipt:** CI green, artifacts produced.
+
+**G8: Release (Human Gated)**
+*   **Decision Required:** Dual approval (Platform Lead + Billing Lead) + SRE Sanity Check.
+*   **Ask Format:**
+    *   *Issue:* Deploy burst-aware rate limiting.
+    *   *A:* Deploy behind feature flag, monitor logs for 1 hour, then enable globally. (Recommended: minimizes blast radius).
+    *   *B:* Deploy globally immediately. (Risk: High, revert is 2hr DB restore).
+*   **Rollback:** If deployed and failing, immediate feature-flag disable. DB restore is last resort only.
+
+**G9: Production Verify**
+*   **Action:** Monitor rejection logs for correct classification during next end-of-month window.
+*   **Metric:** Zero active session drops; distinct log streams visible.
+
+**G10: Learn**
+*   **Retro:** Did the cache-busting flag work as expected? Was the 300% math correct under real load? Update regression tests if gaps found.
+
+**Failure Mode:**
+If Lane A or B fails local tests twice, reframe approach (e.g., simplify logic). If CI fails, do not rerun; fix code and create new SHA. No silent retries.

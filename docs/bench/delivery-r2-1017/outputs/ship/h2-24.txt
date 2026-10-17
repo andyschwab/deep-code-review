@@ -1,0 +1,62 @@
+**Delivery Plan: Lockdown release-v2**
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Enforce Code Owners, block direct pushes, and require passing checks on `release-v2` without breaking existing open PRs.
+*   **Constraints:** $45/run pipeline cost (minimize re-runs), flaky connectivity check (handle retries), Jane Smith (Release Manager) is sole approver for deployment config.
+*   **Appetite:** 2 hours max. If existing PRs break, rollback immediately.
+
+**G2 Plan: Work Graph**
+Two lanes. Lane 1 (Analysis) must finish before Lane 2 (Implementation) starts to prevent breaking active work.
+
+*   **Lane 1: Impact Analysis & PR Triage (Serialized First)**
+    *   **Actor:** Product Analyst / Conductor.
+    *   **Work:** Identify all open PRs targeting `release-v2`. Check their current status against proposed rules (Code Owners presence, check requirements).
+    *   **Output:** List of PRs that will fail immediately upon rule enforcement. Draft comments for authors of those PRs explaining the new requirements.
+    *   **Budget:** $5 token cap (read-only ops).
+
+*   **Lane 2: Configuration & Verification (Dependent on Lane 1)**
+    *   **Actor:** Builder (Security Hat).
+    *   **Work:**
+        1.  Draft `CODEOWNERS` entry for `release-v2` (pointing to Jane Smith + team leads).
+        2.  Prepare Branch Protection rule set: "Require PR," "Require Code Owner Review," "Require Status Checks," "Disable Direct Push."
+        3.  **Critical:** Configure the flaky connectivity check as "Optional" or implement a retry logic wrapper if the platform allows, to prevent false-negative blocks.
+        4.  Apply rules in a dry-run mode if available; otherwise, prepare the exact API payload/UI steps.
+    *   **Budget:** $10 token cap + one $45 pipeline run for verification.
+
+**G3 Design**
+*   **Decision:** The flaky connectivity check must not block merges. We will configure the branch protection to require all checks *except* the known flaky one, or mark it as non-blocking until stabilized.
+*   **Review Lens:** Security (independent of Builder). Verify that no bypasses exist for Jane Smith's approval requirement.
+
+**G4 Implement**
+*   **Execution:**
+    1.  Lane 1 completes triage. If >50% of PRs are non-compliant, pause and notify teams before proceeding.
+    2.  Lane 2 applies `CODEOWNERS` first. Wait for existing PRs to update.
+    3.  Lane 2 enables Branch Protection rules.
+    4.  **Exact Revision:** Rules apply to `release-v2` head at time of change. Verification runs on the *current* head of `release-v2` plus one synthetic PR from a feature branch to test the gate.
+
+**G5 Verify**
+*   **Local/Remote Check:**
+    1.  Create a test branch from `release-v2` head.
+    2.  Attempt direct push (Expect: **Fail**).
+    3.  Open PR without Code Owner review (Expect: **Fail** merge button).
+    4.  Trigger pipeline. If flaky check fails, verify it does not block the merge (if configured as optional) or verify retry mechanism works.
+    5.  **Cost Control:** Run the full $45 pipeline exactly once for this verification. Do not re-run unless the SHA changes.
+
+**G6 Review**
+*   **Reviewer:** Security Lead (Independent of Builder).
+*   **Scope:** Verify that Jane Smith is the only mandatory approver for deployment configs and that the "direct push" block is active.
+*   **Verdict:** Pass/Fail based on evidence screenshots/logs.
+
+**G7 Integrate & G8 Release (Human Gate)**
+*   **Integration:** Rules are live on the remote repo.
+*   **Human Decision Required:**
+    *   **Approver:** Jane Smith.
+    *   **Action:** Confirm the synthetic test PR merges successfully with her approval. Authorize the permanent enforcement.
+    *   **Prompt to Jane:** "Rules drafted. Test PR #XX created. A: Merge now to enforce. B: Abort if flaky check blocked it incorrectly."
+*   **Rollback:** If existing critical PRs break or the flaky check causes a hard block despite configuration, immediately disable the "Require Status Checks" rule via admin escalation.
+
+**G9 Production Verify**
+*   Monitor the next 3 merges to `release-v2`. Ensure no unauthorized merges occurred and pipeline costs remain within budget (no duplicate runs).
+
+**G10 Learn**
+*   Log the flaky check behavior. Create a ticket to stabilize the connectivity check so it can be made mandatory in the future.

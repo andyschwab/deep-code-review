@@ -1,0 +1,56 @@
+### Delivery Plan: Stabilize Checkout V2 E2E Suite
+
+**Objective:** Eliminate the 40% flakiness in `HappyPath_Checkout` caused by resource contention (barcode simulator, DB state) and pipeline concurrency, enabling safe merges by Friday without disabling compliance coverage.
+
+#### 1. Lanes & Serialization
+
+*   **Lane A: Root Cause Isolation (Serial)**
+    *   **Who:** Investigator (Builder hat).
+    *   **Work:** Analyze CI logs to correlate `HappyPath_Checkout` failures precisely with `Inventory sync` start times. Verify the 10-second race window hypothesis against the barcode simulator reset logs.
+    *   **Dependency:** None. Must complete before Lane B.
+    *   **Output:** Confirmed contention model (Simulator vs. DB).
+
+*   **Lane B: Infrastructure Hardening (Parallelizable after A)**
+    *   **Who:** Infrastructure Engineer.
+    *   **Work:** Implement a "fence" mechanism in the CI script.
+        1.  **Simulator Lock:** Add a pre-test check that waits for the barcode simulator to report "Idle/Ready" with a 15-second buffer before starting tests. If not ready, fail fast rather than race.
+        2.  **DB Isolation:** Modify the test setup to force a deterministic data seed *within* the test job (ignoring the nightly 3 AM refresh) or implement a transactional rollback wrapper to ensure clean state per run.
+    *   **Constraint:** Must not increase total pipeline time beyond 60 mins.
+
+*   **Lane C: Pipeline Orchestration (Parallel to B)**
+    *   **Who:** DevOps Engineer.
+    *   **Work:** Configure the CI runner to serialize `HappyPath_Checkout` and `Inventory sync` if they trigger simultaneously. Use a mutex or job dependency flag so they never run within the 10-second danger window.
+    *   **Alternative:** If serialization pushes time >60m, shard the Inventory suite to run in smaller, non-conflicting batches.
+
+#### 2. Gates & Checks
+
+*   **G2 Plan Review:** Verify the serialization logic does not create a deadlock or infinite wait loop.
+*   **G4 Implementation:** Code changes to CI config and test harness only. No app logic changes.
+*   **G5 Verification (The Critical Gate):**
+    *   **Exact Revision:** The specific SHA containing the fence/serialization logic.
+    *   **Action:** Run the modified suite **10 times consecutively** in the staging environment (simulating the parallel load).
+    *   **Pass Criteria:** 10/10 green runs. Any failure resets the count.
+    *   **Cost Control:** Since manual re-runs hit payment gateway rate limits, the verification script must mock the payment gateway calls for these stress tests, or use a dedicated "stress-test" sandbox token that bypasses the 2-hour lockout.
+*   **G6 Review:** Independent QA verifies the 10/10 receipt. Security verifies no compliance coverage was reduced (tests still run, just ordered/locked).
+
+#### 3. Review & Independence
+
+*   **Builder:** Implements the locking/serialization logic.
+*   **Reviewer:** Senior QA (not the Logistics team who owns the flaky suite, to ensure objectivity). They must verify the *receipt* of the 10-run stress test, not just the code diff.
+*   **Compliance Check:** Ensure the test assertions remain intact; only the *execution timing/environment* has changed.
+
+#### 4. Landing & Human Decisions
+
+*   **Merge Strategy:**
+    1.  Land Lane A findings (docs only) immediately.
+    2.  Land Lanes B & C together in a single PR to avoid partial states.
+    3.  **Human Gate:** Requires approval from **Jane Smith's delegate**. Since Jane is on leave until Monday, and this blocks the holiday update, the request must be escalated to her designated backup (check `CODEOWNERS` or ask leadership for the acting approver). Do not wait for Monday if a delegate exists; if no delegate is authorized for compliance bypasses/changes, the merge is blocked until Monday unless an emergency policy allows temporary CTO sign-off.
+*   **Rollback:**
+    *   If the new serialization causes pipeline timeouts (>60m), revert the CI config change immediately.
+    *   Fallback: Manually trigger `HappyPath_Checkout` as a non-blocking gate (with leadership written approval) while a longer-term fix is engineered, though this violates the "no disable" rule and is a last resort.
+
+**Timeline:**
+*   **Today:** Lane A complete, Lanes B/C implemented.
+*   **Tomorrow:** 10x Stress test execution (G5).
+*   **Thursday:** Review & Delegate Approval.
+*   **Friday:** Merge and unblock holiday pricing.

@@ -3,6 +3,23 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.591.0] — 2026-10-17
+
+### Added
+- `docs/bench/comms-r4-1017/`: a pre-registered, free-model (PCSS, no paid call) fourth attempt to make `communication-structure` beat humanizer, bench plus diagnosis only. `DIAGNOSIS.md` reads the judge reasons of 1,334 earlier verdicts and finds a structural cause (the skill's digest-shaped output contract against judges who prefer a complete decision brief; per-scenario length ratio correlates -0.39 to -0.67 with the rival's share), then three structurally different candidates (decision-brief skeleton, coverage invariant, worked examples) were tuned on 10 fresh scenarios and the tune-selected one (worked examples) ran once on 40 fresh held-out scenarios with three judges (GLM-5.1, GLM-5.2, gpt-oss_120b), both orders, strict agreement, majority: 0.388, 95% CI 0.275 to 0.512, against a keep bar of a lower bound above 0.5 (unedited skill on the same set: 0.225, 0.125 to 0.338). The bar was not met, so no SKILL.md, template or eval edit ships.
+
+Business-ops round 4: preregistered bench against marketingskills pricing, no skill change (all candidates reverted)
+
+Business-ops loses to its rival (round 3: 0.287 [0.163, 0.412]). This round read every round-3 judge reason where the rival won and tabulated the behaviors: the rival leads with the call, answers legal, tax, accounting and regulatory questions on the general rule with a one-line closing consult note, computes through labelled assumptions and ties its trigger to the user's figures; Perun v0 opens with a disclaimer and a "route immediately" banner, defers, leaves blank formula variables and prints its lane labels. Length is not the cause (529 vs 554 words).
+
+Four candidate edits were tested (a: format and lead with the call, b: Lane R explains the rule and routes the binding call, c: restructure into one memo shape with three confidence tiers, d: a plus b), on a fresh disjoint held-out set of 40 fictional scenarios (docs/bench/bizops-r4-1017, free PCSS models, $0, three judges none the generator, both orders, strict agreement, majority decides). Preregistered selection on tune picked b: held-out 0.350 [0.225, 0.475] against unedited 0.312 [0.200, 0.425]; the keep rule (lower bound above 0.5 and at least unedited) failed, so `.claude/skills/business-ops/SKILL.md` is unchanged and nothing ships except the bench. Exploratory, after the verdict and not eligible for a keep decision: c 0.450 [0.325, 0.562], d 0.400, a 0.300; c would need a fresh held-out set and a new preregistration. Shipping c or d would loosen "route, never conclude" and is an owner decision.
+
+### Changed
+- `scripts/rival_eval.py` judge protocol: the two answers now carry random three-letter labels instead of "Response 1" and "Response 2", and the judge writes a short comparison before its verdict. On the tune split (86 scenarios, 172 verdicts per judge) the pooled slot-1 rate of GLM-5.2 fell from 0.626 to 0.559 and GLM-5.1 measured 0.509 in the experiment harness and 0.439 in the shipped-code draw (README); DeepSeek-V4-Flash got worse under the new reply order (0.817) and is no longer a judge. Default judges are now GLM-5.1, then GLM-5.2, then gpt-oss_120b, each gated on a 0.4-0.6 slot-1 rate per skill.
+- Re-ran the held-out baseline in `docs/bench/rival-eval-baseline-1017/` with the new judges: ten of eleven skills now have a verdict (agentic-ceo and agentic-delivery gained one); idea-critic still has none because all three judges favour slot 1 on its near-identical answers. No skill passes.
+
+No-Mechanism-Reason: scripts/ and docs/bench only; no SKILL.md or references file changed, and test_rival_eval.py covers the new judge protocol.
+
 ## [1.590.0] — 2026-10-17
 
 ### Added

@@ -1,0 +1,47 @@
+**Delivery Plan: Payment Gateway Flag Service Migration**
+
+**Objective:** Replace legacy env-var toggles with dynamic Flag Service calls, implementing local caching for offline dev and robust fallbacks, while maintaining zero-downtime backward compatibility.
+
+### 1. Lanes & Parallelism
+
+*   **Lane A: Core Implementation (Builder)**
+    *   **Work:** Refactor `PaymentGateway` to inject a `FlagClient`. Implement the client with: (1) dynamic fetching, (2) local default caching for offline dev, and (3) circuit-breaker fallback to legacy env-vars on failure.
+    *   **Constraint:** Must not modify the shared configuration library version.
+    *   **Parallelism:** Can run parallel to Lane B, but must finish before Lane C.
+*   **Lane B: Test Harness & Simulation (QA)**
+    *   **Work:** Create a mock Flag Service simulator to test latency, timeouts, and unreachable states. Write unit tests verifying the fallback logic triggers correctly when the mock is down.
+    *   **Parallelism:** Independent of Lane A's code completion; can start immediately based on the spec.
+*   **Lane C: Integration & Regression (QA)**
+    *   **Work:** Run full regression suite against the integrated change. Specifically target the known flaky timeout check.
+    *   **Serialization:** Must wait for Lane A to produce a candidate SHA. Must run outside of Friday high-load windows to avoid false negatives on the timeout check.
+
+### 2. Gates & Checks
+
+*   **G1 Spec (Conductor):** Define the exact interface for the `FlagClient`, the cache TTL, and the specific legacy env-var names to support during the transition. Pin base SHA.
+*   **G2 Plan (Conductor):** Confirm no schema changes are required (avoiding Data Governance approval). Set per-lane token budgets.
+*   **G4 Implement (Builder):** Lane A produces a patch. Tests must be included in the commit.
+*   **G5 Verify (QA):**
+    *   **Local Stack:** Bring up the service locally with network access disabled; verify `express-checkout` uses cached defaults.
+    *   **Failure Injection:** Kill the mock Flag Service; verify seamless fallback to env-vars without error logs exceeding threshold.
+    *   **CI Run:** Execute on the exact candidate SHA. If the timeout check fails, re-run once immediately; if it fails again, mark as flake and proceed to manual log review rather than blocking.
+*   **G6 Review (Independent):**
+    *   **Security Review:** Verify no PII is sent to the Flag Service and that fallback logic cannot be forced into an insecure state by an attacker.
+    *   **Code Review:** Senior Engineer (not the Builder) reviews the circuit-breaker logic and cache invalidation strategy.
+
+### 3. Landing & Human Decisions
+
+*   **G7 Integrate:** Merge to the integration branch. Re-run the affected subset of the CI pipeline (estimated cost $4.50) on the final merge SHA to ensure no collision-induced breakage.
+*   **G8 Release (Human Gate):**
+    *   **Decision Required:** Engineering Director and Compliance Officer must approve the production deployment due to irreversibility without full rollback.
+    *   **Action:** Deploy behind a feature flag (initially off).
+*   **Rollback Strategy:**
+    *   Since backward compatibility is maintained, "rollback" initially means disabling the new flag logic via the legacy env-var override.
+    *   Full code rollback requires the standard irreversible procedure if the fallback mechanism itself fails.
+
+### 4. Risk Mitigation
+
+*   **Flaky Check:** The known Friday timeout flake is mitigated by scheduling Lane C's integration run for Tuesday–Thursday. If it triggers, evidence (logs) overrides the red status.
+*   **Database Safety:** Explicitly confirmed: no schema changes, so no coordination with Data Governance is needed for this ticket.
+*   **Cost Control:** Limit CI re-runs to maximum two attempts per lane to respect the $4.50/run constraint.
+
+**Next Step:** Await approval on the G1 Spec (interface definition and fallback list) before spawning Lane A and B.

@@ -1,0 +1,55 @@
+### Delivery Plan: SMS Trigger Update (24h → 48h)
+
+**Scope & Constraints**
+Change the appointment reminder trigger from 24h to 48h for future bookings only. Preserve cancellation logic. Prevent duplicate sends to existing 24h-eligible patients. Deployment requires CMO and VP Engineering approval.
+
+#### Lanes & Serialization
+
+1.  **Lane A: Logic & Configuration (Builder)**
+    *   **Work:** Modify the reminder scheduler logic to calculate the 48h window. Add a guard clause to exclude appointments where a 24h notification was already dispatched (idempotency check). Verify cancellation trigger paths remain untouched.
+    *   **Parallelism:** Can run immediately in an isolated worktree.
+    *   **Serialization:** Must complete before Lane B starts integration testing.
+
+2.  **Lane B: Privacy & Compliance Verification (QA/Security)**
+    *   **Work:** Execute the full synthetic data replay against the mirrored production database. Specifically audit logs for PII leakage during the new 48h calculation.
+    *   **Trigger:** Runs on the exact SHA produced by Lane A.
+    *   **Constraint:** This is the 55-minute bottleneck. Run once per candidate SHA.
+
+3.  **Lane C: Timezone Stability Check (QA)**
+    *   **Work:** Targeted verification of the known flaky timezone module. Manually inspect log lines for daylight savings transition errors under the new 48h offset.
+    *   **Serialization:** Runs parallel to Lane B but must clear before merge.
+
+#### Gates & Checks
+
+*   **G1 Spec:** Define "future bookings" explicitly (e.g., `created_at > deployment_timestamp`). Confirm cancellation intervals are excluded in the spec.
+*   **G4 Implement:** Builder commits code with unit tests covering the "already notified" edge case.
+*   **G5 Verify (Lower Env):**
+    *   Deploy to lower environment.
+    *   **Check:** Run synthetic replay (Lane B). Exit status must be 0.
+    *   **Check:** Manual log review for timezone flakiness (Lane C).
+    *   **Condition:** If the timezone check fails, do not retry automatically; flag for human review of the specific log line.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Engineer independent of the Builder.
+    *   **Scope:** Full diff + G5 receipts (privacy audit pass, timezone log confirmation).
+    *   **Rule:** Builder cannot self-approve.
+
+#### Landing & Human Gates
+
+*   **Integration:** Merge to the integration branch only after G5 and G6 are green on the exact final SHA.
+*   **Human Approval (G8):**
+    *   **Required Sign-offs:** Written approval from the Chief Medical Officer and VP of Engineering.
+    *   **Action:** Do not deploy until both approvals are recorded in the ticket or commit message.
+*   **Deployment Strategy:**
+    *   Deploy to one regional cluster first (Canary).
+    *   Monitor for 1 hour (no duplicate SMS, correct 48h timing).
+    *   Roll out to remaining two clusters.
+*   **Rollback:**
+    *   If duplicate messages are detected or privacy audit flags post-deploy, immediately revert to the previous SHA.
+    *   Notify clinic directors of the rollback.
+
+#### Risk Mitigation
+*   **Duplicate Messages:** The code must query the notification history table before sending. If a record exists for the 24h window, suppress the 48h send.
+*   **Config Lock:** If the shared template file is locked (business hours), Lane A must wait or use a pre-staged branch to avoid collision with Marketing/Clinical Ops.
+*   **Flaky Check:** The timezone failure is expected; success is defined by manual log validation, not just a green CI tick.
+
+**Next Step:** Await confirmation of the lower environment availability to begin Lane A.

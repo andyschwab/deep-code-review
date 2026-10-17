@@ -1,0 +1,42 @@
+### Delivery Plan: GDPR-Compliant Nordic Export Filter
+
+**Objective:** Implement anonymization logic for Nordic tenants in `ReportGenerator` without impacting US reports, verified by Thursday noon.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** One writer in an isolated worktree.
+    *   **Task:** Modify `ReportGenerator` to detect `Region-Nordic` tag. Inject logic to strip names/SSNs and add `anonymized` header flag. Ensure US path remains untouched.
+    *   **Constraint:** Must include unit tests for both Nordic (stripped) and US (raw) paths within the same commit.
+*   **Lane B (Compliance Spec):** Parallel to Lane A.
+    *   **Task:** Draft the precise acceptance criteria for the Compliance Officer based on the regulatory agreement. Prepare the "Before/After" sample data for their review.
+    *   **Serialization:** Lane B must complete before the human gate, but can run parallel to coding.
+*   **Lane C (Flake Mitigation):** Parallel to Lane A.
+    *   **Task:** Isolate the `patient_masking` test. Create a lightweight, single-user integration script that bypasses the 50-concurrent-user load trigger to prove logic correctness without flaking the CI.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Lane B output reviewed by Product Owner immediately. Defines exact fields to strip.
+*   **G4 (Build):** Lane A commits code + tests.
+    *   **Check:** Run Lane C's lightweight script locally first. Only push to CI if local green.
+    *   **CI Trigger:** Run full regression *once* on the exact commit SHA. No rebases or force-pushes to avoid re-queuing the 45-minute pipeline.
+*   **G5 (Verification):**
+    *   **Revision:** The exact SHA that passed CI.
+    *   **Action:** Deploy to Staging. Run the lightweight integration script against sanitized prod data. Verify CSV header contains `anonymized` and Nordic rows lack PII.
+    *   **Condition:** If `patient_masking` flakes during high-load simulation, ignore the flake if the single-user verification (Lane C) passes and logs show deterministic stripping.
+*   **G6 (Review):**
+    *   **Technical:** Lead Backend Engineer reviews the diff (independent of Lane A writer). Focus: Scope isolation (US vs. Nordic).
+    *   **Compliance:** Compliance Officer reviews the sample output (from Lane B) against the spec. *Timing:* Must be scheduled for Tuesday or Thursday morning.
+
+#### 3. Landing & Human Decisions
+*   **Human Gate 1 (Compliance Approval):** Required before merge. The Compliance Officer must sign off on the sample output. If today is not Tue/Thu, this is the critical path blocker.
+*   **Human Gate 2 (Merge Authorization):** Lead Backend Engineer approves the PR only after G6 Technical and Compliance gates are green.
+*   **Merge Strategy:** Merge to `main` (or release branch) via fast-forward only. No squash to preserve the exact tested SHA.
+*   **Deployment:**
+    *   **Trigger:** Manual deployment by Release Engineer post-merge.
+    *   **Verification:** Immediately generate one test export in Production for a Nordic tenant. Confirm file lands in SFTP with correct format.
+    *   **Rollback:** **Critical.** Since deploys are irreversible without a full DB restore, if the production verification fails, the immediate action is to halt the scheduled Monday export job manually, not to attempt a code revert. The database restore is a last resort for data corruption, not a standard rollback path.
+
+#### 4. Risk & Constraints
+*   **Timeline:** Work must be code-complete by EOD Tuesday to catch the Compliance Officer's Thursday review window.
+*   **Cost Control:** Only one full CI run permitted. Local verification is mandatory before push.
+*   **Scope:** Strictly limited to `ReportGenerator`. No database schema changes.
+
+**Next Step:** Confirm today's date to schedule the Compliance Officer review. If not Tuesday/Thursday, escalate immediately for an emergency waiver or interim manual process.

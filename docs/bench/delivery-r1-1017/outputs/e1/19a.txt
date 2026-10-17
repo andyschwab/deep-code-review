@@ -1,0 +1,66 @@
+**Delivery Plan: BillingCycle → SubscriptionTerm Renaming**
+
+**G0/G1 Intake & Spec**
+*   **Scope:** Rename `BillingCycle` to `SubscriptionTerm` in code, logs, comments, and API contracts across ~200 files.
+*   **Constraints:** No data structure changes. Maintain backward compatibility in the shared config file for three microservices. Target branch: `release/4.2` (frozen), requiring careful cherry-pick strategy.
+*   **Appetite:** 4-hour time-box for implementation and local verification; CI runs limited to one final candidate SHA.
+*   **Non-Goals:** Database schema alteration, data migration, or breaking changes to dependent microservices.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane 1: Code & Contract Refactor (Builder)**
+    *   **Work:** Execute global rename in backend logic, API contracts, error messages, and comments. Ensure shared config file exposes both terms (aliasing) to maintain backward compatibility.
+    *   **Isolation:** Dedicated worktree `wt-refactor`.
+    *   **Budget:** $5.00 token cap.
+*   **Lane 2: Migration Script Dry-Run (QA)**
+    *   **Work:** Validate database migration scripts locally against a production mirror snapshot. Confirm no irreversible schema changes occur; verify script idempotency.
+    *   **Serialization:** Must run after Lane 1 commits the script changes but before G5 integration.
+    *   **Isolation:** Dedicated worktree `wt-migration`.
+*   **Lane 3: Dependency Impact Analysis (Security/Architect)**
+    *   **Work:** Verify the three dependent microservices can consume the aliased config without failure. Review API contract diffs for breaking changes.
+    *   **Serialization:** Parallel to Lane 2, dependent on Lane 1's output.
+
+**G3 Design**
+*   **Strategy:** Use a two-step aliasing approach for the shared config: introduce `SubscriptionTerm` as primary, keep `BillingCycle` as a deprecated alias to prevent breaking dependent services.
+*   **ADR:** Document the aliasing strategy and the decision to delay physical data renaming to a future release.
+
+**G4 Implement**
+*   **Execution:** Builder commits changes to `wt-refactor` with tests updated to match new terminology.
+*   **Base SHA:** Pinned to the head of `release/4.2` at intake.
+
+**G5 Verify (Local First)**
+*   **Sequence:**
+    1.  **Local Stack:** Bring up local environment in `wt-refactor`. Run unit tests (fast feedback).
+    2.  **Migration Check:** QA runs dry-run migration in `wt-migration` against local DB mirror. **Hard Gate:** If dry-run fails or implies schema change, stop.
+    3.  **Integration Build:** Once local green, build the exact candidate SHA.
+*   **CI Strategy:** Trigger full regression suite **once** on the final candidate SHA. Do not run on intermediate commits.
+    *   *Flake Handling:* If the known flaky network check fails, manual admin retry is authorized once; do not auto-retry.
+
+**G6 Review**
+*   **Reviewers:**
+    *   **Code/Logic:** Senior Engineer (independent of Builder).
+    *   **Compliance:** Compliance Officer (verifies terminology alignment with legal mandate).
+    *   **Security:** AppSec lead (verifies no accidental data exposure in logs/aliases).
+*   **Scope:** Full diff against pinned base SHA. Focus on shared config aliasing and API contract stability.
+
+**G7 Integrate**
+*   **Merge Strategy:**
+    1.  Create a throwaway integration branch from `release/4.2`.
+    2.  Cherry-pick the verified commit.
+    3.  Run affected gates on this exact SHA.
+    4.  Generate integration receipt.
+
+**G8 Release (Human Gate)**
+*   **Approvals Required:** Dual approval from **Tech Lead** and **Compliance Officer** is mandatory before merging to `release/4.2`.
+*   **Action:** Human merge only. No auto-deploy.
+
+**Rollback Plan**
+*   **Trigger:** Post-merge regression failure or dependent service breakage.
+*   **Action:** Revert the merge commit on `release/4.2`. Since no data structure changed, code revert is sufficient.
+*   **Verification:** Confirm dependent services resume normal operation with original terminology.
+
+**Risks & Mitigation**
+*   **CI Cost:** Minimized by ensuring local green before single CI run.
+*   **Flaky Test:** Pre-authorized manual retry protocol defined.
+*   **Breaking Change:** Aliasing in shared config mitigates risk to dependent microservices.
+
+**Next Step:** Awaiting owner confirmation on the aliasing strategy for the shared config file before commencing Lane 1.

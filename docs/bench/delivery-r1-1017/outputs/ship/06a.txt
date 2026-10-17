@@ -1,0 +1,54 @@
+### Delivery Plan: Bulk Status Update for Logistics Manifests
+
+**Objective:** Implement a CSV-driven bulk update tool for manifest statuses with strict validation, audit compliance, and performance constraints (<30s DB lock).
+
+#### 1. Lanes & Parallelism
+*Work is split into three independent lanes. Lanes 1 and 2 run in parallel; Lane 3 waits for both.*
+
+*   **Lane A: Core Logic & Validation (Builder)**
+    *   **Work:** Implement the CSV parser, row-level validation (reject 'Delivered'/'Archived'), and batched database update logic. Ensure the audit logger writes strictly in the legacy frozen format.
+    *   **Constraint:** Must implement chunked processing to guarantee database locks never exceed 30 seconds.
+    *   **Output:** Backend service module + Unit tests for validation rules and chunking logic.
+
+*   **Lane B: Admin Interface & UX (Builder)**
+    *   **Work:** Build the supervisor upload interface (CSV dropzone), status display grid, and download link for success/failure logs.
+    *   **Output:** Frontend components + Integration tests for file upload flow (mocked backend).
+
+*   **Lane C: Migration & Safety Gates (DB Specialist)**
+    *   **Work:** Draft the database migration script (if schema changes are needed for logging/indexing) and the rollback script. Prepare the "Dual Approval" request package for Jane Smith and the Lead DBA.
+    *   **Output:** Migration SQL, Rollback SQL, Approval Request Document.
+
+#### 2. Gates & Checks (Exact Revisions)
+*Costly CI ($45, 50m) runs ONLY once on the final integrated SHA after local verification.*
+
+*   **G2 (Plan Review):** Verify the chunking algorithm mathematically guarantees <30s lock time based on worst-case row throughput. Confirm legacy audit format compliance against the frozen library specs.
+*   **G4 (Implementation):**
+    *   Lane A & B commit to feature branches (`feat/bulk-update-core`, `feat/bulk-update-ui`).
+    *   **Local Check:** Run unit tests and linting locally. Do not push yet.
+*   **G5 (Verification - Local/Staging):**
+    *   **Critical:** Run integration tests locally using *mocked* carrier APIs to avoid staging timeouts.
+    *   **Staging Run:** Deploy to staging *only* to verify the UI and basic DB write. Acknowledge that full integration tests will fail due to missing mocks; do not treat these failures as blockers.
+    *   **Evidence:** Screenshots of successful bulk update on sanitized data; logs showing lock duration <30s.
+*   **G6 (Independent Review):**
+    *   **Code Review:** Senior Engineer (not the Builder) reviews logic, specifically the "Delivered/Archived" guardrails and audit formatting.
+    *   **Security Review:** Verify CSV injection protections and authorization checks (Supervisor role only).
+    *   **DB Review:** Jane Smith + Lead DBA review the migration script (Lane C output).
+
+#### 3. Integration & Landing
+*   **G7 (Merge Train):**
+    1.  Merge Lane A and Lane B into a temporary integration branch.
+    2.  Trigger the **single** costly CI pipeline ($45) on this exact SHA.
+    3.  Upon green CI, merge to `main` (or release branch).
+*   **Human Decisions Required:**
+    *   **DB Migration Approval:** Jane Smith and Lead DBA must explicitly approve the migration script before the merge trigger.
+    *   **Production Deploy:** Operations Lead must approve the deployment to production after verifying the rollback script is ready.
+*   **Rollback Plan:**
+    *   If data corruption occurs or lock times spike: Execute the pre-approved rollback script immediately to revert schema/data.
+    *   If audit logs break compliance: Disable the feature flag instantly; no data rollback needed if writes were blocked.
+
+#### 4. Risk Mitigation
+*   **CI Cost:** The $45/50m run is skipped for intermediate commits. Only the final integrated SHA triggers it.
+*   **Staging Flakiness:** Integration tests relying on carrier APIs are mocked locally; staging failures related to timeouts are ignored if local mocks pass.
+*   **Data Safety:** The "Delivered/Archived" check is enforced at the application layer *and* via a database constraint if possible, ensuring double protection.
+
+**Next Step:** Assign Builder to Lane A/B and DB Specialist to Lane C. Prepare the DB approval request document immediately.

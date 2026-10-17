@@ -1,0 +1,51 @@
+**Delivery Plan: Nexus Core Pipeline Migration**
+
+**Objective:** Migrate build/release to the new internal platform by next month with zero missed weekly releases.
+
+**Lanes & Parallelism**
+*   **Lane A (Builder): Pipeline Porting.** Rewrite build scripts to fit the new 30-minute timeout. Split the integration suite to run in parallel stages or optimize slow tests. Fix the legacy flaky network check logic here.
+    *   *Constraint:* Must not break `global-rules.json` backward compatibility.
+    *   *Parallel:* Can run alongside Lane B.
+*   **Lane B (Data): Historical Migration.** Migrate historical build data to the new platform. Validate compliance report accuracy against legacy snapshots.
+    *   *Serialization:* Must complete before Lane D (Training).
+*   **Lane C (QA): Equivalence Verification.** Run side-by-side builds (Legacy vs. New) on the exact same commit. Compare artifact checksums, SBOMs, and binary sizes. Verify the new integration suite passes reliably within the timeout.
+    *   *Trigger:* Requires a green build from Lane A.
+*   **Lane D (Docs/Enablement):** Update runbooks and train shift leads on new approval triggers.
+    *   *Serialization:* Depends on Lane B (data verified) and Lane C (pipeline verified).
+
+**Gates & Checks**
+*   **G1 (Spec):** Define the exact split of the integration suite to meet the 30-minute limit. Pin base SHA for the migration branch.
+*   **G2 (Plan):** Confirm the parallelization strategy for tests. Set a per-lane token budget for the new provider (cost target: <$5.40/build).
+*   **G4 (Implement):**
+    *   Lane A commits pipeline config changes.
+    *   Lane B commits migration scripts.
+    *   *Check:* Local dry-run of the new pipeline config (syntax only).
+*   **G5 (Verify):**
+    *   **Exact Revision:** Run both legacy and new pipelines on a specific test SHA.
+    *   **Success Criteria:** New pipeline < 30 mins; artifacts match checksums; compliance reports match; flaky network check passes 10/10 times.
+    *   **Failure:** Any timeout or checksum mismatch blocks G6.
+*   **G6 (Review):**
+    *   **Reviewer:** Security Lead (independent of Builder) + Senior Platform Engineer (not the author of Lane A).
+    *   **Focus:** Timeout handling, secret management in the new platform, and `global-rules.json` compatibility.
+*   **G7 (Integrate):** Merge pipeline config to the integration branch. Run one final end-to-end build on the merged SHA.
+
+**Review Strategy**
+*   **Builder (Lane A)** cannot approve their own pipeline changes.
+*   **Security Lead** must explicitly approve the new deployment workflow before G8.
+*   **QA (Lane C)** provides the "Equivalence Receipt" proving artifacts are identical.
+
+**Landing & Human Gates**
+*   **Merge Strategy:** Merge Lane A (pipeline) and Lane B (data) separately. Do not combine into one massive PR.
+*   **Human Approval (G8):**
+    *   **Required Approvers:** Jane Smith AND Security Lead.
+    *   **Action:** Flip the routing switch to the new provider.
+    *   **Timing:** Immediately following a successful G7 verification, prior to the Friday deployment window.
+*   **Rollback Plan:**
+    *   If the new build fails or times out during the first live run, instantly revert the routing switch to the legacy provider.
+    *   The legacy pipeline remains active and untouched until the first successful Friday release on the new platform.
+*   **Post-Landing:** Monitor the first three weekly releases. If any fail, trigger an immediate retro (G10) and revert.
+
+**Risks & Mitigation**
+*   **Timeout Risk:** If optimization fails, request a temporary timeout extension for the integration stage only, rather than slipping the release.
+*   **Data Integrity:** If compliance reports differ, halt Lane D and block G8 until Lane B reconciles the data.
+*   **Flaky Check:** If the network check still flakes in the new env after Lane A's fix, isolate it as a non-blocking warning rather than a hard failure, pending a deeper infrastructure fix.

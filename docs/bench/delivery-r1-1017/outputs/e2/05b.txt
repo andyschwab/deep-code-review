@@ -1,0 +1,54 @@
+### Delivery Plan: Inventory Schema Update
+
+**Strategy:** Zero-downtime schema evolution with synchronized cutover. The work is split into three serialized phases to prevent consumer breakage, culminating in a coordinated "flip" behind a feature flag.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Schema & Contract) – Builder:**
+    *   Update the shared protobuf definition to include `warehouse_zone` as an optional string (default empty) to maintain backward compatibility initially.
+    *   Generate provider service stubs.
+    *   *Output:* PR #101 (Provider), PR #C1 (ShopFast), PR #C2 (MegaMart).
+*   **Lane B (Implementation) – Builder:**
+    *   Implement logic to populate `warehouse_zone` in the provider service.
+    *   Ensure the field is omitted or empty if data is missing (graceful degradation).
+    *   *Dependency:* Must wait for Lane A merge.
+*   **Lane C (Consumer Adaptation) – External Coordination:**
+    *   ShopFast/MegaMart teams update parsers to handle the new optional field.
+    *   *Dependency:* Requires PR #C1 and #C2 merged to their staging branches.
+*   **Lane D (Cutover Script) – Builder:**
+    *   Create a database migration script that makes the column non-nullable *only* after data backfill is confirmed.
+    *   Create a runtime flag `inventory.include_warehouse_zone` (default OFF).
+
+**Serialization:** Lane A → Lane B → Lane C (Parallel External) → Lane D. Lane C runs in parallel with internal testing but must complete before the final flip.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Confirm with Jane Smith that "optional first, required later" satisfies the Monday deadline without crashing legacy parsers.
+*   **G3 Design:** ADR confirming the two-step rollout (Optional → Required) to avoid the 4-hour rollback penalty.
+*   **G4 Implement:**
+    *   **Exact Revision:** All lanes branch from `main@HEAD` (SHA: `abc123`).
+    *   **Check:** Local protobuf compilation must succeed before CI.
+*   **G5 Verify:**
+    *   **Timing:** Run full CI ($45/run) only on Wednesday morning to avoid Tuesday DB locks.
+    *   **Scope:** Integration test verifying the field presence when the flag is ON, and absence/safety when OFF.
+    *   **External:** ShopFast/MegaMart must sign off on their staging tests against our updated schema.
+*   **G6 Review:**
+    *   **Security Officer:** Reviews the migration script (non-nullable transition) and data backfill logic.
+    *   **Logistics Lead:** Reviews the cutover timing plan.
+    *   **Independence:** Builder of Lane B cannot approve Lane D.
+
+#### 3. Landing & Human Gates
+*   **Merge Train:**
+    1.  Merge Lane A (Proto) to `main`. Triggers CI.
+    2.  Merge Lane B (Logic) to `main` behind flag (OFF). Triggers CI.
+    3.  Merge Lane D (Migration prep) to `main`.
+*   **Human Decision (The Gate):**
+    *   **Trigger:** Once Lane C (External) confirms parser readiness.
+    *   **Action:** Contact Jane Smith to lock the cutover time (e.g., Sunday 02:00 UTC).
+    *   **Approval:** Logistics Lead + Security Officer must both approve the PR that flips the flag to ON and executes the migration.
+*   **Deployment:**
+    *   Deploy code with flag OFF.
+    *   At cutover time: Flip flag ON → Run migration → Verify non-nullable constraint.
+*   **Rollback Plan:**
+    *   **Code:** Revert flag to OFF immediately (stops writing to new column).
+    *   **Data:** Since reverting the column is impossible without a 4-hour migration, the rollback is strictly operational: keep the flag OFF and instruct partners to ignore the field until the next window. No data repair is attempted during the incident window.
+
+**Risk Mitigation:** If Tuesday staging is required for emergency fixes, use a local Dockerized DB simulation instead of the shared staging environment to bypass locks.

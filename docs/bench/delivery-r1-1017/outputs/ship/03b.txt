@@ -1,0 +1,63 @@
+**Delivery Plan: Enforce Tenant Isolation in Shared Query Layer**
+
+**G0/G1 Intake & Spec**
+*   **Goal:** Mandatory platform-level tenant isolation enforcement before DB connection.
+*   **Constraints:** Transparent to 12 product lines; immutable prod config (no rollback except cluster restore); dual approval (Platform Lead + CSO) required for deploy.
+*   **Non-Goals:** Modifying individual service code; changing existing valid queries.
+*   **Appetite:** 3 days max.
+*   **Spec:** Modify central query interceptor to reject any request lacking valid `organization_id` context. Logic must execute pre-connection. Acceptance: Zero cross-tenant leaks in simulation; zero breaking changes to valid traffic.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A (Security Design & Logic):** Define the exact rejection criteria and error payload. *Writer: Security Hat.* Must complete before Lane B.
+*   **Lane B (Implementation):** Modify `gateway.rules` and interceptor code. *Writer: Builder Hat.* Requires exclusive lock on `gateway.rules` (schedule outside business hours if needed).
+*   **Lane C (Test Harness Optimization):** Create a lightweight unit/integration subset that simulates tenant contexts without spinning up full DB containers for every case. *Writer: QA Hat.* Runs parallel to Lane A.
+*   **Lane D (Compliance Evidence):** Draft the audit trail showing enforcement logic. *Writer: Product Analyst Hat.* Runs parallel to Lane B.
+
+**Serialization:** Lane A → Lane B. Lane C runs parallel to A. Lane D runs parallel to B. Lane B requires serialized access to `gateway.rules`.
+
+**G3/G4 Design & Implement**
+*   **Base SHA:** Pin current `main` HEAD before any changes.
+*   **Worktree:** Isolated worktree for Lane B.
+*   **Implementation:** Inject check in interceptor. If `org_id` missing/invalid, throw `TenantIsolationError` before connection pool request.
+*   **Tests:** Lane C produces a targeted test suite covering: missing ID, invalid ID, valid ID, and high-concurrency mixed tenants. Avoid full 45-min CI suite for iterative dev; reserve for final candidate.
+
+**G5 Verify (Exact Revision)**
+*   **Local Stack:** Builder brings up local gateway; QA verifies rejection logic.
+*   **CI Strategy:** Run optimized Lane C suite first. Only one full 45-min integration run per candidate SHA to save credits.
+*   **Flake Mitigation:** If network latency suite fails on Friday, triage immediately against `references/red-gate-triage.md`. If known flake, document and proceed with manual verification of network logs; do not block merge on known false positive if other gates are green.
+*   **UI/Behavior:** Headless browser not required; this is backend logic. Evidence: Log receipts showing blocked queries and allowed queries.
+
+**G6 Review (Independent)**
+*   **Security Review:** Independent Security Hat (not the Builder) reviews the interceptor logic and `gateway.rules` diff. Focus: bypass possibilities.
+*   **Code Review:** Senior Platform Engineer (not Builder) reviews implementation.
+*   **Compliance Check:** Product Analyst verifies audit draft against findings.
+*   **Verdict:** Blocker/Critical findings stop G7. High findings require CSO acceptance.
+
+**G7 Integrate**
+*   **Merge Train:** Single PR to `main`.
+*   **Integration Receipt:** Re-run affected subset of integration tests on the *merged* SHA (not just pre-merge) to confirm no collision with concurrent merges.
+*   **Collision Guard:** Ensure no other PR modifies `gateway.rules` simultaneously.
+
+**G8 Release (Human Gate)**
+*   **Approval:** Explicit written approval required from **both** Platform Lead and CSO.
+*   **Action:** Deploy to production.
+*   **Rollback:** **None.** Configuration is immutable. Failure requires full cluster restoration. Verification in G9 is critical.
+
+**G9 Production Verify**
+*   **Monitor:** Real-time logs for `TenantIsolationError` spikes (indicates legitimate traffic breakage) or absence of errors where expected.
+*   **SLO:** Zero data leakage events.
+*   **Breach:** Immediate cluster restoration plan ready (offline).
+
+**G10 Learn**
+*   **Retro:** Analyze how the gap existed; add regression test to permanent suite.
+*   **Artifact:** Update `gateway.rules` ownership documentation.
+
+**Risks & Mitigations**
+*   **Risk:** Breaking valid traffic due to edge case. **Mitigation:** Shadow mode (log-only) if architecture permits before hard fail; otherwise, extreme scrutiny in G5/G6.
+*   **Risk:** 45-min CI delay. **Mitigation:** Strict gating; only one full run per candidate.
+*   **Risk:** Friday flake. **Mitigation:** Pre-emptive triage protocol.
+
+**Human Decisions Required**
+1.  Approval of Spec (G1).
+2.  Acceptance of any High severity findings (G6).
+3.  Dual approval for Deploy (G8).

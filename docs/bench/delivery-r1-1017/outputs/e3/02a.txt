@@ -1,0 +1,42 @@
+### Delivery Plan: Seasonal Trend Filter
+
+**1. Lanes & Parallelism**
+*   **Lane A (Product & Spec):** Define exact date-mapping logic for "corresponding dates" (e.g., handling leap years) and persistence schema. *Serialized:* Must complete before Lane B starts.
+*   **Lane B (Implementation):** Develop the toggle, overlay logic, and local-storage persistence in a dedicated worktree. Use the frozen visualization library v2.4 without modification. *Parallel:* None; depends on Lane A.
+*   **Lane C (Accessibility & UX):** Independent review of color contrast for the overlay, keyboard navigation for the toggle, and screen reader announcements. *Parallel:* Can run once Lane B produces a draft PR.
+*   **Lane D (Visual Verification):** Execute manual browser session on a low-resolution viewport. Record the required video evidence. *Serialized:* Must run on the exact SHA from Lane B after CI green.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Product Lead approves the date-mapping spec and persistence key name.
+*   **G4 (Build):** Linter and type-check only (skip full CI suite to save cost/time). Unit tests for date logic only; no UI unit tests.
+*   **G5 (Verify):**
+    *   **Stack:** Bring up local dev server.
+    *   **Action:** Toggle "Seasonal View," refresh page, verify overlay persists.
+    *   **Evidence:** Lane D produces a video file showing the overlay on a simulated low-res screen.
+    *   **Constraint:** Ignore flaky Linux screenshot checks; rely on the manual video receipt.
+*   **G6 (Review):**
+    *   **Accessibility Champion:** Must approve WCAG compliance.
+    *   **Product Lead:** Must approve visual correctness against the spec.
+    *   **Security:** Quick scan for XSS in local storage handling (lightweight, no full suite).
+*   **Exact Revision:** All reviews and the video recording must target the immutable SHA of the draft PR, not the builder's local branch head.
+
+**3. Review Strategy**
+*   **Independence:** The Builder (Lane B) cannot approve their own code. The Accessibility Champion and Product Lead act as independent verifiers.
+*   **Scope:** Review is limited to the dashboard module and local storage interactions. No changes to the shared visualization library are permitted.
+*   **Cost Control:** Reviews focus on the diff; no re-running of the $45/55min full CI pipeline unless a critical logic error is found.
+
+**4. Landing & Human Decisions**
+*   **Merge Train:** Once G6 approvals are recorded, the Conductor integrates the lane into the staging branch.
+*   **Staging Deploy:** Automated trigger runs upon merge to staging.
+*   **Human Gate (Production):**
+    *   **Decision Required:** VP of Engineering must manually sign off during business hours.
+    *   **Input for VP:** Provide the G5 video evidence, G6 approval links, and a rollback plan.
+    *   **Timing:** Schedule the request for sign-off strictly within business hours.
+*   **Rollback Plan:** If the overlay causes rendering issues in production, revert the merge commit immediately. The feature flag (if implemented) or the config toggle can disable the view without a full redeploy if architecture permits; otherwise, a git revert is the primary path.
+
+**5. Risk Mitigation**
+*   **Flaky Tests:** Explicitly mark screenshot comparisons as "non-blocking" in the merge request description, citing the known Linux runner issue and substituting the manual video proof.
+*   **Library Freeze:** Strictly forbid any attempt to patch the visualization library; isolate the overlay logic in the dashboard wrapper.
+*   **Persistence:** Verify that local storage keys are namespaced to prevent collision with other dashboard settings.
+
+This plan isolates the high-risk visual change, respects the library freeze, substitutes flaky automation with mandatory manual video evidence, and adheres to the strict human approval chain for production deployment.

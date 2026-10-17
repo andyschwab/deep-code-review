@@ -1,0 +1,62 @@
+**Delivery Plan: Parallel Run Cron-to-Queue Migration**
+
+**Strategy**
+Execute a shadow-mode parallel run with strict serialization of configuration changes and independent verification of financial integrity. The migration is gated by human approval; no automated cutover occurs.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Shadow Ledger & Consumer Implementation (Builder)**
+    *   **Work:** Implement queue consumers writing exclusively to the new `shadow_ledger` table. Ensure duplicate detection keys are active.
+    *   **Parallelism:** Can run parallel to Lane B.
+    *   **Constraint:** Must not touch `provider-rates` config or primary ledger tables.
+
+2.  **Lane B: Orchestration & Toggle Logic (Builder)**
+    *   **Work:** Create the "kill switch" toggle (config flag) to instantly stop queue consumers if discrepancy > 0.5%. Implement the 7-day timer logic starting next Monday.
+    *   **Serialization:** Must merge *after* Lane A is verified, as it depends on the consumer's existence.
+    *   **Constraint:** Logic must respect the `provider-rates` lock window (no writes during business hours).
+
+3.  **Lane C: Reconciliation & Monitoring (QA)**
+    *   **Work:** Build the comparison script to diff `primary_ledger` (cron) vs. `shadow_ledger` (queue) in real-time. Define the 0.5% discrepancy threshold alert.
+    *   **Parallelism:** Runs parallel to Lane A, merges before Lane B.
+
+**Gates & Checks**
+
+*   **G2 Plan (Now):** Validate that the 7-day window and kill-switch logic are explicitly defined in the spec. Confirm token/cost budget for the lane (avoiding heavy CI).
+*   **G4 Implement (Local):**
+    *   **Unit Tests:** Run locally for duplicate key logic and toggle behavior.
+    *   **Cost Check:** Ensure no new heavy integration tests are added to the main CI pipeline to avoid the 18-minute timeout and $45/min cost.
+*   **G5 Verify (Staging):**
+    *   **Revision:** Exact SHA of merged lanes.
+    *   **Action:** Deploy to staging. Simulate the 7-day window with compressed time.
+    *   **Caveat:** Ignore load-test false positives (known staging middleware gap); rely on unit tests for rate-limiting logic.
+    *   **Critical Check:** Verify the "kill switch" actually stops consumers without crashing the app.
+*   **G6 Review (Independent):**
+    *   **Reviewer:** Senior Engineer (not the Builder).
+    *   **Focus:** Security of the shadow ledger write path and correctness of the duplicate detection keys.
+    *   **Compliance:** Verify the code *cannot* disable cron jobs automatically.
+
+**Landing & Human Gates**
+
+*   **Integration (G7):** Merge lanes into a release branch. No deployment to production yet.
+*   **Production Deploy (G8 - Human Gated):**
+    *   **Approvers:** Jane Smith AND Compliance Officer (via internal portal).
+    *   **Action:** Deploy the release containing the queue consumers (disabled by default) and the monitoring tools.
+    *   **Manual Step:** An operator must manually enable the queue consumers next Monday to start the 7-day window.
+*   **The 7-Day Run:**
+    *   System runs in parallel. Monitoring tracks discrepancies.
+    *   **Emergency:** If discrepancy > 0.5%, the operator flips the kill switch (immediate effect).
+*   **Cutover (Future Gate):**
+    *   **Condition:** Day 8 reconciliation report shows < 0.5% discrepancy.
+    *   **Action:** Requester provides explicit written approval.
+    *   **Execution:** New ticket to disable cron jobs and switch primary writes to the queue. This is a separate, future deployment.
+
+**Rollback**
+*   **Scenario:** Queue consumers cause errors or discrepancies exceed threshold during the run.
+*   **Action:** Flip the kill switch (instant).
+*   **Data Integrity:** Since the queue writes only to the `shadow_ledger`, no financial data is corrupted. No database restore is needed unless the shadow write logic itself corrupts the DB schema (unlikely). The cron jobs continue updating the primary ledger uninterrupted.
+*   **Constraint:** If the shadow ledger write causes DB locks affecting the primary, revert the deployment immediately. Note: Reverting after successful shadow writes requires a manual DB cleanup of the shadow table, but does not affect primary financial records.
+
+**Risk Mitigation**
+*   **Double Payment:** Prevented by active duplicate detection keys and the shadow-ledger isolation.
+*   **Config Lock:** Automated scripts will skip `provider-rates` updates during business hours; any required changes will be queued for off-hours execution.
+*   **CI Cost:** Heavy integration tests are excluded from the main branch; verification relies on local runs and targeted staging checks.

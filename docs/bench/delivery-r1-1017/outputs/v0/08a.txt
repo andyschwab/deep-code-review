@@ -1,0 +1,33 @@
+### Delivery Plan: PolicyViewer Keyboard Trap Fix
+
+**Objective:** Refactor `PolicyViewer` focus management to allow Escape key exit and prevent keyboard traps, ensuring compliance without altering visuals or breaking the shared `focus-lock` utility.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Analysis & Spec):** Isolate the exact focus-trap logic in `PolicyViewer`. Define the "Done" state: Focus returns to the trigger element on close; Escape key closes the modal; Tab cycle is contained only while the modal is open. *Constraint:* Do not modify `focus-lock` signature; wrap or locally override behavior if necessary.
+*   **Lane B (Implementation):** Execute the refactor in a dedicated worktree. Implement the fix using the spec from Lane A. Add unit tests specifically for focus return and Escape key events.
+*   **Lane C (Manual Verification Prep):** Prepare the staging environment and the standard assistive technology suite. Document the exact manual test steps for the 40+ screens if they vary, or confirm the shared component fix covers all instances.
+
+*Parallelism:* Lane A and Lane C run immediately. Lane B starts only after Lane A confirms the technical approach preserves the `focus-lock` signature. Lane C runs independently but must be ready before Lane B completes.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Approval):** Product Owner confirms the acceptance criteria (Escape works, focus returns, no visual changes).
+*   **G4 (Local Build & Unit Test):** Run locally before any push. Must pass lint, type check, and new unit tests. **Hard Gate:** CI is skipped until local verification is confirmed due to cost/flakiness.
+*   **G5 (Manual Accessibility Verification):** Deploy to staging (requires human approval). Tester executes manual checks with the assistive technology suite on the `PolicyViewer` across representative screens. **Hard Gate:** CI automated a11y checks are ignored for pass/fail decision due to known false negatives; manual receipt is the source of truth.
+*   **G6 (Independent Review):** Code review by a senior engineer *not* involved in Lane B. Focus: regression risk to the 12 other components using `focus-lock`, and correctness of the focus trap removal.
+
+#### 3. Review Strategy
+*   **Code Review:** Independent senior engineer verifies the diff against the base SHA. They must explicitly confirm that `focus-lock` exports remain unchanged and that no other components are impacted.
+*   **QA Review:** Dedicated QA analyst (or the Product Owner if no dedicated QA) performs the G5 manual verification on staging. They sign off on the "escape key" and "focus return" behaviors.
+*   **Security/Compliance:** The initial audit flag serves as the driver; the Security Lead's approval is required at the deploy gate to confirm the regulatory risk is mitigated.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:** Once G5 (Manual QA) and G6 (Code Review) are green, the Conductor prepares a merge request to the integration branch.
+*   **Human Approval Required:**
+    1.  **Staging Deploy:** Product Owner must approve promoting the build to staging for G5 testing.
+    2.  **Production Deploy:** Security Lead and Product Owner must both explicitly approve the production release, citing the passed manual accessibility receipt.
+*   **Rollback Plan:** If the fix causes regression in any of the 12 other components or fails on a specific screen type post-deploy:
+    1.  Immediate revert of the merge commit.
+    2.  Re-deploy the previous stable SHA.
+    3.  Post-mortem to analyze the gap in local testing coverage.
+
+**Timeline:** Complete Lanes A/B/C and G5 verification 5 days before the month-end deadline to allow buffer for rollback/re-fix if manual testing reveals edge cases.

@@ -1,0 +1,57 @@
+**Delivery Plan: Inventory Sync Conflict Resolution**
+
+**Strategy**
+Implement a "Merge Prompt" in the Stock Audit module to resolve concurrent edits between field agents (offline) and dispatchers (cloud). The solution preserves both data sources by forcing a user decision on discrepancies before finalizing sync.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Core Logic (Serialized First)**
+    *   **Work:** Modify `conflict_handler.py` to detect version mismatches and return a structured diff object instead of overwriting.
+    *   **Constraint:** Must maintain existing function signatures to avoid breaking the Desktop Billing app. No sign-off from Marcus Thorne required if signatures remain unchanged.
+    *   **Dependency:** None. Must complete before Lane B.
+
+2.  **Lane B: UI Implementation (Parallel to Lane C)**
+    *   **Work:** Build the "Stock Audit" merge prompt. Display "Device Value" vs. "Cloud Value" with clear visual distinction. Enable agent selection or manual override.
+    *   **Dependency:** Requires the diff object structure defined in Lane A.
+
+3.  **Lane C: Integration & Regression (Parallel to Lane B)**
+    *   **Work:** Update sync tests to simulate concurrent edits. Specifically address the `nightly-reconcile` false positive noise by refining assertion logic for large datasets.
+    *   **Dependency:** Requires Lane A's logic.
+
+**Gates & Checks**
+
+*   **G1 Spec (Local):** Define the diff object schema and UI wireframe. Confirm with product owner that "manual override" satisfies Q3 compliance.
+*   **G2 Plan (Local):** Finalize work graph. Confirm `conflict_handler.py` signature stability.
+*   **G3 Design (Local):** ADR documenting the merge strategy and rollback procedure (4-hour DB restore).
+*   **G4 Implement (Worktrees):**
+    *   Lane A writes to isolated worktree `wt-logic`.
+    *   Lane B writes to isolated worktree `wt-ui`.
+    *   Lane C writes to isolated worktree `wt-test`.
+    *   **Check:** Local unit tests only. No CI yet.
+*   **G5 Verify (Exact Revision):**
+    *   Merge lanes into a temporary integration branch `tmp-sync-review`.
+    *   **Run:** One single CI run ($45) on this exact SHA.
+    *   **Criteria:** All emulation tests green. No flaky failures. UI journey verified: Agent sees prompt → Selects value → Sync completes → Data persists correctly.
+*   **G6 Review (Independent):**
+    *   **Code:** Peer review (not the implementer). Focus on `conflict_handler.py` safety.
+    *   **Security:** Verify no PII leakage in conflict logs.
+    *   **Compliance:** Confirm audit trail records who resolved the conflict and when.
+
+**Landing & Rollback**
+
+*   **Merge Strategy:**
+    *   Due to Friday change freeze: Target merge window is Monday AM.
+    *   Use a merge train if other PRs exist; otherwise, fast-forward to `main`.
+*   **Human Gates (Owner Approval Required):**
+    *   **Approval to Merge:** Explicit go-ahead before merging to `main` (triggers irreversible deploy).
+    *   **Billing Sign-off:** Only required if Lane A accidentally changes `conflict_handler.py` signatures (mitigated by design).
+*   **Rollback Plan:**
+    *   If data corruption detected post-deploy: Trigger full database rollback (4-hour window).
+    *   Communication: Notify NorthStar ops immediately upon rollback initiation.
+
+**Risk Mitigation**
+*   **Budget:** Flaky tests fixed locally before the single CI run to prevent wasted $45 cycles.
+*   **Data Safety:** The merge prompt prevents automatic overwrites, ensuring no data loss during the transition.
+*   **Compliance:** Every resolution is logged with timestamp and agent ID for the Q3 audit.
+
+**Next Step:** Await approval to proceed with G1 Spec definition.

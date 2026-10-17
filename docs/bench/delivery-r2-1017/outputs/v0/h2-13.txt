@@ -1,0 +1,54 @@
+### Delivery Plan: Legacy Billing Coverage Boost
+
+**Objective:** Raise automated test coverage for the legacy billing module to ≥80%, focusing on currency conversion and historical tax rates, without refactoring logic or breaking dependent services.
+
+#### 1. Lanes & Parallelism
+*   **Lane A: Discovery & Isolation (Serial, First)**
+    *   **Actor:** Product Analyst / Builder
+    *   **Work:** Map the "black box" inputs/outputs. Identify the exact file paths for the billing module and the shared currency utility. Define the "do not touch" boundary for the utility signature to protect the nightly sync.
+    *   **Output:** A testable spec listing specific edge cases (currency rounding, historical tax date boundaries) and a pinned base SHA.
+*   **Lane B: Test Implementation (Parallelizable sub-lanes)**
+    *   **Actor:** Builder (distinct from QA)
+    *   **Work:** Write unit tests in a dedicated worktree.
+        *   *Sub-lane B1:* Currency conversion edge cases.
+        *   *Sub-lane B2:* Historical tax rate scenarios.
+    *   **Constraint:** Tests must be lean to fit the 45-minute CI window. No changes to production logic or utility signatures.
+*   **Lane C: Security & Compliance Review (Serial, Post-Implementation)**
+    *   **Actor:** Security Lead
+    *   **Work:** Verify no sensitive data leakage in test logs and confirm no unauthorized changes to the shared utility file.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Owner approves the edge case list and the "no refactor" constraint.
+*   **G2 (Plan):** Confirm worktree isolation. Verify no collision with the nightly sync job schedule.
+*   **G4 (Implement):** Builder commits tests. **Check:** Local run confirms coverage hits ≥80% on the target module only.
+*   **G5 (Verify):** Run the lean test suite on the **exact commit SHA**.
+    *   **Condition:** Must pass without flaky network dependencies (mock external calls).
+    *   **Metric:** Coverage report generated locally; CI dry-run simulated to ensure <45m duration.
+*   **G6 (Review):**
+    *   **QA Review:** Independent verification that tests actually assert values, not just run.
+    *   **Security Review:** Mandatory sign-off on the diff to ensure no side effects on the shared utility.
+
+#### 3. Review Strategy
+*   **Independence:** The Builder who writes the tests cannot approve the merge.
+*   **Reviewers:**
+    1.  **Senior Engineer (QA Hat):** Validates test quality and coverage metrics.
+    2.  **Security Lead:** Validates no regression in shared utilities.
+    3.  **Finance Director:** Validates business logic correctness of selected edge cases (approval only, not code review).
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Builder pushes to a feature branch.
+    2.  Once G5 (Green CI) and G6 (Reviews) are complete, the Conductor requests merge approval.
+*   **Human Gates (Hard Stop):**
+    *   **Dual Approval Required:** Before merging to `main`, explicit written approval from both the **Security Lead** and **Finance Director** is mandatory.
+    *   **Trigger:** The merge itself is the gated action.
+*   **Rollback Plan:**
+    *   If production errors occur post-merge, revert the specific commit immediately. Since logic was not refactored, the revert should be safe and instantaneous.
+    *   **Verification:** Monitor the next nightly data sync job to ensure the shared utility remains intact.
+
+**Risk Mitigation:**
+*   **Flaky Tests:** All external network calls in tests must be mocked to prevent random build failures.
+*   **CI Timeout:** If the full suite threatens the 45-minute limit, the Conductor will split the test run, merging only the billing-specific suite for this PR.
+*   **Shared Utility:** A pre-merge diff check will explicitly fail if the shared currency utility file contains any modifications.
+
+**Next Step:** Awaiting owner confirmation on the specific historical tax years and currency pairs to prioritize for the G1 Spec.

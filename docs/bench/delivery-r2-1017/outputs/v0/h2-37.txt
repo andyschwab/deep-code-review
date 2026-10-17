@@ -1,0 +1,62 @@
+**Delivery Plan: Hybrid Billing Metering (G0–G8)**
+
+**Scope & Constraints**
+*   **Goal:** Implement usage meters (API calls, Storage GB) for 'Pro' tier; calculate overage; display real-time dashboard.
+*   **Critical Constraints:** Database schema immutable (no new columns); nightly job (4h) must not run in dev; staging has flaky timeouts; prod deploy requires Finance + Architect approval.
+*   **Non-Goal:** Modifying historical data; changing tenant schema.
+
+**Lane Decomposition**
+
+1.  **Lane A: Billing Engine Logic (Backend)**
+    *   **Actor:** Builder (Backend).
+    *   **Work:** Implement in-memory/external-store metering logic within the legacy monolith to track API calls/GB without schema changes. Integrate overage calculation into the billing cycle trigger.
+    *   **Parallelism:** Runs parallel to Lane B.
+    *   **Serialization:** Must complete before Lane C (Integration).
+    *   **Guard:** Explicitly disable/short-circuit the 4-hour nightly reconciliation job in the dev/test environment configuration.
+
+2.  **Lane B: Dashboard Counters (Frontend)**
+    *   **Actor:** Builder (Frontend).
+    *   **Work:** Create real-time counter components in the customer portal microservice. Mock data initially, then connect to Lane A's API.
+    *   **Parallelism:** Runs parallel to Lane A.
+    *   **Serialization:** Integration testing waits for Lane A's API contract.
+
+3.  **Lane C: Migration & Safety Verification**
+    *   **Actor:** QA / Security (Independent).
+    *   **Work:** Verify historical data integrity (read-only checks). Stress test staging to distinguish logic errors from flaky network timeouts. Validate that no schema migration scripts are present.
+    *   **Trigger:** Starts after Lane A and B merge to integration branch.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Define exact API contract for usage data. Pin base SHA for both monolith and microservice.
+*   **G3 (Design):** ADR confirming "no schema change" approach and data store for meters (e.g., Redis/Counter table vs. existing audit logs).
+*   **G4 (Implement):**
+    *   Unit tests for overage math (100% coverage).
+    *   Frontend unit tests for counter rendering.
+    *   **Check:** CI must assert the nightly job is skipped in non-prod environments.
+*   **G5 (Verify):**
+    *   **Revision:** Exact merged SHA of A+B.
+    *   **Action:** Run integration suite. Retry flaky staging tests 3x before marking fail.
+    *   **Evidence:** Screenshots of dashboard with simulated high-load data; logs showing overage calculation; proof of zero writes to tenant schema.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer (Independent of Builder).
+    *   **Focus:** Race conditions in counting, cost of real-time queries, security of usage data exposure.
+    *   **Security:** Verify no PII leakage in meter logs.
+
+**Landing & Release (G7–G8)**
+
+*   **G7 (Integrate):** Merge Lane A and B into a release candidate branch. Run a *dry-run* of the billing cycle on a staging tenant to verify final invoice accuracy.
+*   **Human Gate (G8):**
+    *   **Required Approvals:** Written approval from Finance Director (revenue impact) and Lead Architect (system stability).
+    *   **Action:** Do not auto-deploy. Prepare deployment manifest with rollback procedure.
+*   **Rollback Plan:**
+    *   Feature flag to revert 'Pro' tier to flat-fee logic instantly.
+    *   Revert commit to disable metering ingestion.
+    *   Dashboard hides counters if backend signal is absent.
+
+**Failure Modes**
+*   **Staging Timeouts:** If tests fail due to network, isolate via local mock verification before re-running in staging.
+*   **Schema Drift:** If any migration file is detected, block G6 immediately.
+*   **Cost Overrun:** If metering logic spikes compute, halt G5 and optimize before proceeding.
+
+**Output Contract**
+Final delivery includes: Patch sets for monolith and portal, G5 test receipts (green at exact SHA), G6 review approval, and the signed G8 release authorization.

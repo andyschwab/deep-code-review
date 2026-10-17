@@ -1,0 +1,33 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Ingestion
+
+**1. Lanes & Parallelism**
+*   **Lane A (Platform Reliability):** Draft the Terraform/CloudFormation change for the `ClaimsArchive` bucket policy. Isolate the change to the `pending-review` prefix logic only.
+*   **Lane B (Security):** Define the exact Vendor IAM ARN and validate the encryption requirement (SSE-S3 or SSE-KMS) against the vendor's contract.
+*   **Lane C (Audit/Compliance):** Prepare the manual verification script to check `global-audit-log` integrity on the Billing cluster post-deployment.
+*   **Parallel Execution:** Lanes A, B, and C run simultaneously. Lane A cannot merge until Lane B provides the verified ARN. Lane C stands by for the deployment window.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Commit):** Local linting of the infrastructure code. Verify no changes touch the `global-audit-log` file other than the specific S3 policy resource.
+*   **Gate 2 (Peer Review):** Pull Request requires approval from **Jane Smith** AND the **Security Lead**. The PR description must explicitly state: "No changes to Billing logging configuration."
+*   **Gate 3 (CI Simulation):** Trigger the $45/22-min environment simulation **once** on the exact merge commit candidate.
+    *   *Constraint:* Do not re-run CI unless Gate 2 rejects the PR.
+    *   *Validation:* Confirm the simulation shows the vendor ARN gaining `PutObject` on `pending-review/*` and zero permissions elsewhere.
+*   **Gate 4 (Drift Check):** Since automated drift detection is flaky on Tuesdays, if deployment occurs on a Tuesday, skip the automated check and proceed directly to Manual Verification (Lane C).
+
+**3. Review Strategy**
+*   **Code Review:** Conducted by Jane Smith (Platform) and Security Lead (Access Scope). They review independently; both must approve.
+*   **Logic Review:** The implementer must attach a diff summary showing lines changed in the S3 policy vs. lines touched in `global-audit-log`. If `global-audit-log` shows modifications outside comments, the review fails immediately.
+*   **Simulation Review:** The Security Lead reviews the CI simulation output logs to confirm the "Access Denied" error is resolved for the vendor identity in the sandbox.
+
+**4. Landing & Rollback**
+*   **Deployment Window:** Scheduled outside the nightly bulk upload window to avoid race conditions during testing.
+*   **Merge Strategy:** Squash and merge to `main` only after Gates 2 and 3 pass.
+*   **Post-Deploy Verification:**
+    1.  Vendor performs a single test upload to `pending-review`.
+    2.  Lane C runs the manual script to verify Billing system logs are intact.
+*   **Rollback Plan (5-Minute SLA):**
+    *   *Trigger:* Vendor test upload fails OR internal monitoring flags unexpected traffic OR Billing logs show interruption.
+    *   *Action:* Execute a `git revert` of the merge commit immediately.
+    *   *Pipeline:* Bypass the 22-minute simulation for the revert commit (emergency path pre-approved by Jane Smith).
+    *   *Verification:* Confirm policy reversion via AWS CLI `get-bucket-policy` within 2 minutes of the revert merge.
+*   **Human Decision Point:** If the vendor's test upload succeeds but Billing logs show anomalies, the Security Lead must decide whether to roll back immediately or investigate while the vendor pauses uploads. Default action is rollback.

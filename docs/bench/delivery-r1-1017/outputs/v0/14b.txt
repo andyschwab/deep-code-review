@@ -1,0 +1,46 @@
+### Delivery Plan: Tiered Archive and Purge
+
+**Strategy:** Zero-downtime migration via a new, isolated scheduled job. The existing `global-retention-rules.yaml` remains untouched; retention logic lives in the new job's configuration.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Builder):** Implement the archival/purge service in `helios-ingest/jobs/tiered-archive`.
+    *   *Scope:* Idempotent logic (cursor-based pagination), checksum manifest generation (SHA-256), and failure recovery state.
+    *   *Constraint:* Must not modify `global-retention-rules.yaml`.
+*   **Lane B (QA - Parallel):** Provision a mirrored staging dataset with records spanning >2 years. Prepare scripts to verify data integrity and manifest accuracy post-run.
+*   **Lane C (Security - Parallel):** Review the deletion logic and manifest storage for compliance. Verify the "irreversible" risk mitigation (e.g., dry-run modes, blast radius limits).
+*   **Serialization Point:** Lane A must complete unit tests before Lane B begins integration testing. Lane C must approve before G8 (Production).
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Define acceptance: "90d+ moved, 2y+ deleted with manifest," "Zero duplicates on retry," "No downtime." Pin base SHA.
+*   **G3 (Design):** ADR confirming the job uses a separate config file to bypass the Compliance lock on `global-retention-rules.yaml`.
+*   **G4 (Implement):** Code + Unit Tests. Builder commits to a dedicated worktree.
+*   **G5 (Verify):**
+    *   Run against Lane B's staging data.
+    *   **Critical:** Verify checksum manifest matches deleted rows exactly.
+    *   **Flake Handling:** If the network latency check fails, re-run *only* that check. Do not re-run the full 45-minute suite unless other failures exist.
+    *   **Exact Revision:** All tests run on the exact commit SHA from G4.
+*   **G6 (Review):**
+    *   *Code:* Independent senior engineer (not the Builder).
+    *   *Security:* Security Lead (mandatory for deletion logic).
+    *   *Deep Code Review:* Full scan focused on data loss risks and idempotency.
+
+#### 3. Human Gates & Approval
+*   **G8 (Release):** **STOP.** Requires explicit written approval from:
+    1.  Security Lead
+    2.  VP of Engineering
+    *   *Evidence:* Provide the G5 test receipts, the checksum manifest sample, and the rollback plan.
+*   **Deployment:** Deploy as a disabled cron job first. Enable the 03:00 UTC trigger only after a successful manual dry-run in production (read-only mode).
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** Merge to `main` via a pull request after G6 approval.
+*   **Rollback Plan:**
+    *   *Before Deletion:* Simply disable the cron job. No data is lost.
+    *   *After Deletion:* **No technical rollback possible** (data is irretrievable). Recovery relies entirely on the generated checksum manifests for compliance auditing.
+    *   *Mitigation:* The initial production run will process only a 1-day window in "dry-run" mode to validate behavior before enabling the full 90d/2y logic.
+
+#### 5. Risk Controls
+*   **Partial Failure:** The job will track progress in a durable state table. If it crashes, the next run resumes from the last committed cursor, preventing skips or duplicates.
+*   **Cost Control:** CI runs are minimized by ensuring local unit tests pass before triggering the 45-minute integration suite.
+*   **Compliance:** The checksum manifest is stored in an immutable bucket immediately upon generation, prior to any deletion operation.
+
+**Next Step:** Await confirmation of the staging data availability (Lane B) to proceed to G1 Spec finalization.

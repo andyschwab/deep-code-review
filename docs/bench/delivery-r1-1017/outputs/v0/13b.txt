@@ -1,0 +1,53 @@
+### Delivery Plan: APAC Region Enablement
+
+**Strategy:** Two-repo coordination with strict serialization around the irreversible database migration. We will leverage off-peak CI windows for `global-net` to optimize cost and time.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Infrastructure - `global-net`):**
+    *   **Owner:** Builder (Infra).
+    *   **Work:** Provision Singapore cluster, configure VPC peering, and set backup retention policies to enforce national borders. Update routing rules to direct citizen data locally while mirroring anonymized analytics to the US.
+    *   **Constraint:** Must run CI during off-peak hours.
+*   **Lane B (Application - `dispatch-core`):**
+    *   **Owner:** Builder (App).
+    *   **Work:** Implement storage boundary enforcement in the routing logic. Add guards to prevent personal addresses from egressing the APAC region. Update configuration to point to the new local cluster.
+    *   **Constraint:** Must handle the flaky currency converter check (verify errors are <2% before merging).
+*   **Lane C (Compliance & Verification):**
+    *   **Owner:** QA + Security (Independent).
+    *   **Work:** Generate data flow diagrams for legal review. Execute integration tests against the staged environment to verify data residency.
+    *   **Serialization:** Cannot start functional verification until Lane A and Lane B are integrated in the staging environment.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Immediate):** Define exact data fields classified as "citizen data" vs. "global analytics." Pin base SHAs for both repos.
+*   **G3 Design (Before Code):** Produce data flow diagrams. **Human Gate:** Compliance Officer must sign off on diagrams before any customer traffic logic is enabled.
+*   **G4 Implement:**
+    *   `global-net`: Commit infra changes. Trigger CI in off-peak window (45m run).
+    *   `dispatch-core`: Commit logic changes. Run unit tests; explicitly validate the currency converter module behavior.
+*   **G5 Verify (Staging):**
+    *   Deploy to internal test endpoints by Friday.
+    *   **Check:** Run end-to-end data residency tests. Confirm backups are created only in Singapore.
+    *   **Check:** Verify analytics pipeline successfully strips PII before sending to US.
+*   **G6 Review:**
+    *   **Infra Review:** Senior DevOps (independent of Builder A).
+    *   **App Review:** Senior Backend Engineer (independent of Builder B).
+    *   **Security Review:** AppSec Lead (independent of both builders) to validate storage boundaries and backup policies.
+
+#### 3. Integration & Landing
+*   **Integration Strategy:**
+    1.  Merge `dispatch-core` changes to the integration branch first (lower risk, reversible).
+    2.  Merge `global-net` changes only after infra CI passes and staging is verified.
+    3.  Run the database schema migration in the new region. **Point of No Return:** Once executed, rollback requires a 6-hour cold storage restore.
+*   **Human Decisions (G8 Release):**
+    *   **Approval 1:** Compliance Officer sign-off on data flow diagrams (prerequisite for traffic).
+    *   **Approval 2:** Regional Director explicit approval via internal portal.
+    *   **Approval 3:** Chief Security Officer explicit approval via internal portal.
+*   **Rollback Plan:**
+    *   **App Level:** Revert `dispatch-core` commit to disable new routing logic (traffic fails safe to old behavior or maintenance page).
+    *   **Infra Level:** If migration fails or data leaks, isolate the Singapore cluster immediately. Full data restoration from cold storage is the only recovery path for schema issues (6-hour RTO).
+    *   **Traffic Control:** Feature flag remains OFF for customer traffic until all three human approvals are recorded. Internal testing uses a specific header override.
+
+#### 4. Schedule
+*   **Day 1-2:** Spec, Design, and Code implementation.
+*   **Night 2:** Off-peak CI for `global-net`.
+*   **Day 3:** Integration, Staging Deploy, Internal Testing live by EOD Friday.
+*   **Day 4-5:** Compliance review and final executive approvals.
+*   **Go-Live:** Post-approval, outside business hours to minimize blast radius.

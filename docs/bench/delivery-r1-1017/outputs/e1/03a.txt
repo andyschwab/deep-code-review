@@ -1,0 +1,62 @@
+**Delivery Plan: Enforce Tenant Isolation in Shared Query Layer**
+
+**Scope & Constraints**
+Modify the central query handler to mandatorily inject tenant IDs. Zero downtime required; existing unit test assertions must remain unchanged. Audit logs must verify injection. Deployment must be gradual. Revert is irreversible post-snapshot; high caution required.
+
+**Lane Decomposition**
+
+*   **Lane 1: Spec & Safety (Serial, First)**
+    *   **Actor:** Product Analyst + Security.
+    *   **Work:** Define the exact injection point and the "mandatory" mechanism (e.g., middleware wrapper vs. internal hook). Define the "gradual deployment" strategy (feature flag vs. canary percentage). Explicitly document the rollback limit: "No revert possible after write; snapshot restore only."
+    *   **Output:** Technical Spec + Rollback Playbook.
+    *   **Gate:** G1 Spec Approval (Senior Platform Engineer).
+
+*   **Lane 2: Implementation (Parallel to Lane 3 after G1)**
+    *   **Actor:** Builder (isolated worktree).
+    *   **Work:** Implement mandatory tenant injection. Ensure logic bypass is impossible. Update audit logging to capture the injected ID. *Constraint:* Do not modify existing unit test assertions; if tests fail due to new behavior, mock the injection within the test setup, not the assertion logic.
+    *   **Output:** Patch set + Updated mocks.
+    *   **Gate:** G4 Implement (Local build green, unit tests pass).
+
+*   **Lane 3: Independent Verification (Parallel to Lane 2)**
+    *   **Actor:** QA (Independent, exact revision).
+    *   **Work:** Spin up local stack. Verify cross-tenant leakage is impossible by attempting queries without explicit filters. Verify audit logs contain the correct tenant ID. Ignore known flaky network latency check if logs show success.
+    *   **Output:** Test receipts (Leakage Attempt = FAIL, Audit Log = PASS).
+    *   **Gate:** G5 Verify (Functional green at exact SHA).
+
+*   **Lane 4: Security Review (Serial, after G5)**
+    *   **Actor:** Security (Independent of Builder).
+    *   **Work:** Code review focusing on bypass vectors. Verify the "mandatory" claim holds under edge cases.
+    *   **Output:** Security Verdict.
+    *   **Gate:** G6 Review (Security Pass).
+
+**Integration & Landing**
+
+*   **Integration (G7):**
+    *   Merge Lanes 2, 3, and 4 into a temporary integration branch.
+    *   Run a *single* targeted CI run (skip full 45-min suite if possible via path filtering; otherwise run once).
+    *   **Check:** Verify no race conditions on the shared config file (respect business hour locks).
+
+*   **Human Decision (G8):**
+    *   **Approver:** Senior Platform Engineer.
+    *   **Decision:** Approve merge to main and authorize the gradual rollout schedule.
+    *   **Input:** Spec, Security Verdict, QA Receipts, Rollback Playbook.
+
+*   **Deployment Strategy:**
+    *   Merge to main (trains allowed).
+    *   Enable gradual rollout (e.g., 10% traffic) via feature flag.
+    *   Monitor audit logs for 24 hours.
+    *   Ramp to 100%.
+
+**Rollback & Risk**
+*   **Risk:** Data written after the switch cannot be reverted without full snapshot restore.
+*   **Mitigation:** The "gradual" switch must be reversible *before* committing new writes if leakage is detected. If corruption occurs, the only path is a full platform halt and snapshot restore.
+*   **Failure Mode:** If the flaky network check fails but logs show success, proceed. If unit tests break assertions, reject the patch; do not alter test expectations.
+
+**Timeline**
+1.  Spec & Safety (2h)
+2.  Build & Verify (Parallel, 4h)
+3.  Security Review (2h)
+4.  Human Approval & Merge (Variable)
+5.  Gradual Rollout (24h observation)
+
+**Total Estimated Effort:** 8 hours active work + 24h observation.

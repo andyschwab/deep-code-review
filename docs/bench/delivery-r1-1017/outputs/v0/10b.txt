@@ -1,0 +1,64 @@
+### Delivery Plan: Tenant-Specific PII Exclusion
+
+**Objective:** Implement dynamic PII filtering (driver names, license plates) for healthcare tenants in the nightly cargo manifest, add immutable audit logging, and ensure ISO audit compliance without breaking downstream formats.
+
+#### 1. Lanes & Parallelism
+*Work is split into three isolated worktrees. No two writers share a tree.*
+
+*   **Lane A (Logic & Filtering) – Builder**
+    *   **Task:** Implement tenant-tier check in the manifest generator. Apply filtering *before* temporary storage write. Ensure output schema matches retail format exactly (nulls or omitted fields, not removed columns).
+    *   **Dependency:** None.
+    *   **Parallel:** Yes.
+
+*   **Lane B (Audit Logging) – Builder**
+    *   **Task:** Implement immutable audit log entry per job. Record: Timestamp, Tenant ID, Fields Suppressed, Reason Code (Compliance Tier). Ensure log write is atomic with export completion.
+    *   **Dependency:** None.
+    *   **Parallel:** Yes (can run parallel to A, but must integrate before G5).
+
+*   **Lane C (Test Data & Edge Cases) – QA**
+    *   **Task:** Generate synthetic healthcare test data covering realistic license plate edge cases (missing current in repo). Create regression tests for retail tenants (ensure no data loss).
+    *   **Dependency:** Requires Lane A's interface definition.
+    *   **Parallel:** Starts after Lane A's spec is frozen (G3).
+
+*   **Lane D (Integration & Cost Control) – Conductor**
+    *   **Task:** Serialize access to `schema-registry` (outside business hours). Orchestrate the single integration build to avoid $45/flaky-fail waste.
+    *   **Dependency:** Lanes A & B complete.
+    *   **Serialized:** Must run off-peak to avoid network flakiness and schema locks.
+
+#### 2. Gates & Checks
+*Every check runs on an exact, immutable SHA. No "latest" branches.*
+
+*   **G0/G1 (Intake/Spec):** Define "Compliance Tier" logic and Audit Log schema. **Evil Twin** attack: Verify "immutable" log cannot be bypassed or edited post-write.
+*   **G2 (Plan):** Lock `schema-registry` modification window. Set lane budget: Max 2 integration runs ($90 cap).
+*   **G3 (Design):** ADR confirming filtering happens *pre-storage*. Confirm downstream format compatibility.
+*   **G4 (Implement):** Code committed to isolated worktrees. Unit tests included.
+*   **G5 (Verify):**
+    *   **Revision:** Exact merge of A+B+C on a throwaway integration branch.
+    *   **Checks:**
+        1.  **Unit:** Logic coverage for healthcare vs. retail.
+        2.  **Data:** Validate edge-case license plates are stripped; retail data intact.
+        3.  **Audit:** Verify log entries exist and are uneditable.
+        4.  **Format:** Diff output against golden retail file (byte-for-byte match except filtered fields).
+    *   **Constraint:** Run during off-peak window to ensure network stability.
+*   **G6 (Review):**
+    *   **Security/Compliance:** Independent review of filtering logic and audit trail (not by Builder).
+    *   **Architecture:** Review by Lead Architect (required for deploy).
+    *   **Deep Code Review:** Full scan for PII leakage paths.
+
+#### 3. Landing & Human Gates
+*   **Integration (G7):** Merge to `main` (or integration branch) only after G6 pass. Re-run affected tests on final SHA.
+*   **Human Approval (G8 - Deploy):**
+    *   **Required Approvers:** Lead Architect AND Compliance Officer.
+    *   **Trigger:** Deploy approval request includes: Final SHA, Audit Log sample, ISO compliance statement.
+    *   **Timing:** Deploy must occur before next nightly run.
+*   **Rollback Plan:**
+    *   **Mechanism:** Revert commit + redeploy previous known-good image.
+    *   **Constraint:** Cannot purge cold-storage archives if bad data wrote. Rollback prevents *future* writes; bad data requires legal hold process.
+    *   **Trigger:** Any PII leak detected in audit or downstream complaint.
+
+#### 4. Risk Mitigation
+*   **Flaky CI:** Pre-warm network, run integration suite only once per night window. If red, manual retry immediately; do not re-trigger automatically.
+*   **Schema Lock:** Lane D reserves `schema-registry` edit window; no changes attempted during business hours.
+*   **Test Data Gap:** Lane C explicitly addresses missing edge cases; no merge without this coverage.
+
+**Status:** Ready for G0 Spec sign-off.

@@ -1,0 +1,45 @@
+### Delivery Plan: APAC Region Enablement & Data Residency
+
+#### 1. Work Lanes & Parallelization
+*   **Lane A (Infrastructure - `global-net`):** Owns the Singapore cluster provisioning, network routing, and backup snapshot policies. This lane runs **serialized** against Lane B only at the final integration gate; otherwise, it proceeds independently.
+    *   *Constraint:* All changes must be batched into a single commit to minimize CI costs (45 mins/run) and avoid business-hour pricing.
+*   **Lane B (Application Logic - `dispatch-core`):** Owns the data residency guards, address filtering logic, and endpoint configuration.
+    *   *Constraint:* Must explicitly handle the known flaky currency converter check (verify error rate <2% manually) as CI will not block on it.
+*   **Lane C (Compliance & Documentation):** Owns the data flow diagrams and legal verification of backup boundaries. Runs parallel to coding but is a hard gate before customer traffic.
+
+#### 2. Gates, Checks, and Revision Control
+*   **Gate 1: Infrastructure Dry-Run (Revision `global-net:feat/apac-infra`)**
+    *   *Action:* Apply Terraform/Config to a staging environment.
+    *   *Check:* Verify backup snapshot destination IDs correspond strictly to Singapore storage classes. No cross-region replication rules active.
+    *   *Timing:* Before any database migration.
+*   **Gate 2: Logic Unit Test (Revision `dispatch-core:feat/residency-guard`)**
+    *   *Action:* Run unit tests for address filtering.
+    *   *Check:* Manual verification of the currency converter module logs to ensure the 2% error threshold is not exceeded during test runs (bypassing the flaky CI gate).
+    *   *Timing:* Before merging to the integration branch.
+*   **Gate 3: Integration & Schema Lock (Revision `release/apac-candidate`)**
+    *   *Action:* Merge Lanes A and B. Deploy to APAC Staging.
+    *   *Check:* End-to-end test ensuring a Singapore user's address never appears in US analytics logs.
+    *   *Critical Warning:* **Do not run the database schema migration** on this revision yet. This step is irreversible without a 6-hour cold restore.
+*   **Gate 4: Compliance Sign-off**
+    *   *Action:* Compliance Officer reviews data flow diagrams generated from Gate 3 logs.
+    *   *Check:* Written approval confirming backup sovereignty and storage boundaries.
+
+#### 3. Review Protocol
+*   **Infrastructure Review:** Conducted by the Chief Security Officer (CSO). Must be independent of the implementer. Focus: Snapshot retention policies and network egress rules.
+*   **Code Review:** Conducted by a Senior Backend Engineer not involved in Lane B. Focus: Hard stops on data egress and correctness of the residency guard logic.
+*   **Compliance Review:** Conducted by the Legal/Compliance Officer. Focus: Mapping data flows against local statutory requirements.
+
+#### 4. Landing Strategy & Rollback
+*   **Internal Go-Live (Friday Deadline):**
+    *   Deploy `release/apac-candidate` to the Singapore cluster.
+    *   Enable endpoints for internal IP ranges only.
+    *   *Condition:* Gates 1, 2, and 3 passed. Customer traffic remains blocked.
+*   **Production Launch (Post-Compliance):**
+    *   *Trigger:* Receipt of signed approval from Compliance Officer (Gate 4).
+    *   *Human Decision:* Explicit approval required from **both** the Regional Director and the CSO via the internal portal to enable customer traffic.
+    *   *Execution:* Run the irreversible database schema migration. Switch DNS to allow customer traffic.
+*   **Rollback Plan:**
+    *   *Pre-Migration Failure:* Revert `global-net` and `dispatch-core` to the previous stable tag. No data loss.
+    *   *Post-Migration Failure:* Immediate traffic cut-off to APAC. Initiate full restore from cold storage (Estimated Time: 6 hours). Service degradation expected during this window.
+
+**Summary of Critical Path:** Infrastructure Batch → Logic Implementation → Integration Test (No Migration) → Compliance Sign-off → Executive Approvals → Schema Migration → Customer Traffic.

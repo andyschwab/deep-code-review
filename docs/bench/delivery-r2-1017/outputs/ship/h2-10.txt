@@ -1,0 +1,77 @@
+**Delivery Plan: Deprecate `legacy_user_segment`**
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Remove `legacy_user_segment` from `events` table; update docs; ensure no hidden batch dependencies.
+*   **Constraints:** No direct DB mods; 45-min CI integrity check (minimize runs); staging data refresh lag; known flaky null-handling test (manual ignore); dual approval required (Lead Eng + Data Governance).
+*   **Appetite:** Complete before next monthly storage audit.
+*   **Scope:** Migration script, schema validation logic update, data dictionary, rollback plan.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A (Discovery & Impact Analysis) – Serial First**
+    *   **Actor:** Product Analyst / Builder
+    *   **Work:** Grep codebase and CI configs for `legacy_user_segment`. specifically targeting nightly aggregation pipelines and batch jobs. Verify no hidden references.
+    *   **Output:** Impact report confirming zero active dependencies or listing blockers.
+    *   **Gate:** G2 Approval to proceed to migration only if Impact Report is clean.
+
+*   **Lane B (Migration & Logic Update) – Parallel after Lane A Green**
+    *   **Actor:** Builder (Dedicated Worktree)
+    *   **Work:**
+        1.  Draft versioned migration file to drop column.
+        2.  Implement explicit rollback script (re-add column, restore data if backup exists, or no-op with warning).
+        3.  Update schema validation logic to remove field checks.
+        4.  Update data dictionary.
+    *   **Constraint:** Must include test coverage for the drop, excluding the known flaky null-handling test (flagged for manual review).
+    *   **Output:** Patch set, migration files, updated docs.
+
+*   **Lane C (Independent Verification) – Parallel to Lane B, waits for Lane A**
+    *   **Actor:** QA (Independent)
+    *   **Work:** Review Lane A's impact analysis. Prepare verification plan for staging (accounting for weekly data refresh).
+    *   **Gate:** Must sign off on Impact Analysis before Lane B merges to integration.
+
+**G3 Design**
+*   **Artifact:** ADR documenting the storage savings estimate and the specific rollback procedure (time-to-revert target).
+*   **Decision:** Confirm handling of the known flaky test (explicit exclusion in CI config for this PR with comment).
+
+**G4 Implement**
+*   **Revision:** Immutable base SHA pinned at G1.
+*   **Discipline:** Tests written before migration logic finalization. Builder works in isolated worktree.
+
+**G5 Verify (Staging)**
+*   **Exact Revision:** The merged candidate SHA (not builder's branch).
+*   **Actions:**
+    1.  Trigger CI pipeline (45-min integrity check). **Run once.**
+    2.  Manually verify staging aggregation jobs post-deploy (accounting for data lag).
+    3.  Confirm flaky test status is "ignored" as per protocol, not "passed."
+*   **Failure Mode:** If CI fails due to flaky test, manual triage required immediately. If integrity check fails, abort.
+
+**G6 Review**
+*   **Reviewers:**
+    1.  **Senior Engineer (Independent):** Code quality, migration safety, rollback validity.
+    2.  **Security/Data Governance:** Privacy impact (none expected), compliance with data dictionary updates.
+*   **Condition:** Builder cannot approve. QA sign-off from G5 required.
+
+**G7 Integrate**
+*   **Action:** Merge to integration branch.
+*   **Check:** Re-run affected subset of CI if possible; otherwise, rely on the single successful G5 run on the exact SHA if policy allows, or one final integration run.
+
+**G8 Release (Human Gate)**
+*   **Approvers:** Lead Engineer AND Data Governance Officer (Dual Approval).
+*   **Action:** Deploy to production via pipeline.
+*   **Rollback:** If production errors occur post-deploy, execute rollback script immediately.
+
+**G9 Production Verify**
+*   **Action:** Monitor storage metrics and aggregation job logs for 24 hours.
+*   **Evidence:** `postdeploy-logs` showing successful nightly run without the column.
+
+**G10 Learn**
+*   **Artifact:** Update runbook to reflect new schema state. If the flaky test caused noise, file a separate ticket to fix it permanently.
+
+**Risk & Mitigation**
+*   **Hidden Dependency:** Lane A is the primary mitigation. If found post-G5, execute rollback (G8).
+*   **CI Cost:** Strict "run once" discipline on the candidate SHA. Local dry-runs mandated before push.
+*   **Staging Data Lag:** Verification relies on job *logic* success, not necessarily fresh data patterns, unless a specific recent pattern is known to break.
+
+**Human Decisions Required**
+1.  Approval of Impact Analysis (G2).
+2.  Dual approval for Production Deploy (G8).
+3.  Manual triage of the known flaky test during CI (G5).

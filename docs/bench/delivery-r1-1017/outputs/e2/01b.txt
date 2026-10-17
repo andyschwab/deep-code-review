@@ -1,0 +1,47 @@
+**Delivery Plan: Ledger Schema Migration (Dual-Write & Backfill)**
+
+**Strategy**
+Execute in three serialized phases to respect the "no downtime" and "irreversible backfill" constraints. Parallelize code implementation across regional configurations, but serialize database migration and backfill execution.
+
+**Lane 1: Dual-Write Implementation (Builder)**
+*   **Work:** Modify the payment ingestion service to write to both legacy (row) and new (columnar) tables. Implement the latency spike detector and automatic read-reversion switch.
+*   **Parallelism:** Three sub-lanes (one per regional cluster config) can run in parallel.
+*   **Gate G4 (Implement):** Unit tests for dual-write consistency and latency trigger logic.
+*   **Gate G5 (Verify):** Deploy to Staging. Run sanitized data replay. *Note:* Explicitly tag reconciliation flakiness as "known false positive" if it matches historical patterns; do not block on these specific flakes.
+*   **Review:** Independent QA verifies functional correctness; Security reviews the new data path. Builder does not review.
+
+**Lane 2: Migration Script Coordination (Conductor)**
+*   **Work:** Prepare the pull request for the read-only Data Governance repository. Draft the justification and rollback analysis for the Chief Data Officer (CDO).
+*   **Serialization:** Must start immediately but cannot merge until Lane 1 is G6 approved.
+*   **Gate G8 (Human):** CDO manual approval. This is a hard gate; no automation possible.
+
+**Lane 3: Backfill Job Configuration (Builder)**
+*   **Work:** Configure the historical backfill job parameters. Ensure it stops cleanly if interrupted.
+*   **Serialization:** Depends on Lane 2's script approval.
+
+**Gates & Checks**
+*   **G0/G1 (Spec):** Confirm latency threshold value and exact "month-end freeze" dates with Finance. Define "integrity audit" success criteria explicitly.
+*   **G3 (Design):** ADR documenting the irreversibility point (>10% backfill). Confirm rollback mechanism reverts *reads* instantly without data loss.
+*   **G6 (Review):** Full security audit on the dual-write path. Deep Code Review on the latency switch logic.
+*   **G7 (Integrate):** Merge Lane 1 into the main branch. Trigger one final CI run (45 mins).
+*   **G8 (Release):** **Human Decision Required.** Owner approves deployment to Production *before* month-end freeze.
+*   **G9 (Production Verify):** Monitor latency. If spike > threshold, auto-revert reads. Once stable, trigger Backfill (Lane 3).
+*   **Integrity Audit:** Run only after backfill completes. If fail, halt. If pass, switch reads to new schema.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Lane 1 merges first (code only, feature flag off or dual-write active but reading legacy). Lane 2 merges separately upon CDO approval.
+*   **Human Decisions:**
+    1.  CDO approval for migration scripts.
+    2.  Owner approval for Production Deploy (G8).
+    3.  Owner approval to switch read traffic post-audit.
+*   **Rollback Plan:**
+    1.  **Code Revert:** If latency spikes, the system auto-switches reads to legacy. If the dual-write code itself fails, revert the deployment immediately.
+    2.  **Flag Off:** Disable dual-write if the new table causes issues.
+    3.  **Data Repair:** If backfill corrupts data (<10% progress), restore from snapshot. **Warning:** If backfill >10%, schema change is irreversible; repair must be manual forward-fix, not revert.
+
+**Constraints & Risks**
+*   **CI Cap:** Only 6 builds/day. Do not waste builds on known staging flakes. Pre-verify locally where possible.
+*   **Timing:** All production deployment must complete before the finance freeze window.
+*   **Irreversibility:** The point of no return is 10% backfill progress. Verification must be rigorous before crossing this line.
+
+**Next Step:** Conductor to confirm latency threshold and freeze dates with Finance (G0).

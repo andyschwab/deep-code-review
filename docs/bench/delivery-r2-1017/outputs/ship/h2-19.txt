@@ -1,0 +1,51 @@
+**Delivery Plan: Production Memory Leak Resolution**
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Stop OOM crashes during Tuesday peak load; fix accumulation path identified in heap dumps.
+*   **Constraints:** No staging reproduction; 45-min CI cost; flaky network check; 4-hour heap dump retention; dual human approval (Jane Smith + On-call).
+*   **Appetite:** Immediate mitigation before next peak; permanent fix within 48 hours.
+*   **Spec:** Acceptance is zero OOMs during a simulated peak load test on a canary instance using production traffic replay. Base SHA pinned to the commit preceding the last known good state.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A (Forensics - Security/Builder):** Analyze provided production heap dumps immediately (before rotation). Identify the specific class/path holding references. *Output:* Root cause report with stack trace and object count growth curve.
+*   **Lane B (Mitigation - Builder):** Implement immediate config-based workaround (e.g., aggressive GC tuning, instance scale-up trigger, or feature flag disable) to survive the next peak if the code fix isn't ready. *Output:* Config PR.
+*   **Lane C (Fix - Builder):** Implement code fix based on Lane A's findings. Add a unit test simulating the object accumulation pattern (mocked data, no DB). *Output:* Code PR with unit test.
+*   **Lane D (Validation - QA):** Construct a "production-like" load test script using sanitized production traffic patterns. Run locally first, then on a dedicated isolated worktree. *Output:* Load test script and baseline metrics.
+*   **Serialization:** Lane A must complete before Lane C starts. Lane B can run parallel to A. Lane D runs parallel to A/B, but integrates with C only after C's unit tests pass.
+
+**G3 Design**
+*   **ADR:** Document the memory management strategy change. Explicitly state why staging cannot reproduce (data masking limits) and how the local load test compensates.
+*   **Budget:** Cap CI runs to 2 per candidate SHA (one for unit/lint, one for integration). No iterative "try and see" CI loops.
+
+**G4 Implement**
+*   **Worktrees:** Isolated worktree for Lane A (read-only analysis), Lane B/C (write), Lane D (test dev).
+*   **Discipline:** Tests written before or with the fix in Lane C. Lane C names the review skill and base SHA.
+
+**G5 Verify (Exact Revision)**
+*   **Local Stack:** Lane D verifies the fix locally using the load test script against the exact SHA of Lane C's commit.
+*   **CI Strategy:** Run the full 45-min suite exactly once on the merged candidate SHA. If the flaky network check fails, authorize one manual retry immediately; if it fails twice, treat as a real block.
+*   **Evidence:** Heap snapshot comparison (before/after fix) from the local load test. Green CI status.
+
+**G6 Review**
+*   **Independence:** Lane C (Builder) is reviewed by a senior engineer not involved in the fix. Lane A's forensics are reviewed by the Security hat.
+*   **Rubric:** Blocker if the fix introduces new allocations or fails the load test. High severity if the mitigation (Lane B) is the only safeguard.
+
+**G7 Integrate**
+*   **Merge Train:** Serialize Lane B (config) and Lane C (code) into the integration branch. Re-run affected gates on the final merged SHA.
+*   **Receipt:** Integration commit SHA with attached load test results.
+
+**G8 Release (Human Gate)**
+*   **Approval Required:** Jane Smith AND On-call Lead must explicitly approve the deploy to production.
+*   **Action:** Deploy to canary first (5% traffic), monitor for 30 mins, then widen to 100%.
+*   **Rollback:** Automated rollback triggered if OOM errors reappear or latency spikes >20% in canary. Rollback script pre-validated in G5.
+
+**G9 Production Verify**
+*   **Monitor:** Watch memory metrics and crash logs during the next peak window.
+*   **Receipt:** "Zero OOMs during peak" log entry.
+
+**G10 Learn**
+*   **Retro:** Add a regression test to the standard suite that mimics the accumulation pattern to prevent recurrence. Document the "staging reproduction gap" and propose a synthetic data generator for future load tests.
+
+**Failure Mode Handling**
+*   If Lane A cannot identify the leak from dumps before rotation, escalate to enabling verbose heap logging for the next incident (risk accepted) and rely solely on Lane B's mitigation.
+*   If CI flakes twice, halt merge and investigate the flake as a P0 blocker before proceeding.

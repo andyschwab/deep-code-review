@@ -1,0 +1,53 @@
+### Delivery Plan: Undo for Bulk Archive
+
+**Objective:** Implement a 15-minute reversible snapshot for Bulk Archive actions in the Ops Console to prevent data loss incidents.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data Model & Storage) – Serial First:**
+    *   **Task:** Design the `archive_snapshots` table (append-only, links to audit log) and the background job to purge expired snapshots (>15m).
+    *   **Constraint:** Must verify no locking contention with shared config files during business hours.
+    *   **Output:** Migration script and purge service logic.
+*   **Lane B (Backend Logic) – Parallel to A (after interface agreement):**
+    *   **Task:** Modify the Bulk Archive handler to: (1) execute archive, (2) write snapshot asynchronously (non-blocking), (3) expose a `GET /archive-status` endpoint returning time-remaining and revert token.
+    *   **Constraint:** Must not increase primary archive latency.
+*   **Lane C (Frontend UI) – Parallel to B:**
+    *   **Task:** Add the post-action notification banner showing the countdown timer and "Undo" button. Button disables automatically when time expires.
+    *   **Dependency:** Requires the API response schema from Lane B.
+*   **Lane D (QA & Security) – Independent:**
+    *   **Task:** Verify snapshot integrity, expiration logic, and permission checks (only authorized users can revert).
+    *   **Constraint:** Do not delete audit log entries during testing. Ignore flaky notification check if logs confirm success.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Define the snapshot schema and API contract. Pin base SHA.
+*   **G2 Plan:** Confirm Lane A completes before B/C final integration. Set per-lane token budget (critical due to CI cost).
+*   **G4 Implement:**
+    *   Lanes A, B, C develop in isolated worktrees.
+    *   **Check:** Unit tests for snapshot creation and expiration must pass locally before push.
+*   **G5 Verify (Exact Revision):**
+    *   **Integration Build:** Run full suite *once* on the merged integration SHA to save credits.
+    *   **Functional:** Simulate bulk archive of 300 records; verify snapshot exists and reverts data correctly.
+    *   **Performance:** Assert archive latency does not regress.
+    *   **UI:** Verify countdown timer accuracy and button state.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Backend Engineer (independent of Lane B).
+    *   **Security:** Verify snapshot data encryption and access controls.
+
+#### 3. Landing Strategy
+*   **Integration:**
+    *   Merge Lane A first.
+    *   Merge Lanes B and C together only after A is live in the integration branch.
+    *   Run one final integration suite on the combined SHA.
+*   **Human Gates (Required):**
+    *   **Approval:** Team Lead AND Head of Customer Success must explicitly approve the merge to the release branch.
+    *   **Deploy:** Manual trigger only; no auto-deploy.
+*   **Rollback Plan:**
+    *   If the snapshot service causes latency spikes: Disable the snapshot writer via feature flag immediately (no code rollback needed).
+    *   If UI breaks: Revert frontend commit only.
+    *   **Data Safety:** Since snapshots are append-only and non-destructive, a code rollback will simply stop new snapshots; existing valid snapshots remain revertible until the purge job runs.
+
+#### 4. Risk Mitigation
+*   **CI Cost:** Limit full integration runs to the final merged SHA only. Use unit tests for intermediate checks.
+*   **Flaky Check:** Explicitly document in the PR description to ignore the notification module failure if backend logs show success.
+*   **Concurrency:** Serialize access to shared config files; Lane A must check lock status before applying migrations during business hours.
+
+**Next Step:** Await confirmation of the snapshot schema design (Lane A) to unblock Backend and Frontend implementation.

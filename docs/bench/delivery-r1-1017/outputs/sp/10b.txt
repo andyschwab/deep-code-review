@@ -1,0 +1,54 @@
+# Delivery Plan: Tenant-Specific PII Exclusion
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+1.  **Schema & Contract:** Update the manifest generator to accept a `compliance_tier` argument. Implement the filtering logic to strip `driver_name` and `license_plate` *before* serialization to temporary storage.
+2.  **Audit Integration:** Inject the immutable audit logger. It must write a record containing `job_id`, `timestamp`, `tenant_id`, `fields_suppressed`, and `reason_code` immediately after filtering but before file write.
+3.  **Output Validation:** Ensure the JSON/CSV structure remains identical for downstream consumers (fields present but null/empty vs. key removal, depending on downstream tolerance defined in existing contracts).
+
+**Lane B: Test Data & Simulation (Parallel to Lane A)**
+1.  **Synthetic Data Enhancement:** Since existing healthcare test data lacks realistic license plate edge cases, generate a localized dataset mimicking diverse formats (vanity plates, international formats, special characters) to ensure the regex/string matching logic is robust.
+2.  **Mock Audit Verification:** Create a unit test harness to verify audit log entries without writing to the actual immutable production log.
+
+**Lane C: Infrastructure & CI (Parallel to Lane A/B)**
+1.  **Pipeline Optimization:** Configure the CI pipeline to run unit tests on every push, but defer the full $45/55min integration suite to a specific "Release Candidate" tag to avoid metered costs during development.
+2.  **Schema Registry Coordination:** Schedule the update to the shared `schema-registry` file for outside business hours to avoid lock conflicts with downstream analytics.
+
+## Gates & Checks
+
+**Gate 1: Local Unit Pass (Revision: Feature Branch Head)**
+*   **Check:** Lane A logic passes against Lane B's enhanced synthetic data.
+*   **Constraint:** Must verify that standard retail tenants still see full data (no regression).
+*   **Location:** Developer local environment or lightweight CI runner.
+
+**Gate 2: Integration Suite (Revision: Release Candidate Tag)**
+*   **Check:** Full end-to-end flow including temporary storage write and audit log generation.
+*   **Timing:** Triggered manually by the Lead Architect to avoid peak-hour flakiness.
+*   **Constraint:** Verify audit logs are written to the correct immutable store format.
+
+**Gate 3: Compliance Sign-off (Revision: Staging Environment)**
+*   **Check:** Visual inspection of a sample export and the corresponding audit trail.
+*   **Approver:** Compliance Officer.
+*   **Focus:** Verification that the "why" in the audit log satisfies ISO requirements.
+
+## Review Strategy
+
+*   **Code Review:** Performed by a senior engineer from a *different* squad (not Fulfillment) to ensure objectivity regarding the filtering logic. They must verify the filter executes *before* the temp storage write.
+*   **Security/Compliance Review:** Independent review by the Compliance Officer focusing solely on the audit log integrity and the irreversibility of the redaction.
+*   **Downstream Impact:** The Lead Architect must sign off that the `schema-registry` change does not break analytics jobs.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge to `staging` only after Gate 2 and Gate 3 are cleared.
+2.  Deploy to production during the maintenance window (outside business hours) to accommodate the `schema-registry` lock.
+3.  **Human Decision Required:** The Compliance Officer must provide final written approval in the deployment ticket before the production toggle is switched.
+
+**Rollback Plan:**
+*   **Logic Revert:** If the filter breaks retail exports, revert the code commit immediately.
+*   **Data Contamination:** If PII leaks to cold storage, **do not attempt deletion** (legal hold risk). Instead, trigger the "Data Quarantine" protocol: flag the specific archive blob as "Restricted Access" via the cloud provider's policy engine and notify Legal immediately.
+*   **Audit Failure:** If audit logs fail to write, the job must fail hard (exit non-zero) rather than proceeding silently. The deployment script must monitor for this specific failure mode.
+
+**Post-Landing:**
+Monitor the first three nightly runs manually. Verify audit logs appear for healthcare tenants and confirm retail tenants remain unaffected.

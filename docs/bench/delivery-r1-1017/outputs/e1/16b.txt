@@ -1,0 +1,50 @@
+### Delivery Plan: Legacy Inventory Sync API Sunset
+
+**Objective:** Enforce HTTP 410 Gone for v1 Inventory Sync API after September 30th, maintain v2 stability, update docs, and ensure compliant logging.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Gateway Logic):** Implement routing rule to return 410 for v1 paths.
+    *   *Constraint:* Must target the shared monorepo gateway config. Requires serialization with other services using this file.
+    *   *Parallel:* Can develop in isolation; merges only during Tuesday release windows.
+*   **Lane B (Logging Configuration):** Enable specific retry flag in logging config to prevent dropping high-volume 410 errors during peak hours.
+    *   *Dependency:* Must be verified alongside Lane A to ensure the flag captures the new error volume.
+*   **Lane C (Documentation):** Update developer portal to mark v1 as "Deprecated/Sunset" and v2 as "Current."
+    *   *Parallel:* Independent of code lanes. Can merge immediately.
+*   **Lane D (Compliance Verification):** Validate that 410 responses are distinct in audit logs and v2 traffic remains unaffected.
+
+**Serialization Strategy:** Lanes A and B must be integrated together in a single coordinated release window (Tuesday) due to the shared gateway config file. Lane C proceeds independently. Lane D executes post-integration.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Immediate):** Define exact v1 path patterns, the specific retry flag name, and the log schema for compliance auditing. Pin base SHA before work begins.
+*   **G4 Implement:**
+    *   Lane A: Add 410 logic.
+    *   Lane B: Apply retry flag.
+    *   Lane C: Publish docs update.
+    *   *Requirement:* Unit tests for routing logic and log generation must accompany commits.
+*   **G5 Verify (Sandbox):**
+    *   Run full regression suite **once** on the candidate SHA combining A+B.
+    *   *Cost Control:* Do not re-run the 55-minute suite on individual lane branches. Only trigger on the integrated candidate.
+    *   *Validation:* Simulate peak load to confirm logging retry flag prevents dropped 410s. Verify v2 endpoints return 200 OK.
+*   **G6 Review:**
+    *   **Independent Reviewers:** One senior engineer (non-author) for code/logic; one Compliance Officer for audit trail verification.
+    *   *Focus:* Ensure no v2 regression and log integrity under load.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    *   Lane C (Docs): Merge immediately upon approval.
+    *   Lanes A+B (Gateway/Logs): Hold in a release branch until the next Tuesday coordinated window.
+*   **Human Gates (Required):**
+    *   **Tech Lead:** Approval to modify shared gateway config.
+    *   **Compliance Officer:** Sign-off on log format for audit compliance.
+    *   **Dual Approval:** Both must approve the final deployment to production.
+*   **Deployment:** Execute during the Tuesday release window.
+*   **Rollback Plan:**
+    *   If v2 latency spikes or logs overflow: Revert the gateway config commit immediately.
+    *   Pre-stage the revert PR before the Tuesday window opens.
+
+#### 4. Risk Mitigation
+*   **Flaky Logging:** The retry flag is mandatory; without it, compliance audit fails. Verification must include a load test simulating peak v1 traffic.
+*   **Shared Config:** Strict coordination required to avoid merge conflicts with the three other services. Pre-flight check of the shared file's current state is required before the Tuesday window.
+*   **Deadline:** The September 30th hard stop means this plan must complete G8 (Release) by September 29th to allow buffer.
+
+**Next Step:** Confirm current date relative to the next Tuesday release window and initiate Lane C (Docs) immediately while preparing the integrated sandbox build for Lanes A+B.

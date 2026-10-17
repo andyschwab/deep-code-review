@@ -1,0 +1,48 @@
+### Delivery Plan: Loyalty Tier SMS Template Update
+
+**Objective:** Update SMS template logic to use dynamic configuration thresholds, ensure legal copy compliance, and deploy before the weekend marketing push without leaking test data to production users.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Configuration & Logic – Serialized):**
+    *   **Owner:** Builder (Engagement Squad).
+    *   **Work:** Modify template logic to fetch thresholds from the configuration service. Update opt-out phrasing to match approved legal text.
+    *   **Constraint:** This lane must wait for the **Dual Sign-off** on the shared read-only configuration file (Engagement + Billing leads) before merging.
+    *   **Isolation:** Dedicated worktree; no access to production phone lists.
+*   **Lane B (Verification & Safety – Parallel to A's dev, Serial before Merge):**
+    *   **Owner:** Independent QA.
+    *   **Work:** Create a "Safety Harness" test that asserts **zero** outbound calls to production carriers during the test run. Verify legal copy string equality exactly.
+    *   **Constraint:** Must run in a sandbox environment with mocked carrier endpoints.
+*   **Lane C (Flake Management – Parallel):**
+    *   **Owner:** QA Lead.
+    *   **Work:** Document the known timezone conversion flake in the test report. Configure the pipeline to mark this specific failure as "non-blocking" with a mandatory comment explaining the skip.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Define acceptance criteria: "Thresholds sourced from config service," "Legal copy byte-for-byte match," "Zero production API calls in test logs."
+*   **G3 Design (Pre-Code):** Architectural review of the config service integration. Confirm the dual sign-off workflow for the shared file.
+*   **G4 Implement:** Code changes in Lane A. Unit tests written *before* logic completion.
+*   **G5 Verify (Exact Revision):**
+    *   Run CI pipeline on the exact commit SHA.
+    *   **Critical Check:** QA validates the "Safety Harness" receipt proving no production numbers were touched.
+    *   **Flake Handling:** If the timezone check fails, QA attaches the documented exemption; otherwise, the build is red.
+    *   **Cost Gate:** Acknowledge the $200/run cost; limit runs to 2 attempts max before manual intervention.
+*   **G6 Review:**
+    *   **Code Review:** Senior Engineer (not the Builder) reviews logic.
+    *   **Config Review:** Billing Lead + Engagement Lead provide dual sign-off on the config file change.
+    *   **Security/Compliance:** Legal team verifies the opt-out phrasing against the approved text.
+
+#### 3. Landing & Human Decisions
+*   **Integration (G7):** Merge Lane A into the integration branch only after G5 green and dual sign-off received.
+*   **Human Gate (G8 - Deployment):**
+    *   **Approver:** VP of Customer Experience.
+    *   **Timing:** Must be approved on Friday before the cutoff.
+    *   **Action:** VP reviews the G5 Safety Harness receipt and Legal sign-off, then authorizes the production deploy.
+*   **Deployment Strategy:**
+    *   Deploy behind a feature flag initially if possible, or direct deploy if the architecture requires immediate effect.
+    *   **Irreversibility Warning:** Since production batches are irreversible, the deploy script must include a final "Dry Run" simulation of the batch trigger logic (without sending) as the last step before the actual switch.
+
+#### 4. Rollback & Contingency
+*   **Rollback Plan:** Since message dispatch is irreversible, "rollback" means immediately disabling the template logic via feature flag or config revert to prevent *future* incorrect messages. It cannot recall sent messages.
+*   **Contingency:** If the VP is unavailable by the Friday deadline, the deployment is aborted. Do not attempt to bypass the human gate.
+*   **Post-Deploy (G9):** Monitor the first live batch logs immediately after the marketing push starts to confirm thresholds are correct.
+
+**Summary of Critical Path:** Dual Sign-off → CI Run ($200) → VP Approval → Deploy. Any delay in sign-off or VP availability blocks the weekend launch.

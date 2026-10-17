@@ -1,0 +1,48 @@
+**Delivery Plan: Payment Gateway Timeout Hotfix**
+
+**Objective:** Isolate and deploy the validated connection pool adjustment to production without introducing breaking schema changes from `main`.
+
+**Lanes & Serialization**
+1.  **Base Preparation (Serialized, First):** Create a new branch `hotfix/payment-timeout` strictly from last week's stable tag. Verify this branch contains zero commits from the upcoming platform overhaul.
+2.  **Change Application (Serialized, Second):** Cherry-pick *only* the specific connection pool adjustment commit validated in staging yesterday onto the new branch. Manually verify the shared database configuration file remains untouched (as it requires a separate ticket).
+3.  **Verification (Parallelizable after Build):**
+    *   **Lane A (Functional):** Run the full regression suite on the exact hotfix branch SHA.
+    *   **Lane B (Flake Mitigation):** Prepare the manual override justification for the known flaky third-party latency check, pending the on-call lead's approval.
+    *   **Lane C (Safety Audit):** Independent review to confirm no schema modifications or pending features are present in the diff between the stable tag and the hotfix branch.
+
+**Gates & Checks**
+*   **G1 (Spec Freeze):** Confirm the scope is limited strictly to the connection pool adjustment. Any other change blocks progress.
+*   **G4 (Build):** Trigger the CI pipeline on the exact hotfix branch SHA. Due to the 40-minute cost and credit limits, this runs exactly once per candidate SHA. No redundant builds.
+*   **G5 (Verify):**
+    *   Pipeline must pass all non-flaky checks.
+    *   The flaky latency check is marked "expected failure" pending manual override by the on-call lead.
+    *   **Critical:** Verify the running application in a staging environment (if available) or via dry-run logs to ensure the pool adjustment is active.
+*   **G6 (Review):**
+    *   **Code Review:** Requires two approvals from the Senior Architecture Council (mandatory per repo policy). Reviewers must be independent of the cherry-pick author.
+    *   **Safety Review:** Explicit sign-off that no schema changes are included.
+
+**Review Strategy**
+*   **Builder:** Applies the cherry-pick and prepares the branch.
+*   **Independent Reviewers:** Two members of the Senior Architecture Council. They review the diff against the stable tag, not `main`. They must explicitly verify the absence of schema changes.
+*   **QA/On-Call:** Validates the test results and executes the manual override for the flaky gate.
+
+**Landing & Human Decisions**
+*   **Merge:** Once G5 (with override) and G6 (2 approvals) are green, merge via fast-forward to maintain linear history.
+*   **Human Gate 1 (On-Call Lead):** Must manually override the flaky latency gate in the CI system before merge is permitted.
+*   **Human Gate 2 (Architecture Council):** Two distinct members must approve the PR.
+*   **Deployment:** Push to live immediately after merge.
+*   **Rollback Plan:** Since production deployments are irreversible without a full database restore (requiring executive sign-off), the rollback strategy is **prevention via strict isolation**. If the hotfix fails post-deploy, the immediate action is to revert the specific commit and redeploy, *unless* database state was corrupted, in which case executive sign-off is required for a full restore.
+
+**Risk Mitigation**
+*   **Scope Creep:** The Safety Audit lane explicitly blocks any commit not matching the validated staging adjustment.
+*   **Pipeline Cost:** The plan mandates a single CI run on the final candidate SHA. Local verification of the cherry-pick cleanliness is required before triggering the expensive pipeline.
+*   **Stability:** Branching from the stable tag ensures the breaking schema changes on `main` are physically impossible to include.
+
+**Execution Order:**
+1. Create branch from tag.
+2. Cherry-pick fix.
+3. Local diff audit (No schema changes).
+4. Trigger CI (Single run).
+5. Secure On-Call override for flaky test.
+6. Obtain 2 Architecture Council approvals.
+7. Merge and Deploy.
