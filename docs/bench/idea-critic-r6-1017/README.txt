@@ -9,3 +9,8 @@ Result: the one edit (c6, step 6: bounded first step, numeric tripwire at a date
    c6 is 0.075 above v0 on the same scenarios, but its lower bound 0.425 is not above 0.5, so the edit is not kept. v0 on this set (0.475) is below its round-5 held-out value (0.575) on a different scenario set, with the same judges and prompt: scenario-set variance at n=40 is about +-0.1, as the intervals show.
 
 Caveats: open models on one cluster; system-prompt-only arms; ties count 0.5 and are 14-18 of 40; one run per arm; tune n=10 is a weak selector; gpt-oss_120b wrote the scenarios and also judges; the win-rate difference between c6 and v0 is not tested for significance (the two intervals overlap); no paid call; no key printed. The first scenario-generation attempt failed closed because the privacy gate needs .banlist.local.txt in the worktree; the file was copied (gitignored) and scenario generation rerun before any answer existed.
+
+Disclosures (added after the run, not preregistered):
+- Unedited v0 scored 0.575 [0.450, 0.700] on the round-5 held-out set and 0.475 [0.362, 0.588] on this round's fresh held-out set, with the same judge prompt and judges. That 0.10 swing between two held-out sets is as large as the edit effects measured here, so a single n=40 set cannot resolve effects of this size.
+- Paired c6 minus v0 on the 40 held-out scenarios: +0.075, bootstrap 95% CI [-0.100, 0.250] (10,000 resamples, seed 1). Computed post hoc for disclosure only; it is not a keep test.
+- No null or unparsed judge orders in the round-5 or round-6 records (480 orders per judge).
