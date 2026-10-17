@@ -1,0 +1,53 @@
+**Delivery Plan: DateRangePicker Keyboard Trap Fix**
+
+**Scope & Constraints**
+Fix focus management in `DateRangePicker` to allow 'Escape' key exit without premature modal closure. Must verify screen reader compatibility. No style refactoring. No heavy integration suites. Target: Core-ui library. Deadline: Friday.
+
+**Lanes & Parallelism**
+*   **Lane 1: Implementation (Builder)**
+    *   **Work:** Modify focus logic in `DateRangePicker`. Ensure 'Escape' returns focus to trigger button. Isolate changes from global `focus-visible` polyfill conflicts.
+    *   **Constraint:** Single writer in isolated worktree. Do not touch unrelated styles.
+    *   **Parallelism:** Can run concurrently with Lane 2 once the spec is locked.
+*   **Lane 2: Verification Scripting (QA)**
+    *   **Work:** Update existing lightweight unit tests to assert the focus loop is broken and focus returns correctly. Prepare a manual checklist for screen reader validation (since automated a11y suites are too heavy).
+    *   **Constraint:** Tests must run within the 20-minute CI window.
+    *   **Parallelism:** Runs parallel to Lane 1.
+
+**Serialization Points**
+1.  **Spec Lock (G1):** Before coding, confirm the exact 'Escape' behavior (return focus vs. close) with the ticket requirements to avoid rework.
+2.  **Integration (G7):** Lane 1 and Lane 2 merge only after both pass locally on the exact same revision.
+3.  **Staging Deploy (G8):** Requires manual sign-off. Must wait for Tuesday/Thursday window.
+
+**Gates & Checks**
+*   **G1 Spec:** Define acceptance: "Pressing Escape moves focus to trigger, modal closes, screen reader announces closure." Pin base SHA of `core-ui`.
+*   **G4 Implement:** Builder commits patch. Unit tests updated in same commit or immediate follow-up.
+*   **G5 Verify (Local Stack):**
+    *   **Revision:** Exact commit SHA from G4.
+    *   **Checks:** Run existing unit suite (must pass < 20 mins).
+    *   **Manual:** Builder verifies focus behavior locally with screen reader enabled. Evidence: Short video or log of focus traversal.
+    *   **Polyfill Check:** Explicitly test interaction with the legacy `focus-visible` snippet.
+*   **G6 Review:**
+    *   **Reviewer:** Independent senior engineer (not the Builder).
+    *   **Scope:** Code diff + Unit test logic + Local verification evidence.
+    *   **Security/Compliance:** Verify no new focus traps introduced; ensure no regression on the 40 screening forms (spot check 2 distinct forms).
+*   **G7 Integrate:** Merge to `main` (or release branch) only after G6 pass. Generate release manifest.
+*   **G8 Release (Human Gate):**
+    *   **Approver:** Jane Smith (Compliance Lead).
+    *   **Timing:** Must land code before Tuesday/Thursday review window. Deploy to staging only during her review hours.
+    *   **Action:** Jane verifies staging behavior. Explicit approval required before publishing to downstream apps.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Standard PR merge to `main` after G6.
+*   **Publication:** Publish `core-ui` new version only after Jane's G8 approval.
+*   **Rollback Plan:** Since reverting is irreversible once cached:
+    *   **Prevention:** Rigorous local G5 verification is the primary rollback prevention.
+    *   **Mitigation:** If a bug is found post-deploy, immediately issue a patch version fixing the regression. Do not attempt to unpublish. Notify all 12 portal teams to delay uptake if the build is flagged as "Hold" in the release manifest.
+
+**Human Decisions Required**
+1.  **Jane Smith:** Staging sign-off (Tuesday/Thursday only).
+2.  **Release Owner:** Final "Publish" command to npm/internal registry after Jane's approval.
+
+**Risk Management**
+*   **CI Timeout:** Strictly limit tests to unit level; no E2E suites.
+*   **Polyfill Conflict:** If the fix conflicts with `focus-visible`, isolate the handler scope rather than removing the polyfill.
+*   **Deadline:** If Tuesday/Thursday window is missed, the legal deadline is at risk. Escalate immediately if G6 is not complete by Monday PM.

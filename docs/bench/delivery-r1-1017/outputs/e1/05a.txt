@@ -1,0 +1,58 @@
+**Delivery Plan: DST Shift Fix for Monthly Ledger**
+
+**Scope & Constraints**
+Fix the scheduler's silent exit on non-existent local times (DST start) for Pacific commercial accounts.
+*Critical:* Regulatory deadline tomorrow noon. Staging cannot reproduce DST; verification must be local. Global config shared with Tax service requires isolation to prevent regression. CI is expensive (45m); full run reserved for final candidate only.
+
+**Lanes & Parallelism**
+
+*   **Lane 1: Spec & Isolation (Conductor + Product Analyst)**
+    *   **Work:** Define exact acceptance: "Job executes at 02:01 local time when 02:00 is skipped; logs warning; processes all Pacific meters." Draft ADR for isolating time-parsing logic from the global tax config (e.g., adapter pattern or localized wrapper) to ensure zero impact on tax assessments.
+    *   **Output:** Testable spec + Isolation design.
+    *   **Parallel:** Yes (starts immediately).
+
+*   **Lane 2: Implementation (Builder)**
+    *   **Work:** Implement time-detection logic in a dedicated worktree. Apply the isolation design from Lane 1. Add unit tests simulating non-existent hours using mocked time libraries (since local env is required for integration).
+    *   **Constraint:** Do not touch global config directly; use the agreed isolation layer.
+    *   **Parallel:** Yes, starts after Lane 1's design is stable (G3).
+
+*   **Lane 3: Local Verification (QA)**
+    *   **Work:** **Must run on a developer machine set to Pacific Time.** Verify the fix against a local instance simulating the DST transition. Confirm all three skipped accounts are processed. Verify tax calculation outputs remain unchanged (regression check).
+    *   **Constraint:** Cannot use staging. Must produce a signed receipt of local execution (logs + output data hash).
+    *   **Serialization:** Must wait for Lane 2's patch. Runs *before* any CI trigger to save credits.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Review isolation design. Ensure tax service safety.
+*   **G3 (Design):** Approve ADR. Pin base SHA.
+*   **G4 (Implement):** Code review of the isolation layer and time logic. **Independent Reviewer:** Senior Backend Engineer (not the Builder). Focus: Thread safety and config separation.
+*   **G5 (Verify):** **Local Gate.** QA runs the job on a Pacific-time machine.
+    *   *Check:* Job completes, 3 accounts processed, no tax drift.
+    *   *Evidence:* Local logs, data hash, QA signature.
+    *   *Condition:* If local verification fails, do not push.
+*   **G6 (CI):** Trigger full 45-minute regression suite **only once** on the exact SHA verified locally.
+    *   *Scope:* Full suite required due to regulatory nature, despite cost.
+*   **G8 (Release):** Human Approval.
+
+**Review Strategy**
+*   **Code:** Independent Senior Engineer (Backend). Checks logic and isolation.
+*   **Safety:** Product Analyst verifies the "Tax Service" isolation claim against the spec.
+*   **Functional:** QA Engineer performs local DST simulation.
+
+**Landing & Human Decisions**
+
+*   **Merge:** Merge to `main` only after G6 (CI) passes on the verified SHA.
+*   **Human Gate (G8):** **Chief Compliance Officer (CCO).**
+    *   *Action:* Explicit written approval required for production deploy.
+    *   *Blocker:* CCO is traveling.
+    *   *Mitigation:* Prepare the deployment package and dry-run script now. Present the "Local Verification Receipt" + "CI Green" + "One-paragraph risk summary" to the CCO via secure channel for async approval. Do not deploy without this specific artifact.
+*   **Rollback:**
+    *   *Trigger:* Any audit flag post-deploy or missing account.
+    *   *Action:* Revert to previous release tag immediately. Manual re-run of ledger for Pacific zone using the pre-patch logic (if possible) or a hotfix script if the window allows.
+
+**Risk Management**
+*   *Tax Regression:* Mitigated by isolation design and local tax-output comparison.
+*   *CI Cost:* Mitigated by mandatory local green before trigger.
+*   *Deadline:* Prioritized lane; CCO prep done in parallel with CI to minimize wait time.
+
+**Next Step:** Draft the isolation ADR (Lane 1) and request a developer machine with Pacific Time zone access for QA (Lane 3 prep).

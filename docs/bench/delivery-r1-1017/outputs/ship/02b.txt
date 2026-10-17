@@ -1,0 +1,51 @@
+**Delivery Plan: Legacy Webhook Signature Re-enablement**
+
+**Scope & Constraints**
+Restore ingestion for legacy carriers by adding dual-scheme detection to the validation middleware. Maintain performance for the new standard. No direct secret rotation; read-only vault access via deployment service account only.
+
+**Lanes & Parallelism**
+*   **Lane A (Implementation):** Update validation middleware to detect scheme version (header/payload structure) and route to legacy or new verifier. Add unit tests for both paths.
+    *   *Constraint:* Must not modify secret retrieval logic; only consume the existing read-only vault interface.
+    *   *Parallelism:* Can run immediately alongside Lane B.
+*   **Lane B (Performance Baseline):** Establish benchmark for current (new scheme) throughput to prove no regression.
+    *   *Parallelism:* Runs parallel to Lane A.
+*   **Lane C (Integration Prep):** Prepare sandbox test data for major carriers.
+    *   *Serialization:* Must wait for Lane A's code draft to define exact test payloads.
+
+**Gates & Checks**
+*   **G1 Spec:** Define exact header/content markers for "legacy" vs "new" detection. Confirm vault interface compatibility.
+*   **G2 Plan:** Map carrier retry logic to expected middleware response codes (ensure we don't trigger their retries unnecessarily).
+*   **G4 Implement:** Code change in isolated worktree. Unit tests must cover: valid legacy, invalid legacy, valid new, invalid new, and mixed traffic.
+*   **G5 Verify (Local):**
+    *   Run unit tests (fast).
+    *   Run performance benchmark (Lane B) against the new code. Fail if >2% latency increase on new scheme.
+    *   *CI Strategy:* Trigger full CI (45m) **once** on the candidate SHA. Do not re-run on merge unless SHA changes.
+    *   *Flake Handling:* If `latency-check` fails on weekend, manual re-run is authorized once per candidate. Two failures require investigation.
+*   **G6 Review:**
+    *   *Code Review:* Independent senior engineer (not the builder).
+    *   *Security Review:* Requires **one** senior architect approval (bypassing the two-person rule due to leave, documented as risk acceptance). Focus: Does the legacy path expose new attack vectors? Does it leak secrets?
+    *   *Vault Check:* Verify no code attempts write/rotate operations on the legacy vault.
+
+**Exact Revision Strategy**
+*   All verification (G5/G6) runs on the exact commit SHA produced by Lane A.
+*   Integration tests run against this specific SHA in the staging environment.
+*   Do not verify against `main`; verify against the feature branch head.
+
+**Landing & Human Gates**
+*   **Merge Train:** Due to 45m CI, use a merge queue if available to batch. If not, merge immediately after G6 green.
+*   **Human Decisions Required:**
+    1.  **Security Waiver:** Explicit approval from the available senior architect to proceed with single-signoff security review.
+    2.  **Deploy Authorization:** Owner approval to flip the feature flag or deploy the middleware update to production.
+    3.  **Flake Override:** If `latency-check` fails twice, a human must decide to merge anyway or fix.
+*   **Rollback:**
+    *   Mechanism: Revert the deployment or disable the legacy detection flag.
+    *   Trigger: If error rates for *new* scheme carriers increase or vault access errors spike.
+    *   Proof: Rollback procedure verified in staging before production deploy.
+
+**Risk Mitigation**
+*   **Rate Limits:** The integration test suite must throttle requests to carrier sandboxes to avoid blocking future tests.
+*   **Secret Safety:** The code review specifically checks for any attempt to write to the vault.
+*   **Performance:** The benchmark gate ensures the majority (new scheme) users see no degradation.
+
+**Output Contract**
+Builder provides: Patch, unit test results, benchmark comparison report, and security review signoff. QA provides: Staging ingestion receipt showing successful legacy and new webhook processing.

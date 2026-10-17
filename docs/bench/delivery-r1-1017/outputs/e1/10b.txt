@@ -1,0 +1,57 @@
+### Delivery Plan: Tenant-Specific PII Exclusion
+
+**Scope:** Modify the nightly cargo manifest generator to filter driver names and license plates based on tenant compliance tier, inject immutable audit logs, and ensure filtering occurs before temporary storage.
+
+#### 1. Lanes & Parallelism
+*Work is isolated into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is serialized after both.*
+
+*   **Lane A: Logic & Filtering (Builder)**
+    *   **Work:** Implement dynamic filtering logic in the manifest generator. Ensure filtering executes *before* writing to the temporary storage bucket. Maintain exact output format for downstream systems.
+    *   **Constraint:** Use synthetic test data but explicitly handle missing edge cases for license plate formats by adding pattern-based guards.
+    *   **Output:** Patch set + Unit tests for filtering logic.
+
+*   **Lane B: Audit & Schema (Builder)**
+    *   **Work:** Implement immutable audit log entry generation (fields suppressed, reason, timestamp, tenant ID). Update schema documentation.
+    *   **Constraint:** Coordinate with the Fulfillment Squad to access the `schema-registry` outside business hours or via a read-only snapshot to avoid lock conflicts.
+    *   **Output:** Patch set + Audit log integration tests.
+
+*   **Lane C: Verification & Security (QA + Security)**
+    *   **Work:** Independent verification of PII exclusion on healthcare tenants and full visibility on retail. Validate audit log immutability. Perform privacy impact assessment.
+    *   **Constraint:** Cannot use real PII; must validate logic against synthetic data and pattern rules.
+    *   **Output:** Verification receipt at exact SHA.
+
+#### 2. Gates & Checks
+*Costly CI ($45, 55m) runs once per candidate SHA after local green. Flaky network checks are retried automatically only once; manual intervention required thereafter.*
+
+*   **G0/G1 (Intake/Spec):** Confirm "compliance tier" definition and audit log format with the Compliance Officer (Human Gate).
+*   **G2 (Plan):** Finalize work graph. Set token/cost budget for Lane A and B (no unlimited spend).
+*   **G3 (Design):** ADR for audit log storage location and immutability guarantee.
+*   **G4 (Implement):** Lanes A and B commit to isolated worktrees. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Local:** Run unit tests and format validators (free, fast).
+    *   **CI:** Run full integration suite on the merged candidate SHA. **Hard Condition:** The app must start, and the export job must complete successfully. A gate that does not start the app is `UNVERIFIED`.
+    *   **Specific Check:** Verify no PII hits temporary storage for healthcare tenants (log inspection).
+*   **G6 (Review):**
+    *   **Code Review:** Lead Architect (independent of Builder).
+    *   **Security/Compliance:** Compliance Officer (independent of Builder). Focus on ISO audit requirements.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected CI gates on the final SHA.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lanes A and B. Never reviews own work.
+*   **Lead Architect:** Reviews code quality, schema changes, and downstream compatibility.
+*   **Compliance Officer:** Reviews PII logic, audit log completeness, and ISO audit readiness. This is a **Human Gate**; no auto-merge.
+*   **Security:** Validates that "immutable" audit logs cannot be tampered with and that no PII leaks to logs.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** Train land. Once G6 is green, queue for merge.
+*   **Human Decisions Required:**
+    *   Approval to merge PR (Lead Architect + Compliance Officer).
+    *   Approval to deploy to production (Fulfillment Squad Lead).
+    *   Confirmation of audit log format before first production run.
+*   **Rollback Plan:**
+    *   **Pre-deploy:** Revert merge commit.
+    *   **Post-deploy (before cold-storage):** Disable nightly job via feature flag or config switch.
+    *   **Post-deploy (after cold-storage):** **Irreversible.** If PII leaks to cold storage, a legal hold request is required; no technical rollback exists. This risk must be explicitly accepted by the Compliance Officer before G8.
+*   **Production Verify (G9):** Monitor the first nightly run. Confirm audit logs appear and PII is absent for healthcare tenants. SLO check: job completion time within normal variance.
+
+**Risk Note:** The irreversibility of cold-storage writes makes G5 verification critical. If synthetic data cannot fully validate license plate filtering, the Compliance Officer must accept the residual risk or provide realistic edge cases before G8.

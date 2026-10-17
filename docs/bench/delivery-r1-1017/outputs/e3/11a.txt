@@ -1,0 +1,43 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Tier Access
+
+**Scope:** Add read-only access for `auditor-svc` to `legal-archive-09` in staging, then production. No changes to encryption, lifecycle rules, or existing deny statements.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Safety Contract):** Define the exact JSON patch (additive only). Explicitly list the "forbidden" mutations (encryption, lifecycle, delete resource). Define the rollback script (revert to pinned previous SHA). *Serial prerequisite for all.*
+*   **Lane B (Staging Implementation):** Apply the patch to the staging infrastructure definition. Run topology simulation. Verify `auditor-svc` can read >7-year files and cannot write.
+*   **Lane C (Security Review Prep):** Prepare the evidence pack for the security lead (diff, least-privilege justification, rollback proof). *Runs parallel to Lane B execution, waits for B's output for final sign-off.*
+
+*Serialization:* Lane A must complete before B starts. B and C run in parallel, but C cannot finalize until B produces the staging receipt. Production (Lane D) is strictly sequential after B and C pass.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Output is the JSON diff and the rollback command. Must explicitly state "Additive Only."
+*   **G2 Plan:** Confirm the topology simulation slot is reserved to avoid queue blocking. Acknowledge the `network-latency-validator` flake protocol (one manual retry allowed).
+*   **G4 Implement (Staging):** Commit to a dedicated worktree/branch. Base SHA recorded.
+*   **G5 Verify (Staging):**
+    *   Run full topology simulation (22 mins).
+    *   **Flake Handling:** If `network-latency-validator` fails, retry once manually. If it fails again, stop and escalate; do not merge.
+    *   **Functional Check:** Confirm `auditor-svc` reads old files; confirm write attempts fail.
+*   **G6 Review:**
+    *   **Reviewers:** Two senior engineers + one security lead (mandatory per repo facts).
+    *   **Independence:** Reviewers must not be the author of Lane B. Security lead focuses strictly on the scope creep (no write access, no public exposure).
+    *   **Evidence:** Diff, simulation logs, functional test receipts.
+*   **G7 Integrate:** Merge to the integration branch only after all three approvals are recorded.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:** Merge to the release branch only. Do not auto-deploy.
+*   **Human Gate (Deployment):**
+    *   **Decision:** Explicit owner approval required to trigger production deployment.
+    *   **Window:** Must be scheduled for a Tuesday between 02:00 and 04:00 UTC.
+    *   **Action:** Human executes the deployment script during the window.
+*   **Rollback Plan:**
+    *   **Trigger:** If auditor gains write access OR public exposure is detected.
+    *   **Mechanism:** Revert the merge using the pinned pre-change SHA.
+    *   **SLA:** The revert command must be tested in staging (Lane B) to prove it completes within 5 minutes.
+    *   **Constraint:** Never delete the bucket policy resource; only revert the commit.
+
+#### 4. Risk Controls
+*   **Scope Lock:** The CI pipeline will block if encryption/lifecycle fields are touched. The human reviewer must visually confirm these sections are untouched in the diff.
+*   **Flake Protocol:** The `network-latency-validator` failure is the only allowed retry. Any other failure stops the train.
+*   **Cost Awareness:** One simulation run = 400 credits. Ensure the patch is correct before triggering CI to avoid wasted credits on re-runs.
+
+**Next Step:** Produce the G1 Spec (JSON patch draft + rollback command) for owner confirmation before opening the staging worktree.

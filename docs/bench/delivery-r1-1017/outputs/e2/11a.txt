@@ -1,0 +1,63 @@
+### Delivery Plan: S3 Archive Policy Update
+
+**Scope & Constraints**
+Modify `core-net-storage` to grant `auditor-svc` read-only access to `legal-archive-09`.
+*   **Strict Boundaries:** Additive changes only. No edits to encryption or lifecycle rules. No resource deletion.
+*   **Risk:** Irreversible legacy lockout if policy is deleted; public exposure or write access escalation requires <5min rollback.
+*   **Approvals:** 2 Senior Engineers + 1 Security Lead required before merge.
+
+#### 1. Lanes & Serialization
+
+**Lane A: Specification & Safety Guardrails (Conductor + Security)**
+*   **Work:** Draft the exact JSON policy snippet. Define the "Kill Switch" rollback procedure (reverting to the specific previous commit SHA).
+*   **Output:** A verified diff showing *only* the new `Statement` added, with explicit `Deny` overrides for any write actions on `auditor-svc`.
+*   **Serialization:** Must complete before Lane B starts.
+
+**Lane B: Staging Implementation & Simulation (Builder)**
+*   **Work:** Apply changes in the staging environment definition. Trigger the topology simulation.
+*   **Constraint:** If `network-latency-validator` fails, perform one manual retry. If it fails again, halt and escalate (do not force).
+*   **Serialization:** Runs after Lane A approval. Must finish before Lane C.
+
+**Lane C: Independent Verification (QA + Security)**
+*   **Work:** Verify the staging deployment. Confirm `auditor-svc` can read >7yr files and *cannot* write. Confirm encryption/lifecycle configs are bit-for-bit identical to baseline.
+*   **Serialization:** Runs on the exact SHA produced by Lane B.
+
+#### 2. Gates & Checks
+
+*   **G1 (Spec Freeze):** Review Lane A output. Verify additive-only logic. **Gate:** Security Lead sign-off on the JSON diff.
+*   **G4 (Staging Build):** Run CI topology simulation (22 mins).
+    *   *Check:* Simulation pass OR one permitted retry on flaky latency check.
+    *   *Revision:* Exact commit SHA from Lane B.
+*   **G5 (Functional Verify):** QA executes read test in staging. Security executes "write attempt" test to ensure denial.
+    *   *Receipt:* Logs showing `200 OK` for reads and `403 Forbidden` for writes.
+*   **G6 (Final Review):** Independent review of the final SHA by 2 Senior Engineers and 1 Security Lead.
+    *   *Constraint:* Reviewers must verify the diff against the original baseline, not just the latest commit.
+
+#### 3. Review Strategy
+
+*   **Builder:** Implements Lane B. Cannot approve their own work.
+*   **Independent QA:** Executes Lane C. Distinct from Builder.
+*   **Security Lead:** Reviews G1 (plan) and G6 (final code). Focuses on privilege escalation risks.
+*   **Senior Engineers (x2):** Review G6. Focus on topology impact and rollback validity.
+
+#### 4. Landing & Rollback
+
+**Merge Strategy**
+*   **Human Decision:** Merge is blocked until all 3 approvals (2 Senior, 1 Security) are recorded.
+*   **Timing:** Merge must occur such that production deployment falls within the Tuesday 02:00–04:00 UTC window. Do not merge early if it forces an out-of-window deploy.
+*   **Integration:** Single commit to the integration branch. Re-run topology simulation on the merged SHA before final deploy approval.
+
+**Rollback Plan (<5 Minutes)**
+*   **Trigger:** Detection of public exposure, write access success, or deployment failure.
+*   **Action:** Immediate `git revert` of the merge commit to restore the previous policy state.
+*   **Verification:** Automated check confirming the policy SHA matches the pre-change baseline.
+*   **Constraint:** Since deletion causes lockout, the revert must restore the exact previous resource block, not delete and recreate.
+
+**Execution Order**
+1.  Finalize Spec (Lane A) → Security Approval.
+2.  Implement & Simulate (Lane B) → CI Green.
+3.  Verify Staging (Lane C) → QA/Security Receipts.
+4.  Collect 3 Approvals (G6).
+5.  Wait for Tuesday Window.
+6.  Deploy to Production.
+7.  Post-Deploy Verify (Read test in Prod).

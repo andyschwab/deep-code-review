@@ -1,0 +1,58 @@
+**Delivery Plan: Fraud Detection Model v4.2 Promotion**
+
+**Strategy:** Zero-downtime canary with automatic abort. The work is split into three serialized phases to manage risk around the shared configuration and irreversible production state.
+
+### 1. Lanes & Parallelism
+
+*   **Lane A: Model Artifact Verification (Parallel Start)**
+    *   **Owner:** QA Engineer (independent of Data Science).
+    *   **Work:** Validate the v4.2 binary against the shadow traffic dataset in staging. Measure false positive reduction and latency.
+    *   **Constraint:** Do not trigger full CI pipelines unless the binary hash changes; use cached artifacts to save $45/run.
+    *   **Output:** Signed receipt confirming <200ms p99 latency and accuracy metrics.
+
+*   **Lane B: Configuration Prep (Serialized after Lane A)**
+    *   **Owner:** Lead Architect.
+    *   **Work:** Draft the update to `global-fraud-rules.json` pointing to v4.2.
+    *   **Constraint:** This file is shared; the PR must be locked. Requires explicit approval from both Lead Architect and Compliance Officer before merge.
+    *   **Output:** Merged config change in the integration branch, ready for deployment but feature-flagged off.
+
+*   **Lane C: Deployment Automation (Parallel to Lane A, Serialized before G8)**
+    *   **Owner:** DevOps Engineer.
+    *   **Work:** Script the canary rollout (5% start, manual scale-up) and the automatic revert logic (triggered by latency >200ms or gate failure).
+    *   **Constraint:** Logic must handle the lack of webhook simulation in staging by mocking timeout responses.
+    *   **Output:** Deployable pipeline with verified rollback path.
+
+### 2. Gates & Checks
+
+*   **G4 (Implement):** Code freeze on the deployment script and config. Base SHA pinned to the current production head.
+*   **G5 (Verify - Staging):**
+    *   **Exact Revision:** The integration SHA combining Lane B's config and Lane C's script.
+    *   **Check:** Run shadow traffic test. **Hard Fail** if latency >200ms or error rate increases.
+    *   **Note:** Since staging lacks the webhook simulator, verify timeout handling via unit tests mocking the external bank response.
+*   **G6 (Review):**
+    *   **Security/Compliance:** Independent review of `global-fraud-rules.json` changes by the Compliance Officer.
+    *   **Architecture:** Review by Lead Architect to ensure no side effects on the other two microservices sharing the file.
+*   **G7 (Integrate):** Merge to the release branch. Re-run the latency check on the exact final SHA.
+
+### 3. Human Gates & Landing
+
+*   **G8 (Release - Tuesday Maintenance Window):**
+    *   **Decision 1 (Promote):** VP of Engineering must apply the production promotion tag. No deploy occurs without this specific key.
+    *   **Decision 2 (Scale):** Risk Operations Lead must manually sign off to scale canary from 5% to 100%.
+    *   **Execution:**
+        1.  Deploy to 5% traffic.
+        2.  Monitor automated accuracy gate.
+        3.  **Abort Condition:** If gate fails or latency spikes, the system automatically reverts to v4.1. No human intervention required for revert.
+        4.  **Success Path:** Upon Risk Ops sign-off, scale to 100%.
+
+*   **Rollback Plan:**
+    *   **Automatic:** Triggered by monitoring alerts (latency/errors) within the first hour.
+    *   **Manual:** If a logic flaw bypasses auto-revert, execute the full database rollback. **Warning:** This takes 40 minutes and causes downtime. Use only if automatic reversion fails.
+
+### 4. Risk Mitigation
+
+*   **Cost Control:** CI pipelines are triggered only for the final integration SHA and the config change. Local validation used for iterative script development.
+*   **Shared State:** The `global-fraud-rules.json` lock prevents concurrent modifications during the window.
+*   **Irreversibility:** The 40-minute rollback window dictates that the 5% canary phase must be long enough to detect issues before full scaling.
+
+**Status:** Ready for G0 Intake confirmation. Awaiting VP of Engineering availability for the Tuesday window.

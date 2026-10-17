@@ -1,0 +1,67 @@
+# Delivery Plan: Inventory Sync Conflict Resolution
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+*Owner: Backend Engineer*
+1.  **Conflict Detection Engine:** Implement logic to detect version mismatches between local SQLite DB and server payload.
+2.  **Resolution Strategies:** Code three modes: "Prompt User" (UI trigger), "Server Wins" (default for non-critical fields), and "Logical Merge" (summing counts for additive transactions).
+3.  **Concurrency Handler:** Implement a queue manager to buffer up to 50 simultaneous sync requests without blocking the main thread.
+
+**Lane B: Mobile Interface (Parallel to Lane A start)**
+*Owner: Mobile Engineer*
+1.  **UI Component:** Build a non-modal overlay for the scanner interface allowing agents to resolve conflicts without leaving the scan screen.
+2.  **Local State Management:** Update the local database access layer to flag records as `pending_sync` or `conflict_detected` without altering the shared schema (avoids migration dependency).
+
+**Lane C: Simulation & Load Testing (Parallel to Lane A/B mid-point)**
+*Owner: QA Engineer*
+1.  **Stress Harness:** Create a script simulating 50 concurrent agents hitting the sync endpoint.
+2.  **Network Flakiness:** Configure the network simulator to drop packets randomly, explicitly excluding Tuesday morning runs to avoid known false-failures.
+
+**Serialization Point:** Lane B cannot finalize integration until Lane A provides the conflict flagging API. Lane C cannot begin stress testing until Lane A and B are integrated in a staging build.
+
+## Gates & Checks
+
+**Gate 1: Schema Integrity Check**
+*   **Revision:** Pre-implementation `main`.
+*   **Action:** Verify no changes to the local database schema files.
+*   **Owner:** Tech Lead.
+*   **Constraint:** If schema changes are detected, the build is rejected immediately to protect the legacy reporting tool.
+
+**Gate 2: Concurrency Stress Test**
+*   **Revision:** Release Candidate (RC) build on staging fleet (5 devices).
+*   **Action:** Run the 50-agent simulation harness.
+*   **Pass Criteria:** Zero crashes, memory usage stable, all 50 conflicts resolved within 2 seconds.
+*   **Timing:** Must run outside Tuesday mornings.
+
+**Gate 3: CI Regression Suite**
+*   **Revision:** Final RC.
+*   **Action:** Trigger full regression suite.
+*   **Constraint:** Limited to twice daily; must be scheduled for the morning slot to allow time for fixes before the evening slot.
+
+## Review Process
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer from the Payments Team (external to Warehouse Mobility).
+*   **Scope:** Focus strictly on the conflict resolution logic and the concurrency queue implementation.
+*   **Independence:** Reviewer has no commit access to this branch and must approve via a separate system ticket before merge permission is granted.
+
+**UX Walkthrough**
+*   **Reviewer:** Jordan Lee (Team Lead) + One Field Agent Representative.
+*   **Scope:** Verify the conflict overlay does not block the scanning workflow.
+*   **Format:** Live demo on a physical handheld device, not a simulator.
+
+## Landing Strategy
+
+**Deployment Phasing**
+1.  **Canary Group:** Deploy to 5% of the fleet (lowest volume warehouses).
+2.  **Observation Window:** 24-hour monitoring period. Since reverts are irreversible, this window is critical.
+3.  **Full Rollout:** If error rates remain at 0%, proceed to 100% deployment.
+
+**Human Decisions Required**
+*   **Operations Director Sign-off:** Mandatory before the Canary Group deployment. This is a hard gate; no automation can bypass it.
+*   **Rollback Decision:** If the Canary Group shows data corruption, the Operations Director must decide whether to halt the rollout (leaving 95% on old version) or issue a hotfix. *Note: Binary reversion is impossible; a fix-forward is the only recovery path.*
+
+**Contingency**
+*   If the CI pipeline fails due to the Tuesday network flake, manual verification of the specific test case is required to proceed, documented by the QA Engineer.
+*   If the 50-agent stress test causes memory leaks, the concurrency limit is temporarily lowered to 25 in the config, and the feature flag is tuned to degrade gracefully rather than crash.

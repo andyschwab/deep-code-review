@@ -1,0 +1,57 @@
+**Delivery Plan: DateRangePicker Keyboard Trap Fix**
+
+**Scope & Constraints**
+Fix focus management in `DateRangePicker` to allow 'Escape' to return focus to the trigger without premature closure. No style refactors. Must verify against screen readers and the global `focus-visible` polyfill. Target: Core-ui library. Deadline: Friday.
+
+**Lanes & Parallelism**
+*   **Lane 1: Implementation (Builder)**
+    *   **Work:** Modify focus logic in `DateRangePicker`. Ensure 'Escape' moves focus to trigger, keeps modal state consistent if required, and respects the legacy `focus-visible` polyfill.
+    *   **Parallel:** Runs independently.
+    *   **Output:** Patch commit, updated unit tests proving the focus loop is broken.
+*   **Lane 2: Accessibility Verification (QA)**
+    *   **Work:** Manual verification with screen readers (NVDA/VoiceOver) on the exact revision provided by Lane 1. Confirm navigation flow on a representative screening form.
+    *   **Dependency:** Must wait for Lane 1's local build success.
+    *   **Output:** Accessibility receipt (pass/fail + notes).
+
+**Serialization**
+*   Lane 2 cannot start until Lane 1 produces a build artifact.
+*   Integration and deployment are strictly serialized after both lanes pass.
+
+**Gates & Checks**
+*   **G1 Spec (Immediate):** Confirm acceptance criteria: 'Escape' returns focus to trigger; modal behavior correct; screen reader compatible. Pin base SHA of `core-ui`.
+*   **G4 Implement (Local):** Builder runs existing lightweight unit tests locally. **No new heavy CI suites.** Verify no regression with `focus-visible` polyfill in a local sandbox.
+*   **G5 Verify (Local/Staging):**
+    *   **Unit:** Green exit status on existing unit tests at the exact commit SHA.
+    *   **A11y:** QA signs off on screen reader behavior.
+    *   **Condition:** If the local stack (dev server) does not start, status is `UNVERIFIED`.
+*   **G6 Review (Independent):**
+    *   **Reviewer:** Senior Engineer (not the Builder).
+    *   **Scope:** Code diff + Unit Test coverage + QA receipt.
+    *   **Check:** Ensure no unrelated style changes or refactors slipped in.
+*   **G7 Integrate:** Merge to `main` (or release branch) only after G6 pass. Generate integration receipt.
+*   **G8 Release (Human Gate):**
+    *   **Approver:** Jane Smith (Compliance Lead).
+    *   **Timing:** Must align with Tuesday/Thursday review window. If fix is ready Wednesday, hold merge or merge-to-staging only if safe; production deploy waits for sign-off.
+    *   **Action:** Manual sign-off for staging deployment.
+
+**Landing Strategy**
+*   **Merge:** Squash merge to release branch.
+*   **Deployment:**
+    1.  Deploy to Staging upon Jane Smith's approval (Tue/Thu).
+    2.  Verify on Staging screening forms.
+    3.  Publish `core-ui` package.
+*   **Rollback:**
+    *   **Constraint:** Published versions are irreversible once cached by downstream apps.
+    *   **Mitigation:** Extreme verification in G5 (local) and G6 (review) is mandatory. If a critical failure is found post-publish, issue an immediate patch version (vX.Y.Z+1) rather than attempting a revert. Document the risk in the release manifest.
+
+**Human Decisions Required**
+*   **Jane Smith:** Approval for staging deploy (Tue/Thu only).
+*   **Release Owner:** Final go/no-go for publishing the `core-ui` package given the irreversible cache constraint.
+
+**Cost Control**
+*   Rely strictly on existing unit tests. No new E2E suites added to CI to prevent timeout/credit overruns. All heavy verification (A11y, polyfill conflict) happens locally before push.
+
+**Timeline**
+*   **Day 1:** G1-G4 complete (Local green).
+*   **Day 2:** G5 (QA) + G6 (Review).
+*   **Day 3/5 (Tue/Thu):** G8 (Jane's approval) → Staging Deploy → Production Publish.

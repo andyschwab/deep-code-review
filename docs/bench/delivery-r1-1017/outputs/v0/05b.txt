@@ -1,0 +1,52 @@
+### Delivery Plan: Inventory Schema Update
+
+**Objective:** Add `warehouse_zone` (required string) to inventory API payload, synchronized with ShopFast and MegaMart parser updates.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Coordination) [Serialized First]:**
+    *   **Owner:** Product Analyst / Conductor.
+    *   **Work:** Draft API contract update (protobuf). Contact Jane Smith to lock the exact cutover time window. Confirm ShopFast/MegaMart readiness for that specific window.
+    *   **Output:** Signed spec with pinned cutover time; consumer team confirmation receipts.
+*   **Lane B (Implementation) [Parallel after Spec]:**
+    *   **Owner:** Builder (isolated worktree).
+    *   **Work:** Update protobuf definition, regenerate code, modify provider service to populate `warehouse_zone`, add unit tests for payload structure.
+    *   **Constraint:** Must not trigger CI until Lane A confirms spec freeze.
+*   **Lane C (Consumer Simulation) [Parallel to B]:**
+    *   **Owner:** QA.
+    *   **Work:** Mock the new schema against local simulations of ShopFast/MegaMart parsers to verify they accept the new field and reject the old one (negative test).
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Requires written confirmation from Jane Smith and both vendor leads on the cutover time. **No code changes before this.**
+*   **G4 (Build):** Run CI *once* on the exact merge commit.
+    *   **Check:** Protobuf compatibility, unit tests, payload schema validation.
+    *   **Timing:** Schedule for Wednesday morning to avoid Tuesday staging instability.
+*   **G5 (Verification):**
+    *   **Environment:** Staging (Wednesday only).
+    *   **Action:** Deploy to staging, verify payload contains `warehouse_zone`, confirm non-null enforcement.
+    *   **Receipt:** Screenshot/logs of successful parsing by simulated consumer clients.
+*   **G6 (Review):**
+    *   **Reviewers:** Security Officer (data integrity impact) + Senior Engineer (independent of Builder).
+    *   **Focus:** Protobuf backward compatibility strategy (feature flag vs. hard switch), null-safety logic.
+
+#### 3. Review Strategy
+*   **Independence:** Builder cannot approve their own code. Security Officer must explicitly sign off on the "non-nullable" database migration risk.
+*   **Artifact:** Review occurs on the exact SHA that passed G5. No review on stale branches.
+
+#### 4. Landing & Deployment
+*   **Merge Strategy:**
+    1.  Merge to integration branch only after G6 approval.
+    2.  **Human Gate:** Dual approval required (Logistics Lead + Security Officer) before merging to `main`/production branch.
+*   **Deployment Window:**
+    *   Strictly aligned with the confirmed cutover time.
+    *   **Sequence:** Vendor teams deploy parser updates first → Verify heartbeat → Deploy Provider Service → Verify `warehouse_zone` presence in production logs.
+*   **Rollback Plan:**
+    *   **Constraint:** Reverting is impossible without a 4-hour data migration once the column is non-nullable.
+    *   **Mitigation:** Use a feature flag to toggle the *enforcement* of the field if the schema is deployed early, OR ensure the database migration script is pre-staged and tested to revert the column state if the cutover fails.
+    *   **Decision Point:** If vendor confirmation is not received 24h prior, **abort merge**. Do not deploy early; missing field causes consumer crash.
+
+#### 5. Risks & Mitigations
+*   **CI Cost:** Only one full CI run permitted. Pre-validate locally to avoid redundant $45 triggers.
+*   **Timing:** Missing the weekend window delays distribution. Buffer time built into the cutover plan.
+*   **Data Integrity:** The "non-nullable" shift is permanent. Verification must prove 100% of records generate a valid `warehouse_zone` before the switch flips.
+
+**Next Step:** Initiate Lane A to secure the cutover time from Jane Smith. No code work begins until this is documented.

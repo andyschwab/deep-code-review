@@ -25,6 +25,8 @@ this pack for gated multi-role work, always `deep-code-review` for audit.
 Persisted artifacts (code, PR bodies, ADRs, commits) are **normal English**;
 chat may be terse.
 
+**Plan answers** (a ticket asking for a delivery plan): name each lane's work from the ticket's own facts (files, tests, commands), not role titles or gate numbers. Run the cheapest check first (local, unit). Run a costly or flaky CI or integration suite once per candidate SHA, after local green, and never again on the merged SHA unless the SHA changed.
+
 **No files/tools (plain chat)?** Say so once; never claim a reference loaded or a command run. Write `would run: <cmd>`, mark skipped depth `unverified-depth`, answer first, reasoning short.
 
 **Task to entry** — a match skips `INDEX.md`; otherwise read it (every reference/script trigger) and open only matching rows.
@@ -61,8 +63,8 @@ delivery pack. One conductor. Hats, not headcount. Before any agent-originated
 
 Smallest sufficient team. Hats fire from risk — not standing roles, never a
 bot or profile per role; one worker wears several compatible hats on a small
-change. The full roster (per hat: trigger, gate owned, build
-discipline, `deep-code-review` lens) is `references/roles.md`. The core hats:
+change. The full roster (per hat: trigger, gate, build
+discipline, review lens) is `references/roles.md`. The core hats:
 
 - **Conductor** — intent, scope, task graph, merge plan, evidence roll-up.
   Never self-approves.
@@ -93,9 +95,7 @@ exactly four things: a lane blocking a gate, a lane returning a receipt (the
 output contract, at an exact SHA), a lane exceeding its stated time/cost budget,
 or a preflight collision (*Worktrees and occupancy*, below). Between those
 events the Conductor reads status only — not a lane's raw tool-call transcript —
-and does not do the lane's work itself, the same way a subagent returns a
-distilled summary while its own context stays isolated from its parent's
-(Anthropic, context engineering for AI agents).
+and does not do the lane's work itself.
 
 **Size the fan-out to the decomposition, not to available concurrency** —
 never spawn more lanes than there are independently-verifiable objectives —
@@ -133,7 +133,7 @@ making it non-blocking is (`pipeline-optimizer.md`).
 
 | Gate | Input | Required output | Hard condition |
 |---|---|---|---|
-| G0 Intake | Owner goal | Brief | Goals, non-goals, constraints, and **appetite** (a stated time-box, not an estimate — Shape Up); `idea-critic` on any agent-originated approach before the owner sees it |
+| G0 Intake | Owner goal | Brief | Goals, non-goals, constraints, and **appetite** (a stated time-box, not an estimate); `idea-critic` on any agent-originated approach before the owner sees it |
 | G1 Spec | Brief | Testable spec | Acceptance criteria; names `deep-code-review` scope and pinned base SHA |
 | G2 Plan | Spec | Acyclic work graph | Role triggers, one writer per worktree; **every lane with a paid model call names a per-lane token/dollar budget before G4 starts — no budget set is blocked, not unlimited** (a cap that defaults to off is not a cap); in a multi-repo plan, classify each item provider vs consumer before cutting lanes (`references/roles.md` *No scope creep*) |
 | G3 Design | Graph | ADRs / contracts | Interfaces, NFR budgets, data/security decisions explicit. Shape: `references/template-adr.md` |
@@ -214,10 +214,9 @@ file's **Routed triggers** (broadcast asks, crossed splits, merge-holds, shared 
 **Unattended / autonomous operating mode.** When this skill runs as a **continuous loop over a backlog** rather than
 one feature at a time: `references/unattended-operating-mode.md` — **read it when**
 starting or shaping an unattended / overnight autonomous run. It composes
-`deep-code-review` (review), `idea-critic` (decision), and this skill's gates
-into one bounded loop: stopping needs a stated termination condition, a
-**run-start checklist + run-end self-audit** bound the run, and a default set of
-offset recurring loops runs it. A **loop, not a standing swarm**.
+`deep-code-review`, `idea-critic` and these gates into one bounded loop: a stated
+termination condition, a **run-start checklist + run-end self-audit**, and a
+default set of offset recurring loops. A **loop, not a standing swarm**.
 
 **A work item's own completion is G7, not G8.** Once a lane's change is
 integrated (G7), the work item it closes is done; G8 Release is a separate,
@@ -262,11 +261,10 @@ throwaway integration SHA plus one aggregate gate before a merge train (G7).
 - Occupancy is **visibility, not a lock**. Say what is live or stale; do not
   comment "do not merge" on a peer's PR after you stopped writing.
 - **A stacked/child lane branches off the parent's LOCAL ref, never polls the
-  remote** (#1152). Worktrees sharing one `.git` already see a parent's branch
-  tip the moment it commits (`git rev-parse <parent-branch>`, `git worktree
-  list`) — well before any push; polling `git fetch` or the forge API instead
-  serializes the child on a push queue that has nothing to do with whether the
-  work is ready. Reserve remote-based readiness for cross-machine coordination
+  remote**. Worktrees sharing one `.git` already see a parent's branch
+  tip at commit time (`git rev-parse <parent-branch>`, `git worktree list`),
+  before any push; polling `git fetch` or the forge API serializes the child
+  on a push queue unrelated to readiness. Reserve remote-based readiness for cross-machine coordination
   with no shared local ref (`references/multi-session-coordination.md`).
 
 ## Environment probe (before you size anything)
@@ -347,7 +345,7 @@ commands actually run with exit status, findings with severity + location
 + evidence, remaining risk, cost/`UNPRICED`. `NONE` is a valid findings
 result.
 
-**Work-item contract (what the output is graded against).** A work item is
+**Work-item contract.** A work item is
 specified as **Where** (the area it touches), **Done-when** (observable
 acceptance), **Verify** (how it's checked), and **Why** (so scope can be cut).
 Missing *Done-when* or *Verify* is underspecified — sent back to be scoped, not
@@ -359,9 +357,8 @@ started.
 
 - Start/auth failure: do not claim work ran.
 - **A running lane is not a finished one.** A spawned worker/worktree is work
-  in progress; report what is *running*, and a lane's output as done only once
-  verified — a green gate at the exact SHA, or a change confirmed in the running
-  product. Never present "N lanes attacking it" as progress.
+  in progress; report what is *running*; a lane's output is done only once
+  verified (a green gate at the exact SHA, or confirmed in the running product). Never present "N lanes attacking it" as progress.
 - **A lane's scope ends at its own finish line** (PR open, gates green): report once, stop re-polling — `references/verification-handback.md` **A lane looping in its own self-poll**.
 - After two equivalent failures, change approach; never a silent drop.
 - Provider/model unavailable: fail that lane closed; no silent fallback.

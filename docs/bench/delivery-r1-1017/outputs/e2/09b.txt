@@ -1,0 +1,53 @@
+### Delivery Plan: Partial Refund Logic Fix
+
+**Scope & Constraints**
+Fix fee proration for partial cancellations in `finance-core`. Logic applies only to future events; historical data is read-only. The database migration is irreversible. Production deployment is gated to Tuesdays, 2–4 PM, requiring Compliance sign-off.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Migration Design) – Conductor + Product Analyst**
+    *   Define the proration formula explicitly.
+    *   Draft the irreversible migration script (dry-run only).
+    *   *Serialization:* Must complete before Lane B starts to ensure the schema matches the code.
+*   **Lane B (Implementation) – Builder**
+    *   Isolated worktree. Implement calculation logic.
+    *   Write unit tests for edge cases (single seat, full group, zero seats).
+    *   *Constraint:* Do not run full integration suite locally; rely on unit tests.
+*   **Lane C (Verification Prep) – QA**
+    *   Prepare staging validation steps based on Lane A's spec.
+    *   Identify the specific flaky currency check logs to ignore during review.
+
+#### 2. Gates & Checks
+*   **G1/G2 (Spec & Plan):** Owner approves the proration formula and confirms the "future-only" scope. Migration script reviewed for irreversibility risks.
+*   **G3 (Design):** ADR confirming no historical data writes.
+*   **G4 (Implement):** Builder commits code + unit tests. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Staging:** Deploy to staging (requires 2 Senior Engineer approvals).
+    *   **Execution:** Run integration suite *once* on the exact staging SHA.
+    *   **Flake Handling:** If currency conversion fails with timeout errors, verify logs and mark as known flake; otherwise, block.
+    *   **UI/Logic Check:** Verify refund receipt matches the prorated expectation for a test corporate booking.
+*   **G6 (Review):**
+    *   **Code:** Independent review by Ledger Team member (not the Builder).
+    *   **Security/Compliance:** Review migration script and data boundary guarantees.
+    *   **Evidence:** Staging pass receipt + unit test coverage report.
+
+#### 3. Landing Strategy
+*   **Integration:** Merge to `main` only after G6 approval.
+*   **Human Gates:**
+    *   **Staging Deploy:** Requires 2 Senior Engineer approvals (manual).
+    *   **Production Deploy:** Requires Compliance Officer sign-off. Must be scheduled for a Tuesday between 2 PM and 4 PM.
+*   **Rollback Plan:**
+    *   *Code:* Revert commit immediately if logic errors appear.
+    *   *Data:* Since migration is irreversible, a "rollback" involves a forward-fix script to correct any erroneous new records. No data repair can undo the schema change.
+    *   *Feature Flag:* If available, disable the new calculation path; otherwise, code revert is the primary switch.
+
+#### 4. Risk & Budget
+*   **Cost Control:** Integration tests cost $12/run. Limit to one successful run on staging. No re-runs unless a genuine regression is found (ignore known flake).
+*   **Irreversible Action:** The database migration. Must be dry-run against a production snapshot before the Tuesday window.
+*   **Timeline:** Target completion by the Tuesday prior to the conference season start.
+
+#### 5. Immediate Next Steps
+1.  **Conductor** drafts the spec (Lane A) and requests owner confirmation on the proration math.
+2.  **Builder** sets up the isolated worktree (Lane B) pending spec approval.
+3.  **QA** reserves the staging window and prepares the flake-ignore criteria (Lane C).
+
+*No files were read or commands executed in this plan. All actions are based strictly on the ticket and repository facts provided.*

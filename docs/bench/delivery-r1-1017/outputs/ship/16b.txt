@@ -1,0 +1,57 @@
+### Delivery Plan: Legacy Inventory Sync API Deprecation
+
+**Objective:** Enforce HTTP 410 Gone for v1 Inventory Sync API after September 30th, maintain v2 stability, update documentation, and ensure compliant logging.
+
+#### 1. Lanes & Parallelism
+
+*   **Lane A: Gateway Logic & Logging (Serialized)**
+    *   **Owner:** Builder
+    *   **Work:** Modify the shared monorepo gateway config to return 410 for v1 routes post-deadline. Implement the specific retry flag for the logging system to prevent dropouts during high-volume rejection. Isolate 410 logs into a dedicated compliance stream.
+    *   **Constraint:** Must be serialized with Lane C due to shared monorepo file contention.
+*   **Lane B: Documentation Update (Parallel)**
+    *   **Owner:** Technical Writer (or Builder wearing Docs hat)
+    *   **Work:** Update developer portal to mark v1 as "Deprecated/Sunset" with immediate effect and explicit deadline notice. Verify links and version selectors.
+    *   **Constraint:** Can run parallel to Lane A.
+*   **Lane C: Integration & Regression (Serialized)**
+    *   **Owner:** QA
+    *   **Work:** Validate v2 operational stability under load. Verify v1 returns exactly 410 (not 404/500). Confirm compliance logs capture retries correctly.
+    *   **Constraint:** Waits for Lane A completion. Requires Tuesday release window for final integration test against the shared gateway.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec (Immediate):** Confirm September 30th logic handles timezone edge cases (UTC vs. Local). Define "compliance audit" log schema.
+*   **G2 Plan (Owner Approval):** Confirm Tuesday release window availability with Tech Lead and Compliance Officer. Approve lane budget (limit CI runs to 1 per candidate SHA to save credits).
+*   **G3 Design:** Review gateway config diff to ensure no impact on the three other shared services.
+*   **G4 Implementation:**
+    *   **Base SHA:** Pin to current `main` before changes.
+    *   **Check:** Local unit test for 410 response generation and log retry flag injection.
+*   **G5 Verification (Exact Revision):**
+    *   **Environment:** Sandbox.
+    *   **Action:** Run targeted regression (v2 smoke + v1 410 verification). Do not run full 55-minute suite unless v2 core paths change; rely on targeted integration tests.
+    *   **Proof:** Screenshots of 410 response headers and sample compliance log entries with retry flags.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Engineer (Independent of Builder).
+    *   **Focus:** Security/Compliance check on log retention and shared config safety.
+*   **G7 Integration:** Merge to release branch.
+
+#### 3. Review Strategy
+
+*   **Code/Config:** Reviewed by Senior Engineer (not the Builder). Focus on shared file isolation.
+*   **Compliance/Logs:** Reviewed by Compliance Officer (Human Gate). Must verify log schema matches audit requirements.
+*   **Documentation:** Reviewed by Product Owner or Tech Lead for accuracy of sunset messaging.
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:**
+    *   Merge Lane B (Docs) immediately upon approval.
+    *   Queue Lane A (Gateway) for the next available Tuesday window.
+    *   **Human Decision Required:** Dual approval (Tech Lead + Compliance Officer) mandatory before merging the gateway config.
+*   **Deployment:**
+    *   Deploy during Tuesday coordinated release window.
+    *   Monitor 410 error rates and log ingestion immediately post-deploy.
+*   **Rollback:**
+    *   If v2 stability degrades or logs fail completely: Revert gateway config commit immediately.
+    *   Rollback plan must be pre-approved by the Compliance Officer as part of the G2 sign-off.
+*   **Post-Deploy:** Verify compliance logs for the first 24 hours of live traffic to ensure audit readiness.
+
+**Risks:** Shared monorepo file collision (mitigated by serialization and Tuesday window); Log flakiness (mitigated by retry flag); CI cost (mitigated by targeted testing).

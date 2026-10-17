@@ -1,0 +1,52 @@
+### Delivery Plan: AcmeHealth APAC Launch
+
+**Objective:** Enable patient portal in APAC with strict data residency, coordinating `acme-cloud-apac` (infra) and `patient-portal-core` (app).
+
+#### 1. Lanes & Serialization
+*   **Lane A (Infra Provisioning):** Owner: Builder (Infra). Worktree: `acme-cloud-apac`.
+    *   Task: Provision APAC cluster with local encryption keys. Configure VPC to block egress to US vaults.
+    *   Constraint: **Irreversible.** Must be dry-run validated before execution.
+*   **Lane B (App Configuration):** Owner: Builder (App). Worktree: `patient-portal-core`.
+    *   Task: Update routing logic to target APAC endpoints only. Disable cross-border backup jobs.
+    *   Dependency: Waits for Lane A's endpoint details (mocked initially, finalized post-provision).
+*   **Lane C (Compliance Artifacts):** Owner: Product Analyst.
+    *   Task: Generate data flow diagrams showing local-only storage.
+    *   Constraint: **Blocked Gate.** Cannot proceed to G8 without Legal sign-off.
+*   **Serialization:** Lane A must complete and verify network isolation before Lane B finalizes integration tests. Lane C runs in parallel but blocks final release.
+
+#### 2. Gates & Checks
+*   **G2 (Plan):** Define token budget for CI ($12/run). Limit retries due to cost/flakiness.
+*   **G3 (Design):** Architect review of encryption key management and VPC rules. Explicit "No US Egress" assertion.
+*   **G4 (Implement):**
+    *   Infra: Terraform plan output showing zero US resources.
+    *   App: Unit tests for routing logic.
+*   **G5 (Verify):**
+    *   **Exact Revision:** Run `data-residency-check` on the specific commit SHA.
+    *   **Flake Mitigation:** If latency >200ms causes failure, manual re-trigger allowed once; second failure halts lane for investigation (no blind retries).
+    *   **Stack Up:** Verify local cluster is reachable and US vault connections time out.
+*   **G6 (Review):**
+    *   **Security:** Independent AppSec review of VPC rules and backup job configs.
+    *   **QA:** Verify routing via headed-browser evidence on APAC route.
+    *   **Constraint:** Shared config files in common library must be updated outside business hours to avoid freeze conflicts.
+
+#### 3. Review Strategy
+*   **Infra Code:** Reviewed by Senior Cloud Engineer (not the Builder). Focus: Encryption, network ACLs.
+*   **App Logic:** Reviewed by Lead Backend Dev (not the Builder). Focus: Routing tables, backup exclusions.
+*   **Data Flow:** Reviewed by Legal/Compliance (Human Gate). Agent prepares diagrams; Legal approves.
+*   **Independence:** Builder never approves their own PRs. Security review is mandatory before merge.
+
+#### 4. Landing & Human Gates
+*   **Merge Train:**
+    1.  Merge Infra PR (`acme-cloud-apac`) after G6 green.
+    2.  Merge App PR (`patient-portal-core`) pointing to new infra.
+    3.  Update common library (off-hours) if required.
+*   **Human Decisions (G8 Release):**
+    *   **Approval 1:** Regional Director.
+    *   **Approval 2:** Chief Compliance Officer.
+    *   **Legal Sign-off:** Explicit written approval on data flow diagrams required before deployment trigger.
+*   **Deployment:** Dual-approval workflow triggers the deploy. No auto-deploy.
+*   **Rollback:**
+    *   **App:** Immediate revert of `patient-portal-core` to previous stable version.
+    *   **Infra:** **No automated rollback.** Destruction requires a new ticket and full rebuild. Mitigation: Traffic shift back to US (if legally permissible for non-PHI) or service halt until rebuild completes.
+
+**Risk Note:** The `data-residency-check` flakiness is a known hazard. Success is defined by a green gate at the exact SHA, not a passing trend. If the check fails twice, the lane escalates to human triage rather than retrying.

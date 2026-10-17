@@ -1,0 +1,56 @@
+**Delivery Plan: Q3 Payments API Sunset**
+
+**Strategy**
+This is a high-risk, irreversible migration with a hard compliance deadline. We will execute in three serialized lanes to isolate risk, followed by a coordinated cutover. Parallel work is limited to documentation and monitoring prep; code changes and database migrations must be serialized to prevent state corruption.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Documentation & Comms (Parallel, Read-Only)**
+    *   **Owner:** Technical Writer (supported by Product Analyst).
+    *   **Work:** Update public docs to mark v1 as "Retired" with a link to the migration guide. Draft internal comms for Support teams regarding the sunset date.
+    *   **Constraint:** No code changes. Must be ready before G8.
+
+2.  **Lane B: Logic Removal & Schema Migration (Serialized, Write)**
+    *   **Owner:** Senior Backend Engineer (Builder).
+    *   **Work:** Remove legacy v1 routing logic. Execute the irreversible database schema change in a dedicated migration script.
+    *   **Constraint:** Must run alone in the worktree. No other writers allowed. This lane includes the "point of no return" DB change.
+
+3.  **Lane C: Monitoring & Alert Hygiene (Serialized, Post-B)**
+    *   **Owner:** SRE / DevOps Engineer.
+    *   **Work:** Disable v1-specific traffic alerts to prevent false positives post-cutover. Verify v2 alerting thresholds remain active.
+    *   **Constraint:** Must wait for Lane B's code to be merged to ensure alert definitions match the final code state.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Define exact SHA for the "pre-sunset" state. Explicitly list the flaky currency conversion check as "non-blocking" in the test manifest to avoid release paralysis.
+*   **G3 (Design):** Architect review of the irreversible DB migration script. Must prove rollback is impossible without a full backup restore; confirm backup strategy is tested.
+*   **G4 (Implement):** Lane B commits must include unit tests for v2 paths to ensure no regression. *Note: Full regression suite (50 mins) will run off-peak only on the integration branch, not per commit.*
+*   **G5 (Verify):**
+    *   **Functional:** Verify v2 traffic flows correctly in Staging. Acknowledge Staging load limits; rely on code review and unit tests for concurrency guarantees.
+    *   **Flake Handling:** If the currency conversion check fails, verify it is the known flake. If any *other* check fails, block.
+*   **G6 (Review):**
+    *   **Code:** Lead Architect (independent of Builder) reviews Lane B.
+    *   **Compliance:** Compliance Officer reviews the removal of outdated encryption modules.
+    *   **Security:** Verify no v1 endpoints remain reachable.
+
+**Landing & Human Gates**
+
+*   **Integration (G7):** Merge Lane A and Lane B into the release branch. Run the full 50-minute regression suite off-peak.
+*   **Human Approval (G8):** **Dual Approval Required.**
+    1.  **Lead Architect:** Confirms code integrity and v2 stability.
+    2.  **Compliance Officer:** Confirms encryption standards are met and v1 is fully retired.
+    *   *Action:* Only after both approve will the deploy trigger.
+*   **Deployment:** Deploy during a low-traffic window.
+*   **Post-Deploy (G9):**
+    *   Execute Lane C (disable v1 alerts).
+    *   Verify zero v1 traffic in production logs.
+    *   Confirm v2 SLOs are met.
+
+**Rollback & Contingency**
+
+*   **Rollback Plan:** Since the DB schema change is irreversible, a standard code rollback will fail. The only recovery path is a **full database restore from the pre-migration backup**.
+*   **Trigger:** If v2 traffic shows >1% error rate or latency spikes immediately post-deploy, initiate full DB restore and revert code to the pre-sunset SHA.
+*   **Risk Acceptance:** The inability to perform a granular rollback is accepted due to the compliance mandate, provided the backup restore procedure is verified dry-run prior to G8.
+
+**Timeline**
+All lanes must reach G7 by September 29th to allow for off-peak regression testing. G8 approval and deployment are scheduled for September 30th, early morning, to meet the hard deadline.

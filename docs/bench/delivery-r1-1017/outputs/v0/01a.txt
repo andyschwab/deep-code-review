@@ -1,0 +1,48 @@
+### Delivery Plan: Zero-Downtime Product Catalog Reindex
+
+**Objective:** Implement blue-green index swapping to eliminate lock contention and enable instant rollback, validated in staging before a guarded production rollout.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Builder - Core Logic):** Implements the dual-index writer and atomic alias switcher.
+    *   *Constraint:* Must read `global-aliases.json` usage patterns first to avoid breaking the recommendation engine.
+    *   *Output:* New indexing job script and alias management module.
+*   **Lane B (QA - Staging Simulation):** Sets up a staging environment mirroring production latency (12s read-replica lag).
+    *   *Task:* Run dry-run reindex against a sampled dataset to verify the $450 compute cost is avoided in prod.
+    *   *Parallel:* Runs concurrently with Lane A once the staging env is ready.
+*   **Lane C (Security/Resilience):** Designs the rollback trigger and anomaly detection logic.
+    *   *Task:* Define specific error log patterns that trigger an automatic revert.
+    *   *Serialization:* Must complete before G5 (Verify) to ensure rollback paths are testable.
+
+**Serialization Point:** Lane A and C must merge their changes into a single integration branch before Lane B can perform end-to-end validation of the switch/rollback cycle.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Define acceptance criteria: "Switch latency < 100ms," "Rollback < 5s," "Zero checkout timeouts during reindex." Pin base SHA.
+*   **G2 (Plan):** Explicitly budget the staging dry-run compute costs. Confirm the 02:00–04:00 UTC deployment window is reserved.
+*   **G3 (Design):** ADR detailing how `global-aliases.json` is modified atomically to prevent race conditions with the three microservices.
+*   **G4 (Implement):** Code committed to isolated worktrees. Unit tests for alias switching logic included.
+*   **G5 (Verify):**
+    *   *Revision:* Exact SHA from G4.
+    *   *Action:* Execute full reindex in staging. Simulate 12s DB lag to ensure health checks do not false-positive.
+    *   *Proof:* Journey test showing successful switch and forced rollback without traffic interruption.
+*   **G6 (Review):** Independent review by a senior engineer not involved in Lane A. Focus on the atomicity of the alias swap and the safety of the rollback trigger.
+
+#### 3. Review Strategy
+*   **Code Review:** Conducted by a Commerce Platform engineer independent of the builder. Must verify that `global-aliases.json` handling prevents partial writes.
+*   **Security/Resilience Review:** Focused on the rollback mechanism. Must confirm that the system fails closed (reverts to old index) if the new index validation fails.
+*   **Operational Review:** Jane Smith (On-call Lead) must review the runbook and the specific error log signatures defined in Lane C.
+
+#### 4. Landing & Human Gates
+*   **Integration:** Merge verified lanes into the release branch. Run the 45-minute CI data-integrity scan on this exact SHA.
+*   **Human Decision (Gate G8):**
+    *   *Approver:* Jane Smith.
+    *   *Window:* 02:00 – 04:00 UTC only.
+    *   *Action:* Explicit approval to deploy to `us-east-1`.
+*   **Deployment Strategy:**
+    1.  Deploy new indexing service (blue) alongside existing (green).
+    2.  Trigger background reindex.
+    3.  Upon completion, execute atomic alias switch.
+    4.  Monitor error logs for 15 minutes.
+*   **Rollback:** If anomalies match Lane C's defined signatures, the system automatically reverts the alias to the previous stable index. Manual intervention required only if auto-rollback fails.
+*   **Post-Deploy (G9):** Verify search latency and checkout success rates. Confirm no stale data is served to mobile users.
+
+**Risk Mitigation:** If the staging dry-run exceeds budget or fails due to latency issues, the production deployment is blocked until the root cause is resolved. No production attempts without a successful staging receipt.

@@ -1,0 +1,34 @@
+**Delivery Plan: Promote Fraud Detection Model v4.2**
+
+**Lanes & Parallelism**
+*   **Lane A (Builder/Implementer):** Prepare the deployment manifest in `payment-guardian-core`. Update the model pointer to v4.2 and configure the canary strategy (start 5%, manual scale). *Serialized:* Must wait for Lane B's config lock.
+*   **Lane B (Compliance/Architect):** Draft the change to `global-fraud-rules.json`. Request explicit approval from the Lead Architect and Compliance Officer. *Serialized:* This is the critical path blocker; no code merges until this lock is granted.
+*   **Lane C (QA/Verification):** Execute the automated accuracy gate against the shadow traffic dataset in staging. Measure latency (threshold <200ms) and false positive reduction. *Parallel:* Can run independently once the v4.2 artifact is built, but must complete before G5 sign-off. Note: Skip end-to-end timeout tests in staging due to known flakiness; rely on shadow traffic metrics instead.
+
+**Gates & Checks**
+*   **G2 (Plan):** Confirm budget cap. Given the $45/run cost, limit CI triggers to exactly two: one for the candidate SHA validation, one for the final integration SHA. No speculative rebuilds.
+*   **G3 (Design):** Verify the rollback procedure. Since production deploys are irreversible without a 40-minute DB rollback, the "abort" condition must trigger an immediate config reversion to v4.1, not a database restore.
+*   **G5 (Verify):** Run on the **exact candidate SHA**.
+    1.  Shadow traffic accuracy gate: PASS/FAIL.
+    2.  Latency check: Must be <200ms p99.
+    3.  Canary config audit: Confirm 5% start, no auto-scale.
+    *Condition:* If any check fails, the lane outputs "ABORT" and the system remains on v4.1.
+*   **G6 (Review):** Independent review of the deployment manifest and `global-fraud-rules.json` diff. Reviewer must not be the Builder. Focus on the rollback trigger logic and canary percentages.
+*   **G7 (Integrate):** Merge to the release branch only after G6 approval and the Compliance/Architect lock is satisfied.
+
+**Review Strategy**
+*   **Code/Config:** Reviewed by a senior engineer from a different squad (not Trust & Safety) to ensure independence.
+*   **Compliance:** The Lead Architect and Compliance Officer act as the mandatory human gate for `global-fraud-rules.json`. Their approval is a hard prerequisite for G7.
+*   **Security/Risk:** The Risk Operations Lead provides the final "go/no-go" for scaling canary traffic post-deploy.
+
+**Landing & Human Decisions**
+*   **Merge Train:** Single commit to the release branch. No merge queue batching to avoid delay during the maintenance window.
+*   **Human Gates (Required):**
+    1.  **Compliance Lock:** Architect and Compliance Officer must approve the JSON change before merge.
+    2.  **Production Promotion:** The VP of Engineering must apply the promotion tag. The agent cannot bypass this.
+    3.  **Canary Expansion:** After the 5% canary is live and stable, the Risk Operations Lead must manually sign off to increase traffic. No automatic scaling.
+*   **Rollback:** Automated trigger if latency >200ms or accuracy gate fails during shadow testing. In production, if issues arise at 5% canary, immediate reversion to v4.1 config is executed. Full DB rollback is the last resort due to the 40-minute penalty.
+*   **Timing:** Execution scheduled strictly for the Tuesday maintenance window to minimize peak-hour risk.
+
+**Failure Mode**
+If the VP approval is not received by the window start, or the Compliance lock is denied, the deployment is cancelled. No partial rollout occurs. If the shadow gate fails, the candidate SHA is rejected, and v4.1 remains active.

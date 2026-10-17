@@ -1,0 +1,49 @@
+### Delivery Plan: Stabilize Orbit-9 Checkout Flow Tests
+
+**Objective:** Reduce Orbit-9 E2E flakiness from 40% to <1% without removing mandatory compliance checks or altering global audit rules.
+
+#### 1. Lanes & Parallelism
+*   **Lane A: Root Cause Analysis (Serial, First)**
+    *   **Actor:** Builder (paired with QA Analyst).
+    *   **Scope:** Isolate the "known flaky network check" in `global-setup`. Analyze logs from the last 20 failed runs vs. successful local runs.
+    *   **Constraint:** Must coordinate with QA Ownership Team before proposing logic changes. No code changes yet.
+    *   **Output:** A diagnostic report pinpointing whether the failure is timing, race condition, or data staleness (midnight snapshot issue).
+*   **Lane B: Test Data Strategy (Parallel to A, Read-Only)**
+    *   **Actor:** QA Analyst.
+    *   **Scope:** Verify if the midnight UTC snapshot refresh correlates with failure spikes. Propose a static, compliant seed set for the Orbit-9 flow that does not require global config changes.
+    *   **Output:** A verified data fixture plan.
+*   **Lane C: Fix Implementation (Serial, After A & B)**
+    *   **Actor:** Builder.
+    *   **Scope:** Implement the fix (e.g., explicit retry logic for the network check, decoupling Orbit-9 from the flaky global module, or stabilizing data seeding).
+    *   **Constraint:** Changes to test runner config are irreversible; changes must be additive or scoped strictly to Orbit-9.
+    *   **Output:** Patch ready for review.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Confirm scope with QA Ownership. Define "Stable" as 50 consecutive green runs in CI.
+*   **G2 (Plan):** Review diagnostic report. Ensure the fix does not bypass compliance rules. **Human Gate:** QA Lead approval on the approach.
+*   **G3 (Design):** Verify the fix handles the midnight snapshot edge case.
+*   **G4 (Implement):** Code change in a dedicated worktree. Unit tests for the new retry/stability logic.
+*   **G5 (Verify):**
+    *   **Local:** Builder runs the specific Orbit-9 suite 10 times locally against the read-only snapshot.
+    *   **CI:** Trigger a dedicated pipeline run on the exact commit SHA. Cost check: Limit to 3 retry attempts max ($36 cap) before re-evaluating.
+    *   **Condition:** Green status on the exact SHA. If the global-setup fails, the fix must gracefully handle it without failing the Orbit-9 assertion falsely.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior QA Engineer (Independent of Builder).
+    *   **Focus:** Compliance adherence, no removed audit checks, logic soundness.
+    *   **Security:** Verify no secrets exposed in new logging/retry logic.
+
+#### 3. Landing & Human Decisions
+*   **Integration:** Merge to a staging branch first. Do not merge directly to `main`.
+*   **Human Gate (Critical):** Explicit written approval from **Jane Smith (Compliance Officer)** is required before deploying to Staging, as this touches financial transaction verification.
+*   **Rollout:**
+    1.  Deploy to Staging (post-approval).
+    2.  Monitor for 24 hours or 50 merges.
+    3.  If stable, merge to `main` via merge train.
+*   **Rollback:** If flakiness returns >5% in Staging, revert the commit immediately. The "irreversible" config rule applies to production branches; staging allows validation. If the config change itself was the error and cannot be reverted, a counter-patch must be prepared instantly.
+
+**Risks:**
+*   **Cost:** Unbounded CI retries. Mitigation: Hard cap on pipeline runs per lane.
+*   **Data:** Stale midnight snapshots causing false negatives. Mitigation: Lane B's static fixture.
+*   **Compliance:** Accidental removal of audit trails. Mitigation: Independent QA review focused solely on audit preservation.
+
+**Next Step:** Initiate Lane A and schedule sync with QA Ownership Team.

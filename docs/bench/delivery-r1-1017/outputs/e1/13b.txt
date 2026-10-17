@@ -1,0 +1,49 @@
+### Delivery Plan: APAC Region Enablement
+
+**Strategy:** Two-repo coordination with serialized infrastructure provisioning followed by parallel application hardening. Cost optimization via off-hours CI.
+
+#### Lanes & Serialization
+1.  **Lane A (Infra Provisioning):** `global-net` repo.
+    *   **Work:** Define Singapore VPC, subnets, and local backup storage buckets with region-locked policies. Configure DNS routing rules for citizen data.
+    *   **Constraint:** Must complete before Lane B validates connectivity.
+    *   **Cost Control:** Queue CI runs for off-business hours to avoid 2x cost.
+2.  **Lane B (App Logic Hardening):** `dispatch-core` repo.
+    *   **Work:** Implement storage boundary enforcement in the routing layer. Add logic to reject personal address writes to non-APAC endpoints. Update backup job configurations to target local buckets only.
+    *   **Parallelism:** Can run concurrently with Lane A's initial planning, but integration testing waits for Lane A's infrastructure receipt.
+3.  **Lane C (Compliance Artifacts):** Documentation only.
+    *   **Work:** Generate data flow diagrams showing strict segregation of citizen data vs. global analytics.
+    *   **Dependency:** Requires final architecture decisions from Lanes A and B.
+
+#### Gates & Checks
+*   **G1 Spec:** Pin base SHAs for both repos. Define "Data Residency" acceptance criteria: zero bytes of PII egress from SG region in test logs.
+*   **G3 Design:** Architectural Decision Record (ADR) confirming backup snapshot immutability within SG borders.
+*   **G4 Implementation:**
+    *   `global-net`: Terraform plan showing no cross-region replication for PII buckets.
+    *   `dispatch-core`: Unit tests for routing logic. *Note:* Explicitly configure the flaky currency converter check to fail the build if error rate >0%, overriding the 2% ignore rule for this release.
+*   **G5 Verification (Exact Revision):**
+    *   **Infra:** Dry-run deployment to staging SG region. Verify backup snapshot location metadata.
+    *   **App:** Integration test against Lane A's staging endpoints. Assert failure when attempting to write SG user data to US storage.
+    *   **UI/Flow:** Headed-browser evidence of internal testing endpoints responding in SG.
+*   **G6 Review:**
+    *   **Security:** Independent review of `global-net` IAM policies and `dispatch-core` routing logic. Must verify no hardcoded US fallbacks.
+    *   **Compliance:** Review Lane C diagrams against legal requirements.
+
+#### Landing & Human Gates
+*   **Merge Strategy:**
+    1.  Merge `global-net` changes to integration branch. Run 45-min CI (scheduled off-hours).
+    2.  Once Infra is green, merge `dispatch-core`. Run CI.
+    3.  Create integrated release manifest.
+*   **Human Approvals (Hard Gates):**
+    *   **Internal Testing (Friday):** Requires Regional Director approval to enable SG endpoints for internal IPs only.
+    *   **Customer Traffic:** **BLOCKED** until Compliance Officer signs off on data flow diagrams. No customer traffic flows without this explicit artifact.
+    *   **Production Deploy:** Requires dual approval from Regional Director AND Chief Security Officer via the internal portal.
+*   **Rollback Plan:**
+    *   **App:** Revert `dispatch-core` to previous SHA (instant).
+    *   **Infra:** Database migration is irreversible without cold storage restore (6hr RTO). **Mitigation:** Perform database schema migration on a isolated clone first. Only migrate production DB after successful internal testing sign-off. If critical failure occurs post-migration, initiate cold storage restore immediately.
+
+#### Risks & Mitigation
+*   **Flaky Test:** The currency converter module must be patched or strictly monitored; do not rely on the 2% ignore threshold for launch.
+*   **Irreversible Migration:** Do not run production DB migration until internal testing confirms data residency guards are active.
+*   **Cost:** All `global-net` CI pipelines must be timestamped for off-hours execution.
+
+**Next Step:** Await confirmation of base SHAs to generate detailed work packets for Lane A and B.

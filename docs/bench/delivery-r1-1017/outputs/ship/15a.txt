@@ -1,0 +1,60 @@
+**Delivery Plan: Stabilize Blocking E2E Suite for Checkout V2**
+
+**Objective:** Restore green status to `HappyPath_Checkout` in CI by isolating race conditions with Inventory sync and the barcode simulator, enabling the holiday pricing merge by Friday without disabling compliance checks.
+
+**Constraints & Facts:**
+- **Blocker:** 40% flake rate due to shared physical barcode simulator (10s reset race) and staging DB conflicts.
+- **Cost/Time:** $45/run, 55 mins. Manual re-runs trigger payment gateway rate limits (2h lockout).
+- **Authority:** Jane Smith (bypass approver) is unavailable until Monday. No bypasses permitted.
+- **Environment:** Shared staging; DB refreshes at 03:00 UTC.
+
+### Lanes & Serialization
+
+**Lane 1: Diagnosis & Isolation Strategy (Serial Pre-flight)**
+*   **Owner:** Conductor + Product Analyst.
+*   **Work:** Analyze CI logs to correlate `HappyPath_Checkout` failures specifically with Inventory sync start times. Define the isolation mechanism: either (A) serializing the two suites in the pipeline or (B) containerizing the barcode simulator state per job.
+*   **Output:** A technical spec for the serialization lock or simulator mock.
+*   **Dependency:** None. Must complete before Lane 2.
+
+**Lane 2: Pipeline Serialization & Data Hygiene (Parallel Implementation)**
+*   **Owner:** Builder.
+*   **Work:**
+    1.  Modify CI config to enforce a hard mutex: `HappyPath_Checkout` and `Inventory Sync` cannot run within 15 seconds of each other.
+    2.  Inject a pre-test step to sanitize staging data conflicts (explicit teardown/setup) independent of the 03:00 refresh.
+    3.  Implement a "simulator busy" retry logic with exponential backoff if the physical device is detected as resetting.
+*   **Output:** Patch set targeting the CI workflow and test harness.
+*   **Dependency:** Requires spec from Lane 1.
+
+**Lane 3: Independent Verification Environment (Parallel Setup)**
+*   **Owner:** QA.
+*   **Work:** Stand up a localized simulation of the race condition using a scripted "fake" simulator to prove the fix works without consuming the shared physical device or hitting payment gateway rate limits.
+*   **Output:** A reproducible local failure case and a passing local fix verification.
+*   **Dependency:** None (can run alongside Lane 1).
+
+### Gates & Checks
+
+*   **G1 Spec (Now):** Define the serialization logic and data sanitization steps. Pin base SHA from current `main`.
+*   **G4 Implement:** Builder commits changes to a dedicated worktree. Tests included with the change.
+*   **G5 Verify (Critical):**
+    *   **Local:** QA runs the reproduced race condition locally; must pass 10/10 times.
+    *   **Staging (Controlled):** Trigger *one* coordinated run in staging during a low-traffic window. **Constraint:** Do not manually re-run; rely on the automated mutex to prevent collisions. If the suite fails, do not retry immediately (avoid payment lockout); analyze logs first.
+    *   **Exact Revision:** Verification must occur on the exact SHA of the merge candidate, not the builder's branch head.
+*   **G6 Review:**
+    *   **Reviewer:** Security + Senior Engineer (independent of Builder).
+    *   **Focus:** Ensure the serialization does not create a deadlock and that data sanitization does not wipe valid audit logs required for compliance.
+
+### Landing & Human Decisions
+
+*   **Merge Strategy:** Merge Train.
+    1.  Lane 2 lands on an integration branch.
+    2.  Run the full suite *once* on the integration SHA.
+    3.  If green, merge to `main`.
+*   **Human Gate:**
+    *   **Decision:** Approval to deploy the pipeline configuration change to production CI.
+    *   **Approver:** Any authorized senior engineer (Jane Smith's bypass is not needed as we are fixing, not bypassing).
+    *   **Timing:** Post-G6, pre-deploy.
+*   **Rollback:**
+    *   If the new serialization causes pipeline timeouts (>60 mins), revert the CI config commit immediately.
+    *   Fallback: Run suites strictly sequentially (nightly for Inventory, daytime for Checkout) until a better fix is found, accepting the reduced frequency but maintaining compliance coverage.
+
+**Risk:** Payment gateway lockout if verification is attempted via manual re-runs. **Mitigation:** Strict adherence to automated, single-run verification on the exact merge SHA.

@@ -1,0 +1,43 @@
+### Delivery Plan: Staged Payment Gateway Secret Rotation
+
+**Strategy:** Zero-downtime cutover via overlapping validity windows, gated by real-time error metrics. One writer per service; serialized execution across stages to protect the shared ledger state.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Preparation):** *Builder* generates new keypairs and updates the secret manifest in a dedicated worktree. Produces the "dual-approval" PR for the Compliance Team. **Parallelizable** with Lane B setup, but must merge before Lane C.
+*   **Lane B (Instrumentation):** *QA/Builder* adds a transient metric observer to the logging aggregator to capture trace IDs during high load, bypassing the drop issue. Verifies the 0.1% error threshold alert logic.
+*   **Lane C (Execution - Serialized Stages):** *Conductor* executes the three-stage rollout manually via the approved deployment script.
+    1.  **Stage 1:** Primary Ledger Service.
+    2.  **Stage 2:** Fraud Detection Module (waits for Stage 1 health).
+    3.  **Stage 3:** Reporting Daemon (waits for Stage 2 health).
+    *Constraint:* No parallel execution between stages. Each stage enforces a 15-minute overlap window before revoking old secrets.
+
+#### 2. Gates & Checks
+*   **G2 (Plan Approval):** The secret manifest PR requires **dual approval** (Jane Smith + Policy Bot). No code changes here, only configuration data.
+*   **G4 (Implementation):** Code changes for Lane B (instrumentation) run on a feature branch. Unit tests only; skip crypto tests on staging due to HSM absence (known flake).
+*   **G5 (Verification - Pre-Flight):** Dry-run of the rotation script in a sandbox (no traffic) to validate the 15-minute timer logic.
+*   **G8 (Production Execution - Human Gated):**
+    *   **Trigger:** Conductor initiates Stage 1 only after G2 merge.
+    *   **Check:** Real-time error rate monitor. If >0.1%, immediate automated revert script execution.
+    *   **Validation:** 15-minute overlap confirmed via logs; health checks green before proceeding to the next stage.
+*   **G9 (Post-Deploy):** Verify transaction continuity across all three services. Confirm no dropped connections during the switchover windows.
+
+#### 3. Review
+*   **Security Review:** Independent *Security* agent reviews the key generation logic and the overlap window implementation (Lane A & B) against the spec. Must be distinct from the *Builder*.
+*   **Compliance Review:** Jane Smith and the Policy Bot review the secret manifest (G2).
+*   **Operational Review:** *QA* validates the revert script logic and the error threshold alerting before the production window opens.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    *   Instrumentation code (Lane B) merges to `main` via standard PR after passing CI (skipping flaky crypto suite on staging, running on isolated hardware only if strictly necessary to save credits).
+    *   Secret manifest (Lane A) merges only after dual approval.
+*   **Human Decisions Required:**
+    1.  **Jane Smith** must approve the secret manifest PR.
+    2.  **Security Lead** must explicitly confirm readiness before the Conductor starts Stage 1.
+    3.  **Conductor** must manually authorize the transition from Stage 1 → 2 → 3 after verifying the 15-minute overlap and health status.
+*   **Rollback:**
+    *   **Automatic:** If error rate >0.1% at any stage, the system immediately reverts to the previous credential set.
+    *   **Manual:** If the automatic revert fails or data corruption is detected, execute the manual database rollback script (20-minute execution time). This is irreversible once started; requires explicit owner confirmation.
+
+**Cost Control:** CI runs only once for instrumentation code. No redundant builds. Staging crypto tests skipped to avoid flake-induced retries. Production verification relies on live traffic metrics, not expensive synthetic suites.
+
+**Final Handoff:** Completion reported to the Security Lead with logs confirming the 15-minute overlaps and zero errors exceeding the threshold.

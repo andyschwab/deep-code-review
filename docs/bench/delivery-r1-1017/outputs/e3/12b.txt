@@ -1,0 +1,51 @@
+**Decision on Constraints:** The request to "direct push" and skip regression is rejected. Protected branches cannot be bypassed by intent, and irreversible deploys require verification. The "docs-only" tag is inapplicable to logic-adjacent copy (dates/discounts) that affects dynamic rendering. We will execute a gated, accelerated lane.
+
+**Plan Overview**
+*   **Objective:** Update Winter Frost banner copy (discount %, end date) on homepage.
+*   **Deadline:** Live before 08:00 tomorrow.
+*   **Risk:** Irreversible deploy resets analytics; staging data lag (4h) masks real-time state; flaky a11y checker.
+
+**Lanes & Serialization**
+1.  **Lane A (Builder):** Isolate worktree. Update copy in source files. Commit with message `chore: update winter frost banner copy`. Push to feature branch `feat/winter-frost-copy`.
+    *   *Constraint:* Must complete before Lane B.
+2.  **Lane B (QA/Verification):** Trigger static generation pipeline on the **exact commit SHA** from Lane A.
+    *   *Action:* Monitor build (22 mins).
+    *   *Flake Handling:* If a11y checker fails on dynamic date strings, capture log, mark as "known flake per repo facts," and request Shift Lead override immediately upon build completion. Do not retry automatically.
+    *   *Verification:* Since staging lags by 4 hours, visual confirmation on staging URL is **insufficient** for data accuracy. Verify by inspecting the generated static artifact in the build output for the correct string and date format.
+    *   *Cost:* Acknowledge $45 compute credit spend.
+
+**Gates & Checks**
+*   **G4 (Implement):** Builder commits change. No other files touched.
+*   **G5 (Verify):** Build must succeed green on the specific SHA.
+    *   *Condition:* Build exit code 0.
+    *   *Condition:* Generated HTML contains exact legal-approved phrasing.
+    *   *Condition:* A11y flake manually overridden by Shift Lead (human gate).
+*   **G6 (Review):** Independent review required despite "tiny change" claim.
+    *   *Reviewer:* Growth Team Senior Engineer (not the Builder).
+    *   *Scope:* Diff only. Confirm no logic changes, only string replacement.
+    *   *Input:* Exact SHA from Lane A + Build Receipt from Lane B.
+
+**Landing & Human Decisions**
+*   **Merge Strategy:** Merge to `main` via PR. The `docs-only` bypass is **not** invoked; standard protected branch rules apply.
+*   **Human Gate (G8 - Release):**
+    *   **Trigger:** PR merged and build artifact verified.
+    *   **Decision:** Owner/Shift Lead must explicitly approve the **Production Deploy**.
+    *   **Warning:** Explicit acknowledgment required that this deploy is irreversible without a full snapshot rollback (which resets analytics).
+*   **Deployment:** Once approved, trigger production deploy.
+*   **Post-Deploy (G9):** Verify live URL. Note that staging will not match production data behavior due to the 4-hour lag; trust the build artifact verification instead.
+
+**Rollback Plan**
+*   If copy is incorrect or breaks layout post-deploy:
+    1.  Immediately notify owner.
+    2.  Execute full snapshot rollback to previous state.
+    3.  **Consequence:** Accept loss of analytics counters for the hour as the cost of correction.
+
+**Timeline Critical Path**
+1.  Builder commit & push (15 mins).
+2.  Static generation pipeline (22 mins).
+3.  Shift Lead a11y override (Variable, initiate early).
+4.  Senior Engineer Review (Parallel to build if possible, final sign-off post-build).
+5.  Human Deploy Approval & Execution (10 mins).
+*Total minimum lead time: ~50 minutes + human latency.*
+
+**Immediate Next Step:** Assign Builder to create the branch. Assign QA to stand by for the build trigger. Notify Shift Lead of impending a11y flake requiring override.

@@ -1,0 +1,45 @@
+### Delivery Plan: S3 Archive Policy Update
+
+**Scope & Constraints**
+Update `core-net-storage` to grant `auditor-svc` read-only access to `legal-archive-09`.
+*   **Boundaries:** Additive policy change only. Do not touch encryption or lifecycle rules. Do not delete the policy resource (prevents legacy lockout).
+*   **Approvals:** Requires 2 Senior Engineers + 1 Security Lead before merge.
+*   **Environment:** Verify in Staging first; Production deploy restricted to Tuesdays 02:00–04:00 UTC.
+
+**Lanes & Serialization**
+1.  **Lane A (Spec & Safety):** Define the exact JSON policy snippet for read-only access. Draft the rollback script (revert to previous SHA). *Owner: Builder.*
+2.  **Lane B (Staging Implementation):** Apply change to staging infrastructure definition. *Owner: Builder.*
+3.  **Lane C (Security Review):** Independent review of the policy diff to ensure no write permissions or public exposure. *Owner: Security Lead (Independent).*
+4.  **Lane D (Simulation):** Run the 22-minute topology simulation. *Owner: CI System.*
+
+**Execution Order**
+*   **Parallel:** Lane A and Lane C (draft review) start immediately.
+*   **Serialized:** Lane B waits for Lane A. Lane D waits for Lane B commit.
+*   **Gate:** Lane D (Simulation) must pass before final merge. If `network-latency-validator` fails, retry manually once. If it fails again, block and investigate; do not merge.
+
+**Gates & Checks**
+*   **G1 (Spec):** Confirm policy is read-only (`s3:GetObject`, `s3:ListBucket`) for `auditor-svc` only. Explicitly exclude `s3:Put*`, `s3:Delete*`.
+*   **G4 (Implement):** Commit to a feature branch. Diff must show additions only to the policy statement, no deletions of the resource block.
+*   **G5 (Verify Staging):** Deploy to staging. Verify `auditor-svc` can retrieve files >7 years old. Verify legacy backup system remains accessible.
+*   **G6 (Review):**
+    *   **Security:** Independent sign-off on policy scope.
+    *   **Engineering:** Two senior engineers approve the diff and simulation results.
+*   **G7 (Integration):** Merge to main only after all approvals and green simulation.
+
+**Landing & Rollback**
+*   **Merge:** Merge to main immediately after G6/G7 clearance, but **do not deploy** until the Tuesday window.
+*   **Deploy:** Execute deployment manually during the Tuesday 02:00–04:00 UTC window.
+*   **Rollback Plan:**
+    *   **Trigger:** Accidental write access detected or public exposure.
+    *   **Action:** Revert the merge commit immediately (code revert). This restores the previous policy state within 5 minutes.
+    *   **Constraint:** Do not attempt to edit the policy live in production; rely on the git revert to ensure the exact previous state is restored without risking resource deletion.
+
+**Human Decisions Required**
+1.  **Security Lead:** Approval of the specific policy JSON (no write access).
+2.  **Senior Engineers (2):** Approval of the topology simulation results and rollback validity.
+3.  **Release Owner:** Final "Go" command during the Tuesday production window.
+
+**Risk Mitigation**
+*   **Flaky Check:** If `network-latency-validator` fails, retry once. Log the result. Do not ignore a second failure.
+*   **Cost:** The simulation consumes 400 credits. Run only on the final candidate SHA in the feature branch and once on the merged SHA. Do not re-run on intermediate commits.
+*   **Irreversible Action:** Deleting the policy resource is forbidden. The rollback relies solely on git revert, not resource recreation.

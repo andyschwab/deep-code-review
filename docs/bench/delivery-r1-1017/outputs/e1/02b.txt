@@ -1,0 +1,53 @@
+### Delivery Plan: Legacy Webhook Signature Re-enablement
+
+**Objective:** Restore ingestion for legacy carriers by adding dual-scheme validation without degrading new-standard performance or compromising security.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** One writer in an isolated worktree.
+    *   **Work:** Update validation middleware to detect scheme version (header/payload structure) and route to either `LegacyVerifier` or `StandardVerifier`.
+    *   **Constraint:** Must not modify secret retrieval logic; read-only vault access remains via the deployment service account.
+    *   **Parallelism:** Can run immediately.
+*   **Lane B (Test Data & Mocking):** Independent of Lane A.
+    *   **Work:** Generate valid/invalid signature pairs for both schemes. Create a mock carrier sandbox to bypass external rate limits during unit/integration testing.
+    *   **Parallelism:** Runs parallel to Lane A.
+*   **Lane C (Performance Baseline):** Dependent on Lane A's initial build.
+    *   **Work:** Benchmark the new routing logic against the current production baseline to ensure <5ms latency addition for the majority (new standard) traffic.
+
+**Serialization:** Lane C waits for Lane A. Lane A and B merge into a single integration branch only after local unit tests pass in their respective worktrees.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Immediate):** Define acceptance criteria: "Legacy signatures accepted," "New signatures unchanged," "Latency delta <5ms." Pin base SHA.
+*   **G4 Implement:**
+    *   **Check:** Local unit tests (Lane A & B) must pass green before any push.
+    *   **Check:** Static analysis for secret handling (ensure no hardcoded keys).
+*   **G5 Verify (Exact Revision):**
+    *   **Local Stack:** Bring up the gateway locally. Replay captured legacy and new traffic logs.
+    *   **CI Strategy:** Trigger the 45-minute pipeline **once** per candidate SHA.
+        *   *Mitigation:* Use the mock sandbox (Lane B) for rapid iteration; reserve the real carrier sandbox integration for the final candidate only to respect rate limits.
+        *   *Flake Handling:* If `latency-check` fails on a weekend, do not auto-retry. Flag for manual verification of the specific timestamp vs. code change.
+*   **G6 Review:**
+    *   **Security:** Requires one senior architect (the available one) + one external security consultant (to satisfy the "two approvers" rule given the leave).
+    *   **Scope:** Review the routing logic and the isolation of legacy code paths.
+    *   **Independence:** Reviewers must not be the implementer.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    *   Do not merge directly to `main` if it triggers an immediate full production deploy.
+    *   Merge to a `release-candidate` branch. Run the full 45-minute integration suite there.
+    *   Once green and reviewed, open a PR to `main`.
+*   **Human Gates (Required):**
+    1.  **Security Approval:** The available architect and external consultant must explicitly approve the G6 security verdict.
+    2.  **Deploy Authorization:** Owner approval to enable the legacy flag in production.
+    3.  **Secret Vault Access:** Confirmation that the deployment service account has the correct read scope (verified by Ops, not code change).
+*   **Rollback Plan:**
+    *   The change is feature-flagged. Rollback is a config flip to disable legacy routing, requiring no code revert.
+    *   If the vault access causes an irreversible error (unlikely as read-only), the kill-switch is to block all legacy traffic at the load balancer level.
+
+#### 4. Execution Rhythm
+1.  **Start:** Lane A and B spin up.
+2.  **Mid-point:** Lane A produces a draft PR. Lane B provides test vectors.
+3.  **Verification:** Run local benchmarks (Lane C). If pass, trigger the single costly CI run.
+4.  **Review:** While CI runs, security reviewers inspect the diff.
+5.  **Land:** Upon CI green + Security sign-off, merge to `release-candidate`, verify, then merge to `main` with owner deploy approval.
+
+**Risk Note:** The "intermittent" nature suggests timing or encoding issues. The test suite must include varied payload sizes and character encodings, not just valid/invalid boolean checks.

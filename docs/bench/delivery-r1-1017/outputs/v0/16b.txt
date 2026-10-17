@@ -1,0 +1,47 @@
+### Delivery Plan: Legacy Inventory Sync API Deprecation
+
+**Objective:** Enforce HTTP 410 Gone for v1 API requests post-September 30, ensure v2 stability, update documentation, and configure compliant logging.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Gateway Logic):** Implement routing rule to return 410 for v1 paths.
+    *   *Constraint:* Must target the shared monorepo config file. Requires coordination with the three other dependent services to ensure no regression.
+    *   *Serialization:* Must wait for Lane C's logging fix to be merged first to avoid data loss during the transition period.
+*   **Lane B (Documentation):** Update Developer Portal to mark v1 as "Deprecated/Sunset" immediately.
+    *   *Parallel:* Can run independently of code changes.
+*   **Lane C (Logging Resilience):** Configure the specific retry flag in the logging system to prevent 410 response drops during peak hours.
+    *   *Dependency:* This is a prerequisite for Lane A to ensure compliance audit trails are intact before traffic is rejected.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Immediate):** Define exact v1 path patterns and the specific retry flag value. Pin base SHA for all lanes.
+*   **G3 Design (Coordinator):** Review the shared config change impact analysis. Confirm the Tuesday release window alignment.
+*   **G4 Implement:**
+    *   Lane C commits logging config.
+    *   Lane A commits gateway rules.
+    *   Lane B commits docs.
+*   **G5 Verify (Sandbox):**
+    *   *Trigger:* Only on the exact merged SHA of Lane C, then Lane A.
+    *   *Check:* Send simulated v1 traffic; verify 410 response AND successful log ingestion (checking for the retry mechanism under load). Verify v2 traffic remains 200 OK.
+    *   *Cost Control:* Run targeted integration tests for these paths only; do not trigger the full 55-minute regression suite unless v2 paths are touched.
+*   **G6 Review:**
+    *   *Reviewer:* Senior Platform Engineer (independent of Lane A author).
+    *   *Compliance Check:* Compliance Officer verifies log format meets audit requirements.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge Lane C (Logging) immediately upon approval.
+    2.  Merge Lane B (Docs) immediately upon approval.
+    3.  Hold Lane A (Gateway) in a merged-but-disabled state (feature flag or commented block) until the release window.
+*   **Release Window:** Tuesday coordinated deploy.
+*   **Human Approvals Required:**
+    *   **Tech Lead:** Approves the shared config modification and Tuesday deployment timing.
+    *   **Compliance Officer:** Explicit sign-off on the logging configuration and the final 410 enforcement logic before the switch is flipped.
+*   **Rollback Plan:**
+    *   If v2 latency spikes or logs fail to ingest: Revert Lane A immediately (config-only revert, <5 mins).
+    *   If logging fails post-deploy: Enable fallback verbose logging mode manually while investigating Lane C.
+
+#### 4. Risk Mitigation
+*   **Shared Config Risk:** Pre-deploy communication sent to owners of the three other dependent services confirming the change scope.
+*   **Log Flakiness:** The retry flag (Lane C) is verified under load *before* enabling the 410 response (Lane A).
+*   **Deadline Adherence:** If the Tuesday window prior to Sept 30 is missed, the fallback is a manual firewall rule (escalated to Infra), but the code path must be ready.
+
+**Next Step:** Assign Lane C to a backend engineer and Lane B to technical writing. Request Tech Lead confirmation for the upcoming Tuesday release slot.

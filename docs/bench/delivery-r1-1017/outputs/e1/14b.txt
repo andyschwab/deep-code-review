@@ -1,0 +1,61 @@
+**Delivery Plan: Tiered Archive and Purge**
+
+**Scope & Constraints**
+*   **Goal:** Nightly job (03:00 UTC) moving data >90d to cold archive; deleting data >2y with checksum manifest.
+*   **Constraints:** Zero downtime; idempotent (no skips/dupes); `global-retention-rules.yaml` is read-only; irreversible deletion; high CI cost ($120/run, 45m); flaky network check requires manual re-run only.
+*   **Approvals Required:** Security Lead and VP of Engineering (explicit written) before G8 (Deploy).
+
+**Lanes & Serialization**
+*   **Lane 1: Archive Logic (Builder)**
+    *   Implement move logic (Hot → Cold) for records >90 days.
+    *   Ensure idempotency via transactional markers or cursor tracking.
+    *   *Parallel:* Can run alongside Lane 2 development.
+*   **Lane 2: Purge & Manifest Logic (Builder)**
+    *   Implement checksum generation for records >2 years.
+    *   Implement deletion post-manifest verification.
+    *   Handle partial failures (resume capability).
+    *   *Parallel:* Can run alongside Lane 1 development.
+*   **Lane 3: Scheduler & Integration (Builder)**
+    *   Configure cron (03:00 UTC).
+    *   Wire Lanes 1 & 2 into the execution pipeline.
+    *   Add alerting for failure/partial completion.
+    *   *Serialized:* Must wait for Lanes 1 & 2 to be unit-tested and merged to integration branch.
+*   **Lane 4: Independent QA (QA Role)**
+    *   Verify data integrity after move on a staging mirror.
+    *   Verify checksum manifest format and content.
+    *   Simulate partial failure (kill process mid-run) to verify resume/no-duplication.
+    *   *Serialized:* Runs after G4 (Implement) on the exact integration SHA.
+
+**Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Confirm appetite (time-box) and pin base SHA. Define "Done" as: successful move/purge on staging mirror with valid manifest.
+*   **G2 (Plan):** Set per-lane token budgets. Confirm no changes to `global-retention-rules.yaml`.
+*   **G3 (Design):** ADR detailing idempotency strategy and manifest storage location.
+*   **G4 (Implement):** Unit tests included in commits. Base SHA immutable.
+*   **G5 (Verify):**
+    *   Run local stack; verify job triggers.
+    *   **CI Strategy:** Run full integration suite *once* on the candidate SHA.
+    *   **Flake Handling:** If "network latency" check fails, manually re-run *only* that check. Do not re-run full suite unless SHA changes.
+    *   **Evidence:** Staging mirror row counts pre/post; sample manifest validation.
+*   **G6 (Review):**
+    *   **Security Review:** Independent review of deletion logic and manifest crypto.
+    *   **Code Review:** Independent of Builder (different author).
+    *   Severity Rubric: Any risk of data loss without manifest = Blocker.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected CI gates on final SHA.
+*   **G8 (Release):** **HUMAN GATE.** Obtain explicit written approval from Security Lead and VP of Engineering. Deploy to production.
+*   **G9 (Prod Verify):** Monitor first 3 nightly runs. Verify logs show successful move/purge and manifest generation.
+*   **G10 (Learn):** Retrospective on CI cost vs. value; add regression test for idempotency if gap found.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Merge train. One integration commit containing all lanes.
+*   **Human Decision:** Deployment to production is strictly gated by written approval (Security + VP). No auto-deploy.
+*   **Rollback:**
+    *   *Archive Step:* Reversible (copy back from Cold to Hot), but costly.
+    *   *Purge Step:* **Irreversible** (no backups). If logic error detected post-deploy:
+        1.  Immediately disable the 03:00 cron job.
+        2.  Audit manifests to identify incorrectly deleted ranges.
+        3.  Restore from upstream source if available (if not, data is lost).
+        4.  Fix code, re-verify on staging, repeat G8 approval process.
+
+**Cost Control**
+*   CI runs minimized: Local green first. One full CI run per candidate SHA.
+*   Lane budgets enforced at G2; no unlimited spend.

@@ -1,0 +1,96 @@
+**Delivery Plan: Monorepo Build Cache Migration**
+
+**Objective:** Replace timestamp-based caching with content-addressable storage (CAS) to reduce build time by ≥20%, preserving artifact signing and ensuring graceful partial failures.
+
+**Constraints & Risks:**
+- **Cost:** CI runs on expensive hardware ($5/min); current build = 90 mins.
+- **Dependency:** `core-utils` is pinned; changes require Chief Architect approval.
+- **Flakiness:** Staging network checks false-fail under load.
+- **Irreversibility:** Production deploys lock at 04:00 UTC; only two engineers hold signing keys.
+- **Scope:** 30 regional microservices; simultaneous cache invalidation is forbidden.
+
+---
+
+### **Lanes & Parallelism**
+
+**Lane 1: Specification & Approval (Serialized, Pre-Work)**
+- **Owner:** Product Analyst + Conductor.
+- **Work:** Draft technical spec defining CAS hashing algorithm, fallback logic for partial failures, and the exact metric for the 20% reduction target.
+- **Gate:** Submit spec to Chief Architect for written approval regarding `core-utils` interaction.
+- **Output:** Signed spec document. No code changes yet.
+
+**Lane 2: Core Implementation (Parallel to Lane 3, isolated worktree)**
+- **Owner:** Builder.
+- **Work:** Implement CAS logic in the root build tool.
+  - Ensure backward compatibility with existing artifact signing workflows.
+  - Implement graceful degradation: if CAS write fails for a service, fallback to local rebuild without invalidating other services' caches.
+  - **Constraint:** Do not modify `core-utils` source; only adjust how the build tool references it if the hash changes.
+- **Output:** Patch set + unit tests for cache logic.
+
+**Lane 3: Simulation & Baseline (Parallel to Lane 2)**
+- **Owner:** QA + Performance Engineer.
+- **Work:** Establish a clean baseline.
+  - Run 5 full builds on current main to average out the "flaky network check" noise.
+  - Create a test harness that mocks the network check to prevent false failures during verification.
+- **Output:** Baseline metrics (avg time, variance) and a stable test environment config.
+
+**Lane 4: Security & Signing Audit (Serialized after Lane 2 draft)**
+- **Owner:** Security (Independent).
+- **Work:** Review the new cache key generation to ensure it doesn't expose sensitive paths. Verify the artifact signing workflow remains untouched and keys are only accessed by the two authorized engineers.
+- **Output:** Security sign-off on the approach.
+
+---
+
+### **Gates & Verification**
+
+**G0-G2 (Intake/Spec/Plan):** Completed via Lane 1. Chief Architect approval is the hard gate before G4.
+
+**G3 (Design):** ADR detailing the CAS fallback mechanism and the "no simultaneous invalidation" safeguard.
+
+**G4 (Implement):**
+- Builder commits to a feature branch.
+- **Check:** Lint and type-check pass locally.
+- **Check:** Unit tests for cache logic pass (mocked network).
+
+**G5 (Verify - The 20% Rule):**
+- **Environment:** Staging CI (with mocked network check to avoid flakiness).
+- **Action:** Trigger full build on the exact commit SHA from G4.
+- **Success Criteria:**
+  1. Build completes without errors.
+  2. Artifact signing succeeds (verified by one of the two key holders in a dry-run mode).
+  3. **Metric:** Total compute time ≤ 72 minutes (20% reduction from 90).
+  4. **Resilience:** Simulated partial CAS failure results in only the affected service rebuilding, not the whole monorepo.
+- **Note:** If the real network check fails, the run is marked "UNVERIFIED" due to environmental flake, not code failure. Retry with mock.
+
+**G6 (Review):**
+- **Reviewer:** Senior Engineer (Independent of Builder).
+- **Focus:** Logic correctness, fallback safety, and adherence to the signed spec.
+- **Security Review:** Confirmed in G4/G5.
+
+**G7 (Integrate):**
+- Merge to integration branch.
+- Run one final full build on the merge commit to confirm no integration drift.
+
+**G8 (Release - Human Gate):**
+- **Decision:** Chief Architect + One Key Holder.
+- **Action:** Approve deployment to production CI.
+- **Timing:** Must complete before 04:00 UTC to avoid locking into an irreversible state mid-migration.
+
+**G9 (Production Verify):**
+- Monitor the first 3 real-world builds.
+- Confirm actual credit spend reduction.
+- **Rollback:** If build time increases or signing fails, revert the merge immediately. The old timestamp cache remains valid as a fallback.
+
+---
+
+### **Landing Strategy**
+
+- **Merge Method:** Squash merge to `main` after G7 success.
+- **Human Decisions Required:**
+  1. Chief Architect approval on spec (G2).
+  2. Security sign-off on signing workflow (G6).
+  3. Final Go/No-Go for production toggle (G8).
+- **Rollback Plan:** Revert the merge commit. The system defaults to timestamp caching if the CAS config is absent. No data migration is needed as the new cache is additive.
+
+**Total Estimated Time:** 2 days (dominated by approval cycles and baseline averaging).
+**Cost Control:** All heavy builds run on the staging mock first; only successful candidates run on expensive production CI.
