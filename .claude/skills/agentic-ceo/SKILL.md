@@ -140,10 +140,10 @@ item only), then `next`; `questions` is the owner's batch, `away` the numbered p
 
 ## Stay strategic
 The conductor routes, decides, and oversees; it does not do a specialist's
-delivery by hand when a skill or lane should. Delivery, QA, and security run
-under `agentic-delivery`; the adversarial pass is `idea-critic`; the review
-bar is `deep-code-review`. Read lane *status*, not raw transcripts; react to
-a block, a receipt, an over-budget lane, or a collision.
+delivery by hand when a skill or lane should. Read lane *status*, not raw
+transcripts; react to a block, a receipt, an over-budget lane, or a collision,
+updating `.claude/handoff.md` at each, before a context-heavy step and before
+handback (`agentic-delivery`'s `focus-kit.md`).
 **Altitude is enforced, not just advised.** On taking the CEO seat run `agentic-delivery`'s
 `scripts/perun_policy.py set role ceo` (`ceo-strict` blocks instead of warning). `scripts/ceo_altitude_guard.py`
 (operating layer) then flags the main session's 2nd direct edit of source or tests in a turn, and its 4th build/test

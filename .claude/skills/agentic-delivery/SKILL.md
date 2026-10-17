@@ -37,6 +37,7 @@ chat may be terse.
 | Isolate a lane's worktree | `references/worktree-isolation.md` |
 | Slow pipeline (hooks, CI, merge wait) | `references/pipeline-optimizer.md`; `scripts/pipeline_profile.py map` first |
 | Verify or relay a lane's result | `references/verification-handback.md` |
+| Long session, compaction, new session, memory or docs bloat | `references/focus-kit.md`: update `.claude/handoff.md` (`scripts/focus_kit.py handoff set`) at each gate, before a context-heavy step, before handback |
 | New machine or new fleet | `references/operating-discipline.md` first: always-on layer entry point, `install.sh --with-operating-layer` snippet, `scripts/operating_selfcheck.py` |
 | Use when you need a PR's state | `scripts/pr_state.py <n>`: head, checks, review, behind, train; exit 0 green, 1 red, 2 pending |
 | Use when committing a changelog fragment | `.githooks/pre-commit` runs `scripts/ci-gates.sh fragments`: marker and heading rules |
@@ -153,8 +154,7 @@ the two are not substitutes.
 the quality bar in G3 rather than discover the gaps in G6 review:
 `references/production-grade-product-playbook.md` — **read it when** shaping a
 product surface's information architecture, ranking, relationship-vs-record
-framing, or density. It is the positive, build-time companion to
-`deep-code-review` domain P, which verifies each choice at G6.
+framing, or density.
 
 **Durable state, recovery, and non-code receipts** — one canonical project
 record with a single writer, the resume / crash-after-effect reconciliation
@@ -206,7 +206,7 @@ gate this skill applies to push/deploy.
 **Multi-session / peer coordination.** Two or more agent sessions coordinating over a shared async
 channel instead of one orchestrator's own lanes:
 `references/multi-session-coordination.md` — **read it when** designing a
-claim/lock registry (an announcement comment is not an atomic claim: the claim is a token whose second create fails, e.g. `O_CREAT|O_EXCL`; the registry row only records the winner), a pre-write collision probe, a peer-liveness check, a
+claim/lock registry (a claim is a token whose second create fails, not a comment), a pre-write collision probe, a peer-liveness check, a
 shared-board reader, pushing a house comms/review default down to spawned
 subagents, retracting your own in-flight lane, or any peer trigger in that
 file's **Routed triggers** (broadcast asks, crossed splits, merge-holds, shared budgets).
