@@ -1,0 +1,25 @@
+### Delivery Plan: Sunset Analytics SDK Replacement
+
+**1. Lanes & Parallelism**
+*   **Lane A (Schema & Compliance):** One Senior Engineer drafts the `data-schema.json` mapping to ensure MetricFlow events match DataPulse legacy schemas exactly. This lane is serialized behind the **Compliance Gate**: both the Backend Lead and Compliance Officer must sign off on the schema diff before any code merges.
+*   **Lane B (Implementation):** Two Senior Engineers work in parallel to swap the SDK in the three microservices. They will mock the new schema based on Lane A's draft to proceed without waiting for final sign-off, but cannot merge until Lane A clears the gate.
+*   **Lane C (Validation Scripting):** One Engineer builds a dual-write verification script to run in staging. Since staging lacks real traffic, this script will replay recorded production logs (sanitized) against the new implementation to verify zero data loss.
+
+**2. Gates & Checks**
+*   **Revision Control:** All work branches off `main` at the commit tagged `pre-analytics-swap`. No rebasing allowed; only merge commits to preserve audit history.
+*   **CI Strategy:** To manage GPU costs ($45/run), CI triggers only on the specific microservice paths changed plus the shared schema. Full suite runs are restricted to the final release candidate only.
+*   **The "Tuesday" Exception:** If the `audit-log` check fails on a Tuesday, it is automatically bypassed pending a manual log verification by the on-call Senior Engineer. Failures on other days block the pipeline immediately.
+*   **Data Integrity Gate:** The dual-write script must report 100% schema parity. Any discrepancy >0% blocks promotion.
+
+**3. Review Process**
+*   **Independent Code Review:** Lane B implementations must be reviewed by a Senior Engineer *not* involved in the implementation (cross-service review). The reviewer checks specifically for event payload fidelity and error handling during vendor timeout.
+*   **Schema Audit:** The signed `data-schema.json` diff undergoes a secondary review by the Compliance Officer solely to verify regulatory alignment, independent of the technical implementation review.
+*   **Final Sign-off:** A "Go/No-Go" meeting occurs 24 hours before the deadline (Nov 13th). Attendees: Platform Guild Lead, Backend Lead, Compliance Officer. Decision based on successful staging replay and signed schema.
+
+**4. Landing & Rollback**
+*   **Merge Window:** Merging to `main` is locked to a 4-hour window on November 14th (08:00–12:00 UTC) to allow maximum buffer for remediation before the Nov 15th deadline.
+*   **Human Decision Point:** Only a Senior Engineer with a production merge key can execute the final merge. This requires explicit verbal confirmation from the Platform Guild Lead that the "Go" criteria are met.
+*   **Deployment Strategy:** Deploy to one microservice first (canary). Monitor for 30 minutes. If metrics hold, deploy remaining two.
+*   **Rollback Protocol:** Since production deploys are irreversible without a 6-hour database restore, the rollback strategy is *not* a revert. It is an immediate feature flag toggle to revert event routing to the legacy DataPulse endpoint (if the contract allows final-hour traffic) or a halt in tracking until the restore completes. Given the penalty risk, the feature flag approach is mandatory. If the flag fails, the 6-hour restore initiates immediately, accepting the penalty to preserve data integrity for Q4.
+
+**Deadline Confirmation:** The system is declared "Validated" only when the final microservice reports healthy metrics and the verification script confirms zero schema drift by EOD November 14th.

@@ -1,0 +1,55 @@
+### Delivery Plan: Session Store Migration (Zero Downtime)
+
+**Strategy:** Dual-write with lazy migration. New sessions write to the managed service; existing sessions migrate on first access. Fallback to legacy store on timeout.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Adapter & Serializer):** Implement the translation layer between the legacy non-standard format and the managed service schema. Includes unit tests for edge cases.
+    *   *Parallel:* Yes.
+    *   *Owner:* Builder.
+*   **Lane B (Dual-Write Logic):** Modify `AuthModule` to write to both stores (async for managed) and read with fallback logic (Managed → Timeout → Legacy).
+    *   *Parallel:* Yes (depends on Lane A's interface definition only).
+    *   *Owner:* Builder.
+*   **Lane C (Chaos & Failure Testing):** Simulate managed service timeouts and network partitions. Verify fallback transparency and no data loss.
+    *   *Parallel:* Yes (can start with mocks).
+    *   *Owner:* QA (Independent).
+*   **Lane D (Compliance & Rollback Prep):** Draft rollback procedure (switching config back to legacy-only) and verify data sovereignty constraints.
+    *   *Parallel:* Yes.
+    *   *Owner:* Security/Compliance Lead.
+
+*Serialization Point:* Lanes A and B must merge and pass integration tests before Lane C performs end-to-end failure testing on the combined logic.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Define exact timeout thresholds and fallback behavior. Pin base SHA before coding.
+*   **G3 (Design Review):** Architect approves the dual-write consistency model and serializer mapping.
+*   **G4 (Implementation):** Code complete in isolated worktrees. Unit tests green.
+*   **G5 (Verification):**
+    *   Run full integration suite on the exact merged SHA.
+    *   **Explicit Exception:** The known flaky network latency check is marked `NON-BLOCKING` pending manual log review; it does not fail the gate automatically.
+    *   **Proof:** QA provides receipts of successful fallback during simulated outages.
+*   **G6 (Independent Review):**
+    *   **Security:** Reviews data flow and sovereignty compliance.
+    *   **Architect:** Reviews code quality and fallback logic.
+    *   *Constraint:* Builder cannot approve their own lanes.
+
+#### 3. Review & Approval
+*   **Code Review:** Conducted by a senior engineer not involved in Lanes A or B. Focus on race conditions in dual-write and serializer correctness.
+*   **Security/Compliance:** Mandatory sign-off by the Compliance Officer regarding data residency.
+*   **Architecture:** Lead Architect must approve the final integration SHA.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:** Merge Lanes A and B into a staging branch. Run the 45-minute CI pipeline once on this combined SHA to save credits. Do not merge to main until G6 is complete.
+*   **Human Gates (Required Before Merge):**
+    1.  **Lead Architect:** Approves the technical implementation and rollback plan.
+    2.  **Compliance Officer:** Approves data sovereignty adherence.
+*   **Deployment Window:** Must occur outside business hours to mitigate risk, despite "zero downtime" design.
+*   **Rollback Plan:**
+    *   Trigger: Any data loss report or sustained latency increase post-deploy.
+    *   Action: Flip feature flag to disable dual-write and force all reads/writes to legacy store immediately.
+    *   Constraint: Production database snapshotting is irreversible; ensure pre-deploy snapshot is verified before starting.
+
+#### 5. Execution Rules
+*   **No Mass Logout:** Verify via canary metrics that active session counts remain stable during the cutover.
+*   **Cost Control:** Trigger the heavy integration suite only on the final release candidate SHA, not on every commit.
+*   **Flake Handling:** If the network latency check fails, a human must manually inspect logs to confirm it is the known false positive before proceeding.
+
+**Outcome:** A merged, reviewed, and approved change ready for deployment with a verified rollback path, ensuring continuous user sessions and compliance adherence.

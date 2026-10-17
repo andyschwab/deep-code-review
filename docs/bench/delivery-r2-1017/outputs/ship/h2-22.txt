@@ -1,0 +1,69 @@
+**Delivery Plan: Redesign Checkout (10% Rollout)**
+
+**Objective:** Deploy new checkout layout to 10% traffic with a strict revenue guardrail (-2% over 4h triggers auto-kill).
+**Constraints:** No changes to `currency-utils` (frozen); CI cost $45/run (55m); manual Finance Director sign-off required for `payments-prod`; flaky E2E payment check (retry only, do not halt); 20m DB migration for rollback.
+
+### Lanes & Serialization
+
+**Lane 1: Implementation & Analytics (Builder)**
+*   **Work:** Implement new layout logic; integrate A/B framework (10% bucket); instrument analytics events for both variants.
+*   **Constraint:** Strict read-only access to `currency-utils`.
+*   **Parallelism:** Runs parallel to Lane 2.
+*   **Output:** PR with code + unit tests.
+
+**Lane 2: Mobile Verification (QA)**
+*   **Work:** Visual regression testing on mobile viewports; verify layout integrity across supported devices.
+*   **Dependency:** Requires Lane 1's build artifact.
+*   **Parallelism:** Starts after Lane 1 produces a candidate build.
+
+**Lane 3: Guardrail Configuration (SRE/Backend)**
+*   **Work:** Configure experiment guardrail (kill switch if revenue < baseline -2% over 4h window); update monitoring dashboard.
+*   **Parallelism:** Runs parallel to Lane 1 (config-only, no code dependency).
+
+**Serialization Point:** Lanes 1, 2, and 3 must all pass before Integration (G7).
+
+### Gates & Checks
+
+*   **G1 (Spec):** Confirm acceptance criteria: 10% traffic, -2% revenue threshold, 4h window, mobile rendering, analytics firing. Pin base SHA.
+*   **G2 (Plan):** Define token budget for CI (limit to 2 full runs max: one candidate, one integration). Explicitly mark `currency-utils` as out-of-scope.
+*   **G3 (Design):** ADR confirming guardrail logic and rollback procedure (DB migration script ready).
+*   **G4 (Implement):**
+    *   Unit tests (local, free).
+    *   CI Run #1 (Candidate SHA): Full suite. **Exception:** If E2E payment check fails, manually retry that specific job once. If it fails again, flag for human triage (do not auto-fail release unless persistent).
+*   **G5 (Verify):**
+    *   **Mobile:** QA receipt from Lane 2 on exact candidate SHA.
+    *   **Analytics:** Dry-run verification of event payload structure.
+    *   **Guardrail:** Simulation test in staging to confirm kill-switch trigger logic.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (not the Builder) reviews Lane 1 PR.
+    *   **Security/Compliance:** Verify no tax logic changes touched frozen library.
+    *   **QA Sign-off:** Independent verification of mobile receipts.
+*   **G7 (Integrate):** Merge to release branch. Trigger CI Run #2 (Integration SHA) only if SHA changed post-merge.
+
+### Landing & Human Decisions
+
+**Human Gates (Required):**
+1.  **Finance Director:** Manual sign-off required before deploying to `payments-prod`.
+2.  **Owner:** Approval to flip the feature flag to 10% traffic.
+
+**Deployment Sequence:**
+1.  Deploy integrated SHA to `payments-prod` (behind flag, 0% traffic).
+2.  Finance Director signs off.
+3.  Enable experiment at 10% traffic.
+4.  Confirm monitoring dashboard reflects live data.
+5.  Send confirmation email to product team with dashboard link.
+
+**Rollback Plan:**
+*   **Trigger:** Guardrail auto-kill OR manual intervention.
+*   **Action:** Disable feature flag immediately (stops traffic).
+*   **Reversion:** If code revert is needed, execute pre-prepared DB migration script (est. 20 mins).
+*   **Verification:** Confirm revenue metrics stabilize to baseline post-rollback.
+
+**Cost Control:**
+*   Maximum 2 full CI runs ($90 total).
+*   No re-runs of full pipeline for flaky E2E; retry specific job only.
+*   Lane 3 (Config) requires no CI spend.
+
+**Failure Mode:**
+*   If guardrail triggers: Auto-disable experiment, alert on-call, preserve logs for post-mortem.
+*   If CI budget exceeded: Halt and request human approval for additional spend.

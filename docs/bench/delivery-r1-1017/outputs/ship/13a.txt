@@ -1,0 +1,72 @@
+**Delivery Plan: APAC Patient Portal Launch**
+
+**Scope & Constraints**
+*   **Goal:** Enable AcmeHealth Services in APAC with strict data residency (no cross-border replication).
+*   **Repositories:** `acme-cloud-apac` (Infra), `patient-portal-core` (App).
+*   **Critical Constraints:** Legal sign-off required before go-live; Infra CI is slow/costly ($12, 45m); DB creation is irreversible; Shared configs frozen during business hours.
+*   **Appetite:** Completion by next month; immediate start on non-gated work.
+
+**Lane Decomposition**
+
+1.  **Lane A: Legal & Data Flow (Serialized Gate)**
+    *   **Owner:** Product Analyst + Legal Liaison.
+    *   **Work:** Draft data flow diagrams showing exclusive local routing and no US backup paths.
+    *   **Gate:** G1 Spec complete only upon written Legal sign-off. No infra provisioning proceeds without this artifact.
+    *   **Output:** Signed PDF attached to ticket.
+
+2.  **Lane B: Infrastructure Provisioning (High Risk, Isolated)**
+    *   **Owner:** Builder (Infra Specialist).
+    *   **Worktree:** Dedicated isolated worktree in `acme-cloud-apac`.
+    *   **Sequence:**
+        1.  Draft Terraform/Cloudformation for APAC cluster with encryption keys.
+        2.  **Dry-run only** initially to validate syntax and cost.
+        3.  **Serialization:** Must wait for Lane A (Legal) and Lane C (Config) readiness.
+        4.  **Execution:** Run DB creation script once, verified by Security before apply.
+    *   **Checks:** Local `terraform plan` (cheap); One CI run on final SHA only (avoid flaky re-runs).
+    *   **Risk:** Irreversible DB creation requires manual "Go" from Conductor after Security review.
+
+3.  **Lane C: Application Configuration (Parallel to A, Pre-B)**
+    *   **Owner:** Builder (App Specialist).
+    *   **Worktree:** Dedicated worktree in `patient-portal-core`.
+    *   **Work:** Update routing logic to force APAC traffic to local clusters; disable US backup jobs in config.
+    *   **Constraint:** Edit shared library files only outside business hours to avoid freeze conflicts.
+    *   **Checks:** Unit tests for routing logic; integration test mocking high-latency network to verify `data-residency-check` stability.
+
+4.  **Lane D: Independent Verification (QA & Security)**
+    *   **Owner:** QA Engineer + Security Analyst (Distinct from Builders).
+    *   **Trigger:** Exact SHA from Lane B and Lane C merges to integration branch.
+    *   **Work:**
+        *   Verify no egress rules allow US traffic.
+        *   Confirm backup jobs point to APAC vaults only.
+        *   Execute `data-residency-check` with manual retry logic prepared for flakiness.
+    *   **Gate:** G6 Review blocks merge if any data path crosses borders.
+
+**Gates & Checks**
+
+*   **G0/G1 (Intake/Spec):** Legal sign-off on data diagrams (Lane A).
+*   **G2 (Plan):** Explicit budget cap for Infra CI (max 3 runs @ $12); define business-hour freeze window for config edits.
+*   **G3 (Design):** Security architecture review of encryption keys and routing tables (Paper review before code).
+*   **G4 (Implement):** Code committed with tests. Infra code frozen pending Legal.
+*   **G5 (Verify):**
+    *   Local stack up for App routing.
+    *   Infra `plan` output reviewed for region tags.
+    *   **Critical:** One-shot CI run on integration SHA. If `data-residency-check` flakes due to latency, manual re-trigger allowed once; second failure halts pipeline for investigation.
+*   **G6 (Review):** Independent Security audit of the final merged SHA. Builder cannot approve their own infra changes.
+*   **G7 (Integrate):** Merge to main branch of both repos. Generate integration receipt.
+*   **G8 (Release):** **Human Gate.** Requires dual approval (Regional Director + Chief Compliance Officer). No automated deploy.
+*   **G9 (Production Verify):** Post-deploy log check confirming zero cross-border packets.
+
+**Landing Strategy**
+
+*   **Merge Train:** Serialize `acme-cloud-apac` first (DB must exist), then `patient-portal-core`.
+*   **Human Decisions:**
+    1.  Approval to apply irreversible DB creation (after G5 green).
+    2.  Dual sign-off for Production Deploy (G8).
+*   **Rollback:**
+    *   App: Revert commit in `patient-portal-core`.
+    *   Infra: No soft rollback. If critical failure occurs post-DB-creation, execute "Destroy Environment" ticket and rebuild (time/cost penalty accepted).
+*   **Collision Avoidance:** Config edits scheduled for non-business hours. Infra lane holds until Legal sign-off is physically attached to the PR.
+
+**Failure Mode Handling**
+*   If CI flakes twice on latency: Escalate to Infrastructure Lead to adjust timeout thresholds; do not blindly retry.
+*   If Legal rejects flow: Stop all lanes immediately; re-scope G1.

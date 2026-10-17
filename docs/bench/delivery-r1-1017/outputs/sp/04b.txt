@@ -1,0 +1,52 @@
+# Delivery Plan: Telemetry SDK Swap (DataFlow → StreamPulse)
+
+## Lanes & Parallelism
+**Lane A (Configuration & Compliance):** Update `global-telemetry.json` to include new StreamPulse consent flags while preserving legacy keys for backward compatibility. This lane runs in parallel with Lane B but must complete before Lane C.
+**Lane B (Client Implementation):** Refactor mobile and web clients to abstract the telemetry interface. Implement the StreamPulse SDK behind this interface. This work occurs in feature branches isolated from `main`.
+**Lane C (Data Migration):** Develop and tune historical data migration scripts. Since staging lacks encryption keys, these scripts must be unit-tested locally with mocked encryption before being marked ready for integration.
+
+**Serialization Constraint:** Lane A must merge before Lane C integration testing. Lane B and Lane C can proceed in parallel but must both pass validation before the final cutover.
+
+## Gates & Checks
+**Gate 1: Local Verification (Pre-Commit)**
+*   **Revision:** Feature branch heads.
+*   **Check:** Unit tests for consent flag logic and interface abstraction.
+*   **Constraint:** Do not run the full CI pipeline for every commit to save costs ($45/run). Rely on local test suites.
+
+**Gate 2: Staging Integration (The "Mock" Gate)**
+*   **Revision:** Release candidate branch (`release/telemetry-swap`).
+*   **Check:** Deploy to staging. Run migration scripts against the mirrored traffic database.
+*   **Caveat:** Since staging lacks StreamPulse license keys, verify encryption module behavior via unit mocks injected at runtime. Confirm packet delivery logs to bypass the known flaky network check.
+*   **Pass Criteria:** Zero data gaps in simulated transition; consent flags correctly propagated in logs.
+
+**Gate 3: Cost-Controlled CI**
+*   **Revision:** `release/telemetry-swap` only.
+*   **Check:** Trigger full CI pipeline exactly once after Gate 2 passes.
+*   **Constraint:** If the network layer check fails, manually inspect logs for packet delivery confirmation. If confirmed, override the failure. Do not retry automatically.
+
+## Review Process
+**Independent Technical Review:**
+*   **Reviewer:** Senior Engineer from the Platform Team (not Growth Engineering).
+*   **Scope:** Verify `global-telemetry.json` backward compatibility and the abstraction layer in Lane B.
+*   **Timing:** Before Gate 2.
+
+**Security & Compliance Review:**
+*   **Reviewer:** Security Lead.
+*   **Scope:** Validate new consent flag implementation and data migration script safety.
+*   **Timing:** Before Gate 3.
+
+## Landing Strategy
+**Merge Protocol:**
+1.  **Freeze:** Halt non-critical merges to `main` 2 hours before deployment.
+2.  **Approval:** Obtain dual approval from Jane Smith and the Security Lead based on Gate 3 results and review sign-offs.
+3.  **Deployment:** Push `release/telemetry-swap` to production.
+4.  **Verification:** Monitor real-time logs for StreamPulse handshake success and consent flag presence.
+
+**Rollback Plan:**
+*   **Trigger:** Any loss of telemetry data >5 minutes or critical encryption errors in production logs.
+*   **Action:** Immediate revert to the previous daily snapshot. This is irreversible; do not attempt partial fixes in production.
+*   **Human Decision:** The Growth Engineering Lead must authorize the rollback based on live monitoring data.
+
+**Post-Landing:**
+*   Retire DataFlow SDK code paths only after 48 hours of stable StreamPulse data collection.
+*   Update documentation to reflect the new consent flag requirements for the Q4 audit.

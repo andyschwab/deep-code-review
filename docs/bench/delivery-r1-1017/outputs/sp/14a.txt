@@ -1,0 +1,40 @@
+### Delivery Plan: 90-Day Archive and Purge Cycle
+
+#### 1. Lanes and Parallelism
+Work is divided into three parallel lanes to minimize timeline, with one critical serialization point.
+
+*   **Lane A (Logic & Scripting):** Develop the archival script (90-day move) and purge script (365-day delete) in a feature branch. Implement idempotency checks to ensure partial failures retry without data loss or duplication.
+*   **Lane B (Infrastructure & Config):** Prepare the cold archive bucket permissions and lifecycle policies. Draft the update for `global-rules.json` to include the new cron schedule (03:00) and alert suppression rules for expected deletions.
+*   **Lane C (Reporting):** Build the daily summary reporter that queries the audit logs for "moved" vs. "purged" counts and formats the output for the compliance team.
+
+**Serialization Gate:** Lane A and Lane B must merge logically before final integration testing. The script (Lane A) depends on the bucket permissions (Lane B) being defined in the configuration to validate end-to-end flow in the staging environment. Lane C runs independently until the final integration test where it verifies the output of Lane A.
+
+#### 2. Gates and Checks
+All checks run on the specific feature branch commit `HEAD` before any merge proposal.
+
+*   **Unit Test Gate:** Run immediately on commit. Must pass 100% of non-flaky tests. The known flaky network latency check is explicitly ignored if connectivity logs confirm success; a human must annotate the CI log to bypass this specific failure.
+*   **Integration Gate:** Runs on the staging environment using a snapshot of production data (sanitized). Validates:
+    *   Records >90 days move to cold storage.
+    *   Records >365 days in cold storage are deleted.
+    *   No alerts trigger for expected deletions.
+    *   Partial failure simulation results in zero data loss.
+*   **Config Freeze Check:** The update to `global-rules.json` must be committed and merged outside business hours (before 08:00 or after 18:00). The CI pipeline must verify the timestamp of the config change attempt; if it falls within 08:00–18:00, the build fails automatically.
+
+#### 3. Review Process
+Reviews are independent and mandatory before the merge request is created.
+
+*   **Code Review:** Performed by a Senior Engineer from a team *other than* Clinical Data (to ensure independence). Focus: Idempotency logic, error handling, and ensuring the purge script is irreversible only in production but safe in staging.
+*   **Compliance Review:** Performed by the Compliance Officer. Focus: Verification that the 365-day deletion is permanent, the audit report format matches requirements, and alert suppression does not hide unexpected errors.
+*   **Operational Review:** Performed by the Lead Engineer. Focus: Deployment strategy, rollback capability, and confirmation that the 03:00 schedule does not conflict with backup windows.
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:** The feature branch merges to `main` only after dual approval (Lead Engineer + Compliance Officer) is recorded in the internal portal. The merge window is restricted to off-peak hours to accommodate the `global-rules.json` lock.
+*   **Deployment:** Automated deployment triggers immediately post-merge. The CI suite runs once on the merge commit; given the $12 cost and 45-minute duration, no intermediate "test" commits are allowed.
+*   **Human Decision Points:**
+    *   Final approval to enable the purge cron job (initially deployed in "dry-run" mode for 24 hours).
+    *   Manual verification of the first daily summary report.
+*   **Rollback Plan:**
+    *   **Pre-Purge:** If the archival logic fails, revert the merge. No data is lost as records remain in hot storage.
+    *   **Post-Purge:** Since deletion is irreversible, rollback is impossible for purged data. The mitigation is an immediate restore from the pre-deletion backup (taken nightly at 02:00) and a hotfix to disable the purge script. The system must alert immediately if the backup restore is required.
+
+This plan ensures compliance, data safety, and operational silence while respecting repository constraints.

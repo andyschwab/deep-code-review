@@ -1,0 +1,54 @@
+**Delivery Plan: PolicyViewer Keyboard Trap Fix**
+
+**Scope & Constraints**
+Refactor focus management in `PolicyViewer` (within `nexus-ui`) to remove keyboard traps and enable Escape key exit. No visual or animation changes. Must verify against standard assistive technology on staging. CI is expensive/flaky; local verification is mandatory. Production deploy requires Security Lead and Product Owner approval.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Analysis & Spec (Sequential, Pre-flight)**
+    *   **Actor:** Product Analyst + Builder
+    *   **Work:** Audit current `PolicyViewer` focus logic and `focus-lock` utility usage. Define exact focus restore behavior (where focus goes after modal close). Confirm `focus-lock` signature constraints to avoid breaking 12 other components.
+    *   **Output:** Testable spec listing acceptance criteria: (1) Tab cycle constrained correctly without trapping, (2) Escape closes modal and restores focus to trigger, (3) Screen reader announces state change.
+    *   **Gate G1:** Spec approved by Compliance stakeholder (implicit via ticket) and Builder sign-off on technical feasibility.
+
+2.  **Lane B: Implementation (Parallel to Lane C setup)**
+    *   **Actor:** Builder
+    *   **Work:** Isolate worktree. Refactor interaction logic only. Ensure `focus-lock` imports remain compatible. Add unit tests for focus state transitions.
+    *   **Constraint:** Do not touch CSS or animation files.
+    *   **Gate G4:** Code complete, unit tests passing locally.
+
+3.  **Lane C: Independent QA (Sequential after Lane B)**
+    *   **Actor:** QA (Independent of Builder)
+    *   **Work:** Deploy to staging (manual trigger). Run manual accessibility suite:
+        *   Verify Tab/Shift+Tab navigation does not trap.
+        *   Verify Escape key closes modal and restores focus.
+        *   Verify screen reader flow (NVDA/VoiceOver) on mobile viewport (bypassing flaky CI check).
+    *   **Gate G5:** Manual verification receipt on exact staging SHA. CI accessibility check run but treated as informational only due to known false negatives; manual result is authoritative.
+
+4.  **Lane D: Security & Compliance Review (Parallel to Lane C)**
+    *   **Actor:** Security Lead
+    *   **Work:** Review diff for supply chain risks, focus management side-effects on other `nexus-ui` consumers, and regulatory compliance alignment.
+    *   **Gate G6:** Security verdict (Pass/Fail).
+
+**Review Strategy**
+*   **Code Review:** Senior Engineer (not the Builder) reviews the diff against `nexus-ui` patterns. Focus on `focus-lock` compatibility.
+*   **Accessibility Review:** QA Lead validates manual test receipts.
+*   **Security Review:** Security Lead validates compliance posture.
+*   **Independence:** Builder never self-approves. QA never implements.
+
+**Landing & Merge**
+*   **Integration:** Once Lanes B, C, and D are green at the exact same SHA:
+    1.  Builder opens PR to `nexus-ui` main.
+    2.  All reviews attached.
+    3.  CI pipeline run (acknowledging 25m cost; only run once for final candidate).
+*   **Human Gates (G8):**
+    *   **Required Approval:** Security Lead AND Product Owner must explicitly approve the merge/deploy.
+    *   **Action:** Conductor requests approval with summary: "Fix verified on staging, security cleared, ready for production to avoid regulatory fines."
+*   **Rollback:** If production issues arise, revert the specific commit immediately. Focus logic changes are low-risk for data loss but high-risk for usability; rollback plan is simple git revert followed by redeploy.
+
+**Cost & Risk Control**
+*   **CI Cost:** Run full pipeline only once on the final merged candidate. All intermediate checks done locally.
+*   **Risk:** Flaky mobile CI ignored; manual staging test is the gate. `focus-lock` changes constrained to prevent cascade failures.
+*   **Timeline:** Target completion before month-end. If any gate blocks >48 hours, escalate to Product Owner immediately.
+
+**Next Step:** Begin Lane A (Analysis) to confirm `focus-lock` constraints and draft the spec.

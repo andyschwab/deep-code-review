@@ -1,0 +1,74 @@
+# Delivery Plan: Usage Meters for Flat-Rate Upgrade
+
+## Lanes & Parallelism
+
+**Lane A: Billing Engine (Monolith)**
+*   **Work:** Implement metering logic to track API calls and storage GB per tenant; build overage calculation engine for cycle-end processing.
+*   **Constraint:** Must not modify the immutable tenant database schema. New metering tables must be additive only.
+*   **Serialization:** Must complete before Lane C integration.
+
+**Lane B: Customer Portal (Microservice)**
+*   **Work:** Develop real-time usage counter components; integrate with billing data source for dashboard display.
+*   **Constraint:** Must handle 30-minute configuration cache delays gracefully (display "updating" states).
+*   **Parallelism:** Can run concurrently with Lane A, provided interface contracts are defined upfront.
+
+**Lane C: Data Migration & Validation**
+*   **Work:** Create read-only verification scripts to assert historical data integrity; build dry-run mode for the billing engine.
+*   **Serialization:** Runs after Lane A logic is coded but before full staging deployment.
+
+## Gates & Checks
+
+**Gate 1: Interface Contract Freeze (Day 1)**
+*   **Check:** Define exact API signatures between Monolith (Lane A) and Portal (Lane B).
+*   **Revision:** `main` branch at plan start.
+*   **Verifier:** Lead Architect (async approval).
+
+**Gate 2: Historical Data Integrity (Pre-Staging)**
+*   **Check:** Run read-only validation scripts against a production snapshot. Zero modifications allowed.
+*   **Revision:** Latest `develop` branch merged with Lane A feature branch.
+*   **Verifier:** Automated CI job + Database Admin review.
+
+**Gate 3: High-Load Stability (Staging)**
+*   **Check:** Execute load tests mimicking Q4 traffic.
+*   **Mitigation:** Implement retry logic specifically for known flaky network timeouts; do not treat transient failures as functional defects.
+*   **Revision:** Release Candidate build.
+*   **Verifier:** QA Lead.
+
+**Gate 4: Financial Reconciliation Dry-Run**
+*   **Check:** Run billing engine in "dry-run" mode on a full cycle dataset. Compare output against manual spreadsheet projections.
+*   **Constraint:** Do NOT trigger the actual 4-hour nightly reconciliation job. Use the dry-run flag.
+*   **Revision:** Release Candidate build.
+*   **Verifier:** Finance Director.
+
+## Review Process
+
+**Code Review (Independent)**
+*   **Billing Logic:** Reviewed by a Senior Backend Engineer *not* on Lane A. Focus: Calculation accuracy, edge cases for overage.
+*   **Portal UI:** Reviewed by a Frontend Lead *not* on Lane B. Focus: Real-time update handling, cache delay UX.
+*   **Integration:** Reviewed by the Lead Architect. Focus: Contract adherence, error propagation between services.
+
+**Security & Compliance Review**
+*   **Scope:** Verify no writes occurred to immutable schema; ensure PII handling in new metering tables complies with locks.
+*   **Reviewer:** Compliance Officer (required before Gate 4).
+
+## Landing Strategy
+
+**Phase 1: Feature Flag Deployment**
+*   Deploy to production behind a disabled feature flag.
+*   Enable metering *collection* only (no charging).
+*   Monitor for 24 hours to verify data accumulation without financial impact.
+
+**Phase 2: Calculation Verification**
+*   Enable calculation engine in "shadow mode" (logs fees but does not invoice).
+*   Finance Director compares shadow logs against expected revenue models.
+
+**Phase 3: Full Launch (Human Decision Required)**
+*   **Approvals Needed:** Written sign-off from **Finance Director** (revenue accuracy) AND **Lead Architect** (system stability).
+*   **Action:** Flip feature flag to enable live charging and dashboard visibility.
+*   **Timing:** Outside of the 4-hour nightly reconciliation window.
+
+**Rollback Plan**
+*   **Trigger:** Calculation error >1% variance or dashboard latency spike >500ms.
+*   **Action:** Instantly disable feature flag via configuration service.
+*   **Data Remediation:** Since schema changes were additive and charges were flagged, no data deletion is required; simply void any erroneous invoices generated during the fault window.
+*   **Cache Clear:** Force invalidate the 30-minute rate limit cache to revert to legacy flat-rate logic immediately.

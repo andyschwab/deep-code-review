@@ -1,0 +1,64 @@
+**Delivery Plan: Stabilize Orbit-9 Checkout Flow Tests**
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Reduce Orbit-9 E2E flakiness from 40% to <1% without removing the mandatory network check.
+*   **Constraints:** No config changes to production branches without Compliance Officer (Jane Smith) approval. Test data is static (midnight UTC). CI cost $12/run.
+*   **Scope:** Investigation, root cause fix, verification.
+*   **Non-Goals:** Disabling checks, changing audit rules.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A: Investigation & Reproduction (Serial)**
+    *   **Owner:** Builder (paired with QA Analyst).
+    *   **Work:** Isolate the "global-setup" network check failure. Run local stress tests (50 iterations) against the midnight UTC snapshot to reproduce the 40% failure rate locally. Identify if the flake is timing, race condition, or data-state drift.
+    *   **Output:** Root cause analysis document + proposed fix strategy.
+    *   **Dependency:** Must complete before Lane B.
+
+*   **Lane B: Implementation (Parallelizable within lane)**
+    *   **Owner:** Builder.
+    *   **Work:** Implement the fix (e.g., explicit waits, retry logic wrapped around the mandatory check, or state reset hooks) in a dedicated worktree.
+    *   **Constraint:** Zero changes to global config files yet; code changes only.
+    *   **Output:** Patch set with unit tests for the fix logic.
+
+*   **Lane C: QA Coordination & Config Review (Serial Blocker)**
+    *   **Owner:** Product Analyst / Conductor.
+    *   **Work:** Present the proposed fix and *specific* config changes (if any) to the QA Ownership Team and Jane Smith. Secure written approval for the config change pattern.
+    *   **Output:** Written approval artifact (email/ticket comment) from Jane Smith.
+    *   **Dependency:** Blocks G4 commit of config changes; runs parallel to Lane B coding.
+
+**G3 Design**
+*   **ADR:** Document the trade-off between retry overhead and CI cost. Define the exact retry count that balances stability vs. the $12/min cost.
+
+**G4 Implement**
+*   **Action:** Commit code (Lane B) and config (Lane C approved) to a feature branch.
+*   **Base SHA:** Pin to current `main` head before investigation started.
+*   **Review:** Independent review by a Senior Engineer *not* on the Payments Squad. Security review to ensure retry logic doesn't mask actual transaction failures.
+
+**G5 Verify (The Critical Gate)**
+*   **Environment:** Staging (requires Jane Smith's explicit deployment approval).
+*   **Execution:**
+    1.  Deploy candidate SHA to Staging (Human Gate).
+    2.  Run the full Orbit-9 suite 20 times consecutively on the CI cluster.
+    3.  **Pass Criteria:** 0 failures in 20 runs.
+    4.  **Cost Control:** If >2 failures occur in the first 10 runs, abort immediately to save costs; return to Lane B.
+*   **Evidence:** CI logs linked to the specific SHA, showing 20/20 green.
+
+**G6 Review**
+*   **Verdict:** QA Lead confirms the fix resolves the flake without hiding real errors. Security confirms audit compliance remains intact.
+
+**G7 Integrate**
+*   **Merge Strategy:** Merge to `main` via Pull Request.
+*   **Collision Check:** Ensure no other payments squad merges occur during the final verification window.
+
+**G8 Release & Human Gates**
+*   **Gate 1 (Deploy to Staging for Verify):** Requires written approval from Jane Smith.
+*   **Gate 2 (Merge to Main):** Requires approval from Payments Squad Lead.
+*   **Gate 3 (Config Change Activation):** If the fix involves irreversible config changes, a second explicit sign-off from Jane Smith is required post-merge before the next production deployment.
+
+**Rollback Plan**
+*   **Trigger:** If the fix introduces new failures in other product teams' suites (since the engine is shared) or increases CI time by >15%.
+*   **Action:** Revert the merge immediately. The "irreversible" config change requires a manual hotfix script provided by the QA Ownership team to revert state; this script must be drafted in Lane B and approved in Lane C.
+
+**Cost & Risk**
+*   **Estimated Cost:** ~$60 (5 verification runs x $12) + investigation time.
+*   **Risk:** High (shared engine). Mitigation: Full suite regression run on the candidate SHA before merge approval.
+*   **Budget Cap:** $100 for CI runs. If exceeded, pause for manual review.

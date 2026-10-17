@@ -1,0 +1,30 @@
+### Delivery Plan: Legacy Feature Flag Audit & Removal
+
+**1. Lanes and Parallelism**
+Work is divided into three lanes. Lane A (Audit) and Lane B (Traffic Analysis) run in parallel. Lane C (Removal) is strictly serialized and begins only after Lane A and B converge and the Removal Plan is approved.
+
+*   **Lane A (Static Audit):** Inventory every flag in the configuration file. Cross-reference commit history and code usage to identify flags with no active code paths or those hardcoded to "on" for over six months. Output: A "Candidate for Removal" list.
+*   **Lane B (Traffic Analysis):** Query production logs for the last 90 days. Verify if any enterprise client traffic triggered logic gated by the candidates identified in Lane A. Output: A "Safe to Remove" list (flags with zero relevant traffic) and a "Keep" list (flags with active enterprise usage).
+*   **Lane C (Removal Execution):** Executes sequentially, one flag (or small batch) at a time. This lane handles code deletion, config updates, and deployment.
+
+**2. Gates and Checks**
+No code changes occur until the **Removal Plan Gate**. This gate requires a consolidated document listing every flag to be removed, evidence of zero traffic impact, and the specific code lines to be deleted. This plan requires explicit sign-off from Jane Smith (Core Payments Lead) and two senior engineers.
+
+*   **Revision Control:** All work branches from the current `main` head. The audit runs on this static revision.
+*   **Pre-Deployment Check:** Before any merge, a dry-run build validates that the shared immutable configuration file remains syntactically valid and that the fraud detection service can still parse it. This prevents the irreversible 15-minute outage scenario.
+*   **CI Strategy:** Due to high costs and the flaky latency check, the pipeline runs once per batch in Lane C. The flaky latency check is manually verified by a senior engineer; a failure there does not block deployment unless accompanied by other errors.
+
+**3. Review Process**
+Reviews are independent and layered:
+*   **Audit Review:** A senior engineer not involved in Lane A/B reviews the "Safe to Remove" list against raw log samples to ensure no false negatives in traffic analysis.
+*   **Code Review:** Two senior engineers (distinct from the approvers of the Removal Plan) review the Lane C pull requests. They verify that code removal is complete (no orphaned branches) and that the configuration file modification is minimal and precise.
+*   **Fraud Service Validation:** A specialist from the fraud team reviews the config change diff specifically for schema integrity, independent of the feature logic.
+
+**4. Landing and Rollback**
+Merging happens in small, serialized batches via Lane C.
+*   **Staged Deployment:** Each batch deploys first to the staged environment. We verify that payment processing and fraud scoring function correctly under load.
+*   **Production Release:** Upon stage success, the batch deploys to production. We monitor specifically for fraud scoring errors and payment failures for 30 minutes before proceeding to the next batch.
+*   **Human Decision Point:** If the fraud service fails to parse the config or if enterprise clients report missing features, the deployment halts immediately.
+*   **Rollback:** Since the config file is immutable and shared, rollback is instantaneous by reverting the merge commit. The previous revision is guaranteed to be safe as it is the known good state. Code changes are reverted via standard git revert. No manual config editing is permitted during rollback to avoid human error.
+
+This plan prioritizes safety over speed, isolating the high-risk config modification and ensuring every removal is validated by traffic data before code is touched.

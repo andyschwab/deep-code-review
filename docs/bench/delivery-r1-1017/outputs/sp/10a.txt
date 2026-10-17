@@ -1,0 +1,26 @@
+### Delivery Plan: GDPR-Compliant Export Filter
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Implementation):** One engineer modifies `ReportGenerator` to inject the anonymization logic. This work is strictly serialized behind the design sign-off. The logic must check for the `Region-Nordic` tag before applying filters to ensure US reports remain untouched.
+*   **Lane B (Compliance Prep):** While Lane A codes, the ticket owner prepares the compliance brief for the Officer. Since the Officer only reviews Tuesdays/Thursdays, this brief must be ready immediately to catch the next available slot.
+*   **Parallel Constraint:** Lane A cannot merge until Lane B secures Compliance approval. However, Lane A can complete the code and local verification while waiting for the human gate.
+
+**2. Gates, Checks, and Revision Control**
+*   **Gate 1: Design Sign-off (Before Code):** Before touching `ReportGenerator`, the proposed logic flow (specifically the tenant tag check and header modification) must be documented in the ticket and approved by the Lead Backend Engineer. This prevents wasted CI minutes on architectural rejections.
+*   **Gate 2: Compliance Review (Human):** The Compliance Officer must review the change description and the specific "anonymized" flag implementation. This must occur on Tuesday or Thursday. No code merges without this explicit approval tag.
+*   **Gate 3: CI Pipeline (Automated):** Runs on the specific commit hash post-approval. Due to the 45-minute runtime and cost, no redundant builds are permitted. The build must pass on the first attempt.
+*   **Gate 4: Staging Verification (Flaky Test Mitigation):** The `patient_masking` check will be executed in staging using sanitized data. To mitigate the known flakiness under load, this test must run when concurrent users are confirmed to be below 50. If the test fails, it must be re-run immediately under low-load conditions to distinguish between a logic error and an environment flake.
+
+**3. Review Strategy**
+*   **Code Review:** Performed by a senior engineer *not* involved in Lane A (Implementation). This reviewer focuses strictly on the isolation of the Nordic logic to guarantee zero impact on US tenants.
+*   **Compliance Review:** Performed exclusively by the Compliance Officer. This is independent of the technical code review; passing code review does not bypass compliance.
+*   **Audit Trail:** The "anonymized" flag in the CSV header serves as the runtime audit check. A manual verification step in staging must confirm this flag appears only for Nordic exports.
+
+**4. Landing & Rollback**
+*   **Merge Window:** The branch merges only after: (1) Lead Backend approval, (2) Compliance Officer approval, (3) Successful CI build, and (4) Confirmed low-load staging pass. Target merge is Wednesday EOD to allow Thursday noon verification.
+*   **Deployment:** Production deploy is irreversible without a full database restore. Therefore, the deployment must happen during a low-traffic window with the nightly backup verified as fresh immediately prior.
+*   **Rollback Plan:** Since code-level rollback is impossible without data loss, the rollback procedure is strictly operational:
+    1.  Immediately halt the automated SFTP transfer job to prevent contaminated files from reaching the client.
+    2.  Trigger a manual restoration of the database from the pre-deploy nightly backup.
+    3.  Revert the SFTP job configuration to point to the legacy export path temporarily while a hotfix is developed.
+*   **Human Decision Point:** The final "Go/No-Go" for production deployment requires explicit confirmation from both the Lead Backend Engineer and the Compliance Officer that the staging results (specifically the flaky test) are accepted.

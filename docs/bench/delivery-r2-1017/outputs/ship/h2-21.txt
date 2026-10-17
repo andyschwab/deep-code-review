@@ -1,0 +1,74 @@
+**Delivery Plan: Audit Logging for Nexus Core**
+
+**G0 Intake & G1 Spec (Conductor + Product Analyst)**
+*   **Action:** Define the audit schema (User ID, Timestamp, Action, Entity, Diff) in an ADR. Confirm scope excludes read-only endpoints and the frozen `common-utils` library.
+*   **Constraint:** Logs must be asynchronous to avoid user latency.
+*   **Output:** Testable spec pinned to base SHA `HEAD`.
+
+**G2 Plan & G3 Design (Conductor + Security)**
+*   **Work Graph:**
+    1.  **Lane A (Logging Core):** Implement the internal logging utility and secure shipper interface.
+    2.  **Lane B (Instrumentation):** Inject logging calls into all Create/Update/Delete paths in Nexus Core.
+    3.  **Lane C (Verification):** Build integration tests against the staging secure store.
+*   **Budgets:** Lane A/B capped at $45 (10 mins CI); Lane C capped at $90 (20 mins CI). No unlimited spend.
+*   **Serialization:** Lane A must merge before Lane B starts to ensure the interface exists. Lane C runs only after Lane B is integrated.
+
+**G4 Implement (Builder)**
+*   **Lane A (Logging Core):**
+    *   **Worktree:** Isolated `feat/audit-core`.
+    *   **Task:** Create local logger module. Mock the shipper for unit tests.
+    *   **Check:** Unit tests green locally.
+*   **Lane B (Instrumentation):**
+    *   **Worktree:** Isolated `feat/audit-instrument`, branched from Lane A's merged result.
+    *   **Task:** Wrap write operations. Ensure no blocking I/O on the request path.
+    *   **Check:** Compile and lint only (functional verification deferred to G5).
+*   **Human Gate:** No human approval needed yet; code remains in feature branches.
+
+**G5 Verify (Independent QA)**
+*   **Exact Revision:** The merged SHA of Lane A + Lane B.
+*   **Action:**
+    1.  Spin up local stack.
+    2.  Execute write operations; assert logs are generated with correct schema.
+    3.  Deploy to Staging (automated pipeline).
+    4.  **Critical Check:** Verify logs arrive in the central secure store within 5 seconds of the write.
+    5.  **Flake Mitigation:** Run the `network-isolation` check only once per candidate SHA. If it times out, retry exactly once; if it fails again, mark as `UNVERIFIED` and flag for infrastructure review, do not block the audit logic.
+*   **Constraint:** Tests must complete before 03:00 UTC to avoid data sanitization wiping state. If missed, reschedule for next window.
+
+**G6 Review (Security + Senior Engineer)**
+*   **Reviewers:** One Security lead (independent of Builder), one Senior Engineer from Data Integrity.
+*   **Scope:** Full diff against base SHA.
+*   **Focus:**
+    *   Does the logger expose PII?
+    *   Is the shipping truly asynchronous?
+    *   Are all write paths covered?
+*   **Verdict:** Blocker/Critical findings stop the merge. High findings require Jane Smith's written acceptance.
+
+**G7 Integrate (Conductor)**
+*   **Action:** Merge to `staging` branch via merge train.
+*   **Check:** Re-run affected subset of regression tests on the final integration SHA.
+*   **Receipt:** Commit hash and link to passing CI logs.
+
+**G8 Release (Human Gate)**
+*   **Approvers:** Dual approval required (Security Lead + Operations Lead).
+*   **Action:** Promote `staging` to `production` config repo.
+*   **Constraint:** Only senior engineers can commit to the production config.
+*   **Rollback:** If logs fail to ship or cause latency >50ms, revert the config commit immediately. Production data writes are irreversible, but the logging mechanism itself is safe to disable.
+
+**G9 Production Verify**
+*   **Action:** Monitor log ingestion volume for 1 hour post-deploy.
+*   **Receipt:** SLO dashboard screenshot showing successful ingestion.
+
+**G10 Learn**
+*   **Action:** Record the `network-isolation` flake behavior. If it blocked deployment, add a specific regression test case or timeout adjustment to prevent future delays.
+
+**Summary of Parallelism:**
+*   Lane A and Lane C setup can run in parallel.
+*   Lane B waits for Lane A.
+*   G5 waits for Lane B.
+*   G8 is strictly sequential and human-gated.
+
+**Risk Mitigation:**
+*   **Cost:** Strict CI time caps enforced per lane.
+*   **Flakiness:** `network-isolation` check limited to 2 attempts max.
+*   **Data Loss:** Tests scheduled around 03:00 UTC sanitization.
+*   **Compliance:** Security review is mandatory before G8.

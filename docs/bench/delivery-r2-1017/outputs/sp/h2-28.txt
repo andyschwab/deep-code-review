@@ -1,0 +1,63 @@
+# Delivery Plan: Bulk Archive Undo Capability
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+1.  **Snapshot Service:** Implement in-memory or temporary table storage for affected record IDs and previous states. Must complete within the existing archive transaction to ensure consistency, but write asynchronously to avoid blocking the UI.
+2.  **Revert Handler:** Create the endpoint to restore records from the snapshot. This depends on Lane A's storage schema.
+3.  **Expiration Job:** Implement a background worker or cron check to purge snapshots older than 15 minutes.
+
+**Lane B: UI & Notification (Parallel to Lane A)**
+1.  **Notification Component:** Build the "Undo Available" banner with a countdown timer (15:00 down to 00:00).
+2.  **Action Hook:** Wire the "Undo" button in the Ops Console to call the Lane A Revert Handler.
+
+**Lane C: Audit & Compliance (Parallel)**
+1.  **Audit Logging:** Ensure every "Undo" action appends a new entry to the audit log (never modifying existing entries). Link the undo event to the original bulk archive transaction ID.
+
+*Parallel Execution:* Lanes A, B, and C can proceed simultaneously once the interface contracts (API payload shape and snapshot schema) are defined. Lane B and C must wait only for the API signature definition from Lane A.
+
+## Gates & Checks
+
+**Gate 1: Design Review (Pre-Code)**
+*   **When:** Before any code is committed.
+*   **Who:** Team Lead + Head of Customer Success.
+*   **Check:** Verify the 15-minute window logic and that the primary archive latency remains unchanged (asynchronous snapshotting).
+
+**Gate 2: Unit & Integration Test (Pre-Merge)**
+*   **Revision:** Run on the feature branch head.
+*   **Scope:**
+    *   Verify snapshot creation does not block the archive thread.
+    *   Verify revert restores exact state.
+    *   Verify expiration purges data exactly at 15 minutes.
+    *   **Constraint:** Skip the flaky notification module check if logs indicate success; do not re-run the full suite unless a core logic test fails (to save credits/time).
+*   **Data Safety:** Tests must run against a seeded staging dataset; never touch production audit logs.
+
+**Gate 3: Performance Benchmark**
+*   **Check:** Compare archive duration with and without the snapshot feature. Variance must be <5%.
+
+## Review Process
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer from a squad *other* than Internal Tools (to ensure objectivity regarding the "safety net" requirement).
+*   **Focus:**
+    *   Confirm no synchronous blocking in the archive path.
+    *   Verify audit logs are strictly append-only.
+    *   Check that shared configuration files are not modified during business hours (changes must be staged for off-hour deployment or use feature flags).
+
+**Compliance Sign-off**
+*   **Who:** Head of Customer Success.
+*   **Focus:** Validate the user-facing notification clarity and the "single click" revert flow.
+
+## Landing Strategy
+
+**Merge Window**
+*   **When:** Deployment must occur outside business hours to avoid locking shared configuration files. Preferred window: 20:00 – 06:00 local time.
+*   **Approvals Required:** Explicit written approval from both the Team Lead and the Head of Customer Success before the merge button is enabled.
+
+**Rollback Plan**
+*   **Trigger:** If the archive latency increases by >5% or the revert function fails in staging.
+*   **Action:** Revert the merge immediately. Since the database backup is only daily, ensure the feature flag is set to "OFF" by default; if issues arise in production, toggle the flag to disable the undo capability without rolling back the entire release.
+*   **Data Integrity:** If a partial failure occurs (snapshot created but revert fails), manual intervention is required. Document the specific transaction IDs for manual database restoration from the next 03:00 UTC backup if necessary.
+
+**Post-Land Verification**
+*   Monitor the first three bulk archive actions live. Confirm the notification appears and the countdown functions. Verify audit logs show the new "Undo Available" and "Undo Executed" events.

@@ -1,0 +1,54 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Tier Access
+
+**Scope:** Modify `core-net-storage` to grant `auditor-svc` read-only access to `legal-archive-09`.
+**Constraints:** Additive edits only (no deletion); no encryption/lifecycle changes; staging verification required; production window Tue 02:00–04:00 UTC.
+
+#### 1. Lanes & Serialization
+
+*   **Lane A (Spec & Safety Guardrails) – Conductor + Security Lead**
+    *   **Task:** Define exact IAM policy snippet (read-only, specific prefix/age condition). Explicitly document the "additive-only" constraint and the forbidden deletion pattern to prevent legacy lockout.
+    *   **Output:** G1 Spec with acceptance criteria and rollback script draft.
+    *   **Parallelism:** Runs first; blocks Lane B.
+
+*   **Lane B (Implementation) – Builder (Platform Reliability)**
+    *   **Task:** Edit infrastructure definition in a dedicated worktree. Apply policy snippet. Ensure no drift in encryption/lifecycle blocks.
+    *   **Output:** Commit patch + unit test for policy syntax.
+    *   **Parallelism:** Starts after G1. Runs independently of Lane C once spec is frozen.
+
+*   **Lane C (Staging Verification) – QA (Independent)**
+    *   **Task:** Deploy to staging environment using Lane B's exact revision. Verify `auditor-svc` can read >7-year files. Verify write access is denied. Confirm legacy backup system remains functional.
+    *   **Output:** Staging test receipt (logs + access proofs).
+    *   **Parallelism:** Starts after Lane B commits.
+
+*   **Lane D (Rollback Drill) – Security + Ops**
+    *   **Task:** Simulate failure (inject write permission error or public exposure flag). Execute rollback to previous state. Measure time-to-revert (must be <5 mins).
+    *   **Output:** Rollback drill receipt.
+    *   **Serialization:** Must complete before G8 (Production Approval).
+
+#### 2. Gates & Checks
+
+*   **G1 (Spec Freeze):** Conductor + Security Lead approve policy snippet. *Check:* Policy is strictly read-only; additive logic verified.
+*   **G2 (Plan):** Define work graph. *Check:* Token budget set for CI (400 credits/run); flaky check protocol defined (one manual retry allowed for `network-latency-validator`).
+*   **G4 (Implement):** Builder commits. *Check:* `deep-code-review DIFF` on exact base SHA. No deletion of bucket policy resource.
+*   **G5 (Verify Staging):** QA runs full topology simulation (22 mins) on staging. *Check:* Green CI (ignoring one flake if applicable); functional access confirmed; legacy system intact.
+*   **G6 (Review):** Two senior engineers + one security lead review. *Check:* Independent of Builder. Verify `network-latency-validator` failure was handled per protocol if it occurred.
+*   **G7 (Integrate):** Merge to integration branch. *Check:* Re-run affected gates on final SHA.
+
+#### 3. Review Strategy
+
+*   **Code/Policy Review:** Two senior Platform Reliability engineers (functional correctness, additive safety).
+*   **Security Review:** One Security Lead (least privilege, no public exposure, rollback viability).
+*   **Independence:** Reviewers must not be the Builder. Security Lead must not be the Spec author if possible (or must re-verify from first principles).
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:** Merge train entry after G6 approval.
+*   **Human Decision (G8):** Production deployment requires explicit owner approval during the Tue 02:00–04:00 UTC window. No auto-deploy.
+*   **Deployment:** Execute deployment script. Monitor for immediate anomalies.
+*   **Rollback Plan:**
+    *   **Trigger:** Auditor gains write access OR public exposure detected OR legacy backup lockout.
+    *   **Action:** Revert to previous commit SHA immediately.
+    *   **Verification:** Confirm legacy system access restored and auditor access revoked within 5 minutes.
+    *   **Post-Mortem:** Mandatory G10 retrospective if rollback occurs.
+
+**Risk Mitigation:** The `network-latency-validator` flake is documented; a single failure triggers a manual retry, not a block. All other CI failures halt the train. The "additive-only" rule is enforced by code review and pre-commit hooks if available, otherwise by strict human gate.

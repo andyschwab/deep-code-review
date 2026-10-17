@@ -1,0 +1,29 @@
+### Delivery Plan: DE/FR/JP Localization
+
+**Work Lanes & Parallelism**
+*   **Lane A (Code Consolidation):** Extract hardcoded strings from logic and HTML into central resource files. This lane runs in parallel with Lane B but must complete before Lane C.
+*   **Lane B (CMS Configuration):** Prepare locale-specific content bundles for the CMS. Since production is read-only, this work occurs in a staging content branch. This lane runs parallel to Lane A.
+*   **Lane C (Engine Integration):** Update the template engine to consume central keys and implement auto-formatting for dates/currencies. **Serialization:** Starts only after Lane A delivers the initial key set.
+*   **Lane D (Validation Suite):** Develop automated scripts to detect mixed-language rendering and missing keys. Runs parallel to A and B, but execution depends on Lane C's deployment to staging.
+
+**Gates & Checks**
+*   **Gate 1 (Pre-Commit):** The existing hook blocking hardcoded strings in view files serves as the primary quality gate for Lane A. No merge to the integration branch occurs without passing this check.
+*   **Gate 2 (Staging Freeze):** Before loading full locale data into the shared staging database, a nightly backup snapshot must be confirmed. This is a hard stop to prevent irreversible corruption of QA data.
+*   **Gate 3 (Content Approval):** CMS updates require Regional Marketing Lead approval. **Constraint:** Submission must occur by Monday EOD to meet the Tuesday review window. Missed windows delay the beta launch by one week.
+*   **Gate 4 (Build Verification):** Due to the 45-minute pipeline, a "smoke test" suite (under 5 minutes) runs on every push to the feature branch. The full integration suite runs only on the release candidate revision.
+
+**Review Strategy**
+*   **Code Review:** Independent review of Lane A and C by a senior engineer not involved in the extraction logic. Focus: Verification that no dynamic concatenation breaks translation context.
+*   **Content Review:** The Regional Marketing Lead reviews CMS content (Lane B) exclusively. Engineering does not approve copy.
+*   **Visual/Functional Review:** A dedicated QA pass on the staging environment using the "Validation Suite" (Lane D). This verifies date/currency adaptation and ensures zero mixed-language pages. This review is independent of the code author.
+
+**Landing & Rollback**
+*   **Merge Strategy:** The feature merges to `main` only after Gate 3 (Content Approval) and Gate 4 (Full Build) pass. The merge triggers the production deployment pipeline.
+*   **Human Decision Point:** The "Flip the Switch" for the beta group requires explicit sign-off from the Product Owner after reviewing the QA pass report. This cannot be automated.
+*   **Rollback Plan:**
+    1.  **Code:** Revert the merge commit immediately if mixed-language pages are reported in production.
+    2.  **Database:** If staging data was corrupted prior to launch, restore the nightly backup snapshot.
+    3.  **CMS:** Revert the content bundle to the previous English-only version via the CMS version history (no engineering deploy required).
+
+**Critical Path Risks**
+The Tuesday-only approval window is the single point of failure. If content submission misses the Monday deadline, the entire launch slips. The shared staging database requires strict coordination with the QA team to schedule the irreversible data swap during their downtime.

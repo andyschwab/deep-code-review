@@ -1,0 +1,47 @@
+### Delivery Plan: Restrict Legacy Billing API Access
+
+**Objective:** Restrict `LedgerSync` endpoint access to `Finance-Admins` only, ensuring 403 for others, audit logging, and zero downtime during the fiscal close window.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Impact Analysis):** Product Analyst defines the exact JSON diff for `global_access_matrix.json` and verifies the "nightly batch reconciliation" service account identity. Must confirm if the batch job uses a user token (needs group update) or a service principal (needs explicit allowlist). **Serialized:** Must complete before Lane B.
+*   **Lane B (Implementation):** Builder implements the logic change in a dedicated isolated worktree.
+    *   Update auth logic to enforce `Finance-Admins` check on the specific path.
+    *   Inject audit log entry on every access attempt (allow/deny).
+    *   **Constraint:** Do not modify `global_access_matrix.json` yet; implement the *logic* that reads it.
+    *   Add a unit test mocking the config file to verify 403 behavior for non-finance users.
+*   **Lane C (Dry-Run Script):** Security Engineer writes a script to simulate the cache purge procedure and verify the 20-minute window impact. Validates that the nightly batch won't collide with the purge. **Parallel** to Lane B.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Owner approves the list of affected service accounts and the exact JSON path.
+*   **G4 (Build):** Lane B commits code. Unit tests run locally (avoiding the $120 CI cost initially).
+*   **G5 (Verify - Staged):**
+    *   Trigger CI on the exact commit SHA.
+    *   **Mitigation:** If Stage 3 flaky checks fail, retry exactly once. If it fails twice, escalate to manual log review (do not auto-merge).
+    *   **Critical Check:** Verify audit logs are generated in the test environment.
+    *   **Performance:** Confirm no latency regression on the endpoint.
+*   **G6 (Review):**
+    *   **Security Review:** Independent Security Engineer reviews the auth logic and audit implementation.
+    *   **Code Review:** Platform Reliability lead reviews implementation (cannot be the Builder).
+    *   **Constraint:** Reviewers must see the exact SHA from G5.
+
+#### 3. Landing & Human Decisions
+*   **Integration (G7):** Merge to the integration branch. No deploy yet.
+*   **Human Gate (G8 - Deployment Approval):**
+    *   **Required Approvers:** CFO AND Head of Security (via governance portal).
+    *   **Timing:** Must occur *before* next Tuesday's fiscal close window. Ideally, deploy 48 hours prior to monitor stability.
+    *   **Action:** Deploy behind a feature flag if available; otherwise, direct deploy with rollback ready.
+*   **Cache Purge Execution:**
+    *   Execute the manual cache purge procedure immediately after deploy.
+    *   **Serialization:** Ensure this does not overlap with the nightly batch start time.
+*   **Rollback Plan:**
+    1.  **Code Revert:** Immediate revert of the auth logic commit.
+    2.  **Config Revert:** Restore previous `global_access_matrix.json`.
+    3.  **Cache:** Trigger cache purge again (unavoidable 20min delay).
+    4.  **Data:** No data repair needed (access was restricted, not data modified).
+
+#### 4. Risk Mitigation
+*   **Downtime Risk:** The 20-minute cache purge is the only potential interruption. Schedule this during a low-traffic window, explicitly avoiding the nightly batch.
+*   **Batch Job Failure:** If the nightly batch uses a standard user account, it will break. Lane A must confirm the batch identity; if it's a user, add that specific user to `Finance-Admins` or create an exception rule before G8.
+*   **Flaky CI:** Do not treat a Stage 3 network failure as a code defect. Investigate logs; if unrelated to auth logic, proceed with human sign-off.
+
+**Next Step:** Assign Lane A to identify the batch job identity. Do not write code until this is confirmed.

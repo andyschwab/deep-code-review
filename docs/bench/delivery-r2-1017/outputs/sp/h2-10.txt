@@ -1,0 +1,54 @@
+# Delivery Plan: Deprecate `legacy_user_segment`
+
+## Lanes & Parallelism
+
+**Lane A: Dependency Audit (Serial Prerequisite)**
+*   **Owner:** Data Engineer
+*   **Action:** Grep the nightly aggregation pipeline codebase and job configurations for `legacy_user_segment`.
+*   **Constraint:** Must complete before Lane B starts. If references are found, this ticket blocks until those jobs are refactored.
+
+**Lane B: Migration & Documentation (Parallel to Audit Completion, Serial to Deploy)**
+*   **Owner:** Backend Engineer
+*   **Action 1:** Draft the versioned migration file to drop the column. Include a `DOWN` migration to restore the column (nullable) for rollback.
+*   **Action 2:** Update the data dictionary to mark the column as deprecated/removed.
+*   **Action 3:** Submit the Change Request (CR) ticket linking the audit results from Lane A.
+
+**Lane C: Pipeline Preparation (Parallel)**
+*   **Owner:** DevOps Engineer
+*   **Action:** Tag the current `main` branch as `pre-segment-audit-base`. Configure the CI pipeline to alert on the known flaky null-handling test to prevent manual override errors during the critical run.
+
+## Gates & Checks
+
+**Gate 1: Code Review & Approval**
+*   **Trigger:** Lane A (Clean Audit) + Lane B (Migration + CR submitted).
+*   **Checkers:** Lead Engineer AND Data Governance Officer (Dual approval required).
+*   **Revision:** Must be reviewed on the specific commit containing the migration and dictionary update, rebased off the latest `main`.
+*   **Criteria:** Audit proof attached; Rollback logic verified; CR number referenced in commit message.
+
+**Gate 2: Staging Verification**
+*   **Trigger:** Merge to `staging` branch.
+*   **Environment:** Staging (mirrors prod volume, data freshness lag acknowledged).
+*   **Check:** Run the 45-minute data integrity suite.
+*   **Handling Flakes:** If the known null-handling test fails, verify it is the specific known flake via log signature. If any *other* test fails, the build is rejected.
+*   **Success Criteria:** Integrity check passes (excluding known flake) AND no aggregation job errors in logs for one full nightly cycle simulation (or mocked run if time-constrained).
+
+## Review Strategy
+
+*   **Code Review:** Independent of the author. The Lead Engineer reviews the migration safety; the Data Governance Officer reviews the audit trail and dictionary accuracy. Neither should be the code author.
+*   **Operational Review:** The nightly pipeline owner (if distinct from the author) must sign off on the "No Hidden Dependencies" claim in the audit log.
+
+## Landing & Rollback
+
+**Landing Procedure**
+1.  Upon Staging success, merge to `main`.
+2.  Trigger Production Deployment via the pipeline.
+3.  **Human Decision Point:** The Data Governance Officer must give the final "Go" in the deployment chat channel after verifying the CR status is "Approved."
+4.  Monitor the first production run of the nightly aggregation pipeline.
+
+**Rollback Plan**
+*   **Trigger:** Any error in the nightly aggregation pipeline or data integrity mismatch post-deploy.
+*   **Action:** Immediately revert the `main` merge commit.
+*   **Execution:** The pipeline will auto-detect the revert and execute the `DOWN` migration, restoring the `legacy_user_segment` column.
+*   **Post-Mortem:** If rollback occurs, the column remains until a new audit identifies the missing dependency. Do not attempt a second fix until the root cause of the dependency is mapped.
+
+**Timeline Constraint:** All gates must clear 48 hours before the monthly storage audit to ensure the schema change is reflected in cost allocation reports.

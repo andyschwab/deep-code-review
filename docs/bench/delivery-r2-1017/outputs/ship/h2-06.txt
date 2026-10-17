@@ -1,0 +1,61 @@
+### Delivery Plan: Payment Gateway Flag Migration
+
+**Scope & Constraints**
+Migrate `Payment Gateway` from env-var toggles to the central `Flag Service` with runtime fetching, local caching, and backward compatibility. Zero downtime required. Production deploy is irreversible without full rollback; requires Engineering Director + Compliance Officer sign-off. CI is costly ($4.50/run, 22m); flaky timeout check exists on Fridays.
+
+#### Lanes & Serialization
+
+**Lane 1: Core Implementation (Builder)**
+*   **Work:** Implement dynamic flag fetching in the billing logic. Add local default caching for offline dev. Wrap legacy env-var reads in a compatibility shim (read env if flag service unreachable or unset).
+*   **Parallelism:** Can run immediately.
+*   **Serialization:** Must complete before Lane 2 (QA) and Lane 3 (Integration) can verify end-to-end behavior.
+
+**Lane 2: Resilience & Fallback Verification (QA)**
+*   **Work:** Simulate `Flag Service` unavailability. Verify fallback to cached defaults and legacy env-vars triggers correctly. Confirm no downtime during simulated switch.
+*   **Dependency:** Requires Lane 1's build artifact.
+*   **Parallelism:** Runs after Lane 1 unit tests pass locally.
+
+**Lane 3: Downstream Impact Check (Integration)**
+*   **Work:** Validate the ten downstream microservices against the new shimmed behavior in a shared environment.
+*   **Constraint:** Requires coordinated maintenance window for the shared `staging`/`qa` database cluster (Data Governance approval).
+*   **Serialization:** Must wait for Data Governance window; cannot run concurrently with other DB writers.
+
+#### Gates & Checks
+
+*   **G1 Spec:** Confirm acceptance criteria: "Express-checkout" toggles without redeploy; offline dev works; fallback logic verified. Pin base SHA.
+*   **G2 Plan:** Budget capped at 3 CI runs max (cost control). Explicitly schedule around Friday flakiness.
+*   **G3 Design:** ADR documenting the compatibility shim strategy and cache invalidation logic.
+*   **G4 Implement:** Builder commits to isolated worktree. Unit tests included.
+*   **G5 Verify:**
+    *   **Local:** Builder runs stack up, verifies offline caching.
+    *   **CI:** Run on exact revision. **Skip** the known flaky timeout check if it is Friday; otherwise run once. If flaky fails, triage via `flake_ledger` before re-run.
+    *   **Staging:** Deploy to staging during approved DB window. Verify downstream services.
+*   **G6 Review:**
+    *   **Code:** Independent senior engineer (not Builder) reviews diff + ADR.
+    *   **Security:** AppSec verifies no sensitive flag data leaks in logs/cache.
+    *   **Compliance:** Compliance Officer reviews audit trail of flag changes.
+*   **G7 Integrate:** Merge to integration branch. Re-run affected gates on final SHA.
+
+#### Review Strategy
+
+*   **Builder:** Implements Lane 1. Never reviews own code.
+*   **QA Engineer:** Executes Lane 2, verifies G5 receipts. Independent of Builder.
+*   **Security/Compliance:** Separate verdicts required for G6. Security focuses on supply chain/cache privacy; Compliance on auditability.
+*   **Data Governance Lead:** Approves the staging window usage, not the code.
+
+#### Landing & Human Gates
+
+1.  **Merge Train:** Once G6 is green, queue for merge.
+2.  **Human Approval (G8):**
+    *   **Required Sign-offs:** Engineering Director AND Compliance Officer.
+    *   **Action:** Explicit approval to deploy to Production.
+    *   **Constraint:** Deploy is irreversible without full rollback procedure. Rollback plan must be documented and dry-run verified in G5.
+3.  **Production Verify (G9):** Monitor `express-checkout` toggle behavior and error rates post-deploy.
+4.  **Rollback:** If SLO breach detected, execute full rollback immediately.
+
+**Risk Mitigation:**
+*   **Cost:** Limit CI to one run per candidate SHA. No re-runs unless SHA changes.
+*   **Flakiness:** Avoid Friday merges for this ticket.
+*   **Downtime:** Backward compatibility shim ensures legacy env-vars still function until final cutover next month.
+
+**Next Step:** Await confirmation of Data Governance maintenance window to schedule Lane 3.

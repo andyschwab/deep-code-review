@@ -1,0 +1,55 @@
+### Delivery Plan: Bulk Status Update for Logistics Manifests
+
+**Objective:** Implement a CSV-based bulk update tool for manifest statuses with strict validation, audit compliance, and performance constraints (<30s DB lock).
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Spec & Contract):** Define the CSV schema, error codes, and the exact legacy audit log format required by the frozen library.
+    *   *Constraint:* Must be approved before implementation begins to prevent parser crashes.
+    *   *Parallel:* Can run immediately.
+*   **Lane B (Core Logic & Validation):** Implement the row validator (blocking 'Delivered'/'Archived'), the batch processor, and the transaction logic ensuring <30s lock time.
+    *   *Dependency:* Requires Lane A's contract.
+    *   *Parallel:* Independent of Lane C.
+*   **Lane C (Interface & Reporting):** Build the admin upload UI and the success/failure log generator.
+    *   *Dependency:* Requires Lane A's schema.
+    *   *Parallel:* Runs with Lane B.
+*   **Lane D (Migration Prep):** Draft the database migration script (if needed for indexing/logs).
+    *   *Constraint:* No execution yet. Prepared solely for Jane Smith + Lead DBA review.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Owner approves the CSV schema and audit format definition from Lane A.
+*   **G4 (Implementation Complete):**
+    *   **Unit Tests:** Run locally for Lanes B & C. Must cover "Delivered/Archived" rejection and large-batch splitting.
+    *   **Static Analysis:** Verify audit log string formatting matches the legacy regex exactly.
+*   **G5 (Verification):**
+    *   **Revision:** Exact SHA of the merged feature branch.
+    *   **Environment:** Staging (with sanitized data).
+    *   **Action:** Manual dry-run with a 10k row CSV.
+    *   **Check:** Verify DB lock time <30s via logs. Verify audit entries appear in the compliance dashboard (parser check).
+    *   **Note:** Integration tests involving external carrier APIs are skipped due to known timeout issues in staging; mock these locally instead.
+*   **G6 (Independent Review):**
+    *   **Code Review:** Senior Engineer (not from Fulfillment Squad) reviews logic and security.
+    *   **DB Review:** Jane Smith + Lead DBA review Lane D's migration script. **Hard Gate:** No merge without dual sign-off.
+    *   **Cost Check:** Ensure no unnecessary CI pipelines are triggered during development; only one final integration run permitted.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lanes B, C, and D.
+*   **Reviewer 1 (Logic/Security):** Independent senior engineer. Focuses on transaction safety, input validation, and the "Delivered/Archived" guardrails.
+*   **Reviewer 2 (Data/Compliance):** Jane Smith + Lead DBA. Focuses exclusively on the migration script and audit log format compliance.
+*   **QA:** Operations Supervisor (User Acceptance). Validates the CSV upload flow and readability of the failure log using the staging environment.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A (Spec) to `main`.
+    2.  Merge Lanes B & C (Feature) to `main` behind a feature flag `bulk_manifest_update_enabled=false`.
+    3.  Apply Lane D (Migration) only after dual approval.
+    4.  Enable feature flag for Supervisors group only (Canary).
+*   **Human Decisions Required:**
+    *   Approval of CSV schema (G1).
+    *   Dual approval of DB migration (G6).
+    *   Authorization to enable the feature flag in Production (G8).
+*   **Rollback Plan:**
+    *   **Immediate:** Toggle `bulk_manifest_update_enabled` to `false`.
+    *   **Data Reversal:** If bad data commits, the detailed failure log serves as the input for a reversal script (to be drafted in Lane B but not executed unless needed).
+    *   **Migration:** Rollback script prepared by Lane D, ready for DBA execution if the schema change causes issues.
+
+**Risk Mitigation:** The $45/50min CI cost dictates that all linting, typing, and unit tests must pass locally before pushing. Staging integration tests will be mocked to avoid carrier API timeouts.

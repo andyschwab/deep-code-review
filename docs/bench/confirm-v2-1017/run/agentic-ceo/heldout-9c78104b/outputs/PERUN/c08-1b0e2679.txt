@@ -1,0 +1,33 @@
+**Decision:** Freeze all feature work immediately and execute a single-threaded, gated refactor of the core order logic, starting with a deterministic performance benchmark of the current system. The one number driving this is the **48-hour window** remaining before the Monday 9:30 AM market open; any parallel experimentation or non-essential planning consumes time we do not have.
+
+**Figures:** 50,000 transactions/minute × 3 days (remaining runway) = ~216 million transactions at risk if latency persists; 1 irreversible deploy window means 0 retries allowed.
+
+**Session Structure & Order of Operations**
+
+1.  **Baseline & Isolation (Hours 0–4):** Do not write new code yet. Instrument the current production-mirror environment to capture exact latency distribution (p99, not just average) under 50k TPM load. Identify the specific function or lock causing the bottleneck.
+2.  **Architectural Sign-off (Hour 5):** Senior engineers propose the specific refactor pattern (e.g., lock-free queue, memory-mapped file) based on the baseline data. You must approve this approach before a single line is changed.
+3.  **Implementation Sprint (Hours 6–36):** Two senior engineers pair-program the core logic rewrite. The remaining six developers build the regression test suite and the "kill switch" rollback mechanism. No other tasks exist.
+4.  **Adversarial Review (Hours 37–44):** A separate senior engineer attempts to break the new logic with edge cases (partial fills, market crashes, network partitions). This is a red-team exercise, not a standard code review.
+5.  **Staged Deployment Prep (Hours 45–48):** Prepare the deployment script with a feature flag to toggle the new engine instantly. Conduct a dry-run deployment on a staging cluster.
+
+**Decision Rights: What Requires Your Approval vs. Delegation**
+
+*   **You Must Approve (Product Lead):**
+    *   **The Refactor Strategy:** The specific architectural pattern chosen to solve the latency. Once coded, changing this is impossible before Monday.
+    *   **The Go/No-Go Call:** Based on the adversarial review results, you decide whether to enable the feature flag on Monday morning or revert to the legacy system.
+    *   **Risk Acceptance:** Explicit sign-off on any known residual risks identified during the red-team phase.
+
+*   **Delegate to Senior Engineers:**
+    *   **Code Implementation:** Syntax, variable naming, and internal module structure.
+    *   **Test Case Selection:** Determining which specific scenarios cover the 50k TPM load profile.
+    *   **Tooling Choices:** Selecting profilers, linters, or CI/CD configuration tweaks needed for speed.
+    *   **Pair Rotation:** Managing shift schedules to ensure 24-hour coverage until Monday.
+
+**Specific First Task (Start Immediately)**
+
+**Task:** Execute a high-fidelity load test on the current staging environment to establish the **exact p99 latency baseline** and isolate the top three code paths consuming CPU cycles during peak simulation.
+
+**Why:** You cannot fix what you cannot measure. Without a precise baseline, you risk optimizing the wrong component, wasting the critical first 4 hours of your 48-hour window. This data is the only valid input for the architectural sign-off required in Hour 5.
+
+**Halt Trigger:** If the baseline test reveals hardware saturation (CPU/RAM maxed) rather than code inefficiency, stop the refactor immediately and escalate for infrastructure scaling.
+**Fallback Trigger:** If the new logic fails the adversarial review by 12:00 AM Sunday, revert to the legacy system and prepare a manual throttling protocol for Monday open.

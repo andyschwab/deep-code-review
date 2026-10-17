@@ -1,0 +1,61 @@
+**Delivery Plan: Audit Logging for Nexus Core**
+
+**Scope & Constraints**
+Target: All write paths (Create, Update, Delete) in Nexus Core.
+Exclusions: Read-only endpoints, `common-utils` library.
+Deadline: Staging deployment by Friday.
+Critical Constraints: Async log shipping (no user latency), immutable production ledger, flaky CI network checks.
+
+**Lane Decomposition**
+
+1.  **Lane A: Specification & Format (Serial, Pre-requisite)**
+    *   **Actor:** Product Analyst + Security Lead.
+    *   **Work:** Define the JSON schema for audit events (User ID, Timestamp, Changed Fields, Operation Type). Establish the "secure store" ingestion contract.
+    *   **Output:** `AUDIT_SPEC.md` and interface definitions.
+    *   **Gate G1:** Security sign-off on schema completeness and PII handling. No code starts before this.
+
+2.  **Lane B: Core Instrumentation (Parallel Implement)**
+    *   **Actor:** Senior Builder (Data Integrity Team).
+    *   **Work:** Implement logging hooks in all write handlers per `AUDIT_SPEC`. Ensure asynchronous dispatch to avoid request latency. Handle failures gracefully (log locally if ship fails).
+    *   **Constraint:** Do not touch `common-utils`; duplicate necessary logic locally if required.
+    *   **Gate G4:** Unit tests covering 100% of write paths with mock log shippers.
+
+3.  **Lane C: Shipping Infrastructure (Parallel Implement)**
+    *   **Actor:** Infrastructure Engineer.
+    *   **Work:** Configure the agent/service to ingest logs from Nexus Core and forward to the central secure store. Ensure encryption in transit.
+    *   **Gate G4:** Integration test verifying log arrival in a sandbox store within 5 seconds of emission.
+
+4.  **Lane D: Flaky CI Mitigation (Parallel Support)**
+    *   **Actor:** DevOps Engineer.
+    *   **Work:** Isolate the 'network-isolation' check. Implement a retry-with-backoff strategy or a dedicated timeout profile for this specific check to prevent 28-minute suite timeouts from blocking merges.
+    *   **Gate G4:** Pipeline runs green consistently on a test branch.
+
+**Verification Strategy (G5)**
+*   **Revision:** Exact SHA from Lane B+C merge.
+*   **Environment:** Staging (post-03:00 UTC sanitization window to ensure clean state).
+*   **Procedure:**
+    1.  Execute synthetic write operations (Create, Update, Delete) against staging.
+    2.  Verify user-facing latency remains unchanged (p99 < baseline).
+    3.  Confirm audit logs appear in the central secure store with correct schema.
+    4.  **Crucial:** Verify that a failure in the log shipper does *not* fail the user request.
+
+**Review Plan (G6)**
+*   **Code Review:** Senior Engineer (not the Builder) reviews Lane B code for correctness and async safety.
+*   **Security Review:** Security Lead reviews Lane C config and the final data flow for compliance.
+*   **Compliance Check:** Verify against the original failed review criteria.
+
+**Landing & Deployment (G7-G8)**
+*   **Integration:** Merge Lanes B, C, and D into the staging branch. Run the full regression suite with the new CI mitigation active.
+*   **Human Gate (G8):**
+    *   **Approvers:** Jane Smith (Data Integrity) + Security Lead + Operations Lead (Dual approval required).
+    *   **Decision:** Authorize deployment to Staging only. Production deployment is **out of scope** for this Friday deadline due to the "irreversible" nature and need for staging validation.
+*   **Rollback:**
+    *   Mechanism: Feature flag to disable audit logging emission instantly.
+    *   Trigger: If staging validation shows >1% increase in write latency or data corruption.
+
+**Risks & Mitigations**
+*   **CI Timeout:** If the network check flakes again, Lane D's mitigation must be manually verified before merging.
+*   **Data Sanitization:** Long-running tests must complete before 03:00 UTC or be designed to survive data resets.
+*   **Scope Creep:** Strictly no read-only endpoint modifications.
+
+**Next Step:** Await confirmation of `AUDIT_SPEC.md` draft from Lane A to begin implementation.

@@ -1,0 +1,56 @@
+### Delivery Plan: Schema Evolution for Legacy Mobile Compatibility
+
+**Objective:** Make `verifiedBadge` optional (default `null`) in the backend to prevent crashes for legacy mobile clients while maintaining data delivery for updated clients.
+**Deadline:** Before Tuesday morning marketing push.
+**Constraint:** Production deploy requires Jane Smith's approval; database rollback is high-risk (4h restore).
+
+#### 1. Lanes & Parallelism
+
+*   **Lane A: Specification & Contract (Conductor + Product Analyst)**
+    *   **Work:** Define the exact JSON schema change: `verifiedBadge` changes from `required` to `optional`, defaulting to `null`. Confirm backward compatibility logic: new clients receive the field if present in DB; old clients ignore it without crashing.
+    *   **Parallelism:** Runs first, independently. Must complete before Lane B starts.
+    *   **Output:** Updated API contract document and test case definitions.
+
+*   **Lane B: Implementation (Builder)**
+    *   **Work:** Modify the `UserProfile` serialization logic in the Nexus-Core monorepo. Update the schema definition in `schema-registry`. Ensure the database migration script handles the column alteration as `DROP NOT NULL` (or equivalent) without data loss.
+    *   **Parallelism:** Starts after Lane A approves the spec.
+    *   **Serialization:** Must wait for Lane C's test plan to be ready before finalizing code, but coding can proceed in parallel with test script drafting.
+    *   **Constraint:** Access to `schema-registry` only outside business hours if locked; coordinate accordingly.
+
+*   **Lane C: Verification & Safety (QA + Security)**
+    *   **Work:** Draft integration tests simulating a legacy client request (missing field handling) and a new client request (field presence). Prepare a "dry-run" migration script to validate database safety on a staging clone.
+    *   **Parallelism:** Runs parallel to Lane B once the spec (Lane A) is fixed.
+    *   **Serialization:** Cannot execute final verification until Lane B produces a build.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec Freeze:** Conductor validates the "optional with default null" approach against the crash report. *Check:* Does this strictly solve the parse error?
+*   **G4 Implementation Review:** Independent review of the code change by a senior engineer **not** involved in Lane B. Focus: Serialization logic and migration safety.
+    *   **Exact Revision:** The specific commit SHA from Lane B's worktree.
+    *   **Check:** Code review passes; `schema-registry` lock conflict resolved.
+*   **G5 Verification (Staging):**
+    *   **Environment:** Staging cluster mirroring production schema.
+    *   **Action:** Run CI pipeline ($45 cost, 22 mins). If network flake occurs on retry #3, manual intervention triggers immediately (do not wait for auto-fail).
+    *   **Critical Check:** Execute the migration dry-run. Verify no data loss. Simulate legacy client launch; assert no crash. Simulate new client; assert `verifiedBadge` is received when available.
+*   **G6 Risk Assessment:** Security/DBA review of the migration script. Confirm rollback strategy (accepting the 4h restore window is the only fallback).
+
+#### 3. Review Strategy
+
+*   **Code Review:** Performed by a Platform Team senior engineer independent of the Builder.
+*   **QA Sign-off:** Performed by QA lead based on G5 receipts (test logs + dry-run output).
+*   **Security/DBA Sign-off:** Explicit approval on the migration irreversibility risk.
+
+#### 4. Landing & Deployment
+
+*   **Integration:** Merge to `main` only after G5 and G6 are green on the exact final SHA.
+*   **Human Gate (G8):**
+    *   **Approver:** Jane Smith.
+    *   **Package:** Present the verification receipts, the specific SHA, and the explicit rollback warning (4h restore).
+    *   **Timing:** Request approval Monday afternoon to target the Tuesday maintenance window.
+*   **Deployment:**
+    *   **Window:** Tuesday maintenance window.
+    *   **Method:** Standard deploy via CI. No canary possible on legacy load balancer.
+    *   **Rollback:** If crashes persist post-deploy, trigger immediate full database restore from nightly snapshot (acknowledged 4h downtime).
+*   **Post-Deploy (G9):** Monitor legacy client crash rates and new client data integrity for 1 hour post-launch.
+
+**Risk Note:** The inability to canary on the legacy load balancer increases blast radius. The "dry-run" migration success in G5 is the primary risk mitigator.

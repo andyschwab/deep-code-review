@@ -1,0 +1,49 @@
+### Delivery Plan: Stabilize Checkout V2 E2E Suite
+
+#### 1. Work Lanes & Parallelism
+**Lane A: Infrastructure Isolation (Parallel)**
+*   **Owner:** DevOps Engineer
+*   **Task:** Provision a dedicated, ephemeral barcode simulator instance for the CI pipeline. This instance must be instantiated fresh for every job run to eliminate the "slow reset" race condition.
+*   **Task:** Configure the CI pipeline to inject a unique `TEST_RUN_ID` into the staging database schema name, preventing data conflicts from previous runs without waiting for the 3 AM refresh.
+
+**Lane B: Test Orchestration Logic (Parallel)**
+*   **Owner:** Senior QA Engineer
+*   **Task:** Refactor the `HappyPath_Checkout` suite to accept the `TEST_RUN_ID` and point to the ephemeral simulator endpoint provided by Lane A.
+*   **Task:** Implement a "fencing" mechanism in the test runner: if an Inventory Sync job is detected running on the same physical node, the Checkout suite waits or forces a dedicated node assignment.
+
+**Lane C: Compliance Verification (Serialized after A & B)**
+*   **Owner:** Lead Developer
+*   **Task:** Validate that the new isolation strategy maintains 100% coverage (no tests disabled) and that the simulator behavior matches the physical hardware specs.
+
+#### 2. Gates & Checks
+*   **Gate 1: Unit/Integration Sanity (Pre-Merge)**
+    *   **Revision:** Feature branch head.
+    *   **Check:** Run a dry-run of the new simulator provisioning script locally. Verify the `TEST_RUN_ID` logic creates isolated DB tables.
+*   **Gate 2: Staging Dry-Run (Pre-Merge)**
+    *   **Revision:** Feature branch head.
+    *   **Check:** Trigger a single manual CI run against the modified staging environment.
+    *   **Success Criteria:** Zero race conditions on the simulator; zero DB conflicts. Execution time must not exceed 60 minutes.
+*   **Gate 3: The "Friday" Stress Test (Pre-Merge)**
+    *   **Revision:** Feature branch head.
+    *   **Check:** Trigger 5 consecutive parallel runs of the `HappyPath_Checkout` suite alongside active Inventory Sync jobs.
+    *   **Success Criteria:** 100% pass rate across all 5 runs. Any failure reverts to Lane A/B immediately.
+
+#### 3. Review Process
+*   **Primary Reviewer:** Staff Engineer (Infrastructure focus).
+    *   **Scope:** Reviews Lane A (Simulator isolation) and Lane B (DB schema isolation). Must verify no hardcoded dependencies on the shared simulator remain.
+*   **Secondary Reviewer:** Logistics Team Lead (Domain focus).
+    *   **Scope:** Reviews Lane C (Compliance). Must sign off that the ephemeral simulator accurately reflects physical hardware latency and behavior.
+*   **Independence:** The Infrastructure reviewer cannot be the author of the isolation scripts. The Domain reviewer must verify the test logic without seeing the infrastructure code to ensure business rules aren't compromised for speed.
+
+#### 4. Landing Strategy
+*   **Merge Window:** Thursday PM (allowing Friday buffer).
+*   **Merge Method:** Squash merge to `main` only after Gate 3 passes.
+*   **Human Decision Required:**
+    *   **Scenario:** If Gate 3 fails due to persistent flakiness despite isolation.
+    *   **Action:** Since Jane Smith (Senior Manager) is on leave, the merge is **blocked**. No bypass is permitted for compliance gates. The team must wait until Monday or escalate to the VP of Engineering for an emergency temporary policy change (unlikely).
+*   **Rollback Plan:**
+    *   **Trigger:** Post-merge failure in the production deployment pipeline or critical regression in staging.
+    *   **Action:** Revert the squash commit immediately.
+    *   **Fallback:** Revert CI configuration to the previous state (shared simulator) and pause all non-critical merges until Monday to await Jane Smith's return for a compliance bypass decision. Manual testing will be required for hotfixes during this interim.
+
+**Constraint Note:** Under no circumstances will tests be disabled or marked "flaky" to bypass the gate. Compliance requires full coverage. If the fix is not verified by Thursday evening, the holiday pricing update shipment is delayed until Monday.

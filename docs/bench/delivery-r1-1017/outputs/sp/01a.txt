@@ -1,0 +1,68 @@
+# Delivery Plan: Zero-Downtime Product Catalog Reindex
+
+## Lanes & Parallelism
+
+**Lane A: Index Builder (Backend/Data)**
+*   **Work:** Implement the "shadow index" creation logic that writes to a new, isolated index name (e.g., `products_v2_timestamp`) without touching the live alias. Include data validation hooks that run post-build but pre-swap.
+*   **Parallelism:** Can run concurrently with Lane B.
+
+**Lane B: Swapper & Rollback Service (Platform/DevOps)**
+*   **Work:** Develop the atomic alias switching script using the search engine's native alias API (ensure it is a single metadata operation). Implement the automated rollback trigger based on error log thresholds (e.g., >1% 5xx errors within 60s of swap).
+*   **Parallelism:** Can run concurrently with Lane A.
+
+**Lane C: Configuration Guardian (Shared Config)**
+*   **Work:** Create a read-only validation layer for `global-aliases.json`. Since three microservices edit this, implement a pre-commit hook or CI check that rejects any change not strictly following the blue-green schema pattern to prevent recommendation engine breakage.
+*   **Serialization:** Must complete before Lane B's final integration test.
+
+**Lane D: Staging Environment Setup**
+*   **Work:** Provision a staging environment mirroring production data volume (or a statistically significant subset) to validate the $450 compute cost assumption and the 12-second read-replica lag behavior.
+*   **Serialization:** Must be ready before Lane A and B begin integration testing.
+
+## Gates & Checks
+
+**Gate 1: Schema Integrity Scan (CI)**
+*   **Trigger:** Any code change in Lane A or B.
+*   **Check:** Run the mandatory 45-minute data-integrity scan against the 2TB snapshot.
+*   **Revision:** Must run on the exact merge commit of the feature branch.
+*   **Pass Criteria:** Zero data corruption detected; schema matches production expectations.
+
+**Gate 2: Dry-Run Validation (Staging)**
+*   **Trigger:** Successful Gate 1.
+*   **Check:** Execute a full reindex cycle in Staging. Verify the atomic swap completes in <1 second. Simulate read-replica lag to ensure health checks do not false-positive during the transition.
+*   **Cost Control:** Confirm compute usage aligns with projections to avoid budget shocks.
+
+**Gate 3: The "Jane Smith" Window**
+*   **Trigger:** Successful Gate 2 and deployment readiness.
+*   **Check:** Explicit manual approval from Jane Smith.
+*   **Timing:** Strictly between 02:00 and 04:00 UTC. No deployment proceeds outside this window.
+
+## Review Strategy
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer from a team *other* than Commerce Platform (to avoid groupthink).
+*   **Focus:** Specifically audit the atomicity of the alias swap and the rollback logic. Verify that `global-aliases.json` modifications are isolated and safe.
+*   **Timing:** Before Gate 1.
+
+**Operational Readiness Review (ORR)**
+*   **Reviewer:** Jane Smith (On-call Lead).
+*   **Focus:** Validate the rollback playbook. Ensure the error log monitoring thresholds are correctly tuned to distinguish between real anomalies and read-replica lag noise.
+*   **Timing:** Before Gate 3 (during the approval window).
+
+## Landing & Rollback
+
+**Merge Strategy**
+*   **Method:** Squash merge to `main` only after Gate 1 and Independent Review pass.
+*   **Deployment:** Blue-Green deployment of the *service code* first, ensuring the new logic is present but inactive.
+
+**Execution (The Switch)**
+*   **When:** 02:00–04:00 UTC window, post-approval.
+*   **Action:** Trigger the reindex job. Upon completion, execute the atomic alias swap.
+*   **Monitoring:** Watch error logs and latency metrics in real-time.
+
+**Rollback Protocol**
+*   **Automatic:** If error rates exceed the defined threshold within 5 minutes of the swap, the system automatically reverts the alias to the previous stable version (`products_v1`).
+*   **Manual:** Jane Smith can force an immediate rollback via the dashboard if qualitative issues arise (e.g., weird search results not caught by error logs).
+*   **Constraint:** Rollback must complete within seconds; if it takes longer, the database lock issue persists, and the plan has failed.
+
+**Post-Landing**
+*   **Cleanup:** Archive the old index after 24 hours of stability to recover storage costs, but do not delete it until the next successful reindex cycle confirms the new index is stable long-term.

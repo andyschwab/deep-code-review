@@ -1,0 +1,66 @@
+**Delivery Plan: Telemetry SDK Swap (DataFlow → StreamPulse)**
+
+**Objective:** Replace DataFlow SDK with StreamPulse across mobile/web before Nov 30, ensuring zero data gaps and audit compliance.
+
+### Lanes & Parallelism
+*Work is split by domain; serialization enforced only at integration.*
+
+1.  **Lane A: Core Configuration & Compatibility (Serialized First)**
+    *   **Owner:** Builder (Backend)
+    *   **Work:** Modify `global-telemetry.json` to support dual-schema (legacy + new consent flags). Ensure backward compatibility for the three dependent microservices.
+    *   **Constraint:** Must complete before Lanes B and C start to prevent build breaks.
+
+2.  **Lane B: Client Implementation (Parallel)**
+    *   **Owner:** Builder (Mobile/Web)
+    *   **Work:** Remove DataFlow SDK; integrate StreamPulse SDK. Implement missing consent flag logic.
+    *   **Constraint:** Depends on Lane A's config schema.
+
+3.  **Lane C: Data Migration & Staging Validation (Parallel)**
+    *   **Owner:** QA + Builder (Data)
+    *   **Work:** Execute historical migration scripts in staging. *Note:* Simulate license keys (staging lacks real keys); verify encryption module behavior via unit mocks since real keys are unavailable.
+    *   **Constraint:** Independent of client code; relies on Lane A's config structure.
+
+4.  **Lane D: Security & Compliance Audit (Parallel)**
+    *   **Owner:** Security Lead (Human) + QA
+    *   **Work:** Verify consent flag implementation against vendor specs. Review data flow for Q4 audit requirements.
+
+### Gates & Checks
+*Cost control: CI runs once per candidate SHA. No retries on flaky network check if logs confirm delivery.*
+
+*   **G1 Spec (Now):** Define exact consent flag schema and migration success criteria. Pin base SHA.
+*   **G2 Plan (Now):** This document. Budget cap set: Max 3 CI runs per lane ($135 total limit per lane).
+*   **G3 Design:** ADR documenting `global-telemetry.json` schema changes and rollback triggers.
+*   **G4 Implement:**
+    *   Lane A commits first.
+    *   Lanes B/C branch from Lane A's merge.
+    *   Tests included with code.
+*   **G5 Verify (Exact Revision):**
+    *   **Unit/Integration:** Run on merged SHA. Ignore flaky network check *only* if packet delivery logs exist.
+    *   **Staging:** Run migration scripts. Validate data continuity (no gaps).
+    *   **UI/Client:** Verify consent prompts appear on mobile/web.
+*   **G6 Review:**
+    *   **Code:** Independent review by Growth Eng senior (not the Builder).
+    *   **Security:** Mandatory sign-off by Security Lead on consent logic.
+*   **G7 Integrate:** Merge to release branch. Run full pipeline one final time on the integrated SHA.
+
+### Review Strategy
+*   **Builder ≠ Reviewer:** The implementer of Lane B cannot review Lane B.
+*   **Security Gate:** The Security Lead must explicitly approve the consent flag implementation (G6). No auto-merge for security-sensitive changes.
+*   **Audit Trail:** All verification receipts (logs, test outputs) attached to the PR for Q4 audit.
+
+### Landing & Rollback
+*   **Merge Train:** Lanes merge sequentially (A → B/C → D) into a release candidate branch.
+*   **Human Approval (G8):**
+    *   **Required:** Dual approval from Jane Smith AND Security Lead before production push.
+    *   **Trigger:** Final G7 receipt + Security sign-off.
+*   **Deployment:**
+    *   Push is irreversible; requires full snapshot rollback on failure.
+    *   **Rollback Plan:** Revert to previous daily snapshot immediately if data gaps >5 mins or consent flags fail in production canary.
+*   **Post-Deploy (G9):** Monitor real-time telemetry ingestion for 1 hour. Confirm zero data loss during transition week.
+
+**Risks & Mitigations:**
+*   *Staging License Keys:* Mitigated by mocking encryption module; risk accepted for staging, verified via vendor sandbox if possible.
+*   *Flaky Network Check:* Bypassed programmatically if logs confirm delivery; documented in test report.
+*   *Shared Config:* Lane A ensures backward compatibility; dependent services monitored post-deploy.
+
+**Next Step:** Await owner confirmation on appetite (time-box) and explicit go-ahead to initiate Lane A.

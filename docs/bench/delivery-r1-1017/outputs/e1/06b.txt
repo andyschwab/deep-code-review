@@ -1,0 +1,34 @@
+**Delivery Plan: Cap Daily LLM Spend for Claim Summaries**
+
+**Lanes & Parallelism**
+*   **Lane A (Configuration & Logic):** Implement the daily spend counter, quota enforcement logic, and the "Limit Reached" UI state in the claims service code. This includes the override switch for senior leads. *Writer: Backend Engineer.*
+*   **Lane B (Observability):** Add logging hooks to track quota hits and override usage without exposing PII. *Writer: Observability Engineer (Parallel to A).*
+*   **Lane C (Test Data & Simulation):** Generate synthetic usage data to simulate hitting the quota and verify the UI tooltip and override behavior in a sandbox. *Writer: QA Engineer (Parallel to A).*
+
+**Serialization Constraints**
+*   Lane A must complete before Lane D.
+*   Lane C must validate Lane A's logic before integration.
+*   **Lane D (Integration & Rehearsal):** Merge A, B, and C into a staging branch. Perform a dry-run of the `global_limits.json` update to measure the 12-minute cluster restart impact and verify the flaky health check behavior. *Owner: Release Engineer.*
+
+**Gates & Checks**
+*   **G2 (Plan):** Confirm the exact dollar cap per department and the specific role IDs authorized for overrides. Define the "hard stop" vs. "graceful disable" behavior explicitly.
+*   **G4 (Implement):** Code freeze on Lane A/B/C. Unit tests must cover the edge case where the cache expires exactly at midnight UTC.
+*   **G5 (Verify):** Run Lane C's simulation against the Lane A build in an isolated worktree. **Critical:** Verify the UI tooltip appears *before* any API call is attempted when the limit is reached. Confirm senior lead override bypasses the block successfully.
+*   **G6 (Review):** Independent review by a Security Engineer (not the Backend Engineer) focusing on the override mechanism to prevent privilege escalation. Finance Ops must review the ledger logic to ensure no partial charges occur after the limit is hit.
+*   **G7 (Integrate):** Merge to the release candidate branch. Run the CI pipeline **once** on this exact SHA. If the flaky health check fails during the config reload simulation, investigate immediately; do not retry blindly.
+
+**Review & Independence**
+*   **Builder (Lane A)** cannot review their own quota logic.
+*   **Security Review** must be independent of the implementation team, specifically validating that the "override" cannot be triggered by non-lead roles via API manipulation.
+*   **Finance Sign-off** is required on the logic that prevents charges post-limit, separate from the code review.
+
+**Landing & Human Gates**
+*   **Human Decision 1 (Pre-Merge):** Finance Ops Manager must approve the specific departmental caps and the override list in writing.
+*   **Human Decision 2 (Deploy):** Dual approval from Security Lead and Finance Ops Manager is mandatory to deploy to Zone-B. This cannot be automated.
+*   **Merge Strategy:** Merge to the release branch only after G7 passes. Do not merge directly to production.
+*   **Rollback Plan:** Since reverting billing logic is irreversible after midnight UTC, the deployment **must** occur before 10:00 UTC to allow a full business day of monitoring. If the flaky health check triggers a false positive post-deploy, the cluster restart procedure must be ready to execute manually. There is no code-level rollback for ledger entries; the fallback is to manually disable the feature flag via the config file if spending anomalies are detected, accepting the 12-minute downtime.
+
+**Risk Mitigation**
+*   **Cost Control:** The CI pipeline runs exactly once for the final candidate SHA to avoid the $15/run penalty. Local verification is mandatory before triggering CI.
+*   **Cache Consistency:** The 4-hour cache window means a limit hit might not reflect instantly across all nodes. The plan accounts for this by enforcing the check server-side before the UI renders the button, ensuring no API calls slip through during cache staleness.
+*   **Midnight Boundary:** Special testing focus on the transition at midnight UTC to ensure the ledger resets correctly and the new day's quota activates without a gap that allows free usage.

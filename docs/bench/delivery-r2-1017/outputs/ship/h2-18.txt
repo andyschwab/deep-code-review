@@ -1,0 +1,62 @@
+**Delivery Plan: Auto-Updates with Staged Verification**
+
+**Scope & Constraints**
+Target: `finance-core` monorepo (Billing module).
+Constraint: Irreversible data migrations prevent blind auto-merge to production.
+Constraint: Staging deploy requires Jane Smith's explicit approval; Production locked to Tuesdays.
+Risk: Flaky currency conversion check; `global-rules.json` conflicts.
+
+**Lane Decomposition**
+
+1.  **Lane A: Pipeline Configuration (Builder)**
+    *   **Work:** Modify CI workflow to split jobs: "Smoke" (critical path only) and "Full-Regression" (background). Implement alerting hook for background failures. Add logic to skip the known flaky currency check in the Smoke suite unless `finance-core` files are touched.
+    *   **Parallelism:** Can run parallel to Lane B.
+    *   **Serialization:** Must complete before Lane C integration.
+
+2.  **Lane B: Smoke Suite Definition (QA + Product Analyst)**
+    *   **Work:** Define the "Critical Smoke" subset. Must include billing calculation sanity checks and dependency load tests. Explicitly exclude non-critical UI paths. Document the exclusion list to ensure security patches aren't silently skipped.
+    *   **Parallelism:** Independent.
+    *   **Serialization:** Must approve Lane A's configuration before G5.
+
+3.  **Lane C: Conflict Mitigation Strategy (Conductor + Builder)**
+    *   **Work:** Implement a pre-flight check for `global-rules.json`. If locked by another team's PR, the auto-update lane pauses rather than force-pushing.
+    *   **Serialization:** Runs after Lane A drafts the workflow, before final merge logic is committed.
+
+**Gates & Checks**
+
+*   **G0/G1 (Spec):** Confirm "Smoke" definition covers all security-audit flagged libraries. Verify alerting route reaches on-call immediately.
+*   **G2 (Plan):** Budget cap set for CI ($0.45/min). Smoke suite must run <5 mins.
+*   **G3 (Design):** ADR confirming that "Smoke Pass" allows merge to *integration branch*, not production.
+*   **G4 (Implement):** Code changes in isolated worktree. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA of the combined patch.
+    *   **Action:** Run Smoke Suite locally (mocked). Trigger background Full Suite in staging environment (dry-run mode if possible, or actual run with no deploy).
+    *   **Flake Handling:** If Currency Check fails in Smoke, retry once; if fail again, mark as "Flake Suspected" and require manual triage before merging.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer (not the Builder).
+    *   **Focus:** Verify Smoke suite actually covers billing logic. Verify `global-rules.json` locking logic prevents corruption.
+    *   **Security:** Independent check that no critical vuln patches are excluded from Smoke.
+*   **G7 (Integrate):** Merge to `main` (or integration branch) only if Smoke passes. Full suite runs asynchronously.
+
+**Landing & Human Gates**
+
+*   **Merge Strategy:**
+    *   Auto-merge to `main` allowed **only** if Smoke Suite passes AND `global-rules.json` is free.
+    *   If Full Suite (background) fails post-merge: Auto-create high-priority incident ticket, alert on-call, **do not** auto-revert (due to irreversible migrations).
+*   **Human Decisions Required:**
+    1.  **Jane Smith:** Must explicitly approve the *deployment* of the updated dependency to Staging. The pipeline prepares the artifact; Jane triggers the env update.
+    2.  **Release Owner:** Must approve the Tuesday Production Window deployment.
+    3.  **On-Call Engineer:** Must investigate any background failure alert. No auto-rollback; manual verification required due to data migration risks.
+*   **Rollback Plan:**
+    *   Code revert is possible via standard PR.
+    *   **Data State:** Since migrations are irreversible, rollback involves a forward-fix or data restoration from pre-migration backup (manual procedure). This risk must be acknowledged in the G1 spec.
+
+**Failure Mode**
+If the background Full Suite fails:
+1.  Alert fires immediately.
+2.  Pipeline marks the specific dependency version as "Bad" in a blocklist.
+3.  Next auto-update attempt skips this version.
+4.  Human intervenes to fix the breakage before further updates proceed.
+
+**Cost Control**
+Smoke suite runs on every PR (low cost). Full suite runs only on merged candidates (higher cost, but necessary). Flaky test exclusion reduces wasted compute on known noise.

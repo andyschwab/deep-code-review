@@ -1,0 +1,48 @@
+### Delivery Plan: Restrict Legacy Billing API Access
+
+**Objective:** Restrict `LedgerSync` endpoint to `Finance-Admins` group, ensure 403 for others, log access, and preserve nightly batch reconciliation.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Impact Analysis):** Product Analyst defines exact JSON path changes in `global_access_matrix.json` and identifies the service account used by the nightly batch reconciliation. Must verify if the batch job runs under a user account or a dedicated service principal.
+    *   *Constraint:* Must complete before Lane B starts to prevent breaking the batch job.
+*   **Lane B (Implementation):** Builder modifies `global_access_matrix.json` to restrict the path and updates the logging middleware to record denied attempts to the security audit trail.
+    *   *Worktree:* Isolated worktree required; this file is shared and immutable, so no parallel writes allowed.
+*   **Lane C (Verification Prep):** QA prepares a test script to simulate requests from a standard user, a senior engineering lead, and the nightly batch service account.
+    *   *Parallel:* Can run alongside Lane A, but execution waits for Lane B's build.
+
+**Serialization:** Lane A → Lane B → Lane C (Execution). No parallel writes to `global_access_matrix.json`.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Define acceptance criteria: "Standard user gets 403," "Finance-Admin gets 200," "Nightly batch succeeds." Pin base SHA.
+*   **G3 (Design):** ADR confirming the cache purge procedure is scheduled outside the fiscal close window.
+*   **G4 (Implement):** Commit changes to `global_access_matrix.json` and logging config.
+*   **G5 (Verify):**
+    *   *Local:* Run Lane C's script against a local instance. Verify 403s and audit logs.
+    *   *CI:* Trigger full regression suite **once** on the candidate SHA.
+        *   *Mitigation:* If Stage 3 flaky network check fails, retry exactly once. If it fails again, mark as flake and proceed to manual verification of that specific stage.
+        *   *Cost Control:* Do not re-run CI on merged SHA unless the SHA changes.
+    *   *Batch Simulation:* Explicitly run the nightly reconciliation script in a staging environment using the production service account credentials (masked).
+*   **G6 (Review):**
+    *   *Security Review:* Independent Security Engineer verifies the 403 logic and audit log format.
+    *   *Code Review:* Platform Reliability Lead verifies the JSON syntax and cache impact.
+    *   *Constraint:* Builder cannot review their own change.
+
+#### 3. Landing & Human Decisions
+*   **Cache Purge:** Once G6 is green, trigger the manual 20-minute cache purge. This is a **Human Gate**.
+*   **Deployment Approval:**
+    *   **Required Approvers:** Chief Financial Officer AND Head of Security.
+    *   **Mechanism:** Submit release manifest to the internal governance portal.
+    *   **Timing:** Deploy immediately after cache purge completes, ensuring a buffer before the fiscal close window next Tuesday.
+*   **Merge Strategy:**
+    *   Merge to integration branch only after dual approval.
+    *   Use a merge train if other PRs are pending to ensure the exact reviewed SHA is deployed.
+*   **Rollback Plan:**
+    *   If 403s appear for the nightly batch or Finance-Admins post-deploy: Immediate revert of `global_access_matrix.json` to the previous SHA.
+    *   Note: Revert also requires a cache purge (20 mins). Have the previous JSON ready to commit instantly.
+
+#### 4. Risk Mitigation
+*   **Downtime Risk:** The 20-minute cache purge is the only potential interruption. Schedule this during a low-traffic window, strictly before the fiscal close.
+*   **Flaky CI:** The 15% flake rate in Stage 3 is accepted with a single retry policy; do not block on repeated flukes if manual verification of the specific network check passes.
+*   **Audit Trail:** Verify log entries exist for both allowed and denied attempts before marking G5 complete.
+
+**Next Step:** Await confirmation of the nightly batch service account identity from Lane A before proceeding to code changes.

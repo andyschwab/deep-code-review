@@ -1,0 +1,65 @@
+**Delivery Plan: Partial Refund Logic Fix**
+
+**Scope & Constraints**
+*   **Target:** `finance-core` repository (Ledger Team).
+*   **Logic:** Prorate processing fees by cancelled seats, not total order value.
+*   **Boundary:** Future cancellations only; historical records immutable.
+*   **Deadline:** Before next month's conference season.
+*   **Critical Risk:** Irreversible DB migration on shared audit ledger.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Specification & Test Design (Product Analyst)**
+    *   **Work:** Define acceptance criteria for proration math. Explicitly list "non-goals" (no historical edits). Draft test cases covering single-seat vs. multi-seat partial cancels.
+    *   **Output:** Testable spec with pinned base SHA.
+    *   **Parallel:** Can run immediately.
+
+2.  **Lane B: Implementation (Builder)**
+    *   **Work:** Isolated worktree. Update refund calculation logic. Implement DB migration script (forward-only, safe defaults). Add unit tests for the math.
+    *   **Constraint:** Must not touch historical data paths.
+    *   **Parallel:** Starts after Lane A spec is frozen.
+
+3.  **Lane C: Independent Verification (QA)**
+    *   **Work:** Fresh worktree. Run functional tests against the exact builder SHA. Verify proration accuracy. Confirm historical data remains untouched in a shadow dataset.
+    *   **CI Strategy:** Run the 45-min integration suite **once** on the candidate SHA. If the currency conversion flake appears with timeout logs, cite log and retry once; if it persists, ignore. Do not re-run on merged SHA unless code changes.
+    *   **Serial:** Waits for Lane B completion.
+
+4.  **Lane D: Security & Compliance Review (Security/Compliance)**
+    *   **Work:** Audit migration script for irreversibility risks. Verify "future-only" logic cannot be triggered on past timestamps.
+    *   **Serial:** Waits for Lane B completion.
+
+**Gates & Checks**
+
+*   **G0/G1 (Intake/Spec):** Confirm appetite (deadline) and scope (future-only). *Evil Twin* challenge: "What if a user cancels, then re-books instantly?"
+*   **G2 (Plan):** Set lane budgets. Cap Lane C integration runs to 1 execution ($12 limit).
+*   **G3 (Design):** ADR for the migration strategy. Explicitly state: "Migration is irreversible; rollback requires data repair, not script revert."
+*   **G4 (Implement):** Builder commits patch + unit tests. Base SHA pinned.
+*   **G5 (Verify):** QA runs full stack locally, then triggers **one** integration suite run on the exact candidate SHA. Receipt must show `journey: refund_calc PASS`.
+*   **G6 (Review):** Independent review by Senior Engineer (not Builder). Security sign-off on migration.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected tests on final merge SHA.
+
+**Landing & Human Gates**
+
+*   **Staging Deploy:** Requires approval from **two senior engineers**. Triggered only after G7 green.
+*   **Production Deploy:**
+    *   **Window:** Tuesday 2 PM – 4 PM only.
+    *   **Approver:** **Compliance Officer** (mandatory sign-off).
+    *   **Method:** Deploy dark behind a feature flag. Enable flag only after dry-run verification against a production snapshot.
+*   **Rollback Plan:**
+    1.  **Code:** Revert commit / toggle feature flag OFF (immediate).
+    2.  **Data:** Since migration is irreversible, execute pre-approved data repair script to correct any erroneous ledger entries caused by the bug before the fix lands. This is the last resort.
+
+**Execution Order**
+1.  Freeze Spec (Lane A).
+2.  Build & Unit Test (Lane B).
+3.  Parallel: QA Verification (Lane C) + Security Audit (Lane D).
+4.  G6 Review & G7 Merge.
+5.  **Human Gate 1:** Two seniors approve Staging.
+6.  Staging Verify.
+7.  **Human Gate 2:** Compliance Officer approves Production (Tuesday window).
+8.  Deploy Dark → Verify → Flip Flag.
+
+**Risk Mitigation**
+*   **Flaky Check:** Explicitly allowed to ignore currency timeout errors if logs match known pattern.
+*   **Cost:** Integration suite limited to one run per candidate.
+*   **Irreversibility:** Migration runs only in the final production change, never in intermediate PRs. Data repair plan pre-drafted.

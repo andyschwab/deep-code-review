@@ -1,0 +1,89 @@
+**Delivery Plan: Inventory Schema Update for Retail Partners**
+
+**Objective:** Add `warehouse_zone` (required string) to the inventory API response and coordinate a synchronized cutover with ShopFast and MegaMart.
+
+**Constraints & Risks:**
+*   **Hard Deadline:** Next Monday (truck routing).
+*   **Coordination:** Simultaneous parser updates required; early ship crashes partners, late ship misses weekend window.
+*   **Cost:** CI is $45/run, 22 mins. Zero redundant builds.
+*   **Staging:** Unstable Tuesdays; testing must occur Wednesday morning.
+*   **Irreversibility:** DB column becomes non-nullable on activation; revert requires 4-hour data migration.
+*   **Approval:** Production deploy requires Logistics Lead + Security Officer.
+*   **Gate:** Cutover time must be confirmed by Jane Smith before merge.
+
+---
+
+### Lanes & Serialization
+
+**Lane A: Schema & Provider Implementation (Writer: Builder)**
+*   **Work:** Update protobuf definition, regenerate code, modify provider service to populate `warehouse_zone`, add unit tests for payload structure.
+*   **Parallelism:** Can run immediately.
+*   **Output:** PR with code + updated protobuf artifact.
+
+**Lane B: Partner Coordination (Writer: Conductor)**
+*   **Work:** Contact ShopFast/MegaMart integration teams to align parser update schedules. Confirm exact cutover window with Jane Smith.
+*   **Serialization:** Must complete before G8 (Release).
+*   **Output:** Written confirmation of synchronized cutover time and date.
+
+**Lane C: Verification & Dry-Run (Writer: QA)**
+*   **Work:** Deploy Lane A to Staging *only on Wednesday morning*. Verify payload structure and backward compatibility (if applicable via feature flag).
+*   **Serialization:** Waits for Lane A code complete; scheduled strictly for Wednesday.
+*   **Output:** Staging verification receipt at exact SHA.
+
+---
+
+### Gates & Checks
+
+*   **G1 Spec:** Pin base SHA. Define acceptance: `warehouse_zone` present in JSON/Protobuf, valid string, non-null enforcement logic ready.
+*   **G2 Plan:** Explicitly budget 1 CI run per candidate SHA. No retries unless infrastructure failure.
+*   **G3 Design:** ADR confirming non-nullable DB migration strategy and rollback plan (data repair script ready).
+*   **G4 Implement:** Builder commits to isolated worktree. Unit tests run locally (free) before pushing.
+*   **G5 Verify:**
+    *   **Local:** Builder runs lint/type/unit.
+    *   **CI:** Trigger *once* on the PR head SHA. Cost check: $45. Time check: 22 mins.
+    *   **Staging:** Deploy to Staging Wednesday AM. Verify live payload.
+*   **G6 Review:**
+    *   **Code:** Independent reviewer (not Builder) checks diff against pinned base SHA.
+    *   **Security:** Security Officer reviews schema change and data implications.
+*   **G7 Integrate:** Merge to integration branch only after Lane B confirms partner readiness.
+*   **G8 Release:** **Human Gate.** Requires:
+    1.  Jane Smith's confirmed cutover time.
+    2.  Written go-ahead from ShopFast/MegaMart teams.
+    3.  Dual approval (Logistics Lead + Security Officer).
+    *   *Action:* Flip feature flag or apply DB migration at exact cutover time.
+
+---
+
+### Review Strategy
+
+*   **Code Review:** Senior Engineer (independent of Builder). Focus: Protobuf compatibility, null handling.
+*   **Security Review:** Security Officer. Focus: Data integrity, non-nullable constraint impact.
+*   **QA Review:** QA Engineer. Focus: Staging payload verification on Wednesday.
+*   **Constraint:** Builder never reviews own code. Security review is mandatory before G8.
+
+---
+
+### Landing & Rollback
+
+**Merge Strategy:**
+1.  Land Lane A (code) behind a feature flag (dark launch) or merged but inactive.
+2.  Hold merge to `main` (if auto-deploy) or deployment trigger until Lane B confirms partner sync.
+3.  **Human Decision Point:** Do not merge/deploy until Jane Smith confirms the cutover time and partners are ready.
+
+**Deployment:**
+*   Execute DB migration and/or flag flip at the agreed cutover time.
+*   Monitor logs immediately for partner 2xx/4xx ratios.
+
+**Rollback Plan:**
+*   **Code:** Revert commit immediately if parsing errors spike.
+*   **Data:** Since column is non-nullable, code revert alone fails.
+    *   *Step 1:* Disable new write path (if flagged).
+    *   *Step 2:* Execute pre-prepared 4-hour data migration script to restore nullable state/defaults.
+    *   *Step 3:* Notify partners of delay.
+
+**Cost Control:**
+*   Only one CI run per unique SHA.
+*   No rebasing after CI green; merge the tested SHA directly.
+*   If CI fails, fix locally, push new SHA, run CI once more.
+
+**Next Step:** Initiate Lane A (code) and Lane B (coordination) in parallel. Schedule Lane C for next available Wednesday.

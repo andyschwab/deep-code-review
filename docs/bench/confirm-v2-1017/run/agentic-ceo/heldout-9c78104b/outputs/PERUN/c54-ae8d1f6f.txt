@@ -1,0 +1,34 @@
+**Decision:** Proceed with migration only after approving three specific fallback triggers; do not cut the live connection until the local integrity check passes.
+
+**Figures:** 4,000 users × 14 days = 56,000 user-days of risk; 50 Mbps bandwidth limits full database sync to ~4.5 hours for a 100GB dataset (assuming 80% efficiency), leaving a narrow window before the September 1st departure.
+
+### Pre-Deployment Migration Sequence
+
+1.  **Static Asset Pre-Staging:** Transfer all non-changing assets (images, static menus, show descriptions) to the shipboard servers immediately. Do not wait for the final window.
+2.  **Delta Sync Initialization:** Begin continuous replication of the active booking database. Monitor the "lag time" between test and live data.
+3.  **Read-Only Freeze:** Exactly 4 hours before departure, lock the test server to "read-only" for staff. No new bookings or changes allowed. This ensures a clean final delta.
+4.  **Final Delta Transfer:** Push only the changes made since step 2. Verify checksum match between source and destination.
+5.  **Local Integrity Diagnostic (The Gate):** The Network Lead must run the first diagnostic (defined below). **Do not proceed if this fails.**
+6.  **Cutover:** Switch the ship's local DNS to point to the new onboard server.
+7.  **Smoke Test:** Staff performs 5 real-world booking scenarios (dining, show, excursion) to confirm end-to-end functionality.
+
+### Required Fallback Scenarios (Owner Approval Needed)
+
+You must explicitly approve these three triggers before the team begins. If any occur, the team immediately reverts DNS to the shore-based system and operates in "offline cache mode" or "manual paper backup" until the satellite link stabilizes.
+
+1.  **Data Corruption Trigger:** If the checksum of the migrated `guest_profiles` table does not match the source bit-for-bit, **abort cutover**.
+    *   *Action:* Revert to shore-based system via satellite; disable onboard booking features.
+2.  **Latency Breach Trigger:** If local server response time exceeds 2 seconds during the Smoke Test (indicating network misconfiguration despite local hosting), **abort cutover**.
+    *   *Action:* Fall back to manual paper logging for dining/excursions; sync data when docked.
+3.  **Bandwidth Saturation Trigger:** If the final delta sync cannot complete within 90% of the allocated window due to unexpected satellite interference, **abort cutover**.
+    *   *Action:* Delay the go-live; run the ship on the test server in "standalone mode" without live shore sync until the next port.
+
+### First Diagnostic Check (Network Lead)
+
+**The Check:** Execute a local loopback write/read verification on the ship's database cluster.
+**Command Logic:** The lead must write a dummy transaction record to the local database, force a flush to disk, read it back, and verify the hash.
+**Success Criteria:** The operation must complete in under 200ms with a 100% hash match.
+**Failure Implication:** If this fails, the local storage subsystem is not ready for write-heavy passenger load, regardless of network status. Do not switch over.
+
+**Halt Trigger:** If the `guest_profiles` row count on the ship differs from the shore server by even one record after the final sync.
+**Fallback Trigger:** If the satellite uplink drops below 10 Mbps stability during the final delta, forcing a revert to manual operations.

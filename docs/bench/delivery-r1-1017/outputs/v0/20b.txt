@@ -1,0 +1,57 @@
+**Delivery Plan: Inventory Sync Conflict Resolution**
+
+**Objective:** Implement a merge prompt in the 'Stock Audit' module to resolve concurrent edits between field agents (offline) and dispatchers (cloud), ensuring data integrity for Q3 compliance.
+
+### 1. Lanes & Parallelism
+*Worktrees are isolated; one writer per tree. No shared state edits without serialization.*
+
+*   **Lane A (Spec & Contract) – Product Analyst + Conductor**
+    *   **Task:** Define the "Merge Prompt" UI spec and data contract. Explicitly map "Device Value" vs. "Cloud Value" visual indicators. Define the merge logic (e.g., sum, pick latest, manual override).
+    *   **Constraint:** Must document impact on `conflict_handler.py`. If signature changes are required, draft the formal request to Marcus Thorne (Billing Team Lead).
+    *   **Parallel:** Yes. Runs immediately.
+
+*   **Lane B (Backend Logic) – Builder**
+    *   **Task:** Implement conflict detection logic in the sync layer. If `conflict_handler.py` signature must change, implement a wrapper or adapter to avoid breaking the Billing app until sign-off is received.
+    *   **Dependency:** Waits for Lane A's data contract.
+    *   **Parallel:** Yes (after Lane A spec).
+
+*   **Lane C (UI Implementation) – Builder (Separate Worktree)**
+    *   **Task:** Build the 'Stock Audit' merge prompt. Highlight discrepancies clearly. Ensure rapid interaction for field agents.
+    *   **Dependency:** Waits for Lane A's UI spec.
+    *   **Parallel:** Yes (after Lane A spec).
+
+*   **Lane D (Independent QA) – QA Engineer**
+    *   **Task:** Create test scenarios for: (1) Agent offline edit + Dispatcher edit, (2) Large dataset sync (addressing `nightly-reconcile` false positives), (3) UI clarity verification.
+    *   **Constraint:** Tests must run on emulated hardware clusters; optimize to avoid flaky runs ($45/run cost).
+    *   **Parallel:** Starts after Lane A spec; executes against Lane B/C builds.
+
+*   **Lane E (Security & Data Integrity) – Security Engineer**
+    *   **Task:** Verify no data loss vectors in the merge logic. Audit rollback procedures for the irreversible production deploy.
+    *   **Parallel:** Yes (reviews specs and code concurrently).
+
+### 2. Gates & Checks
+*Every gate requires an exact SHA. Missing evidence is UNVERIFIED.*
+
+*   **G1 (Spec Freeze):** Lane A outputs testable acceptance criteria. **Check:** Owner approves "Device vs. Cloud" visual distinction.
+*   **G3 (Design Sign-off):** If `conflict_handler.py` signature changes, **Human Gate:** Marcus Thorne approval required before merge.
+*   **G4 (Implementation):** Lanes B & C submit patches. **Check:** Unit tests included. No direct modification of shared modules without adapter pattern if sign-off pending.
+*   **G5 (Verification):** Lane D runs full suite on exact SHA. **Check:** Green build on emulated cluster. Specific verification of large dataset handling to distinguish real errors from `nightly-reconcile` noise. UI journey proof (screenshots/video) of the merge prompt.
+*   **G6 (Review):** Independent review (not Builder). **Check:** Security sign-off on data preservation. Code review confirms no regression in Billing app.
+
+### 3. Review Strategy
+*   **Code Review:** Senior Engineer (not involved in Lanes B/C) reviews logic and UI.
+*   **Security Review:** Focused on data integrity and rollback safety.
+*   **Product Review:** Owner verifies the "informed decision" capability of the UI.
+*   **External Dependency:** Marcus Thorne reviews only if `conflict_handler.py` interface changes.
+
+### 4. Landing & Rollback
+*   **Merge Strategy:** Merge Train. Lanes B and C integrate into a staging branch first.
+*   **Human Gates:**
+    1.  **Marcus Thorne:** If shared module signature changes.
+    2.  **Owner:** Final approval for production deploy (irreversible without 4-hour DB rollback).
+    3.  **Change Freeze Check:** Deploy must complete before Friday freeze. If risk of overrun, hold until Monday.
+*   **Deploy:** Staged rollout to a subset of agents first. Monitor sync logs for false positives.
+*   **Rollback:** Full database restore (4-hour window). Trigger only if data corruption detected.
+*   **Post-Deploy:** Verify Q3 compliance records are intact. Monitor `nightly-reconcile` logs for new error patterns.
+
+**Risk Mitigation:** High CI cost demands stable tests before full runs. Irreversible deploy mandates a dry-run of the rollback procedure in a staging environment before G8 approval.

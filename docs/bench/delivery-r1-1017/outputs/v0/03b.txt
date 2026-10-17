@@ -1,0 +1,43 @@
+### Delivery Plan: Restrict Legacy Billing API Access
+
+**Objective:** Restrict `LedgerSync` endpoint access to `Finance-Admins` only, ensuring audit logging, zero downtime during fiscal close, and compliance with dual-approval deployment.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Impact Analysis):** Product Analyst defines the exact JSON diff for `global_access_matrix.json` and verifies the `Finance-Admins` group ID. Simultaneously, Builder analyzes the nightly batch reconciliation service account to confirm it possesses the required group membership or requires a specific service principal exemption.
+    *   *Constraint:* Must complete before Lane B.
+*   **Lane B (Implementation):** Builder implements the logic change. Since the config file is immutable and cached, the code must either force a cache bypass for this specific rule or include a mechanism to trigger the manual purge procedure safely. The change includes explicit audit logging for 403 events.
+    *   *Parallelism:* Can run parallel to Lane C (Test Prep) but depends on Lane A's data.
+*   **Lane C (Verification Environment):** QA sets up an isolated test environment mirroring the 4-hour cache behavior. They prepare test cases for: (1) Standard user (expect 403), (2) Finance-Admin (expect 200), (3) Senior Eng Lead (expect 403), (4) Nightly Batch Service (expect 200).
+*   **Lane D (Security Review Prep):** Security Engineer prepares the threat model update and verifies the audit log schema matches compliance requirements.
+
+**Serialization Rule:** Lane A must finish before Lane B commits. Lane B and C merge for G5 verification.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Owner approves the list of affected service accounts and the exact `Finance-Admins` group ID.
+*   **G3 (Design):** Architect approves the cache-invalidation strategy to ensure no stale permissions persist post-deploy.
+*   **G4 (Implement):** Code committed to a dedicated worktree. Unit tests added for the authorization middleware.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA of the integration branch.
+    *   **Action:** Run full regression suite. Due to the 15% flakiness in stage three, if the network check fails, the pipeline must auto-retry exactly once before marking red.
+    *   **Specific Check:** Verify nightly batch simulation succeeds. Verify 403 responses are logged to the security audit trail.
+*   **G6 (Review):**
+    *   **Security:** Independent Security Engineer reviews the auth logic and audit logs (cannot be the Builder).
+    *   **Code:** Platform Reliability lead reviews implementation (cannot be the Builder).
+    *   **Constraint:** Reviewers receive the exact G5 green SHA.
+
+#### 3. Landing & Human Decisions
+*   **Pre-Deploy Window:** Deployment must occur **before** the fiscal close window (next Tuesday). A maintenance window is not acceptable; the change must be live and stable prior to Tuesday 00:00.
+*   **Human Gate (G8 Release):**
+    *   **Approvers:** Chief Financial Officer AND Head of Security (dual approval required via governance portal).
+    *   **Action:** Trigger the manual 20-minute cache purge immediately after deployment to ensure immediate enforcement.
+*   **Merge Strategy:**
+    1.  Merge to integration branch after G6.
+    2.  Run final regression on integration SHA.
+    3.  Upon dual human approval, deploy to production.
+    4.  Execute manual cache purge.
+*   **Rollback Plan:**
+    *   If 403 errors spike for valid Finance users or the nightly batch fails: Immediately revert the deployment via the governance portal.
+    *   Re-run the manual cache purge to restore previous access rules.
+    *   Post-incident review (G10) required before re-attempt.
+
+**Risk Mitigation:** The 4-hour cache is the highest risk. The manual purge is mandatory upon deploy; relying on natural expiration is non-compliant for a security fix. The $120 CI cost necessitates a high-confidence local verification before triggering the full pipeline.

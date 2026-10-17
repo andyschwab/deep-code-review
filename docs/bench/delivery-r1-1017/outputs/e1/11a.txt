@@ -1,0 +1,63 @@
+### Delivery Plan: S3 Archive Policy Update
+
+**Scope:** Grant `auditor-svc` read-only access to `legal-archive-09` in staging, then production.
+**Constraints:** Additive edits only (no deletion); no encryption/lifecycle changes; 22-min CI simulation; flaky `network-latency-validator` allowed one manual retry.
+
+#### Lanes & Serialization
+
+1.  **Lane A: Specification & Safety Guardrails (Conductor + Security)**
+    *   **Work:** Define the exact JSON patch for the policy (additive `s3:GetObject` for `auditor-svc`). Draft the rollback script (revert to pinned previous SHA). Explicitly list "forbidden mutations" (encryption, lifecycle, resource deletion) in the PR description.
+    *   **Parallel:** Can run alongside Lane B.
+    *   **Output:** G1 Spec with acceptance criteria and G3 Rollback Plan.
+
+2.  **Lane B: Staging Implementation (Builder)**
+    *   **Work:** Apply the policy patch to the staging infrastructure definition in a dedicated worktree.
+    *   **Serialization:** Must wait for Lane A's spec approval (G1).
+    *   **Output:** G4 Commit on staging branch.
+
+3.  **Lane C: Verification (QA + Security)**
+    *   **Work:**
+        *   Trigger CI on the exact staging SHA.
+        *   **Flake Handling:** If `network-latency-validator` fails, perform one manual retry. If it fails again, block and investigate (do not ignore).
+        *   **Functional Check:** Verify `auditor-svc` can read >7-year files in staging simulation.
+        *   **Negative Check:** Confirm `auditor-svc` cannot write/delete and that encryption/lifecycle configs remain unchanged.
+        *   **Rollback Drill:** Execute the rollback script in staging; verify legacy backup access is preserved and state reverts within 5 minutes.
+    *   **Serialization:** Waits for Lane B's commit.
+    *   **Output:** G5 Receipts (logs, simulation pass, rollback timing proof).
+
+#### Gates & Checks
+
+*   **G1 (Spec):** Reviewer confirms the patch is additive and scope is bounded.
+*   **G3 (Design):** Security Lead approves the rollback mechanism and confirms no forbidden mutations.
+*   **G4 (Implement):** Builder commits to staging branch. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Where:** Staging environment.
+    *   **Check:** Full topology simulation (22 mins).
+    *   **Condition:** Green status on exact SHA. Flaky check retry logic applied strictly once.
+    *   **Evidence:** Simulation logs, rollback timing receipt.
+*   **G6 (Review):**
+    *   **Who:** Two Senior Engineers + One Security Lead (independent of Builder).
+    *   **Focus:** Verify additive nature, rollback validity, and simulation results.
+*   **G7 (Integrate):** Merge to integration branch upon G6 approval.
+*   **G8 (Release):**
+    *   **Human Gate:** Owner approval required to promote to production.
+    *   **Window:** Tuesday 02:00–04:00 UTC only.
+
+#### Landing & Rollback
+
+*   **Merge Strategy:** Squash merge to main after G6.
+*   **Deployment:** Manual trigger during the Tuesday window.
+*   **Rollback Plan:**
+    *   **Trigger:** Detection of write access by auditor, public exposure, or legacy lockout.
+    *   **Action:** Revert to the pre-change SHA immediately.
+    *   **SLA:** Must complete within 5 minutes (validated in Lane C).
+    *   **Safety:** The revert operation must *not* delete the policy resource entirely to avoid irreversible legacy lockout; it must restore the previous valid policy state.
+
+#### Human Decisions Required
+
+1.  **G1/G3 Approval:** Sign-off on the specific JSON patch and rollback script.
+2.  **G6 Approval:** Final sign-off by 2 seniors + 1 security lead before merge.
+3.  **G8 Deployment:** Explicit authorization to deploy during the Tuesday window.
+4.  **Emergency Rollback:** Authority to execute revert if production monitoring signals a breach.
+
+**Risk Mitigation:** The CI simulation cost (400 credits) dictates that we run it only once per candidate SHA (staging) and once for the final integration SHA. No speculative runs.

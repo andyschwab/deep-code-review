@@ -1,0 +1,37 @@
+**Decision: Do not attempt a live migration of 2.5 million records during surgery hours with an untested team and no stated rollback mechanism.** The single most important action in the first hour of your session is to **formally defer the cutover date** until a full-scale dry run proves the process completes in under 4 hours with a verified, zero-data-loss rollback.
+
+Attempting this tomorrow violates the fundamental constraint of "zero downtime" given your team's lack of experience with this specific scale and the absolute legal liability of losing intra-operative notes. The 14-hour window is a hard deadline, but without a proven workflow, the probability of exceeding it or encountering an unrecoverable error is unacceptably high.
+
+**Revised Strategy Session Workflow**
+
+**Phase 1: Risk Assessment & Go/No-Go Criteria (Hours 0–2)**
+*   **Action:** Calculate the theoretical maximum throughput required. (2.5M records / 14 hours = ~49,000 records/hour). Compare this against your current network bandwidth and database write speeds.
+*   **Decision Point:** If the theoretical speed leaves less than 50% buffer for validation and errors, the migration is impossible tomorrow.
+*   **Output:** A signed "No-Go" decision if the dry run has not been performed.
+
+**Phase 2: Technical Preparation & Dry Run Design (Hours 2–6)**
+*   **Engineers' Tasks:**
+    *   Script the extraction and loading process to handle batches of 10,000 records.
+    *   Design a **dual-write strategy** where new data is written to both the old and new systems simultaneously during the transition, eliminating the "30-minute loss" risk.
+    *   Prepare a "shadow mode" environment to test the sync without touching live surgical data.
+*   **Contingency Plan A (Sync Lag):** If replication falls behind, automatically pause non-critical writes while maintaining read access to the legacy system.
+*   **Contingency Plan B (Hard Failure):** If the new region becomes inconsistent, immediately route all traffic back to the local data center. This requires the legacy system to remain the "source of truth" until final verification.
+
+**Phase 3: Validation Protocol Definition (Hours 6–8)**
+*   Define "success" not just as data transfer, but as checksum verification of every patient record.
+*   Establish a manual verification step for the top 100 most active surgical cases before declaring the migration complete.
+
+**Phase 4: Communication & Rollback Rehearsal (Hours 8–10)**
+*   Draft the communication tree for surgeons and staff.
+*   Rehearse the rollback procedure physically with the DBAs. If they cannot execute the rollback in under 5 minutes from memory, they are not ready.
+
+**Required Contingency Plans for Approval**
+1.  **The "Stop-the-Line" Authority:** Explicitly name the one person authorized to abort the migration instantly if error rates exceed 0.1%.
+2.  **The Dual-Write Fallback:** Instead of a "lift and shift," approve a architecture change where the new cloud region acts as a read-replica first. Only promote it to primary after 48 hours of parallel operation. This removes the risk of losing intra-operative notes entirely.
+3.  **The Legal Hold Buffer:** Mandate that all intra-operative notes generated during the migration window are written locally to a secure, immutable log that is merged post-migration, ensuring no legal liability for transient sync failures.
+
+**Immediate Next Steps**
+Cancel the cutover scheduled for tomorrow. Use this session to build the dry-run environment and execute a full test with dummy data. Only schedule the live migration once the team has successfully completed two dry runs within the 14-hour window.
+
+*Note: This approach prioritizes patient safety and legal compliance over speed. A failed migration during surgery is a catastrophic event that cannot be undone.*
+*The dual-write strategy is the only technical pattern that guarantees zero data loss during a live transition.*

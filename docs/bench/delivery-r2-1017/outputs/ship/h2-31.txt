@@ -1,0 +1,71 @@
+**Delivery Plan: Sync SDK Default Timeout (30s → 45s)**
+
+**Objective:** Simultaneous release of Python, Go, and TypeScript bindings with aligned versions and updated changelogs. No incremental rollout.
+
+### 1. Lanes & Parallelism
+
+**Lane A: Spec Update (Serialized, First)**
+*   **Actor:** Conductor (Builder hat)
+*   **Work:** Update the shared versioned specification file in the private artifact bucket. Trigger the 4-hour integration build.
+*   **Constraint:** This must complete before language lanes start coding to ensure version alignment.
+*   **Output:** New spec SHA and confirmed integration build success.
+
+**Lane B: Python Binding (Parallel with C & D)**
+*   **Actor:** Builder (Python Team)
+*   **Work:** Update default timeout constant to 45s; bump version to match spec; update changelog.
+*   **Verification:** Unit tests + local handshake simulation.
+
+**Lane C: Go Binding (Parallel with B & D)**
+*   **Actor:** Builder (Go Team)
+*   **Work:** Update default timeout constant to 45s; bump version; update changelog.
+*   **Special Handling:** Isolate the flaky network latency check. Prepare evidence of code correctness independent of this check for manual override.
+
+**Lane D: TypeScript Binding (Parallel with B & C)**
+*   **Actor:** Builder (TS Team)
+*   **Work:** Update default timeout constant to 45s; bump version; update changelog.
+*   **Verification:** Unit tests + local handshake simulation.
+
+### 2. Gates & Checks
+
+*   **G1 Spec (Now):** Spec file updated. Integration build green. Version number locked.
+*   **G4 Implement (T-2 Days):** All three repos have commits changing timeout, version, and changelog. Base SHA = Spec build SHA.
+*   **G5 Verify (T-1 Day):**
+    *   **Python/TS:** CI green (excluding flaky Go check).
+    *   **Go:** CI green *except* network latency check. Builder prepares "Flake Evidence Packet" (logs showing code path validity despite latency failure).
+    *   **Changelog Audit:** Automated check ensures "default connection timeout" and "45 seconds" appear in all three repos.
+*   **G6 Review (T-1 Day):**
+    *   **Independence:** Python reviewed by Go lead; Go reviewed by TS lead; TS reviewed by Python lead. No self-reviews.
+    *   **Go Specific:** Reviewer validates "Flake Evidence Packet" instead of waiting for flaky check.
+*   **G7 Integrate (Monday AM):** Merge to release branches. Create release candidates (RCs).
+    *   **Go Gate:** David Chen (Platform Lead) manually overrides the network latency gate using the evidence packet.
+*   **G8 Release (Tuesday Maintenance Window):**
+    *   **Human Gate:** Dual approval required from Security Officer AND Product Owner.
+    *   **Action:** Publish all three packages simultaneously.
+
+### 3. Review Strategy
+
+*   **Cross-Language Peer Review:** Prevents team-specific blind spots.
+*   **Changelog Verification:** Treated as a functional requirement, not documentation. If the changelog lacks the specific SLA wording, the lane fails G5.
+*   **Go Flakiness Mitigation:** The review explicitly accepts the "Flake Evidence Packet" as a substitute for the automated latency check, preventing blockage by known infrastructure noise.
+
+### 4. Landing & Rollback
+
+*   **Merge Strategy:** All three repos merge to their respective release branches on Monday morning. No merging to `main` until Tuesday.
+*   **Publishing:** Scripts prepared to publish all three packages in a single atomic operation (or as close as the registry APIs allow) during the Tuesday window.
+*   **Human Decisions Required:**
+    1.  **David Chen:** Manual override of Go network latency gate (Monday).
+    2.  **Security Officer + Product Owner:** Dual approval for production publish (Tuesday).
+*   **Rollback Plan:**
+    *   **Pre-Publish:** If validation fails at G7, halt. Revert spec update (if possible) or patch spec to revert version.
+    *   **Post-Publish:** Reverting is **irreversible** per ticket constraints. If a defect is found post-publish:
+        1.  Immediately issue a hotfix version (e.g., x.y.z+1) reverting the timeout to 30s or fixing the root cause.
+        2.  Notify enterprise customers of the caching issue and provide the new version coordinates.
+        3.  Do not attempt to "unpublish"; the old binary remains cached downstream.
+
+### 5. Risk Mitigation
+
+*   **Spec Build Cost:** The 4-hour build runs once. If it fails, diagnose immediately; do not retry blindly.
+*   **Version Drift:** Version numbers are derived programmatically from the spec file in each lane to prevent manual entry errors.
+*   **Timing:** All lanes freeze code on Monday. Tuesday is strictly for approval and execution.
+
+**Next Step:** Await confirmation of the current spec file location and trigger Lane A.

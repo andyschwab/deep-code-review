@@ -1,0 +1,58 @@
+### Delivery Plan: Tiered Archive and Purge
+
+**G0/G1 Intake & Spec**
+*   **Scope:** Implement a nightly job (03:00 UTC) to move data >90 days to cold archive and delete data >2 years with a checksum manifest.
+*   **Constraints:** Zero downtime; idempotent execution (handle partial failures); no modification to `global-retention-rules.yaml` (read-only); irreversible deletion requires strict verification.
+*   **Non-Goals:** Changing retention periods (locked in config); backing up deleted data (none exists).
+*   **Appetite:** 2 days implementation + 1 day verification.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A (Builder): Archive Logic.** Implement the "move >90 days" logic. Must read `global-retention-rules.yaml` without writing. Must support resuming mid-batch.
+    *   *Parallel:* Yes.
+*   **Lane B (Builder): Purge & Manifest Logic.** Implement the "checksum then delete >2 years" logic. Must generate a compliance manifest before any deletion call.
+    *   *Parallel:* Yes (code only), but logically depends on Archive stability.
+*   **Lane C (QA): Idempotency & Failure Simulation.** Create a test harness that kills the process mid-batch to verify no duplicates/skips on restart.
+    *   *Serialized:* Must wait for Lane A/B code freeze.
+*   **Lane D (Security): Irreversibility Audit.** Review the delete path to ensure the manifest is generated and verified *before* the delete command executes.
+    *   *Serialized:* After Lane B complete, before G5.
+
+**G3 Design**
+*   **ADR:** Define the manifest format (SHA256 per batch, timestamped, stored in a separate audit bucket).
+*   **Contract:** The job exits 0 only if both archive and purge steps complete or safely resume. Exit 1 triggers an alert, not a retry.
+
+**G4 Implementation**
+*   **Worktrees:** Dedicated worktree for Builder (Lanes A+B). Dedicated worktree for QA (Lane C).
+*   **Discipline:** Unit tests for date calculation and manifest generation included in the commit. No integration tests run locally (too costly).
+
+**G5 Verification (Exact Revision)**
+*   **Local:** Run unit tests and a mocked "dry-run" against a small local dataset.
+*   **CI Strategy:**
+    1.  Run full integration suite on the candidate SHA.
+    2.  **Flake Handling:** If the "network latency" check fails, re-run *only* that specific check. If it fails twice, investigate; if it passes, proceed. Do not re-run the full $120 suite.
+    3.  **Cost Gate:** Verify the job runs within the estimated time window on the mirrored dataset.
+*   **Evidence:** QA provides a receipt showing a successful mid-batch kill and clean resume. Security provides a signed receipt confirming the manifest-before-delete order.
+
+**G6 Review**
+*   **Reviewer:** Senior Engineer (independent of Builder).
+*   **Security Review:** Security Lead (mandatory for deletion logic).
+*   **Scope:** `DIFF <base>` focusing on the delete path and manifest generation.
+
+**G7 Integration**
+*   **Merge:** Merge to `main` via a train.
+*   **Receipt:** Integration test pass on the merged SHA.
+
+**G8 Release (Human Gate)**
+*   **Decision:** Explicit written approval required from **Security Lead** and **VP of Engineering** before enabling the scheduler in production.
+*   **Rollback:** Disable the scheduled trigger immediately. Data moved to archive can be restored; deleted data is lost (hence the manifest).
+*   **Deployment:** Deploy the code with the feature flag/scheduler disabled. Enable only after approval.
+
+**G9 Production Verify**
+*   **First Run:** Monitor the 03:00 UTC execution manually. Verify the manifest appears in the audit bucket and row counts match expectations.
+
+**G10 Learn**
+*   **Retro:** If the flaky check caused delays, update the CI config to isolate it further. If the resume logic was complex, add a runbook entry.
+
+**Failure Mode**
+*   If the job fails mid-archive, the next run detects the last successful batch ID and resumes.
+*   If the manifest generation fails, the delete step aborts immediately.
+*   If CI costs spike, the lane is paused until the flake is quarantined.
