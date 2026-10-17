@@ -1,0 +1,5 @@
+### Changed
+- `scripts/rival_eval.py` judge protocol: the two answers now carry random three-letter labels instead of "Response 1" and "Response 2", and the judge writes a short comparison before its verdict. On the tune split (86 scenarios, 172 verdicts per judge) the pooled slot-1 rate of GLM-5.2 fell from 0.626 to 0.559 and GLM-5.1 measured 0.509 in the experiment harness and 0.439 in the shipped-code draw (README); DeepSeek-V4-Flash got worse under the new reply order (0.817) and is no longer a judge. Default judges are now GLM-5.1, then GLM-5.2, then gpt-oss_120b, each gated on a 0.4-0.6 slot-1 rate per skill.
+- Re-ran the held-out baseline in `docs/bench/rival-eval-baseline-1017/` with the new judges: ten of eleven skills now have a verdict (agentic-ceo and agentic-delivery gained one); idea-critic still has none because all three judges favour slot 1 on its near-identical answers. No skill passes.
+
+No-Mechanism-Reason: scripts/ and docs/bench only; no SKILL.md or references file changed, and test_rival_eval.py covers the new judge protocol.

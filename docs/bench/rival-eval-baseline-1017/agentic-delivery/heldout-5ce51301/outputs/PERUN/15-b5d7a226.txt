@@ -1,0 +1,29 @@
+### Implementation Plan: ISO 8601 Date Migration with Risk Mitigation
+
+**1. Strategy: Feature Flag & Dual-Format Support**
+Do not change the default `MM/DD/YYYY` format in `src/export_generator.java` immediately. Instead, implement a feature flag (e.g., `export.date.format.iso8601`) that defaults to `false`.
+*   **Modification:** Update the export generator to accept a context parameter or configuration flag. If the flag is active, format dates as `YYYY-MM-DD`; otherwise, retain `MM/DD/YYYY`.
+*   **Targeting:** Initially, enable this flag *only* for the new major client's export jobs. This isolates the risk to a single tenant while allowing the code to be deployed to production safely.
+
+**2. Gradual Migration & Detection Mechanism**
+To migrate the 200 at-risk customers and detect failures without breaking their ERPs:
+*   **Shadow Export Pipeline:** Create a background job that generates ISO 8601 exports for a sample of the 200 at-risk customers but does not deliver them. Instead, store these files in a staging bucket.
+*   **Parser Verification Harness:** Build a Java test harness (`src/test/migration/ParserVerification.java`) that ingests the 50 sample customer parser scripts provided by Linda.
+    *   The harness will feed the shadow ISO 8601 files into these parsers.
+    *   **Success Criteria:** The harness must report `PASS` only if all 50 parsers successfully ingest the new format without throwing exceptions or producing data corruption.
+    *   **Execution:** Run this harness via `mvn test -Dtest=ParserVerification` as part of the CI pipeline before enabling the flag for any additional customer.
+*   **Telemetry Injection:** Add structured logging to the export service to record `export_format_used` and `generation_status`. If a customer support ticket arises regarding date parsing, query logs to confirm which format was served.
+
+**3. Rollback Plan**
+Since the change is gated by a feature flag, rollback is instantaneous and requires no code redeployment:
+*   **Trigger:** If the Verification Harness fails for any of the 50 samples, or if the new client reports integration errors within 24 hours of go-live.
+*   **Action:** Set `export.date.format.iso8601` to `false` in the production configuration.
+*   **Result:** All subsequent exports immediately revert to `MM/DD/YYYY`. No binary rollback is needed.
+
+**4. Execution Timeline (2 Weeks)**
+*   **Days 1-3:** Implement feature flag logic in `export_generator.java` and build the `ParserVerification` harness.
+*   **Days 4-6:** Run the harness against the 50 sample parsers using shadow exports. Fix any parser incompatibilities (if possible) or document specific failures.
+*   **Days 7-9:** Deploy code to production (flag off). Enable flag for the new major client only. Monitor closely.
+*   **Days 10-14:** Based on harness results, enable the flag for compatible at-risk customers in batches of 20. Pause if error rates spike.
+
+**Note:** Ensure the feature flag configuration is externalized (e.g., environment variable or config server) to allow runtime toggling without a restart. The verification harness must be treated as a critical gate; do not expand the rollout if it returns any failures.

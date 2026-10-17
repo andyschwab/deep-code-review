@@ -1,0 +1,30 @@
+### Implementation Plan: Safe Removal of `enable_dark_beta` Flag
+
+**Objective:** Remove the `enable_dark_beta` feature flag and dead code from `src/ui_theme_manager.ts` while maintaining backward compatibility for ~3,000 mobile users on version 2.1, ensuring no client-side crashes or blank screens.
+
+**Phase 1: Analysis & Contract Definition (Day 1)**
+1.  **Audit Usage:** Grep the codebase for all references to `enable_dark_beta` to ensure `src/ui_theme_manager.ts` is the sole logic holder.
+2.  **Define API Contract:** Identify the specific parameter sent by mobile v2.1. Document the expected behavior: the server must accept the parameter but ignore its value, defaulting to the new dark mode theme.
+3.  **Draft Mobile Verification Script:** Create a standalone TypeScript/Node script (`verify_mobile_contract.ts`) that simulates a v2.1 client request. It will assert that the API response contains valid theme data and does not return errors or nulls when the legacy parameter is present.
+
+**Phase 2: Refactoring & Compatibility Layer (Day 2-3)**
+1.  **Implement Compatibility Shim:** In `src/ui_theme_manager.ts`, modify the entry point to accept the legacy parameter from mobile v2.1 but immediately map it to the new default behavior. Do not remove the parameter parsing yet; only remove the *conditional logic* that branches based on the flag.
+2.  **Remove Dead Code:** Delete the `enable_dark_beta` flag check and any code paths that are now unreachable because the new theme is always active.
+3.  **Update Types:** Remove the flag from any TypeScript interfaces or configuration types where it is no longer logically required, but keep the input interface broad enough to accept the legacy mobile parameter without type errors.
+
+**Phase 3: Verification & Sign-off (Day 4)**
+1.  **Run Unit Tests:** Execute `npm run test:unit` to ensure no regressions in the theme module.
+2.  **Contract Verification:** Run `verify_mobile_contract.ts`. This script acts as the "proof" for Sarah (Mobile Engineering). It must pass with exit code 0, demonstrating that a v2.1 payload receives a valid 200 OK response with correct theme assets.
+3.  **Staging Deployment:** Deploy to a staging environment. Provide Sarah with the endpoint and the verification script to run against staging manually if she prefers.
+
+**Phase 4: Cleanup & Final Release (Day 5 - Next Tuesday)**
+1.  **Monitor Logs:** After staging verification, check logs for any unexpected parsing errors related to the legacy parameter.
+2.  **Final Merge:** Once Sarah signs off on the staging verification, merge the changes.
+3.  **Future Cleanup Ticket:** Create a tracked ticket to remove the legacy parameter parsing entirely once mobile v2.1 usage drops to 0% (monitored via analytics). Do not do this now.
+
+**Deliverables for Sarah:**
+*   `verify_mobile_contract.ts`: A script she can run locally (`npx ts-node verify_mobile_contract.ts`) that mocks a v2.1 request and asserts a safe response.
+*   Staging URL with the fix deployed.
+
+**Note:** The legacy parameter parsing remains temporarily to prevent crashes; it will be removed in a future iteration once v2.1 is obsolete.
+**Deadline Check:** This plan fits within the Tuesday deadline by parallelizing the script creation with the refactoring work.

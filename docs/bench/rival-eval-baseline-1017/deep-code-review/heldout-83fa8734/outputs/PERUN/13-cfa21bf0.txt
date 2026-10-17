@@ -1,0 +1,92 @@
+### 1. Critical: Race Condition / State Corruption in `forEach`
+**File:** `lib/core/InterceptorManager.js`
+**Location:** `forEach` method (lines 130–154)
+
+**Why it is wrong:**
+The code attempts to allow safe modification of the `handlers` array (via `eject`) while iterating over it by using an `iterationDepth` counter and a `try/finally` block. However, the logic is flawed:
+1.  `syncHandlerEntries` is called at the *start* of `forEach`, snapshotting the current state into `handlerEntries`.
+2.  If `eject` is called during the iteration, it sees `iterationDepth > 0` and skips `trimHandlers` (line 102). It sets the slot to `null` and removes the ID from `handlerEntries`.
+3.  The `utils.forEach` loop (line 140) iterates over `this.handlers`. If the underlying array length changes or slots are nulled, `utils.forEach` behavior depends on its implementation. If it skips nulls, fine.
+4.  **The Defect:** The critical failure occurs if `eject` is called, then `clear` is called, or if nested `forEach` calls occur.
+    *   More importantly, `syncHandlerEntries` inside `eject` (line 87) runs *before* the null check. If the array reference hasn't changed, it proceeds to sync logic.
+    *   The real issue is the **invalidation of the iteration contract**. The code assumes `utils.forEach` handles sparse arrays or nulls gracefully while the length is static. But `trimHandlers` is deferred until `iterationDepth` hits 0. If multiple interceptors are ejected during one `forEach`, the array becomes sparse with trailing `null`s.
+    *   **Worse:** If `clear()` is called during `forEach` (lines 115-118), it replaces `this.handlers` with a new array `[]`. The `forEach` loop continues holding a reference to the *old* array (passed to `utils.forEach`), but `syncHandlerEntries` in the `finally` block (line 148) runs against `this.handlers` (the new empty array). This causes `internals.handlersRef` to update to the new array, but the `handlerEntries` map is cleared based on the new empty array, potentially losing track of valid IDs if the logic in `syncHandlerEntries` (lines 14-28) misinterprets the transition.
+    *   Specifically, line 14: `if (handlers !== internals.handlersRef)`. If `clear()` runs, `handlers` is `[]`, `internals.handlersRef` is the old array. They differ. `handlerEntries` is cleared. This is correct for `clear`.
+    *   **The actual bug:** In `eject`, line 94: `if (this.handlers[entry.index] !== entry.handler)`. If `handlers` was replaced by `clear` during iteration, `this.handlers` is the new array. `entry.index` (from the old array) is likely `undefined` in the new array. `undefined !== entry.handler` is true. It returns early. This seems safe.
+    *   **Real Defect:** The `iterationDepth` guard in `eject` prevents `trimHandlers` from running. If you eject the last element during iteration, the array retains a `null` at the end. After the loop finishes, `trimHandlers` runs (line 150). This is intended.
+    *   **However**, `syncHandlerEntries` in the `finally` block (line 148) re-runs the sync logic. If `handlers` length changed (due to `trimHandlers` just running? No, `trim` runs *after* the decrement check? No, line 149: `if (!--internals.iterationDepth) { sync... trim... }`).
+    *   Wait, the order in `finally`:
+        1. Decrement depth.
+        2. If 0: `syncHandlerEntries`, then `trimHandlers`.
+        3. `syncHandlerEntries` (line 148) sees `handlers.length` (untouched by trim yet).
+        4. Then `trimHandlers` (line 150) mutates the array.
+        5. Then `internals.handlersLength` is set (line 151).
+    *   **Race:** If `eject` is called *after* the `try` block starts but before `utils.forEach` finishes, it marks the slot null. `utils.forEach` might skip it.
+    *   **Critical Logic Error:** In `syncHandlerEntries` (line 20), it iterates `handlerEntries`. If `eject` removed an entry from `handlerEntries` (line 90), this loop skips it.
+    *   **The Breaker:** If `use()` is called *during* `forEach`. `use` calls `syncHandlerEntries` (line 62).
+        *   `handlers` (old) === `internals.handlersRef` (old).
+        *   `handlers.length` (old + 1) !== `internals.handlersLength` (old).
+        *   It enters the `else if`.
+        *   It iterates `handlerEntries`.
+        *   It pushes to `handlers`.
+        *   **Problem:** `utils.forEach` in the outer `forEach` is iterating the *same* `this.handlers` array that `use` just mutated (pushed to). If `utils.forEach` captured the length at start, it might miss the new one (safe) or if it checks length dynamically, it might visit the new handler mid-stream (unexpected but maybe intended?).
+        *   **Real Crash:** `use` increments `nextId` and sets `handlerEntries`. `syncHandlerEntries` inside `use` does *not* clear `handlerEntries` because `handlersRef` matches. It assumes continuity.
+        *   But wait, `use` calls `syncHandlerEntries` *before* pushing (line 62).
+        *   If `forEach` is running, `iterationDepth` is > 0. `use` doesn't know this.
+        *   `use` pushes to `handlers`.
+        *   Outer `forEach` (line 140) is using `utils.forEach(this.handlers, ...)`. If `utils.forEach` is a standard loop `for (i=0; i<arr.length; i++)`, and `use` pushed an item, the loop will visit the newly added interceptor mid-execution. This is often undesirable in interceptor chains (re-entrancy).
+        *   **Severe:** If `eject` is called for an ID that was *just* added in a nested `use` during iteration, the state mapping in `handlerEntries` vs `handlers` index can desync if `trimHandlers` hasn't run to compact the array, causing `entry.index` to point to the wrong handler or a null slot incorrectly.
+
+**Fix:**
+Disallow modification (`use`, `eject`, `clear`) during iteration. Set a flag `isIterating` in `forEach` and throw an error or queue the operation if `use`/`eject` is called concurrently. Do not rely on `iterationDepth` to silently defer trimming while allowing mutation, as it creates a window where `handlers` and `handlerEntries` are temporarily inconsistent for complex interleaved calls.
+
+### 2. High: Memory Leak / Map Bloat in `syncHandlerEntries`
+**File:** `lib/core/InterceptorManager.js`
+**Location:** `syncHandlerEntries` function (lines 10–29)
+
+**Why it is wrong:**
+The logic to clean up `handlerEntries` (lines 20–24) only removes entries where `handlers[entry.index] !== entry.handler`.
+If `handlers` is replaced entirely (e.g., `clear()` or direct assignment `manager.handlers = []`), line 14 detects the reference change and clears the map. This is correct.
+However, if `handlers` is *not* replaced but manipulated directly by external code (e.g., `manager.handlers.splice(0, 1)`), `syncHandlerEntries` relies on `entry.index` being accurate.
+The critical flaw is in the `use` method. It calls `syncHandlerEntries` (line 62), *then* pushes to `handlers`, *then* updates `handlerEntries`.
+If `handlers` was modified externally *between* the last operation and this `use` call such that indices shifted, `syncHandlerEntries` attempts to reconcile.
+But look at line 21: `if (handlers[entry.index] !== entry.handler)`.
+If an external splice shifted elements left, `handlers[entry.index]` now holds a *different* handler. The code correctly deletes the stale entry.
+**The Leak:** If `handlers` has `null` holes (from `eject` without `trim`), `handlers[entry.index]` might be `null`. `null !== entry.handler` is true. Entry deleted. Correct.
+**The actual issue:** `handlerEntries` is a `Map`. If `use` is called rapidly without `sync` catching up, or if `nextId` wraps (unlikely in JS but logically), or if `eject` fails to remove an entry due to the `iterationDepth` guard preventing the `sync` that would validate it?
+No, `eject` removes from `handlerEntries` immediately (line 90).
+**Real Defect:** If `clear()` is called, `handlers` becomes `[]`. `syncHandlerEntries` clears the map.
+What if `this.handlers` is set to `null`? Line 116 checks `if (this.handlers)`.
+**The Defect:** In `syncHandlerEntries`, line 14: `if (handlers !== internals.handlersRef)`.
+If a user does `manager.handlers = [...manager.handlers]` (clone), the ref changes. Map clears. All IDs invalid. This is a "feature" but dangerous.
+**Actual Bug:** The `handlerEntries` map stores `index`. If `trimHandlers` runs (lines 4-8), it pops `null`s from the end. Indices of remaining items do not change.
+But if `eject` sets `handlers[5] = null`, and later `trimHandlers` doesn't run because it's not at the end? `trimHandlers` only pops from the *end*.
+So `handlers` becomes `[fn, null, fn]`. `entry.index` for the last fn is 2. `handlers[2]` is `fn`. Match.
+If `eject` removes index 1: `[fn, null, fn]`. `entry.index` for last fn is 2. Match.
+**The Leak Scenario:** If `handlers` is mutated externally to remove an item at index 0 (`shift`), all subsequent indices are wrong. `syncHandlerEntries` iterates `handlerEntries`.
+Entry A (id 1, index 1). `handlers[1]` is now the old index 2. `handler` mismatch. Delete.
+Entry B (id 2, index 2). `handlers[2]` is now old index 3 (or undefined). Mismatch. Delete.
+It seems robust against external shifts.
+**Wait, the defect is simpler:** `trimHandlers` (lines 4-8) only trims from the *end*.
+If you `eject` index 0, `handlers[0]` becomes `null`. The array is `[null, fn, fn]`.
+`trimHandlers` does nothing.
+Over time, if you eject many low-index interceptors, the array becomes sparse with leading/middle `null`s.
+`forEach` (line 141) checks `if (h !== null)`. Safe.
+But `handlers.length` grows indefinitely if you keep adding and ejecting low-index items. The array never shrinks, only trailing nulls are trimmed.
+This is a memory/performance leak: the array size monotonically increases unless you only eject the most recently added interceptors.
+
+**Fix:**
+Modify `trimHandlers` to compact the array (remove all `nulls` and re-index) or update `handlerEntries` indices after compaction. Alternatively, in `eject`, if `iterationDepth` is 0, immediately compact the array and update all affected indices in `handlerEntries`. Current `trimHandlers` is insufficient for non-trailing removals.
+
+### 3. Medium: Incorrect ID Return in `use` if Sync Fails
+**File:** `lib/core/InterceptorManager.js`
+**Location:** `use` method (lines 53–76)
+
+**Why it is wrong:**
+The method returns `id` (line 75), generated from `internals.nextId++`.
+If `syncHandlerEntries` throws an error (e.g., if `handlers` is not an array), the ID is consumed but the handler is not pushed (line 66 is after sync).
+Actually, line 62 `sync` runs. If it throws, `use` throws. ID is lost (incremented but not returned).
+This is minor but violates the expectation that `nextId` only increments on successful registration.
+
+**Fix:**
+Increment `nextId` only after successful sync and push, or decrement on failure.
