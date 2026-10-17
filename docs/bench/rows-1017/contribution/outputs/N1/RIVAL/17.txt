@@ -1,0 +1,63 @@
+### Step-by-Step Plan to Automate Localization File Formatting
+
+Since you cannot share the specific file extension or language, the following logic describes a universal script approach (compatible with Python, Node.js, or Bash) to enforce the three strict rules you identified: alphabetical sorting, no trailing commas, and specific newline endings.
+
+#### 1. Pre-Computation: Identify the "Invisible" Sequence
+Before running the formatter, you must identify the exact byte sequence the linter expects for the "specific newline character sequence."
+*   **Action:** Download one existing, merged localization file from the `main` branch of the repository.
+*   **Inspection:** Open this file in a hex editor or run `xxd filename.ext | tail` in your terminal.
+*   **Target:** Note the final bytes. Common variations include `\n` (LF), `\r\n` (CRLF), or potentially a null terminator `\0`. Your script must replicate this *exactly*.
+
+#### 2. Script Logic Description
+Create a script (e.g., `fix_locale.js` or `fix_locale.py`) that performs the following operations in strict order:
+
+**Step A: Parse and Load**
+*   Read the entire file content as a raw string.
+*   Parse the content into a structured object (dictionary/map) based on the file format (JSON, YAML, or properties).
+*   *Crucial:* Ensure the parser preserves the order of keys if possible, or be prepared to re-output them entirely from scratch.
+
+**Step B: Enforce Alphabetical Sorting**
+*   Extract all keys from the parsed object.
+*   Sort the keys using standard ASCII/Unicode alphabetical sorting.
+*   *Note:* Do not rely on your editor's sort function; implement this in the script to ensure consistency with the CI linter's sorting algorithm.
+
+**Step C: Reconstruct with Strict Formatting**
+*   Initialize an empty output string.
+*   Iterate through the **sorted** keys:
+    1.  Append the key and its translated value in the required syntax (e.g., `"key": "value"`).
+    2.  **Trailing Comma Check:** If this is *not* the last item in the list, append a comma `,`. If it *is* the last item, do **not** append a comma.
+    3.  Append the standard line separator for the file structure (usually `\n`).
+*   **Final Newline Sequence:** After the loop finishes, append the specific byte sequence you identified in Pre-Computation (Step 1). Do not add an extra standard newline before this specific sequence unless the hex dump of the reference file shows one.
+
+**Step D: Atomic Write**
+*   Write the new string to the file in binary mode to prevent your operating system from auto-converting line endings (e.g., Windows converting `\n` to `\r\n`).
+
+#### 3. Execution Workflow
+1.  **Backup:** Create a copy of your current translation file.
+2.  **Run:** Execute the script against your file.
+3.  **Verify Locally:** Run the project's specific linter command locally (e.g., `npm run lint:locales` or `make check-i18n`) if available. If no local linter exists, compare the hex dump of your new file against the reference file from `main` to ensure the tail bytes match exactly.
+4.  **Commit:** Amend your commit with the newly formatted file.
+
+#### 4. Example Logic (Python-like Pseudocode)
+```python
+# Pseudocode for conceptual understanding
+data = load_file("ja.json")
+sorted_keys = sort(data.keys())
+
+output = ""
+for i, key in enumerate(sorted_keys):
+    output += format_entry(key, data[key])
+    if i < len(sorted_keys) - 1:
+        output += "," # Add comma only if not last
+    output += "\n"    # Standard line break
+
+# Append the specific required ending found in hex dump
+output += SPECIFIC_NEWLINE_SEQUENCE 
+
+save_binary("ja.json", output)
+```
+
+By automating these three constraints, you eliminate human error regarding whitespace and ordering, ensuring the CI linter sees a byte-perfect match to the project's standards.
+
+*Ensure you run the script immediately before committing to avoid editor auto-formatting reintroducing errors.*
+*If the CI still fails, compare the raw git diff of your file against a known good file to spot any remaining byte-level differences.*

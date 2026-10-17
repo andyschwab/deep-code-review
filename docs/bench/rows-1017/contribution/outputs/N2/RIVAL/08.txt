@@ -1,0 +1,28 @@
+### Remote Diagnosis Plan for Windows CI Failure
+
+**1. Extract the Exact Error Signature**
+Do not rely on the summarized "failed" status. Open the full raw log of the failing Windows job. Search for the first instance of `error` or `fatal`. Copy the exact compiler error code (e.g., `C2065`, `LNK2019`) and the specific file/line number. Windows compilers (MSVC) often fail due to case-sensitivity issues in includes or path length limits that do not affect macOS/Linux.
+
+**2. Isolate Environment Differences**
+Compare the successful macOS/Linux logs with the failing Windows log for:
+*   **Compiler Version:** Check if Windows is using a different MSVC version than the others are using for Clang/GCC.
+*   **Dependency Versions:** Verify if the package manager (e.g., vcpkg, NuGet, pip) resolved a different version of a dependency on Windows.
+*   **Preprocessor Definitions:** Look for `#ifdef _WIN32` blocks in your changed files. A missing include or a type mismatch (e.g., `size_t` vs `int`) inside these blocks is the most common cause of cross-platform leaks or build failures.
+
+**3. Reproduce via Container or Remote Shell (If Available)**
+Check the repository's `docker-compose.yml` or CI config for a Windows container definition. If the project uses GitHub Actions, you can sometimes add a temporary `debug` step to the workflow in your fork (e.g., using `microsoft/setup-msbuild` with a remote shell action) to print environment variables or run a verbose build command (`/v:detailed`) without needing a local Windows machine.
+
+**4. Submit a "Fix Attempt" Commit**
+If the error suggests a missing include or a type cast, push a speculative fix commit immediately. Label it clearly (e.g., `fix: attempt to resolve MSVC type mismatch on Windows`). This shows you are iterating, not waiting. If it fails again, the new log provides narrower data.
+
+---
+
+### Questions to Ask Maintainers
+
+When commenting on the PR, frame your questions to show you have analyzed the logs but lack the specific platform context. Do not ask "How do I fix this?"; ask specific technical validation questions.
+
+1.  "The Windows log shows error `[Insert Exact Error Code]` at line `[N]`, which implies a missing symbol or type mismatch specific to MSVC. Is there a known platform-specific header or preprocessor definition required for `RenderEngine` core on Windows that I may have missed?"
+2.  "I noticed the Windows runner uses `[Compiler Version X]` while the Linux/macOS runners use `[Compiler Version Y]`. Is this version divergence expected, or should I pin the Windows toolchain to match the others in the CI config?"
+3.  "Does the project have a documented 'Windows Gotchas' section or a specific `cmake`/`build` flag intended for the Server 2019 environment that handles memory alignment or path lengths differently?"
+
+**Note:** Push your speculative fix attempt before posting these questions; it proves you are debugging, not delegating. Always quote the specific line number and error code in your comment to reduce the maintainer's cognitive load.

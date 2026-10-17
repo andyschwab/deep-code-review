@@ -1,0 +1,27 @@
+### Back-Porting Plan for Race Condition Fix
+
+**1. Isolate the Core Logic Change**
+Extract the specific code modifications that resolve the race condition from your main branch commit. Strip away any refactoring, style changes, or dependencies on new helper functions introduced in the main branch that do not exist in the older release branches. The goal is a minimal diff containing only the logic required to prevent duplication.
+
+**2. Manual Adaptation for Deprecated Frameworks**
+Since automated cherry-picking will fail due to the testing framework incompatibility, you must manually port the verification logic:
+*   **Analyze the Old Harness:** Identify the equivalent assertions and setup/teardown methods in the deprecated testing framework used by the older branches.
+*   **Rewrite the Test Case:** Re-implement your high-load concurrency test using the old framework's syntax. If the old framework lacks native concurrency stress-testing helpers, implement a lightweight, branch-specific utility script (e.g., a simple shell script or a basic standalone program) that spawns multiple producers/consumers and asserts message counts, bypassing the framework's limitations entirely.
+*   **Validate Determinism:** Run this adapted test locally on the older branch multiple times to ensure it is not flaky. If the old framework is prone to timing issues, increase the sample size of messages or add explicit synchronization barriers in the test setup to stabilize results.
+
+**3. Branch-Specific Implementation Strategy**
+*   **Branch A (Newer Legacy):** Attempt a clean cherry-pick of the core logic fix. If it applies cleanly, run the adapted test. If there are minor context conflicts, resolve them manually while preserving the original fix's intent.
+*   **Branch B (Oldest Legacy):** Manually apply the core logic changes. The codebase structure may differ significantly, requiring you to locate the equivalent queue handling routines by function behavior rather than file path. Apply the adapted test or the standalone verification script here.
+
+**4. Verification and Proposal to Maintainers**
+*   **Evidence Package:** Prepare a summary for the maintainers that includes:
+    *   The minimal patch for each branch.
+    *   A report showing the test passing consistently (e.g., 50+ successful runs) on the older branches using the adapted harness or standalone script.
+    *   A clear explanation that the test implementation differs from the main branch due to framework deprecation, but the *verification goal* (proving no duplication under load) remains identical.
+*   **Alternative Verification Proposal:** If the maintainers reject modified tests on stable branches, propose running the standalone verification script in their CI environment as a temporary gate for these specific PRs, or provide a recorded demo of the fix resolving the duplication in a containerized version of the old branch.
+
+**5. Consistency Check**
+Ensure the fix behavior is logically identical across all three branches, even if the implementation details (variable names, surrounding code) differ slightly due to version drift. Document any deviations in the PR description to aid future maintenance.
+
+*Note: Prioritize logical correctness over code symmetry; the older branches may require unique workarounds to achieve the same stability guarantee.*
+*Do not introduce new dependencies into the legacy branches to satisfy the test suite.*
