@@ -1,0 +1,99 @@
+# Delivery Plan: Ledger Schema Migration
+
+## Work Lanes
+
+**Lane A: Database Migration (Platform Team)**
+- Write expand/contract migration scripts for splitting `transaction_log` into `entries` and `metadata`
+- Implement dual-write logic to maintain both legacy and new schemas simultaneously
+- Create batched backfill script processing historical data in chunks of 1000 rows with 500ms delays between batches
+- **Serialized dependency:** Must complete before Lane B begins integration testing
+
+**Lane B: Application Code Updates (Core Banking Team)**
+- Update read paths to query new `entries`/`metadata` structure with feature flag fallback to legacy table
+- Implement metadata service client with circuit breaker pattern
+- Write rollback switch to instantly revert reads to single-table view
+- **Parallel with:** Lane C can begin once dual-write is active in staging
+
+**Lane C: Compliance & Audit Validation (Compliance Officer + QA)**
+- Verify no writes touch the immutable `audit-trail` table during migration
+- Validate that suspect-transaction flags are not triggered by migration operations
+- Sign off on data integrity proofs before production deployment
+- **Must complete before:** Production deployment approval
+
+**Lane D: Performance Testing (QA Team)**
+- Run targeted load tests simulating 4-second replication lag scenarios
+- Validate batch backfill does not spike replication lag beyond 4-second threshold
+- Test rollback procedure under load
+- **Parallel with:** Lane B, but requires Lane A's migration scripts deployed to test environment
+
+## Gates and Checks
+
+**Gate 1: Migration Script Review (Pre-deployment)**
+- **What:** Static analysis and manual review of expand/contract scripts
+- **Where:** Staging database clone
+- **When:** Before any code deployment
+- **Revision:** Migration scripts at commit hash from Lane A completion
+- **Who:** Senior DBA (independent of Lane A authors)
+
+**Gate 2: Dual-Write Verification (Staging)**
+- **What:** Verify both legacy and new paths write identical data for 24-hour period
+- **Where:** Staging environment with production data snapshot
+- **When:** After Lane A deployment, before Lane B integration
+- **Revision:** Combined Lane A + Lane B code at integration commit
+- **Who:** Platform Team Lead (independent of implementation)
+
+**Gate 3: Rollback Drill (Pre-production)**
+- **What:** Execute full rollback procedure, verify zero data loss
+- **Where:** Isolated production mirror
+- **When:** After Gates 1-2 pass, before production deployment
+- **Revision:** Same as Gate 2
+- **Who:** On-call SRE (independent of all lanes)
+
+**Gate 4: Compliance Sign-off**
+- **What:** Formal approval that audit-trail remains untouched and no suspect flags triggered
+- **Where:** Internal compliance portal
+- **When:** After successful rollback drill
+- **Who:** Compliance Officer (mandatory, blocks deployment)
+
+## Review Structure
+
+**Technical Review:** Chief Architect reviews migration strategy, dual-write correctness, and rollback mechanism. Must be independent of Platform Team and Core Banking Team implementers.
+
+**Compliance Review:** Compliance Officer validates audit-trail immutability and regulatory adherence. Independent of all engineering teams.
+
+**Code Review:** Two senior engineers not on Lane A or B review implementation. One must have database migration expertise, one must have banking domain knowledge.
+
+**Rollback Review:** Separate SRE team validates rollback procedure without involvement from implementation teams.
+
+## Landing Strategy
+
+**Phase 1: Expand (Market Close, Day 1)**
+- Deploy dual-write migration scripts
+- Enable writes to both legacy and new schemas
+- **Human decision required:** Compliance Officer confirms audit-trail monitoring shows zero violations before proceeding
+
+**Phase 2: Backfill (Off-hours, Day 1-2)**
+- Run batched backfill during low-traffic window
+- Monitor replication lag; pause if exceeds 4 seconds
+- **Automated gate:** Backfill pauses automatically if replication lag > 3.5 seconds
+
+**Phase 3: Contract (Market Close, Day 3)**
+- Switch read paths to new schema via feature flag
+- **Human decision required:** Chief Architect and Compliance Officer both approve via internal portal before flag flip
+- Maintain legacy write path for 48-hour rollback window
+
+**Phase 4: Cleanup (Day 5)**
+- Remove legacy write path after 48-hour stability confirmation
+- Archive old `transaction_log` table (do not drop for 30 days)
+
+**Rollback Procedure:**
+- Instant revert: Flip feature flag to route reads back to `transaction_log`
+- Disable new metadata service writes
+- Legacy path remains functional throughout deployment
+- **No data loss:** Dual-write ensures both schemas current until cleanup
+- **Tested:** Rollback drill (Gate 3) must pass before Phase 1
+
+**CI Optimization:**
+- Run unit tests on every commit (15 minutes)
+- Trigger full 45-minute integration suite only after Gate 2 passes
+- Skip full suite for documentation-only changes

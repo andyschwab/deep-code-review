@@ -1,0 +1,48 @@
+### Delivery Plan: Restrict Legacy Billing API Access
+
+**Objective:** Restrict `LedgerSync` endpoint access to `Finance-Admins` only, ensuring 403 for others, audit logging, and zero downtime during the fiscal close.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Security Spec & Config):** Define the exact JSON diff for `global_access_matrix.json` to restrict the path. Verify the `Finance-Admins` group ID. *Parallel start.*
+*   **Lane B (Logic & Logging):** Implement the middleware check to enforce the group restriction and ensure the security audit trail hook is triggered on 403. *Parallel start.*
+*   **Lane C (Batch Verification):** Analyze the nightly batch reconciliation service account credentials. Confirm it possesses the `Finance-Admins` role or create a service-specific exception if the architecture requires. *Parallel start.*
+*   **Lane D (Cache Procedure):** Document the exact 20-minute cache purge steps and identify the authorized operator. *Serialized after Lane A.*
+
+**Dependencies:** Lane D requires the final JSON from Lane A. Integration requires all lanes complete.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Freeze base SHA. Output: Testable spec defining the 403 response body and audit log schema.
+*   **G3 Design:** ADR confirming the cache purge timing relative to the deploy window.
+*   **G4 Implement:**
+    *   Lane A commits the JSON change.
+    *   Lane B commits the logic/tests.
+    *   Lane C produces a proof-of-role document for the batch service.
+*   **G5 Verify (Exact Revision):**
+    *   Run unit tests locally (fast).
+    *   **CI Strategy:** Trigger full regression once on the integrated SHA. Due to the 15% flake rate in stage three, one capped re-run is authorized *only* if stage three fails and logs show network timeout. Cost cap: $240 (2 runs).
+    *   **Batch Test:** Execute a dry-run of the reconciliation process against a staging environment with the new config to prove no interruption.
+*   **G6 Review:**
+    *   **Security Review:** Independent Security Engineer verifies the logic bypass is impossible and audit logs are populated.
+    *   **Compliance Review:** Finance representative verifies the `Finance-Admins` scope is correct.
+    *   *Constraint:* Builder (Lane B) cannot approve Security.
+
+#### 3. Landing & Human Gates
+*   **Integration (G7):** Merge to the release branch. This is not deployment.
+*   **Release (G8 - Human Gated):**
+    *   **Trigger:** Deploy window opening (before fiscal close).
+    *   **Approvals Required:** Dual approval from CFO and Head of Security via the governance portal.
+    *   **Execution:**
+        1.  Deploy code (Lane B changes).
+        2.  Apply config (Lane A changes).
+        3.  **Critical Path:** Execute the manual 20-minute cache purge immediately after config application.
+    *   **Verification (G9):** Monitor audit logs for denied non-finance attempts and confirm nightly batch success.
+*   **Rollback:**
+    *   If batch fails or critical access denied: Revert the config change in `global_access_matrix.json` and re-trigger the cache purge. Code revert is secondary; config is the kill switch.
+    *   *Note:* Rollback requires the same dual approval if performed post-deploy.
+
+#### 4. Risk Mitigation
+*   **Downtime Risk:** The 20-minute cache purge is the only potential interruption. Schedule this strictly outside the "fiscal close window" but before the audit deadline.
+*   **Flake Risk:** CI flakiness is managed by the single re-run cap; do not merge on pending flaky failures without log analysis.
+*   **Batch Risk:** If Lane C cannot confirm the batch service identity matches `Finance-Admins`, the deploy is blocked until resolved.
+
+**Next Step:** Confirm the identity of the authorized operator for the cache purge (Lane D) and the exact service account ID for the nightly batch (Lane C).

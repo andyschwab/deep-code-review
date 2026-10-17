@@ -1,0 +1,62 @@
+**Delivery Plan: Winter Frost Banner Update**
+
+**Scope & Constraints**
+Change is limited to hero banner copy (discount %, end date) on the main landing page. Legal approval is confirmed. Target: Live before 8 AM tomorrow.
+*Constraints:* Staging data lags 4 hours (cannot verify dynamic date logic visually against real-time); production deploy is irreversible without analytics reset; accessibility checker flakes on dynamic dates.
+
+**Lanes & Serialization**
+Single-lane execution required due to shared state (content layer) and low blast radius. No parallelization needed.
+
+1.  **Preparation Lane (Builder)**
+    *   **Action:** Create isolated worktree from `main`. Update copy strings.
+    *   **Tagging:** Commit with `docs-only` tag to bypass senior engineer approval gate.
+    *   **Output:** Local commit SHA.
+
+2.  **Verification Lane (QA + Builder)**
+    *   **Action:** Trigger static generation pipeline on this SHA in the **staging** environment.
+    *   **Gate Check 1 (Build):** Confirm pipeline completes (22 min).
+    *   **Gate Check 2 (Accessibility):** Run automated checker.
+        *   *Contingency:* If "flake" detected on dynamic date string, manually override via shift lead protocol immediately. Do not wait for retry.
+    *   **Gate Check 3 (Visual):** Since staging data lags 4 hours, visual verification of the *date* is impossible. Verify only:
+        *   Correct static text rendering.
+        *   Layout integrity (no overflow).
+        *   Discount percentage accuracy.
+    *   **Handoff:** Provide staging URL + screenshots to Requester.
+
+3.  **Release Lane (Conductor + Owner)**
+    *   **Action:** Upon Requester's explicit "Go" on staging formatting.
+    *   **Gate Check 4 (Human):** Owner approves production push.
+    *   **Execution:** Merge to `main`. Trigger production pipeline.
+    *   **Verification:** Monitor production URL post-deploy. Verify text visibility immediately (bypassing data lag issues as text is static).
+
+**Gates & Checks**
+
+*   **G4 (Implement):** Commit must include `docs-only` tag. Base SHA: `main` head at start of work.
+*   **G5 (Verify):**
+    *   Pipeline exit code 0.
+    *   Accessibility: Green OR Shift Lead Override recorded.
+    *   Visual: Requester confirmation on staging URL.
+*   **G6 (Review):** Independent QA verifies the *process* (tag presence, override log) not the copy (legal already signed off).
+*   **G8 (Release):** **Human Decision Required.** Owner must explicitly approve the merge to `main` given the irreversible analytics consequence of rollback.
+
+**Landing Strategy**
+
+*   **Merge:** Direct merge to `main` after G5/G6 pass. No merge train needed for single commit.
+*   **Deployment:** Automatic trigger upon merge.
+*   **Rollback Plan:**
+    *   *Trigger:* Critical typo or layout break detected in production within 1 hour.
+    *   *Action:* Revert commit immediately.
+    *   *Consequence:* Full snapshot restore required. **Analytics counters for that hour will reset.** This risk is accepted by the Owner at G8.
+*   **Timing:**
+    *   Start immediately.
+    *   Pipeline (22m) + Manual Override/Review (10m) + Buffer = ~45 mins to Staging Ready.
+    *   Production Deploy + Propagation = ~30 mins.
+    *   Total lead time: ~75 mins. Safe for 8 AM deadline if started now.
+
+**Risk Mitigation**
+*   **Accessibility Flake:** Pre-authorize Shift Lead override to prevent pipeline block.
+*   **Staging Data Lag:** Explicitly inform Requester that date *logic* cannot be visually validated on staging, only text presence.
+*   **Irreversible Deploy:** Ensure Owner acknowledges analytics reset risk before merge.
+
+**Status Reporting**
+Report "Staging Ready" only when URL is live and screenshots attached. Report "Live" only after production URL confirms new text. Do not report "In Progress" as completion.

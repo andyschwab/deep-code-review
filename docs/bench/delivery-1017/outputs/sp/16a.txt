@@ -1,0 +1,74 @@
+# Delivery Plan: Restore Checkout Latency to Baseline
+
+## Lanes & Parallelism
+
+**Lane A: Investigation & Hypothesis (Serial)**
+*   **Owner:** Senior Backend Engineer
+*   **Work:** Analyze APM traces and database slow-query logs from the spike window. Isolate the specific content update commit. Identify the offending query or asset sequence.
+*   **Dependency:** None. Starts immediately.
+
+**Lane B: Benchmark Harness Setup (Parallel to A)**
+*   **Owner:** SRE / DevOps Engineer
+*   **Work:** Configure the synthetic traffic generator on a local/staging clone. Ensure the mock payment gateway timeout noise is filtered or stabilized to prevent false positives in latency measurements.
+*   **Dependency:** None. Starts immediately.
+
+**Lane C: Fix Implementation (Serial, follows A)**
+*   **Owner:** Senior Backend Engineer
+*   **Work:** Implement the fix (query optimization, index addition, or asset loading rollback) on a feature branch derived from the pre-spike baseline.
+*   **Dependency:** Completion of Lane A (Root Cause Identified).
+
+**Lane D: Validation & Proof (Serial, follows B & C)**
+*   **Owner:** QA Engineer + Senior Backend Engineer
+*   **Work:** Execute the 15-minute load test window (02:00–04:00 local time) against the staging environment using the fixed code.
+*   **Dependency:** Completion of Lane B (Harness Ready) and Lane C (Fix Committed).
+
+## Gates & Checks
+
+**Gate 1: Root Cause Confirmation**
+*   **Trigger:** End of Lane A.
+*   **Check:** Engineer must present the specific query ID or asset file and the exact commit hash causing the regression.
+*   **Revision:** Verified against the `main` branch history.
+
+**Gate 2: Local Schema Safety**
+*   **Trigger:** Before any database migration script is run in Lane C.
+*   **Check:** Dry-run execution of migration tools on a local containerized database mirror.
+*   **Constraint:** Irreversible schema changes are forbidden without successful local dry-run proof.
+
+**Gate 3: The Data Proof (Hard Gate)**
+*   **Trigger:** End of Lane D.
+*   **Check:** Automated report from the synthetic traffic generator showing average checkout latency < 1.5 seconds over the full 15-minute window.
+*   **Requirement:** Must include a "before" (simulated spike) and "after" comparison graph.
+*   **Failure Mode:** If latency > 1.5s or mock gateway timeouts skew data > 5%, the fix is rejected, and Lane C repeats.
+
+## Review Process
+
+**Independent Code Review**
+*   **Reviewer:** Lead Engineer from a *different* squad (not Web/Mobile).
+*   **Scope:** The fix in Lane C and the migration script safety.
+*   **Independence:** Reviewer must not be the author of the original content update nor the investigator in Lane A.
+
+**Benchmark Audit**
+*   **Reviewer:** SRE Lead.
+*   **Scope:** Validation of the Lane D test results.
+*   **Independence:** Verifies the synthetic traffic generator configuration (Lane B) was not tuned to artificially lower latency.
+
+## Landing Strategy
+
+**Merge Conditions**
+1.  Gate 3 passed with hard data (< 1.5s avg).
+2.  Independent Code Review approved.
+3.  Benchmark Audit signed off.
+
+**Approval Workflow**
+*   **Action:** Deployment request submitted to production pipeline.
+*   **Approvers:** Requires dual digital signature from Site Reliability Lead AND Product Owner.
+*   **Timing:** Deployment scheduled immediately post-approval, outside the 2–4 AM testing window to maximize availability.
+
+**Rollback Protocol**
+*   **Trigger:** Post-deployment monitoring shows latency > 1.5s for 5 consecutive minutes OR error rate spikes > 1%.
+*   **Action:** Immediate automated revert to the pre-spike commit hash.
+*   **Constraint:** Since schema migrations are irreversible, if the fix involved schema changes, the rollback reverts code only; a secondary "compatibility patch" must be ready to handle the new schema if the old code cannot run against it. This patch is pre-written during Lane C.
+
+**Human Decision Points**
+*   **Go/No-Go on Data:** If Lane D results are ambiguous (e.g., 1.49s avg but high variance), the Product Owner decides whether to deploy or re-investigate.
+*   **Schema Risk:** If the fix requires an irreversible schema change, the Site Reliability Lead must explicitly approve the migration path after reviewing the local dry-run logs.

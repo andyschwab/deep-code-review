@@ -1,0 +1,36 @@
+### Delivery Plan: Claims Ingestion Latency Resolution
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Investigation & Fix):** Senior Engineer analyzes the parsing logic diff from yesterday's patch to identify the bottleneck. Once identified, they implement the optimization in a feature branch `fix/ingestion-latency`.
+*   **Lane B (Benchmark Preparation):** QA Automation prepares the standard load test dataset and the benchmarking script environment. This runs in parallel with Lane A.
+*   **Serialization Point:** Lane B cannot execute the actual benchmark until Lane A commits the fix candidate.
+
+**2. Gates & Checks**
+*   **Gate 1 (Local Verification):** Before any remote pipeline trigger, the Senior Engineer must run the load test locally (or in a sandbox) against the `fix/ingestion-latency` branch.
+    *   *Success Criteria:* Processing time < 2 minutes per file; memory usage stable.
+    *   *Artifact:* A generated "Before-and-After Benchmark Report" comparing baseline (45s), degraded state (3m+), and fixed state.
+*   **Gate 2 (CI Pipeline):** Trigger the $40 CI run *only* after Gate 1 passes.
+    *   *Revision:* Runs strictly on the head of `fix/ingestion-latency`.
+    *   *Flake Handling:* If the automated memory leak check fails, a manual verification step is triggered immediately by the Senior Engineer to confirm validity before proceeding. Do not re-run automatically.
+*   **Gate 3 (Compliance Review):** Dual approval required on the Pull Request.
+    *   *Reviewer 1:* Senior Engineer (peer review of logic).
+    *   *Reviewer 2:* Jane Smith (Compliance Lead).
+    *   *Constraint:* Reviewers must see the attached Benchmark Report confirming the <2 minute threshold.
+
+**3. Review Process**
+*   **Independence:** The code author (Senior Engineer) cannot approve their own change. Jane Smith's review is independent of the technical peer review; she focuses on compliance and risk, while the peer focuses on logic and performance.
+*   **Evidence-Based:** The review is blocked until the Benchmark Report is attached to the ticket and the PR description.
+
+**4. Landing Strategy**
+*   **Merge Window:** The merge must occur early enough to allow deployment before the 02:00 UTC irreversible cutoff.
+*   **Human Decision:** The final "Go/No-Go" for production deployment requires explicit confirmation from the Ticket Requester that the Benchmark Report metrics are accepted.
+*   **Deployment:** Once merged and approved, deploy to production.
+*   **Rollback Plan:** Since production deploys are irreversible after 02:00 UTC, if the fix is deployed and fails:
+    *   *Before 02:00 UTC:* Immediate revert of the merge commit.
+    *   *After 02:00 UTC:* The system remains in the degraded state until the next maintenance window; a hotfix branch must be prepared immediately, but no further deployment attempts should be made that night.
+
+**Summary of Critical Constraints:**
+*   Do not modify `global-rates.json` during business hours.
+*   Do not trigger CI without local benchmark proof.
+*   Do not merge without Jane Smith's approval.
+*   Do not deploy if the benchmark shows >2 minutes processing time.

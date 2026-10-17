@@ -1,0 +1,62 @@
+**Delivery Plan: Sequential PR Train for Routing Logic**
+
+**Objective**
+Land six dependent PRs in strict sequence to prevent generated asset checksum conflicts, followed by a manual snapshot deployment.
+
+**Constraints & Risks**
+*   **Serialization Mandatory:** Parallel merging is forbidden due to build pipeline checksum logic.
+*   **Conflict Vector:** Shared JSON lockfile auto-generation causes conflicts if branches diverge.
+*   **Cost:** CI runs 45 minutes; re-runs are expensive.
+*   **Environment:** Staging unstable on Tuesdays; avoid merges then.
+*   **Irreversibility:** Reverts require full database rollback (destructive to shipment events).
+*   **Authority:** Only Operations senior leads can approve production deploys.
+
+**Work Lanes & Serialization**
+*   **Lane 1–6 (Sequential Merge Train):**
+    *   **Actor:** Conductor (Coordinator) + Operations Lead (Approver).
+    *   **Scope:** PR #1 through PR #6 in exact order.
+    *   **Dependency:** Lane $N$ starts only after Lane $N-1$ is fully merged and the main branch is updated.
+    *   **Parallelism:** None. All lanes are strictly serialized.
+    *   **Pre-flight:** Before starting Lane 1, verify no other writes are occurring to the repository. Ensure the local worktree is clean and synced to the current `main` head.
+
+**Gates & Checks (Per PR)**
+Each of the six PRs must pass the following gates individually before the next begins:
+
+1.  **G4 Implementation Check (Pre-Merge):**
+    *   **Revision:** Exact head SHA of the specific PR.
+    *   **Action:** Verify the PR targets the *current* `main` (rebase if `main` moved since branch creation).
+    *   **Check:** Confirm no local modifications to the generated JSON lockfile exist prior to push.
+
+2.  **G5 Verification (CI Gate):**
+    *   **Trigger:** Automatic upon merge of the individual PR.
+    *   **Condition:** Full CI pipeline (45 mins) must return **GREEN**.
+    *   **Specific Check:** Validate that the automated documentation generator produced consistent checksums without conflict.
+    *   **Failure Mode:** If CI fails, **do not** retry immediately. Investigate lockfile divergence. If a conflict exists, rebase the *next* pending PR onto the new `main` before attempting its merge.
+
+3.  **G6 Review (Independent):**
+    *   **Reviewer:** Senior Operations Lead (distinct from the PR author if possible, though sequence coordination is the primary constraint).
+    *   **Scope:** Audit trail integrity (ensure commits are not squashed).
+
+**Landing Strategy**
+*   **Merge Method:** **No Squash.** Preserve individual commit history for audit compliance.
+*   **Integration:** Merge PR $N$ → Wait for Green CI → Update Local `main` → Rebase PR $N+1$ → Merge PR $N+1$.
+*   **Timing:** Execute strictly on non-Tuesday windows to avoid staging/data sync instability.
+
+**Human Decisions Required**
+1.  **Sequence Initiation:** Confirmation from Warehouse Integration Team that the sequence list (PR #1–#6) is finalized and ordered correctly.
+2.  **Deployment Approval:** Once all six PRs are live on `main`, a **Senior Operations Lead** must manually approve the snapshot job trigger.
+3.  **Emergency Stop:** If any CI run fails, the Conductor must halt the train. A human decision is required to proceed with a rebase/retry or initiate a rollback protocol.
+
+**Rollback & Recovery**
+*   **Pre-Merge Failure:** If a PR fails CI, rebase the pending branch onto the updated `main` and re-push.
+*   **Post-Merge Failure:** If a merged PR causes a production issue:
+    *   **Warning:** Reverting triggers a full database rollback, losing tracked shipment events.
+    *   **Action:** This is a **Human-Led Emergency**. Do not attempt an automated revert. The Operations Lead must authorize the database rollback, acknowledging data loss, or apply a forward-fix PR (Lane 7) if the issue is non-critical to data integrity.
+
+**Final Step: Snapshot Deployment**
+*   **Trigger:** Manual execution only after PR #6 CI is green.
+*   **Target:** Production environment (field tablets).
+*   **Verification:** Confirm routing maps are updated on a sample tablet before the morning shift.
+
+**Summary of Flow**
+Start → Verify Order → [Merge PR 1 → Wait 45m → Green?] × 6 → Human Approval → Trigger Snapshot → Verify Field Devices → End.

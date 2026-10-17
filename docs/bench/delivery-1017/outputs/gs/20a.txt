@@ -1,0 +1,31 @@
+### Delivery Plan: Irreversible Right-to-Erasure Endpoint
+
+**1. Work Lanes & Parallelization**
+*   **Lane A (Core Logic):** Implement the cascade delete service. This must strictly avoid the frozen `audit-logger` library, using direct SQL or an allowed internal primitive to write only the confirmation event to `deletion_log`.
+*   **Lane B (API & Auth):** Build the internal API endpoint and the integration with the governance portal for Compliance Officer approval. This includes input validation to ensure the trigger is strictly authorized.
+*   **Lane C (Safety & Testing):** Develop a "Dry Run" mode that simulates the cascade without committing, and write unit tests for the deletion logic using local fixtures.
+*   **Serialization Point:** Lane A and Lane B merge only after Lane C validates the "Dry Run" logic locally. No integration testing occurs until both lanes are complete and the dry-run safety is proven.
+
+**2. Gates & Checks**
+*   **Gate 1 (Local Verification):** Before any remote push, Lane C must verify the cascade logic against a local snapshot of the schema. This prevents wasting the $45/55min CI slot on logic errors.
+*   **Gate 2 (CI Pipeline):** Triggered only on the merged feature branch.
+    *   *Execution:* Run the full suite on isolated hardware.
+    *   *Flake Handling:* If the backup verification module fails, a human must manually inspect the logs to distinguish a flake from a real data integrity issue. Do not auto-retry without inspection.
+    *   *Success Criteria:* All tests pass except known flakies (manually cleared), and zero "deletion" events appear in logs (only audit confirmations).
+*   **Gate 3 (Security Review):** Independent review of the API auth flow by a Security Engineer not involved in Lane B.
+
+**3. Review Strategy**
+*   **Code Review:** Conducted by the Lead Architect (technical correctness) and a Senior Backend Engineer from a different squad (fresh eyes on data safety). They must verify that no PII is logged and the cascade is truly irreversible.
+*   **Compliance Review:** The Chief Compliance Officer reviews the *workflow* (approval trigger → deletion → audit log) to ensure it meets legal standards. They do not need to read code, but must sign off on the logic diagram.
+*   **Independence:** The Security Engineer and Compliance Officer must not be the same person who wrote the code.
+
+**4. Landing & Merge**
+*   **Pre-Landing:** Once CI passes and reviews are approved, the Lead Architect and Chief Compliance Officer must simultaneously sign off via the governance portal. This is a hard block; no merge occurs without dual signatures.
+*   **Merge Strategy:** Merge to main via a standard Pull Request. Do not squash; keep the "Dry Run" and "Implementation" commits separate for auditability.
+*   **Human Decision Point:** The actual execution of the endpoint against production data requires a manual trigger by the Compliance Officer. The code deployment does not delete data; it only enables the capability.
+*   **Rollback Plan:**
+    *   *Code Rollback:* Revert the merge commit immediately if a bug is found. This disables the endpoint.
+    *   *Data Recovery:* **Impossible.** Since the deletion is irreversible and backups are scrubbed by design, there is no technical rollback for data once the endpoint is *used*. The only mitigation is disabling the endpoint (code revert) to prevent further loss.
+    *   *Contingency:* If the `deletion_log` write fails mid-transaction, the database atomicity ensures no partial deletes occur. No manual cleanup script is needed for failures, only for successful but erroneous deletions (which requires restoring from pre-feature backups if available, though the spec implies backups are also scrubbed).
+
+**Critical Constraint:** Because writing to `deletion_log` is irreversible, the "Dry Run" mode in Lane C is the only safety net. It must be tested extensively locally before the first CI run.

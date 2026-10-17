@@ -1,0 +1,39 @@
+**Delivery Plan: Winter Frost Banner Copy Update**
+
+**Lanes & Serialization**
+*   **Lane 1 (Implementer):** Update hero banner text (discount %, end date) in the content source.
+    *   *Constraint:* Must tag commit `docs-only` to bypass senior approval.
+    *   *Parallelism:* This is the sole write lane. No other writers needed.
+*   **Lane 2 (QA/Visual):** Verify formatting on Staging.
+    *   *Dependency:* Waits for Lane 1's build completion.
+    *   *Constraint:* Account for the 4-hour data lag on Staging; verify visual layout only, ignoring dynamic date mismatches caused by the lag.
+*   **Lane 3 (Accessibility Override):** Manual override of the known flaky accessibility checker.
+    *   *Dependency:* Triggered only if Lane 2 confirms visual integrity and the automated checker flags the dynamic date string.
+    *   *Actor:* Shift Lead (Human).
+
+**Gates & Checks**
+*   **G4 (Implement):** Commit pushed to a feature branch.
+    *   *Check:* Local lint only. No unit tests required for copy.
+    *   *Revision:* Exact commit SHA of the copy change.
+*   **G5 (Verify):** Trigger static generation pipeline on Staging.
+    *   *Check:* Build success (22 min window). Visual inspection of the banner on the Staging URL by the Requester.
+    *   *Flake Handling:* If the accessibility checker fails due to the dynamic date string, do not retry automatically. Escalate immediately to Lane 3.
+    *   *Revision:* The exact SHA built by the pipeline.
+*   **G6 (Review):** Shift Lead verification.
+    *   *Scope:* Confirm the accessibility failure is the known date-string flake and approve the manual override.
+    *   *Independence:* Shift Lead must not be the Implementer.
+
+**Landing & Human Decisions**
+*   **Merge Strategy:** Merge to `main` via PR tagged `docs-only`.
+    *   *Human Gate:* Shift Lead must manually approve the PR to override the accessibility flake before merging. The "docs-only" tag handles the senior engineer bypass, but the flake requires human intervention.
+*   **Deployment:** Merge triggers the production pipeline automatically.
+    *   *Timing:* Must complete before 8:00 AM tomorrow. Given the 22-minute build time, the merge must occur no later than 7:30 AM to ensure visibility, accounting for propagation.
+*   **Rollback:**
+    *   *Risk:* Production deploys are irreversible without a full snapshot rollback, which resets analytics counters for the hour.
+    *   *Contingency:* If the copy is incorrect on Production, do not attempt a fix-forward. Execute a full snapshot rollback immediately to restore the previous banner, accepting the loss of one hour of analytics data as the cost of error.
+
+**Execution Notes**
+*   Do not run the full regression suite.
+*   Do not wait for the weekly deployment window; this change qualifies for the expedited path.
+*   Requester must confirm visual formatting on the Staging URL specifically noting the 4-hour data lag does not affect the static copy layout.
+*   Cost: $45 compute credits for the single staging/prod build cycle.

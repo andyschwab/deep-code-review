@@ -1,0 +1,25 @@
+### Delivery Plan: Pediatric Syrup Configuration Update
+
+**Lanes & Parallelism**
+*   **Lane A (Data Integrity):** One engineer extracts the `cherry_flavor` block and the `storage_instructions` section from the latest `main` revision. They prepare a single atomic edit updating the dose limit (15ml → 12ml) and appending the refrigeration clause. This lane is **serialized**; both changes must occur in one commit to prevent intermediate states where only one update exists.
+*   **Lane B (Compliance):** A second engineer works in parallel to update the `compliance_manifest`. They will append the soy lecithin allergen warning. This lane is independent of Lane A as it touches a separate file.
+*   **Lane C (Verification):** A third party (non-author) performs the "triple-check." They compare the proposed 12ml limit and the new warning text directly against the attached medical directive PDF. This happens *before* any code is committed.
+
+**Gates & Checks**
+*   **Gate 1 (Pre-Commit Rebase):** Before merging Lanes A and B, the branch must be rebased onto the absolute latest `main` head. Given the history of formulator conflicts, this is mandatory to ensure no overwrites occur.
+*   **Gate 2 (Local Syntax Validation):** Run the local linter (if available) to catch obvious JSON/YAML syntax errors before pushing. Do not rely solely on the remote pipeline.
+*   **Gate 3 (The 18-Minute Gate):** Push the combined commit to the staging branch to trigger the build pipeline. This validation runs for 18 minutes. **Stop point:** If this fails, do not attempt rapid-fire fixes. Analyze the log, fix locally, rebase again, and push a single corrected commit to avoid burning multiple compute credits.
+*   **Gate 4 (Dual Approval):** Upon pipeline success, the merge request requires explicit sign-off from two specific humans: the QA Lead and the Chief Medical Officer. No automated merging is permitted.
+
+**Review Strategy**
+*   **Independent Reviewer:** The engineer who prepared Lane A (dose/storage) cannot review Lane B (allergen), and vice versa. A senior formulator not involved in the editing must review the unified diff.
+*   **Focus Areas:** The reviewer must specifically verify that the `cherry_flavor` object contains *both* the new dose and the new storage text, ensuring the edit didn't silently drop the sibling field. They must also confirm the allergen code matches the government database format.
+
+**Landing & Rollback**
+*   **Merge Window:** Merging to `main` is prohibited until both human approvals are secured. Once merged, the deployment to the labeling printer interface is **immediate and irreversible**.
+*   **Human Decision Point:** The final "Go/No-Go" decision rests with the Chief Medical Officer after verifying the physical tag preview (if a staging preview exists) or the digital proof.
+*   **Rollback Protocol:** Because physical reprinting is triggered automatically and is irreversible, a standard git revert is insufficient for physical stock.
+    *   *Digital:* Revert the commit in git and push immediately to stop future digital distributions.
+    *   *Physical:* If tags have already printed, a manual "Hold Order" must be issued to the warehouse to quarantine affected stock before the corrected tags arrive. There is no technical "undo" for printed labels already applied to bottles.
+
+**Critical Constraint:** Do not split the dose and storage changes into separate commits. If the pipeline passes the first but fails the second, the repository will contain a half-updated specification, violating the audit requirement for atomic consistency.

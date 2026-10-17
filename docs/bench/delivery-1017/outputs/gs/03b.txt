@@ -1,0 +1,82 @@
+# Delivery Plan: Restrict Legacy Billing API Access
+
+## Lanes (Parallel vs. Serialized)
+
+**Lane A: Configuration & Auth Logic (Platform Reliability Team)**
+- Modify `global_access_matrix.json` to restrict 'LedgerSync' endpoint to 'Finance-Admins' group only.
+- Update authentication middleware to enforce strict 403 for all non-Finance-Admins (including senior engineering leads).
+- Add audit logging for all access attempts to this endpoint.
+- *Serialized dependency:* Must complete before Lane B testing.
+
+**Lane B: Batch Reconciliation Validation (Finance Operations)**
+- Verify nightly batch reconciliation process continues uninterrupted with new access rules.
+- Test using a dedicated service account with 'Finance-Admins' membership.
+- *Parallel:* Can prepare test harness while Lane A codes, but execution requires Lane A's changes deployed to staging.
+
+**Lane C: Documentation & Compliance (Security Team)**
+- Update security audit trail documentation.
+- Prepare compliance evidence for upcoming audit.
+- *Parallel:* Can run independently once Lane A's change spec is finalized.
+
+## Gates & Checks
+
+**Gate 1: Pre-Commit Review (Revision: feature/ledger-restrict-v1)**
+- Security Team Lead reviews auth logic changes for correctness.
+- Platform Reliability Lead verifies `global_access_matrix.json` syntax and cache implications.
+- *Check:* Static analysis confirms no other endpoints affected.
+
+**Gate 2: Staging Deployment (Revision: feature/ledger-restrict-v1, post-merge to staging branch)**
+- Deploy to staging environment.
+- Trigger 45-minute CI regression suite (cost: $120).
+- *Check:* Verify 403 responses for non-Finance-Admin test accounts; confirm 200 for Finance-Admins.
+- *Retry policy:* If flaky network check fails in stage three, retry once automatically; manual review on second failure.
+
+**Gate 3: Batch Reconciliation Test (Staging, same revision)**
+- Execute nightly batch reconciliation process in staging.
+- *Check:* Zero errors, complete data sync, audit logs populated.
+- *Timing:* Must complete at least 48 hours before fiscal close window.
+
+**Gate 4: Cache Purge Coordination (Production)**
+- Schedule 20-minute manual cache purge during low-traffic window.
+- *Check:* Confirm cache invalidation completed before user traffic resumes.
+- *Constraint:* Cannot occur during fiscal close window (next Tuesday).
+
+## Review Structure
+
+**Primary Reviewer:** Security Team Lead (independent of Platform Reliability team)
+- Focus: Access control correctness, audit logging completeness, 403 enforcement.
+
+**Secondary Reviewer:** Finance Operations Lead (independent of engineering teams)
+- Focus: Batch reconciliation continuity, no business process interruption.
+
+**Tertiary Reviewer:** Platform Reliability Lead (code owner, recused from primary approval)
+- Focus: Cache purge procedure, deployment safety, rollback readiness.
+
+*Independence rule:* No reviewer reports to another; CFO and Head of Security provide final production approval separately from technical reviews.
+
+## Landing Strategy
+
+**Merge Window:** Thursday or Friday (before fiscal close, after Gate 3 passes)
+- Merge to main branch only after all four gates clear.
+- Create immutable release tag: `v2.4.1-ledger-restrict`.
+
+**Production Deployment:**
+1. Deploy to production during scheduled maintenance window (Wednesday night preferred).
+2. Execute manual cache purge (20 minutes).
+3. Verify live endpoint returns 403 for non-Finance-Admins within 5 minutes of cache purge completion.
+
+**Human Decisions Required:**
+- CFO approval: Confirms no financial reporting impact.
+- Head of Security approval: Confirms compliance gap closed without new risks.
+- Both approvals required via governance portal before deployment proceeds.
+
+**Rollback Plan:**
+- *Trigger:* Any critical failure in Gates 2-4, or production incident within 24 hours of deployment.
+- *Action:* Revert merge, redeploy previous tag `v2.4.0`, execute cache purge again.
+- *Timeline:* Rollback completes within 90 minutes (45 min CI skip via hotfix lane, 20 min cache purge, 25 min deployment + verification).
+- *Constraint:* Cannot rollback during fiscal close window; if failure occurs Tuesday, implement emergency bypass (documented exception) until Wednesday.
+
+**Post-Landing:**
+- Monitor audit logs for 72 hours for unexpected 403 patterns.
+- Confirm nightly reconciliation success for three consecutive nights.
+- Update compliance documentation with deployment evidence.

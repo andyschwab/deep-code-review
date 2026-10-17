@@ -1,0 +1,60 @@
+**Delivery Plan: Sanitize PII in Logistics Test Fixtures**
+
+**Scope & Constraints**
+*   **Goal:** Mask driver license numbers and home addresses in log output for both historical backfills and streaming events.
+*   **Constraint:** Production schema is immutable. Static fixtures are read-only; changes must occur in the generation script.
+*   **Critical Path:** Legal hold blocks all other releases.
+*   **Cost Control:** CI runs cost $45/55m. Formatting errors must be eliminated locally to prevent wasted spend. Tuesday geo-validator flakes require manual retry logic.
+
+**Work Lanes**
+
+*   **Lane 1: Data Ingestion Logic (Builder)**
+    *   **Task:** Modify the transformation step to apply masking (regex or library) to license numbers and addresses before writing to disk. Ensure logic covers both batch (historical) and stream paths.
+    *   **Parallelism:** Can run parallel to Lane 2.
+    *   **Output:** Patch to ingestion modules; updated generation script (since static fixtures are read-only).
+
+*   **Lane 2: Verification & Evidence (QA)**
+    *   **Task:** Create a local test harness that ingests a sample of real (sanitized locally) beta data and asserts that *no* raw PII appears in the resulting logs.
+    *   **Serialization:** Must wait for Lane 1's initial patch to test against.
+    *   **Output:** Test receipts showing clean logs; proof that historical backfill logic triggers the mask.
+
+*   **Lane 3: Compliance & Audit Prep (Security/Privacy)**
+    *   **Task:** Review the masking algorithm against legal requirements (irreversibility). Draft the audit evidence packet for the Data Privacy Officer.
+    *   **Parallelism:** Independent review of Lane 1's code; can run parallel to Lane 2's execution.
+
+**Gates & Checks**
+
+*   **G2 Plan (Now):** Define exact regex patterns for licenses/addresses. Confirm generation script location.
+*   **G4 Implement:**
+    *   **Check:** Local lint and type-check must pass *before* any CI trigger to avoid the $45 formatting tax.
+    *   **Base:** Pin to current `main` SHA.
+*   **G5 Verify (Exact Revision):**
+    *   **Environment:** Staging cluster.
+    *   **Action:** Run full integration suite.
+    *   **Flake Handling:** If run occurs on Tuesday and `geo-validator` fails, inspect logs. If error is rate-limit related, trigger manual retry once. Do not merge on a flaky red.
+    *   **Evidence:** Screenshots/logs of the transformation step showing `***-**-****` or similar masks instead of raw data.
+*   **G6 Review (Independent):**
+    *   **Reviewer A (Lead Architect):** Code quality, performance impact on streaming latency.
+    *   **Reviewer B (Data Privacy Officer):** Verification that masking meets legal standards. *Must see G5 evidence, not just code.*
+
+**Landing Strategy**
+
+*   **Merge Train:**
+    1.  Lane 1 commits to feature branch.
+    2.  Lane 2 verifies on exact commit SHA.
+    3.  Lane 3 approves compliance.
+    4.  **Human Gate:** Request approval from Lead Architect AND Data Privacy Officer simultaneously. Provide the "Issue/A/B" summary:
+        *   *Issue:* PII leakage in staging logs.
+        *   *A:* Merge masked ingestion logic (Recommended) – Unblocks legal hold, compliant with immutable schema.
+        *   *B:* Revert recent pipeline changes – Delays feature set indefinitely, high regression risk.
+*   **Deployment:**
+    *   Merge to `main` triggers the pipeline.
+    *   **Rollback:** Since schema is immutable, rollback involves reverting the code commit only. No DB migration needed.
+    *   **Post-Merge:** Verify first scheduled hourly sync of fixture generation script produces clean files in the read-only bucket.
+
+**Risks & Mitigation**
+*   **Risk:** CI failure due to formatting. **Mitigation:** Strict local pre-commit hooks enforced by Builder.
+*   **Risk:** Tuesday flake delays legal unblock. **Mitigation:** Schedule final verification run for Wednesday morning if possible; otherwise, stand by for manual retry.
+*   **Risk:** Incomplete coverage (stream vs. batch). **Mitigation:** QA Lane must explicitly test both code paths with identical input data.
+
+**Next Step:** Awaiting confirmation to proceed with G2 Plan definition.

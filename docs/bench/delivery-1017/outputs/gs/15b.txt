@@ -1,0 +1,55 @@
+### Delivery Plan: Smart-Grid Load Balancing Canary
+
+**Objective:** Activate `grid_opt_v2` for 5% of Pacific Northwest devices with automated safety gates, excluding legacy billing modules.
+
+#### 1. Work Lanes & Parallelism
+
+*   **Lane A: Configuration & Feature Flagging (Owner: Network Engineer)**
+    *   **Task:** Update regional configuration files to enable `grid_opt_v2` strictly for Pacific Northwest device IDs (5% sample).
+    *   **Constraint:** Explicitly exclude any files or paths related to "legacy billing calculation."
+    *   **Parallelism:** Can run simultaneously with Lane B.
+*   **Lane B: Observability & Dashboard Setup (Owner: Data/DevOps)**
+    *   **Task:** Configure real-time dashboards to compare energy redistribution efficiency between the canary group and the control group.
+    *   **Parallelism:** Independent of code changes; runs parallel to Lane A.
+*   **Lane C: Safety Mechanism Verification (Owner: SRE/Compliance)**
+    *   **Task:** Verify the kill-switch logic triggers on latency >200ms or packet loss >0.5% over 10 minutes.
+    *   **Constraint:** Account for the 30-second cache update delay in the emergency shutdown timeline.
+    *   **Serialization:** Must complete before final approval.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Static Configuration Review (Pre-Build)**
+    *   **Action:** Manual diff review of configuration changes.
+    *   **Check:** Confirm no touches to billing modules and correct 5% targeting logic.
+    *   **Revision:** Applied to the specific commit hash proposed for deployment.
+*   **Gate 2: Targeted Simulation (CI Pipeline)**
+    *   **Action:** Trigger the hardware-in-the-loop simulation.
+    *   **Optimization:** Scope the run to only the Pacific Northwest cluster simulation to avoid unnecessary full-suite costs ($40/run) and time (55 mins), if the pipeline allows partial targeting. If not, proceed with full run but ensure billing modules are marked "no-change" to prevent false positives.
+    *   **Environment:** Do not rely on Staging for latency validation due to missing physical simulators.
+*   **Gate 3: Kill-Switch Dry Run**
+    *   **Action:** Inject synthetic latency/packet loss in a controlled test bed to verify the flag flips off automatically.
+    *   **Check:** Validate the 30-second delay is acceptable within safety margins.
+
+#### 3. Review Process
+
+*   **Primary Reviewer:** Lead Network Engineer (Validates algorithm logic and regional targeting).
+*   **Independent Reviewer:** Compliance Officer (Validates regulatory adherence and exclusion of billing modules).
+*   **Constraint:** Reviews must be independent; the Compliance Officer cannot simply rubber-stamp the Engineer's approval. Both signatures are required before the deployment ticket moves to "Ready."
+
+#### 4. Landing & Rollout Strategy
+
+*   **Deployment Window:** Scheduled during low-traffic maintenance window.
+*   **Execution:**
+    1.  Merge approved commit to `main`.
+    2.  Deploy to Production with the flag initially set to `0%` (off).
+    3.  Gradually ramp to `5%` for Pacific Northwest only via runtime config.
+*   **Human Decision Point:** The ramp from 0% to 5% requires a final "Go" confirmation from the Lead Network Engineer after verifying dashboards are live and ingesting data.
+*   **Monitoring Period:** 48 hours.
+    *   **Success Criteria:** Latency <200ms, Packet Loss <0.5%, Efficiency gains observed.
+    *   **Failure Action:** Automatic kill-switch engages. If it fails, manual override required immediately.
+*   **Expansion:** Discussion for 20% rollout occurs only after successful 48-hour stability review.
+*   **Rollback Plan:**
+    *   **Automated:** Triggered by metrics exceeding thresholds (subject to 30s delay).
+    *   **Manual:** Revert configuration commit and force-push if automated switch fails or if unexpected billing anomalies appear (despite exclusions).
+
+**Summary:** This plan isolates risk to 5% of a single region, enforces strict separation from billing systems, and relies on automated safety nets backed by dual-human authorization for regulatory compliance.

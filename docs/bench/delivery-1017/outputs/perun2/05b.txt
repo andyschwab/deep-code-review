@@ -1,0 +1,56 @@
+### Delivery Plan: Inventory Schema Update
+
+**Objective:** Add `warehouse_zone` (required string) to inventory API payload, synchronized with ShopFast and MegaMart parser updates.
+**Constraints:** Strict protobuf coupling, $45/CI cost, unstable staging (Tuesdays), irreversible DB migration, dual-approval deploy.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Coordination) [Conductor + Product Analyst]:**
+    *   Contact Jane Smith to lock the exact cutover window (must be post-parser-deploy, pre-weekend shipping).
+    *   Draft synchronization agreement with ShopFast/MegaMart leads confirming parser readiness timestamps.
+    *   *Output:* Signed cutover schedule and communication plan.
+*   **Lane B (Schema & Contract) [Builder]:**
+    *   Update `.proto` definition to include `warehouse_zone` as required.
+    *   Generate updated stubs for provider and document breaking changes for consumers.
+    *   *Dependency:* None. Must complete before Lane C.
+*   **Lane C (Implementation) [Builder]:**
+    *   Modify provider service to populate `warehouse_zone` in the response object.
+    *   Update database migration script to add non-nullable column with default backfill strategy (to prevent immediate crash on revert attempt, though full revert requires 4h migration).
+    *   *Dependency:* Lane B (generated stubs).
+*   **Lane D (Consumer Verification Prep) [QA]:**
+    *   Prepare test harness using the *new* proto definition to simulate partner parsers.
+    *   *Dependency:* Lane B.
+
+**Serialization:** Lane B must finish before C and D start. A runs in parallel with B. C and D run in parallel.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Conductor validates cutover time with Jane Smith and partner confirmations. No code starts without this.
+*   **G3 (Design/Contract):** Review updated `.proto` file. Verify `warehouse_zone` is marked `required` and backward compatibility implications are documented.
+*   **G4 (Implement):** Code freeze on provider repo. Migration script reviewed for data safety.
+*   **G5 (Verify):**
+    *   **Timing:** Run strictly on **Wednesday morning** (avoid Tuesday instability).
+    *   **Scope:** Run CI pipeline **once** on the exact final SHA. Include unit tests, integration tests against the new schema, and the simulated partner parser harness (Lane D).
+    *   **Cost Control:** No re-runs unless the SHA changes. If CI fails, fix locally and push one new SHA.
+*   **G6 (Review):**
+    *   **Security Officer:** Review migration script (irreversibility risk) and data exposure of `warehouse_zone`.
+    *   **Logistics Lead:** Review functional logic and cutover plan.
+    *   **Independent QA:** Verify G5 receipts (green CI on exact SHA, simulator pass).
+*   **G7 (Integrate):** Merge to release branch only after G6 sign-off.
+
+#### 3. Review Strategy
+*   **Builder** implements logic but **cannot** approve the migration or the contract change.
+*   **Security Officer** and **Logistics Lead** provide independent approval (G6). Their approval is the human gate; they must verify the exact SHA and the cutover plan.
+*   **QA** provides the functional receipt; they do not approve the business timing.
+
+#### 4. Landing & Rollback
+*   **Human Decision:** Merge is blocked until Jane Smith confirms the cutover window and both partners acknowledge readiness.
+*   **Merge Plan:**
+    1.  Partners deploy parser updates.
+    2.  Confirm partner deployment success.
+    3.  Logistics Lead + Security Officer approve production deploy ticket.
+    4.  Deploy provider service during the agreed window.
+*   **Rollback:**
+    *   **Code Revert:** Impossible to simply revert code due to non-nullable DB column.
+    *   **Contingency:** If the provider fails post-deploy, the system cannot auto-revert. The fallback is a manual 4-hour data migration to restore the previous schema state.
+    *   **Mitigation:** The deployment must be canaried (if infrastructure allows) or executed as a "big bang" strictly within the maintenance window where shipping is paused, ensuring the 4-hour recovery fits before the shipping deadline.
+
+**Risk:** If partners are not ready, do not merge. Early merge causes partner crashes; late merge misses shipping. Precision on the cutover time is the critical path.

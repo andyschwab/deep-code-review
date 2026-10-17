@@ -1,0 +1,65 @@
+**Delivery Plan: Emergency Fare Calculation Hotfix**
+
+**Context & Constraints**
+This is a critical revenue leak (40% undercharge) requiring deployment within one hour. The target is a legacy monolith affecting bus, train, and ferry modules. Database schema changes are irreversible without a 45-minute restore. CI costs limit full regression; we rely on a flaky smoke test. Dual approval is required (Lead Engineer + Ops Director), with Ops Director sign-off allowed retroactively within 4 hours for incidents.
+
+**Lanes & Serialization**
+Due to the shared monolith and irreversible DB risk, lanes are strictly serialized. No parallel writes.
+
+1.  **Lane 1: Isolation & Baseline (Conductor)**
+    *   **Action:** Create a dedicated worktree from `main`. Verify the `emergency` branch exists and contains only the multiplier cap logic.
+    *   **Dependency:** None.
+    *   **Output:** Confirmed diff scope; no unrelated changes.
+
+2.  **Lane 2: Local Verification & Smoke Test (Builder + QA)**
+    *   **Action:** Apply the hotfix in the isolated worktree. Run the local "sanity check suite" manually as requested.
+    *   **Constraint:** The smoke test is known flaky for tax edge cases. Since this fix targets *surge multipliers* (not tax), we proceed but flag the risk.
+    *   **Verification:** Must confirm the running local instance correctly calculates a peak-hour inter-city bus fare (manual calculation vs. system output).
+    *   **Dependency:** Lane 1 complete.
+
+3.  **Lane 3: Integration & Approval Gate (Release + Human)**
+    *   **Action:** Push to a temporary integration branch (not `main` yet). Trigger the minimal CI smoke test.
+    *   **Human Gate:** Request immediate approval from the **Lead Engineer**. Note the **Ops Director** approval as "Pending (Retroactive per Incident Policy)."
+    *   **Dependency:** Lane 2 green; Lead Engineer approval received.
+
+4.  **Lane 4: Deploy & Monitor (Release + Ops)**
+    *   **Action:** Merge to `main` (triggering deploy) or execute manual deploy script if decoupled.
+    *   **Verification:** Monitor dashboard metrics for fare stabilization. Confirm no train/ferry regression reports within 15 minutes post-deploy.
+    *   **Dependency:** Lane 3 complete.
+
+**Gates & Checks**
+
+*   **G0/G1 (Intake/Spec):** Confirmed via ticket: Fix surge multiplier cap on inter-city bus routes. Non-goal: Tax logic refactoring.
+*   **G4 (Implement):** Code frozen on the `emergency` branch. No new commits allowed.
+*   **G5 (Verify):**
+    *   **Check 1:** Manual sanity suite run locally (Exit 0 required).
+    *   **Check 2:** Targeted manual test: Calculate one specific peak-hour route. Expected: Correct surge price. Actual must match.
+    *   **Condition:** If smoke test fails, inspect logs. If failure is tax-related (known flake) and unrelated to surge logic, proceed with documented waiver. If failure is surge-related, abort.
+*   **G6 (Review):**
+    *   **Reviewer:** Lead Engineer (Independent of Builder).
+    *   **Scope:** Diff only. Verify no side effects on train/ferry modules.
+    *   **Severity:** Any blocker stops the line.
+*   **G7 (Integrate):** Merge to `main` only after Lead Engineer approval.
+*   **G8 (Release):** Deploy triggered by merge. Ops Director notification sent immediately for retroactive sign-off.
+*   **G9 (Production Verify):** Dashboard metrics must stabilize within 15 minutes. Finance team confirmation requested.
+
+**Review Strategy**
+*   **Builder:** Implements/runs local tests.
+*   **Reviewer:** Lead Engineer only. Reviews the exact SHA pushed to the integration branch.
+*   **Independence:** Builder does not approve. QA function is performed by the Conductor/Builder pair via manual calculation verification, validated by the Lead Engineer's review of the diff and test logs.
+
+**Landing & Rollback**
+*   **Merge:** Fast-forward merge to `main` upon Lead Engineer approval.
+*   **Human Decision:** Lead Engineer must explicitly approve the merge. Ops Director approval is recorded as "incident-pending."
+*   **Rollback Plan:**
+    *   **Trigger:** Dashboard metrics do not stabilize within 15 minutes, or train/ferry errors reported.
+    *   **Action:** Revert the merge immediately.
+    *   **Data Risk:** If the deploy included irreversible DB schema changes, a code revert is insufficient. A full database restore from backup (45 minutes downtime) is required.
+    *   **Decision Authority:** Lead Engineer or Ops Director (via phone) must authorize the DB restore.
+
+**Risk Acknowledgement**
+*   **Flaky Test:** Proceeding despite known tax-calculation flakiness; mitigated by scope isolation (surge vs. tax).
+*   **Monolith Impact:** Train/Ferry modules at risk; monitored closely post-deploy.
+*   **Irreversible DB:** Rollback entails significant downtime; verification before merge is critical.
+
+**Status:** Ready to execute Lane 1 upon confirmation.

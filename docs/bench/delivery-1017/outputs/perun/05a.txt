@@ -1,0 +1,52 @@
+### Delivery Plan: Loan Status Payload Update
+
+**Objective:** Add optional `graceEndUtc` field to Core Lending status endpoint without breaking downstream consumers (Customer Portal, Collections Dashboard).
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Coordination) [Conductor + Product Analyst]:**
+    *   Draft API contract update for `financial-specs` library.
+    *   **Serialized Block:** Contact leads for Customer Portal and Collections Dashboard. Confirm readiness to ingest optional field. Obtain explicit "Ready" confirmation before proceeding to implementation.
+*   **Lane B (Implementation) [Builder]:**
+    *   Update Core Lending response schema to include `graceEndUtc` (optional).
+    *   Update `financial-specs` library PR (separate repo).
+    *   **Constraint:** Must wait for Lane A's "Ready" confirmation.
+*   **Lane C (Verification) [QA]:**
+    *   Execute data-replay simulation (45 min) only on final candidate SHA.
+    *   Validate JSON structure includes new field.
+    *   **Note:** Ignore known flaky currency formatting check; verify failure is unrelated to payload change.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Brief must include written confirmation from both downstream leads. Scope pinned to specific base SHA.
+*   **G2 (Plan):** Work graph must show Lane B blocked on Lane A. Budget set for one data-replay run (cost control).
+*   **G3 (Design):** ADR confirming field is optional (`nullable` or `omitempty`) to prevent breaking changes.
+*   **G4 (Implement):** Code committed to isolated worktree. `financial-specs` PR opened.
+*   **G5 (Verify):**
+    *   **Exact Revision:** Final merged SHA of Core Lending + `financial-specs` version bump.
+    *   **Check:** Run data-replay simulation. Pass criteria: Simulation completes, JSON contains `graceEndUtc`, no schema validation errors.
+    *   **Flake Handling:** If currency check fails, verify logs show unrelated formatting error; do not block on this specific flake.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer independent of Builder.
+    *   **Focus:** Backward compatibility, optional field enforcement, downstream coordination evidence.
+    *   **Security:** Verify no PII exposure in new timestamp logic.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge `financial-specs` PR first (consumer dependency).
+    2.  Merge Core Lending PR only after specs are live/merged.
+*   **Human Gate (Compliance Officer):**
+    *   Manual approval required for SecureZone deployment.
+    *   **Decision Packet:** Provide diff, downstream confirmations, and green simulation receipt.
+*   **Deployment Window:**
+    *   **Hard Constraint:** Must complete deployment and verification **before 01:00 UTC** to avoid irreversible state during the 02:00 UTC ledger batch.
+    *   If not green by 01:00 UTC, abort deployment to next window.
+
+#### 4. Rollback & Failure Mode
+*   **Rollback Strategy:**
+    *   **Pre-02:00 UTC:** Standard redeploy of previous stable SHA.
+    *   **Post-02:00 UTC:** Rollback is **impossible** due to ledger batch. If issues arise after this time, immediate hotfix required; no revert allowed.
+*   **Failure Response:**
+    *   If simulation fails or downstream leads do not confirm: Stop immediately. Do not merge.
+    *   If deployment fails mid-window: Engage incident response; do not attempt re-deploy if past 01:30 UTC.
+
+**Summary of Critical Path:**
+Coordinate Leads (Lane A) → Update Specs → Implement Core (Lane B) → Data Replay (Lane C) → Compliance Approval → Deploy (<01:00 UTC).

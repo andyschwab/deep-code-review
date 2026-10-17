@@ -1,0 +1,75 @@
+# Delivery Plan: Ledger Schema Migration
+
+## Lanes & Parallelism
+
+**Lane A: Database Migration (Platform Team)**
+*   **Work:** Create `entries` and `metadata` tables; deploy dual-write triggers to `transaction_log`.
+*   **Constraint:** Must complete before Lane B begins data backfill.
+*   **Parallel:** Can run alongside Lane C (Code Update) preparation.
+
+**Lane B: Data Backfill (Automation)**
+*   **Work:** Execute batched historical data migration from `transaction_log` to new tables.
+*   **Constraint:** Runs only during off-market hours. Batch size tuned to keep replication lag <2s (monitoring required due to known 4s spike risk).
+*   **Serialization:** Must finish and verify checksum before Lane D (Switchover).
+
+**Lane C: Application Logic (Engineering)**
+*   **Work:** Update services to read/write from new schema while maintaining legacy fallback.
+*   **Constraint:** Cannot use updated `shared-ledger-utils` (frozen). Must implement logic within application layer.
+*   **Parallel:** Develop concurrently with Lane A.
+
+**Lane D: Validation & Switchover (Joint)**
+*   **Work:** Flip read-path to new schema; disable dual-write; decommission legacy path.
+*   **Constraint:** Requires successful completion of Lanes A, B, and C.
+
+## Gates & Checks
+
+**Gate 1: Schema Readiness (Pre-Deployment)**
+*   **Revision:** `feat/ledger-schema-prep`
+*   **Check:** Dry-run migration on staging replica. Verify `audit-trail` immutability holds (no writes attempted).
+*   **Approver:** Chief Architect.
+
+**Gate 2: Backfill Integrity (Off-Hours)**
+*   **Revision:** `feat/ledger-backfill-script`
+*   **Check:** Row counts and checksum match between `transaction_log` and (`entries` + `metadata`). Verify replication lag remains stable.
+*   **Location:** Staging environment mimicking production load.
+
+**Gate 3: Dual-Write Verification (Pre-Switch)**
+*   **Revision:** `feat/ledger-dual-write-app`
+*   **Check:** Confirm new writes appear in both legacy and new tables. Ensure no "suspect" flags triggered in `audit-trail`.
+*   **Approver:** Compliance Officer.
+
+**Gate 4: Final Switchover (Market Close)**
+*   **Revision:** `release/ledger-migration-v1` (Combined commit of A, B, C)
+*   **Check:** Automated smoke tests on read-path; manual verification of top 10 critical accounts.
+*   **Approver:** Chief Architect AND Compliance Officer (Synchronous via portal).
+
+## Review Strategy
+
+*   **Code Review:** Independent senior engineer (not on Platform Team) reviews Lane C logic. Focus: Fallback mechanism correctness.
+*   **Schema Review:** Database Administrator (separate from implementer) reviews Lane A DDL and triggers. Focus: Locking behavior and index impact.
+*   **Compliance Review:** Compliance Officer audits the rollback procedure and "suspect" flag avoidance logic.
+*   **Isolation:** Reviewers must not be the authors of the specific lane they are checking. No self-merges.
+
+## Landing & Rollback
+
+**Landing Procedure:**
+1.  Deploy Lane A (Schema) – *Zero downtime, dual-write active.*
+2.  Execute Lane B (Backfill) during maintenance window.
+3.  Deploy Lane C (App) – *Reads still legacy, writes dual.*
+4.  Flip feature flag to read from new schema (Lane D).
+5.  Monitor for 1 hour. If stable, disable dual-write triggers.
+
+**Human Decisions Required:**
+*   **Go/No-Go for Backfill:** Based on replication lag metrics.
+*   **Switchover Authorization:** Requires simultaneous portal approval from Chief Architect and Compliance Officer.
+*   **Rollback Trigger:** Any data mismatch or "suspect" flag detection.
+
+**Rollback Plan:**
+1.  **Instant Revert:** Flip feature flag to read from `transaction_log` only.
+2.  **Data Safety:** Since dual-write was active, new data exists in both schemas. No data loss occurs.
+3.  **Cleanup:** Disable new table writes. Investigate failure in staging.
+4.  **Constraint:** Do not attempt to delete/migrate data during rollback to avoid `audit-trail` contamination.
+
+**Post-Landing:**
+*   Keep dual-write triggers disabled but present for 48 hours.
+*   Schedule `transaction_log` archival only after Q3 (when `shared-ledger-utils` unfreezes).

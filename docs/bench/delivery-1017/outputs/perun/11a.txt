@@ -1,0 +1,52 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Tier Access
+
+**Objective:** Grant `auditor-svc` read-only access to `legal-archive-09` without altering encryption/lifecycle rules, ensuring additive-only changes and a verified 5-minute rollback.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Implementation):** *Writer: Platform Engineer.*
+    *   **Task:** Edit infrastructure definition in `core-net-storage` to add `s3:GetObject` for `auditor-svc` to `legal-archive-09`.
+    *   **Constraint:** Change must be strictly additive. No deletion of existing policy blocks.
+    *   **Environment:** Isolated worktree.
+*   **Lane B (Staging Verification):** *Writer: QA Engineer (Independent).*
+    *   **Task:** Deploy Lane A's exact revision to staging. Verify `auditor-svc` can retrieve files >7 years old. Confirm no write access is granted.
+    *   **Trigger:** Runs only after Lane A commits and CI passes.
+*   **Lane C (Rollback Drill):** *Writer: Security Lead.*
+    *   **Task:** Execute rollback plan on staging using Lane A's revision. Measure time-to-revert (must be <5 mins). Verify legacy backup system remains accessible.
+    *   **Trigger:** Runs parallel to Lane B once staging deployment is stable.
+
+*Serialization:* Lane A must complete before B and C start. B and C run in parallel.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Define exact IAM policy snippet. Pin base SHA of `core-net-storage`.
+*   **G4 Implement:** Lane A commits.
+    *   **CI Gate:** Topology simulation (22 mins, 400 credits).
+        *   *Flake Handling:* If `network-latency-validator` fails, one manual retry permitted. Any other failure blocks merge.
+    *   **Static Analysis:** Verify no changes to encryption/lifecycle blocks. Verify no `Deny` or `Delete` actions on legacy resources.
+*   **G5 Verify (Staging):**
+    *   **Functional:** `auditor-svc` retrieves 7+ year old file (Pass/Fail).
+    *   **Security:** Attempt write operation with `auditor-svc` (Must Fail).
+    *   **Rollback:** Execute revert script; confirm legacy backup access restored within 5 minutes.
+*   **G6 Review:**
+    *   **Reviewers:** Two Senior Engineers + One Security Lead (mandatory).
+    *   **Scope:** Diff against pinned base SHA. Evidence from G5 (logs, timing proof).
+
+#### 3. Review Strategy
+*   **Independence:** Reviewers must not be the author of Lane A. Security Lead validates the rollback drill results personally, not just the script.
+*   **Artifact:** Review comment must explicitly cite the G5 rollback timing evidence.
+
+#### 4. Landing & Human Gates
+*   **Merge Train:**
+    *   Requires 3 approvals (2 Senior, 1 Security).
+    *   Merge target: Integration branch (not direct to main).
+    *   Post-merge CI: Re-run topology simulation on merged SHA.
+*   **Production Deployment:**
+    *   **Window:** Tuesday 02:00–04:00 UTC only.
+    *   **Human Gate:** Owner/SRE must manually trigger deployment after verifying Tuesday window and G5/G6 sign-off.
+    *   **Rollback Plan:** If public exposure or write access detected in production, execute verified revert script immediately.
+*   **Failure Mode:** If topology simulation fails post-merge, auto-revert integration branch. Do not attempt to fix forward outside the change window.
+
+**Risk Mitigation:**
+*   **Irreversible Lockout:** Strict prohibition on deleting policy resources. Code review must highlight any `-` lines in policy diffs.
+*   **Cost/Time:** Topology simulation queued carefully to avoid blocking others if flaky retry is needed.
+
+**Final State:** `auditor-svc` has read-only access; legacy systems intact; rollback proven <5 mins.

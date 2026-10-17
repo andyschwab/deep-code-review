@@ -1,0 +1,78 @@
+**Delivery Plan: Patient Intake Flow Update**
+
+**Objective:** Redesign the insurance verification step for clarity (elderly demographic), ensure data integrity, and apply branding updates. Target: Live before regulatory audit.
+
+**Constraints & Risks:**
+- **Deployment Window:** Tuesdays 02:00–04:00 UTC only.
+- **Approvals:** Dual approval required (Lead Architect + Compliance Officer) for production push.
+- **Immutable Config:** Patient encryption config must not be touched; modifications trigger lockout.
+- **Flaky Check:** Insurance validation module has an intermittent false-negative check; requires manual verification if failed.
+- **Rollback Cost:** 45-minute manual database restore.
+- **Cost:** CI credits are expensive; minimize speculative runs.
+
+---
+
+### **Lanes & Parallelism**
+
+**Lane 1: UX & Specification (Serial Start)**
+- **Owner:** Product Analyst + UX Designer.
+- **Work:** Analyze clinic manager reports; draft new flow wireframes focusing on simplicity for elderly users. Define "Done" as reduced drop-off rates and 100% data field capture.
+- **Output:** Testable spec with acceptance criteria, pinned to current `main` SHA.
+- **Dependency:** None. Must complete before Lane 2.
+
+**Lane 2: Implementation (Parallel with Lane 3 after Spec)**
+- **Owner:** Builder.
+- **Work:** Implement new UI components and logic in a dedicated worktree. Apply branding tokens. Ensure no changes to immutable encryption config.
+- **Tests:** Write unit tests for data capture logic.
+- **Output:** Patch set, local build green, unit tests passing.
+
+**Lane 3: Independent QA & Accessibility (Parallel with Lane 2)**
+- **Owner:** QA Specialist (Independent of Builder).
+- **Work:** Review spec against accessibility standards (WCAG) for elderly users. Prepare test scripts for the insurance step.
+- **Execution:** Run functional tests on the exact revision provided by Lane 2.
+- **Flake Handling:** If the known flaky insurance check fails, manually verify the transaction log to confirm data integrity before marking red.
+- **Output:** Verification receipt (PASS/FAIL) with evidence screenshots/logs.
+
+**Lane 4: Security & Compliance Review (Serial after Lane 2 & 3)**
+- **Owner:** Security Engineer + Compliance Officer (Designate).
+- **Work:** Verify no PII exposure, confirm encryption config untouched, and validate audit trail completeness.
+- **Output:** Security sign-off and compliance verification receipt.
+
+---
+
+### **Gates & Checks**
+
+- **G0/G1 (Intake/Spec):** Completed by Lane 1. Owner approves spec before coding starts.
+- **G2 (Plan):** Conductor verifies acyclic graph; confirms CI budget cap per lane.
+- **G3 (Design):** UX lead approves wireframes; Architect approves technical approach (no config mutations).
+- **G4 (Implement):** Builder submits PR. CI runs lint/type/unit on exact SHA.
+- **G5 (Verify):** QA runs integration tests on the exact SHA. **Critical:** Visual confirmation of the flow on a headed browser; manual override logic documented for the flaky check.
+- **G6 (Review):**
+    - **Code Review:** Senior Engineer (not the Builder).
+    - **Security/Compliance:** Lane 4 output.
+    - **Decision:** Blocker/Critical issues must be fixed; High issues need explicit owner waiver.
+- **G7 (Integrate):** Merge to release branch. Run final smoke test on the integrated SHA.
+
+---
+
+### **Landing & Rollback**
+
+**Merge Strategy:**
+- Merge to `release` branch only.
+- **Human Decision Required:** Dual approval (Lead Architect + Compliance Officer) explicitly requested via ticket comment with G6/G7 evidence attached. No auto-merge.
+
+**Deployment:**
+- Scheduled for the next available Tuesday 02:00–04:00 UTC window.
+- Deployment script executed by Release Engineer; agent monitors logs.
+
+**Rollback Plan:**
+- **Trigger:** Any critical error in production logs or front-desk report within 24 hours.
+- **Action:** Manual database restore from nightly snapshot (45 mins).
+- **Pre-requisite:** Snapshot integrity verified pre-deploy.
+
+**Post-Deploy:**
+- **G9 (Production Verify):** Monitor intake completion rates for 48 hours.
+- **Handoff:** Notify requester with "Live" status and training readiness confirmation.
+
+**Total Estimated Duration:** 3–4 days (excluding deployment wait).
+**Immediate Next Step:** Owner approval of UX spec (Lane 1 output).

@@ -1,0 +1,35 @@
+### Delivery Plan: Emergency Fare Calculation Patch
+
+**Objective:** Deploy the multiplier cap hotfix to stop the 40% revenue leak within one hour while mitigating risks to the shared monolith and irreversible schema changes.
+
+#### 1. Lanes (Work Distribution)
+*   **Lane A (Verification & Build):** The on-call engineer pulls the `emergency` branch. They manually trigger the "sanity check suite" (smoke tests) immediately. Due to the flaky nature of daytime tests, they must specifically inspect the tax calculation logs for false negatives, not just rely on exit codes.
+*   **Lane B (Approval Coordination):** The requester contacts the Lead Engineer for immediate review and simultaneous notification of the Operations Director. Since this is a declared incident, the Director's approval is noted as "pending retroactive sign-off" rather than a pre-deployment blocker, provided the Lead Engineer approves.
+*   **Lane C (Deployment Prep):** The Operations team prepares the deployment script for the legacy monolith, ensuring rollback scripts are loaded and the 45-minute backup restore procedure is on standby. This lane runs parallel to Lane A but cannot execute until Lane B secures the Lead Engineer's go-ahead.
+
+#### 2. Gates and Checks
+*   **Gate 1 (Code Freeze):** Verify the `emergency` branch contains *only* the multiplier cap logic. No unrelated refactoring or schema changes are permitted given the irreversible nature of DB alterations.
+*   **Gate 2 (Test Execution):** The sanity check suite must run against the exact commit hash of the `emergency` branch.
+    *   *Check:* If tests pass but tax logs show anomalies, halt immediately.
+    *   *Check:* If tests fail, do not proceed. The "flaky" excuse does not apply to explicit failures.
+*   **Gate 3 (Dual Approval):**
+    *   **Primary:** Lead Engineer must explicitly approve the specific commit hash after reviewing the diff.
+    *   **Secondary:** Operations Director is notified; their absence does not block deployment but starts the 4-hour retroactive timer.
+*   **Gate 4 (Pre-Deploy Snapshot):** Before applying changes, take a fresh database backup. Given the 45-minute restore time, this is the critical safety net.
+
+#### 3. Review Strategy
+*   **Reviewer:** Lead Engineer (independent of the author of the hotfix).
+*   **Scope:** Strictly limited to the surge multiplier logic and the cap implementation.
+*   **Constraint:** The reviewer must verify that no hidden schema migrations are bundled in the commit, as these cannot be rolled back quickly.
+*   **Timing:** Review occurs concurrently with Lane A's test execution to save time but must conclude before Gate 3 is cleared.
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:** Do not merge `emergency` into `main` yet. Deploy directly from the verified `emergency` branch commit to production to bypass the standard two-day staging window.
+*   **Deployment Window:** Execution begins immediately after Gate 3 clears.
+*   **Verification:** Upon deployment, monitor the dashboard metrics for fare stabilization. Confirm with the finance team that undercharging has ceased.
+*   **Rollback Plan:** If the dashboard indicates instability or the monolith affects train/ferry modules negatively:
+    1.  Trigger the immediate rollback script.
+    2.  If the script fails or data corruption is detected, initiate the full database restore from the pre-deploy backup (estimated downtime: 45 minutes).
+*   **Post-Landing:** Once stable, create a Pull Request from `emergency` to `main` for retroactive documentation and standard CI validation. Secure the Operations Director's formal sign-off within the 4-hour window to close the incident compliance loop.
+
+**Critical Constraint:** Speed is prioritized, but the final verification step (dashboard stabilization) is mandatory before declaring the incident resolved. Do not skip the backup.

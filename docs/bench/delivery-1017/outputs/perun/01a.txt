@@ -1,0 +1,64 @@
+### Delivery Plan: Ledger Schema Migration
+
+**Strategy:** Expand-Contract pattern with dual-writes. Zero-downtime achieved via backward-compatible schema evolution, batched backfill, and feature-flagged read paths.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Schema & Dual-Write) [Builder]:**
+    *   Create `entries` and `metadata` tables; add triggers to `transaction_log` to dual-write to new tables.
+    *   Update write-path code to write to both legacy and new schemas.
+    *   *Constraint:* Must not touch `audit-trail`; must respect `shared-ledger-utils` freeze (no changes).
+*   **Lane B (Backfill Service) [Builder]:**
+    *   Implement batched reader/writer for historical data.
+    *   *Constraint:* Batch size tuned to keep replication lag < 2s (headroom below 4s spike threshold).
+*   **Lane C (Read-Path & Switch) [Builder]:**
+    *   Implement new read service querying `entries` + `metadata`.
+    *   Add feature flag `LEDGER_NEW_READ_PATH`.
+*   **Lane D (Rollback & Verification) [QA + Security]:**
+    *   Script instant revert: disable dual-write, drop new tables, force read-path to legacy.
+    *   Verify no writes occurred to `audit-trail` during dry-runs.
+
+**Serialization:**
+1.  Lane A must merge and deploy first (schema exists before data moves).
+2.  Lane B runs only after Lane A is live in production (backfill targets new tables).
+3.  Lane C deploys with flag OFF; switches to ON only after Lane B reports 100% completion.
+4.  Lane D validates each stage before proceeding.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define batch size limits based on replication lag metrics. Confirm `audit-trail` exclusion logic.
+*   **G3 Design:** Architect review of dual-write trigger logic to ensure no race conditions or data loss. Security review of data access patterns.
+*   **G4 Implement:** Code frozen on exact SHA. Unit tests for batch logic must simulate 4s lag without flaking.
+*   **G5 Verify (Staging):**
+    *   Run backfill on staging mirror. Monitor replication lag; fail if > 3s.
+    *   **Crucial:** Assert zero writes to `audit-trail`.
+    *   Validate data checksums between `transaction_log` and (`entries` + `metadata`).
+*   **G6 Review:**
+    *   **Independent QA:** Verifies rollback script execution and data integrity post-revert.
+    *   **Security:** Confirms no PII exposure in new split and `audit-trail` immutability holds.
+    *   **Architect:** Approves dual-write consistency model.
+*   **G7 Integrate:** Merge train sequence: A → B → C. Run targeted integration tests (not full 45m suite) on the integrated SHA to verify handoffs.
+
+#### 3. Review Protocol
+*   **Builder (Lanes A/B/C):** Cannot review their own code.
+*   **Independent Reviewers:**
+    *   Schema changes reviewed by a Senior DBA (not the Builder).
+    *   Backfill logic reviewed by a Performance Engineer.
+    *   Rollback plan reviewed by QA Lead.
+*   **Security Gate:** Mandatory sign-off on `audit-trail` safety before G7.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:** Merge Lanes A, B, C sequentially into `main` via merge train. Each merge triggers a targeted CI job (skip full suite if unchanged core logic).
+*   **Human Approvals (G8 Release):**
+    *   **Chief Architect:** Must approve the schema change deployment and the "Switch On" command.
+    *   **Compliance Officer:** Must approve the backfill start and the final cutover, confirming `audit-trail` safety reports.
+    *   *Mechanism:* Synchronous approval via internal portal required before applying any migration script or flipping the feature flag.
+*   **Deployment Window:** Execute outside market hours.
+    1.  Deploy Lane A (Schema/Triggers).
+    2.  Start Lane B (Backfill) – monitor lag.
+    3.  Deploy Lane C (Read Path, Flag OFF).
+    4.  **Decision Point:** Once backfill complete & verified, Architect + Compliance approve flag flip.
+*   **Rollback:**
+    *   Trigger: Any data mismatch, replication lag > 4s, or `audit-trail` write attempt.
+    *   Action: Flip flag to OFF (instant). Disable dual-write triggers. Drop new tables (post-mortem).
+    *   Verification: Confirm system reverts to single-table read/write with no data loss.
+
+**Risk Mitigation:** If CI hardware is busy, queue only critical verification jobs. Do not run full 45m suite for every commit; rely on targeted integration tests for the specific migration components.

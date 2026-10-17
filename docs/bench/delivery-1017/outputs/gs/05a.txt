@@ -1,0 +1,54 @@
+### Delivery Plan: Loan Status Payload Update
+
+**Objective:** Add optional `graceEndUtc` field to Core Lending status endpoint without breaking downstream consumers (Customer Portal, Collections Dashboard).
+
+#### 1. Work Lanes & Parallelization
+
+*   **Lane A: Contract Definition (Sequential Pre-requisite)**
+    *   **Owner:** Core Lending Lead.
+    *   **Task:** Update `financial-specs` library to include `graceEndUtc` as an optional field.
+    *   **Dependency:** None. Must be merged and versioned before Core Lending code changes.
+*   **Lane B: Core Lending Implementation (Parallel to Coordination)**
+    *   **Owner:** Core Lending Engineer.
+    *   **Task:** Implement field logic in the status endpoint. Ensure the field is strictly optional in serialization logic to maintain backward compatibility.
+    *   **Constraint:** Do not trigger the full CI data-replay simulation until Lane A is complete and local integration confirms success.
+*   **Lane C: Downstream Coordination (Parallel to Lane B)**
+    *   **Owner:** Requester / Product Lead.
+    *   **Task:** Explicitly confirm with Customer Portal and Collections Dashboard leads that their parsers handle new optional fields gracefully. Obtain written "Ready to Ingest" confirmation.
+    *   **Constraint:** No merge to main without this confirmation.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Contract Sync Check**
+    *   **When:** Before running Core Lending CI.
+    *   **Check:** Verify Core Lending dependency points to the new `financial-specs` version containing the optional field.
+*   **Gate 2: Flaky Test Filter**
+    *   **When:** During CI execution.
+    *   **Action:** If the "currency formatting" integration check fails, inspect logs. If the error matches the known flake pattern (random formatting variance unrelated to schema), mark as non-blocking. If the error involves missing fields or type mismatches, treat as a hard failure.
+*   **Gate 3: Downstream Readiness Proof**
+    *   **When:** Pre-merge review.
+    *   **Check:** Attach the "Ready to Ingest" confirmations from Lane C to the Pull Request description.
+*   **Gate 4: Compliance Approval**
+    *   **When:** Post-merge, pre-deployment to SecureZone.
+    *   **Action:** Manual approval required from the Compliance Officer.
+
+#### 3. Review Strategy
+
+*   **Code Review:** Performed by a Senior Engineer from the Transactional Banking team *not* associated with the Core Lending service to ensure objectivity.
+*   **Schema Review:** Performed by the Architect responsible for `financial-specs` to verify backward compatibility and optionality enforcement.
+*   **Independence:** The Code Reviewer must not be the same person who coordinated Lane C.
+
+#### 4. Landing & Rollback Strategy
+
+*   **Merge Window:** Merge to main only after Lane A is live, Lane C confirmations are received, and CI passes (excluding known flakes).
+*   **Deployment Timing:** Deploy to SecureZone **before 01:00 UTC**.
+    *   **Reasoning:** The ledger batch job starts at 02:00 UTC. Deployment is irreversible after this point. A 1-hour buffer allows for immediate rollback if critical issues arise before the batch locks the state.
+*   **Rollback Plan:**
+    *   **Pre-02:00 UTC:** If issues are detected, revert the deployment immediately. Since the change is additive and optional, downstream services will simply ignore the missing field upon revert.
+    *   **Post-02:00 UTC:** Rollback is impossible. The team must issue a hotfix patch to correct data calculations downstream if the payload causes errors, as the ledger state cannot be undone.
+
+#### 5. Critical Human Decisions
+
+1.  **Downstream Sign-off:** The merge is blocked until both downstream leads explicitly confirm readiness.
+2.  **Compliance Gate:** The Compliance Officer must manually approve the production promotion.
+3.  **Flake Judgment:** The on-call lead must make the final call on whether a CI failure is the known flake or a genuine regression if logs are ambiguous.

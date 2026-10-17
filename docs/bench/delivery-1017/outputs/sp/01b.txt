@@ -1,0 +1,32 @@
+### Delivery Plan: Ledger Schema Migration
+
+**Lanes & Parallelism**
+*   **Lane A (Data Governance):** Submit migration scripts to the read-only repository immediately. This lane is strictly serialized behind the Chief Data Officer's manual approval. No code deployment can proceed without this artifact.
+*   **Lane B (Payments Core):** Develop the dual-write logic and the latency-monitoring rollback switch. This work proceeds in parallel with Lane A but cannot merge to `main` until Lane A's approval is secured.
+*   **Lane C (QA/Reconciliation):** Prepare the data integrity audit suite using sanitized staging data. Due to known false-positive flakiness, this lane must run continuously against Lane B's development builds to distinguish environmental noise from actual regression before the final window.
+
+**Gates & Checks**
+*   **Gate 1 (Pre-Window):** Lane A must have CDO approval. Lane B must pass unit tests. Lane C must demonstrate a stable baseline on staging despite known flakiness.
+*   **Gate 2 (The Build):** Trigger the CI pipeline exactly 60 minutes after Gate 1 clears. With a 45-minute runtime, this ensures completion before the deployment window opens, respecting the 6-build daily cap. The build target is the specific commit hash where Lane A's approved script hash matches Lane B's code reference.
+*   **Gate 3 (Dual-Write Live):** Deploy to Region 1 only. Verify dual-writes are occurring. Do not trigger backfill yet. Monitor for 1 hour. If stable, roll out to Regions 2 and 3.
+*   **Gate 4 (Backfill Trigger):** Once all regions run dual-write code, trigger the historical backfill job.
+*   **Gate 5 (Integrity Audit):** Run the full data integrity audit. **Hard Stop:** Read traffic remains on the legacy schema until this audit returns a 100% pass rate.
+
+**Review Strategy**
+*   **Code Review:** Two senior Payments Core engineers review Lane B's dual-write logic. They must be distinct from the authors.
+*   **Script Review:** The Chief Data Officer reviews Lane A's scripts (mandatory gate).
+*   **Independence:** The Data Integrity Audit (Gate 5) must be executed by an engineer from the Finance Operations team, not Payments Core, to ensure unbiased validation of the financial data.
+
+**Landing & Rollback**
+*   **Merge Strategy:** The migration uses a feature flag for the dual-write behavior. The code merges to `main` behind the flag, deployed initially with the flag off, then toggled on per region.
+*   **Read Switch:** The switch to read from the new columnar table is a manual operational step, permitted only after Gate 5 passes.
+*   **Rollback Protocol:**
+    *   *Scenario A (Pre-Backfill >10%):* If latency spikes above the threshold during dual-write mode, instantly toggle the feature flag off. This reverts writes to legacy-only immediately. No data loss occurs as the legacy table remains the source of truth.
+    *   *Scenario B (Post-Backfill >10%):* Schema reversion is impossible. If critical failures occur here, the system must remain on the new schema. The rollback plan shifts to "Hotfix Forward": patch the new schema code rather than reverting.
+*   **Human Decision Points:**
+    1.  CDO approval of migration scripts.
+    2.  Go/No-Go decision to trigger the backfill job after regional dual-write verification.
+    3.  Final authorization to switch read traffic post-audit.
+    4.  Declaration of "Point of No Return" once backfill exceeds 10% progress.
+
+**Timing Constraint:** All deployment activities must conclude 4 hours prior to the finance team's month-end freeze to allow for stabilization. If Gate 1 is not cleared 24 hours before the window, the migration must be aborted to avoid missing the freeze deadline.

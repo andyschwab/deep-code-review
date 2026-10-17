@@ -1,0 +1,44 @@
+**Delivery Plan: Refund Policy Wording Update**
+
+**Scope & Constraints**
+*   **Change:** Update `5-7 business days` to `3-5 business days` in `/apps/checkout/src/locales/en.json`.
+*   **Risk:** High. Production deploy is immediate and irreversible for static assets; staging is unavailable.
+*   **Constraint:** SREL (Site Reliability Lead) offline until 16:00 UTC. Holiday rush deadline is EOD.
+
+**Lanes & Serialization**
+Only one lane is required due to the atomic nature of the change. Parallelism is not applicable.
+1.  **Implementer Lane:**
+    *   **Action:** Create isolated worktree. Edit `en.json`.
+    *   **Verification:** Run local build to ensure JSON validity. Manually inspect the rendered checkout confirmation string in the local preview to confirm exact wording.
+    *   **Commit:** Message must start with `docs:` to bypass the 45-minute integration suite.
+    *   **Output:** Patch ready for review.
+
+**Gates & Checks**
+*   **G1 (Spec):** Confirmed by ticket. Acceptance: Text matches "3-5 business days" exactly.
+*   **G4 (Implement):** Implementer performs local JSON syntax check and visual confirmation in local preview. No unit tests required for pure copy, but JSON validity is mandatory.
+*   **G5 (Verify):** **Local Only.** Staging is unstable; do not attempt deployment there. Verification is the Implementer's local preview + a second pair of eyes on the diff.
+*   **G6 (Review):** Independent review required. A second engineer (not the Implementer) must verify the diff shows *only* the intended string change and no whitespace/encoding drift.
+*   **G8 (Release):** **Hard Human Gate.** Requires explicit approval from the Site Reliability Lead.
+
+**Review Strategy**
+*   **Reviewer:** Any available senior engineer other than the Implementer.
+*   **Scope:** Diff-only review. Verify no other keys in `en.json` were modified. Verify the specific string index is correct.
+*   **Independence:** Reviewer must not be the same person who edited the file.
+
+**Landing & Deployment**
+1.  **Merge:** Once G6 is green, merge to `main`. The `docs:` prefix will skip the expensive integration suite.
+2.  **Deployment Hold:** The auto-deployer triggers immediately upon merge. **Do not merge yet.**
+3.  **Human Decision:** The merge *is* the deploy. Therefore, the merge action is blocked until the SREL returns at 16:00 UTC.
+    *   *Action:* Prepare the PR now. Mark it "Ready" but **do not click merge**.
+    *   *Handoff:* Notify SREL immediately upon their return with a direct link to the PR.
+4.  **Execution:** SREL reviews the diff and the "local verify" receipt. SREL performs the merge.
+5.  **Rollback:** Since static assets are irreversible on the CDN, a rollback requires a hotfix commit reverting the string and a subsequent deploy. Keep the previous commit SHA handy for immediate reversion if the typo is catastrophic.
+
+**Timeline**
+*   **Now - 16:00 UTC:** Implement, locally verify, commit, open PR, secure independent code review. Wait.
+*   **16:00 UTC:** Alert SREL.
+*   **Post-Approval:** SREL merges. Auto-deploy executes.
+*   **Post-Deploy:** Implementer verifies live production page immediately.
+
+**Critical Warning**
+Do not bypass the SREL gate. The "irreversible" nature of the static asset deploy and the unstable staging environment mean a bad merge cannot be undone via staging rollback. The `docs:` commit skip is safe for the pipeline, but the human gate is the only safety net left.

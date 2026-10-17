@@ -1,0 +1,72 @@
+# Delivery Plan: Irreversible Patient Data Erasure
+
+## Lanes & Parallelism
+
+**Lane A: Core Implementation (Clinical Data Team)**
+*   **Owner:** Lead Engineer + 1 Senior Backend Dev.
+*   **Work:** Implement the `DELETE /patients/{id}` endpoint. Logic must include:
+    1.  Token validation against the Identity Provider.
+    2.  Hard deletion of PII and clinical notes (no soft deletes).
+    3.  Audit logging (event only, zero PII in logs).
+    4.  Database connection pooling safeguards to prevent timeout (limit session usage).
+*   **Parallel Constraint:** Can proceed immediately on the `develop` branch.
+
+**Lane B: Infrastructure & Security (DevOps + Security)**
+*   **Owner:** Security Lead + DevOps Engineer.
+*   **Work:**
+    1.  Provision the isolated sandbox cluster with unsanitized data mirrors for valid E2E testing.
+    2.  Configure the governance portal to recognize the new "Dual Approval" requirement for this specific endpoint deployment.
+*   **Parallel Constraint:** Runs parallel to Lane A. Must complete before Lane C begins.
+
+**Lane C: Verification & Compliance (QA + Legal)**
+*   **Owner:** QA Lead + Compliance Officer.
+*   **Work:**
+    1.  Execute data integrity suite in the isolated sandbox (Lane B output).
+    2.  Verify irreversibility (attempt recovery, confirm failure).
+    3.  Validate audit logs contain no PII.
+    4.  Confirm authorization token rejection for invalid users.
+*   **Serialization:** Must wait for Lane A (code complete) and Lane B (sandbox ready).
+
+## Gates & Checks
+
+**Gate 1: Pre-Merge Code Review**
+*   **Trigger:** Lane A completes implementation.
+*   **Check:** Static analysis + Manual review by a Senior Engineer *not* on the implementation team (e.g., Platform Team Lead).
+*   **Criteria:** Zero PII in log statements, explicit transaction boundaries, connection pool limits enforced.
+*   **Revision:** Latest commit on `feature/patient-erasure` branch.
+
+**Gate 2: The "Flaky Test" Bypass Protocol**
+*   **Trigger:** CI Pipeline Data Integrity Suite (45 min run).
+*   **Condition:** If the notification module check fails.
+*   **Action:** Engineer must attach CI logs proving the failure is the known flaky notification error and that all other data integrity checks passed. Only then can the build proceed. No blind retries.
+
+**Gate 3: Sandbox Validation**
+*   **Trigger:** Deployment to Isolated Sandbox Cluster.
+*   **Check:** Successful execution of a full deletion cycle on a test patient ID.
+*   **Criteria:** Database rows physically removed; audit log entry exists with timestamp and user ID only.
+*   **Revision:** The specific build artifact passing Gate 1 and Gate 2.
+
+## Review Process
+
+*   **Code Review:** Independent Senior Engineer (Platform Team). Focus: Security logic and data handling.
+*   **Compliance Review:** Chief Compliance Officer. Focus: Audit log content and irreversibility guarantee.
+*   **Security Review:** Security Lead. Focus: Token validation and sandbox isolation.
+*   **Independence:** The implementers (Lane A) cannot approve their own code or sign off on the compliance gate.
+
+## Landing Strategy
+
+**Merge Protocol:**
+1.  Merge `feature/patient-erasure` to `main` only after Gates 1, 2, and 3 are signed off.
+2.  **Human Decision Required:** The internal governance portal requires dual approval triggers:
+    *   Approval 1: Lead Engineer (Raj Patel).
+    *   Approval 2: Chief Compliance Officer.
+    *   *Note:* The deploy script will halt until both tokens are present in the portal.
+
+**Rollback Plan:**
+*   **Trigger:** Post-deploy monitoring shows data corruption, unintended deletions, or system instability (DB timeouts).
+*   **Action:** Immediate revert of the `main` branch to the previous stable commit.
+*   **Constraint:** Since data deletion is irreversible, a code rollback stops *future* deletions but cannot restore deleted patient data. Restores must rely on pre-implementation backups taken before the feature went live.
+*   **Communication:** Automated alert to Clinical Data Team and Legal immediately upon rollback execution.
+
+**Post-Landing:**
+*   Monitor DB connection pool usage closely for the first 24 hours to ensure no contention with live traffic.

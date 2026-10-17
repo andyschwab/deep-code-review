@@ -1,0 +1,26 @@
+### Delivery Plan: PII Sanitization in Insurance Claim Fixtures
+
+**1. Lanes and Parallelism**
+Work is divided into three lanes. Lane A (Data Engineering) and Lane B (Test Infrastructure) run in parallel; Lane C (Compliance Verification) is serialized after both complete.
+
+*   **Lane A (Data Sanitization):** Isolate the staging data directory. Script the replacement of real names and SSNs with fictional, format-compliant placeholders. Ensure row counts and data types remain identical to the source. This lane must strictly avoid modifying `global-rates.json` to prevent pipeline halts.
+*   **Lane B (Pipeline Configuration):** Update the CI configuration to mask raw data in build artifacts and logs. Implement a filter to ignore intermittent timeout errors in the document generation module, ensuring these known flaky failures do not block the build.
+*   **Lane C (Verification):** Once A and B merge, trigger the nightly regression suite on the sanitized revision. Monitor specifically for PII leakage in artifacts and validate that test failures are logic-based, not data-masking errors.
+
+**2. Gates and Checks**
+*   **Gate 1 (Pre-Commit):** Automated static analysis on Lane A's script to verify no writes target `global-rates.json` and that output row counts match input exactly.
+*   **Gate 2 (Dry Run):** Execute the sanitization script against a local copy of the read-only replica. Verify that generated placeholders match required formats (e.g., valid SSN structure but fictional values) without touching the live staging directory.
+*   **Gate 3 (CI Trigger):** The full regression suite (55-minute runtime) runs only once, on the specific revision where Lane A and Lane B changes are combined. No intermediate builds are triggered to conserve compute credits.
+*   **Gate 4 (Artifact Scan):** Post-build automated scan of all build artifacts and logs for patterns matching real SSNs or policyholder names. Any match fails the gate immediately.
+
+**3. Review Process**
+*   **Code Review:** Lane A changes are reviewed by a Senior Data Engineer independent of the Underwriting Operations team. Lane B changes are reviewed by a DevOps Lead.
+*   **Compliance Review:** Before merging, the sanitized sample dataset (not the code) is inspected by the Lead Data Architect to confirm fictional data realism and format compliance.
+*   **Security Audit:** A security engineer verifies the artifact masking logic in Lane B to ensure no raw data leaks into public-facing build reports.
+
+**4. Landing and Rollback**
+*   **Merge Strategy:** Changes merge to a feature branch first. Upon passing Gate 4 and the Compliance Review, a Pull Request is opened for the `Gold-Standard` production environment.
+*   **Human Decision:** Deployment requires dual approval from the Chief Risk Officer and the Lead Data Architect, as per protocol. This approval is requested only after all automated gates pass.
+*   **Rollback Plan:** If PII is detected post-merge or the regression suite fails due to data issues, the deployment is immediately reverted to the previous stable revision. The staging directory is restored from the hourly read-only replica sync, which contains the original (unsafe) data, but access is restricted until a new sanitization run completes. The flaky document generation check is manually overridden only if logs confirm a timeout error; any other failure triggers a rollback.
+
+This plan ensures compliance by Tuesday while respecting infrastructure constraints and approval hierarchies.

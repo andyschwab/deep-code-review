@@ -1,0 +1,61 @@
+### Delivery Plan: Core Ledger Engine v4.0 Upgrade
+
+**Strategy:** Zero-downtime staged rollout with irreversible migration isolation. One writer per worktree; independent QA and Security verification required before any human approval.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Compatibility Matrix) [Conductor + Product Analyst]:**
+    *   Define exact breaking changes in transaction serialization.
+    *   Map custom plugins from last year against v4.0 API.
+    *   Define "backward compatible" storage contract for the 6-month window.
+    *   *Output:* Testable spec with acceptance criteria for error codes and plugin behavior.
+*   **Lane B (Core Upgrade & Migration Script) [Builder 1]:**
+    *   Isolated worktree. Update dependency to v4.0.
+    *   Adapt nightly reconciliation jobs for new serialization.
+    *   Refine irreversible DB migration script for the pre-prod sandbox.
+    *   *Constraint:* Must not touch shared config files during business hours.
+*   **Lane C (Plugin & Integration Adaptation) [Builder 2]:**
+    *   Isolated worktree. Update custom plugins for v4.0.
+    *   Rewrite integration tests for new error codes.
+    *   *Constraint:* Serializes with Lane B only for final integration SHA; otherwise parallel.
+*   **Lane D (Flake Mitigation) [QA Engineer]:**
+    *   Target currency conversion module flakiness (15% failure rate).
+    *   Implement deterministic mocks or retry logic specifically for this module to prevent CI cost waste ($450/run).
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Review of Compatibility Matrix. Must explicitly list plugins verified and error code mappings.
+*   **G3 (Design):** ADR confirming backward compatibility strategy for archive storage.
+*   **G4 (Implement):** Patches from Lane B and C. Tests included with code. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Environment:** Pre-production sandbox (mirroring live traffic).
+    *   **Action:** Run irreversible migration script *once* in sandbox.
+    *   **Check:** Nightly reconciliation jobs pass with new format. Custom plugins functional.
+    *   **CI:** Full suite run. Flaky tests must be stabilized (Lane D) before this gate counts green.
+    *   **Revision:** Exact SHA of the integrated candidate.
+*   **G6 (Review):**
+    *   **Security:** Independent review of serialization changes and migration script (no builder self-review).
+    *   **QA:** Verification of plugin behavior and error code coverage.
+    *   **Deep Code Review:** Applied to all diffs. Blockers/Criticals must be fixed; Highs need owner acceptance.
+
+#### 3. Review Independence
+*   **Builder 1** (Core) is reviewed by **Security** and **QA**.
+*   **Builder 2** (Plugins) is reviewed by **QA** and **Builder 1** (for interface contracts only, not implementation logic).
+*   **QA Engineer** verifies results but does not approve the merge; they provide the receipt.
+*   **Conductor** aggregates evidence but never self-approves the merge.
+
+#### 4. Landing & Human Gates
+*   **Integration (G7):** Merge Lanes B and C into a temporary integration branch. Re-run affected tests on the final merged SHA.
+*   **Human Approval (G8):**
+    *   **Required Approvers:** Jane Smith AND Chief Risk Officer.
+    *   **Trigger:** Deployment to production.
+    *   **Condition:** G5 sandbox success receipt + G6 security sign-off + rollback proof.
+    *   **Timing:** Scheduled outside market hours. Shared config files unlocked only during the maintenance window.
+*   **Rollout Strategy:**
+    1.  Deploy to canary (non-market traffic).
+    2.  Verify live behavior against SLOs.
+    3.  Full rollout if canary holds.
+*   **Rollback:**
+    *   Since DB migration is irreversible, rollback strategy relies on the **backward compatibility layer** defined in G3.
+    *   If v4.0 fails, the application reverts to v3.x logic reading the new format via the compatibility shim.
+    *   If the shim fails, immediate freeze and manual intervention required (no automatic data revert).
+
+**Cost Control:** CI runs capped. Flaky tests fixed before full regression to avoid repeated $450 charges. Token budgets set per lane before G4.

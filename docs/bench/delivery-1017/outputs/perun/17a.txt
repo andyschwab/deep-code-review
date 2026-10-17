@@ -1,0 +1,45 @@
+### Delivery Plan: CI Matrix Optimization & Audit Backlog
+
+**Objective:** Refactor CI to run lightweight sanity checks before heavy regional suites, clearing six critical PRs by Friday within budget constraints.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Pipeline Refactor):** One writer refactors the CI configuration to implement a two-stage gate:
+    1.  **Stage 1 (Lightweight):** Lint, type-check, and unit tests only.
+    2.  **Stage 2 (Heavy):** Full 12-region integration matrix, triggered *only* if Stage 1 passes.
+    *   *Constraint:* Must explicitly handle the Asia-Pacific flaky check with an automated retry logic (max 2 retries) to avoid manual blocking.
+*   **Lane B (PR Sanitization):** One writer rebases the six urgent PRs onto the new pipeline configuration.
+    *   *Serialization:* **Strictly serialized.** Due to the shared configuration file conflict risk and irreversible database migration scripts in staging, PRs must be processed one by one. Parallel testing of migrations is forbidden.
+*   **Lane C (Verification):** Independent QA verifies the pipeline behavior on a non-production branch before applying to the audit PRs.
+
+#### 2. Gates & Checks
+*   **G2 (Plan Approval):** Conductor submits the refactoring strategy. **Human Gate:** Chief Risk Officer (CRO) must approve the change to the validation matrix between **14:00–16:00 UTC**. No code moves until this window confirms the risk acceptance of the new "fast-fail" logic.
+*   **G4 (Implementation):** Lane A commits the CI changes. Base SHA must be pinned to the current `main` head.
+*   **G5 (Verification):**
+    *   Run Lane A on a dummy PR.
+    *   **Check:** Confirm Stage 2 does *not* trigger if Stage 1 fails (simulated lint error).
+    *   **Check:** Confirm APAC retry logic functions without human intervention.
+    *   **Cost Check:** Verify total runtime for a "clean" run is under 30 minutes to avoid double-rate charges.
+*   **G6 (Review):** Independent Security/DevOps engineer reviews the CI diff. Must verify that no security scans were moved behind the "lightweight" gate incorrectly.
+*   **G7 (Integration):** Merge the pipeline refactor to `main`.
+*   **G8 (Release/Backlog Clearing):** Apply the new pipeline to the six PRs.
+    *   **Serialization:** Merge PR #1 → Wait for full green → Merge PR #2 → etc.
+    *   **Database Safety:** Ensure migration scripts run sequentially; no overlapping staging deployments.
+
+#### 3. Review Strategy
+*   **Pipeline Code:** Reviewed by a Senior DevOps engineer who did not write the refactor (Lane A).
+*   **PR Content:** The six payment updates retain their original approved reviews; the CI change does not invalidate prior logic reviews, only the transport mechanism.
+*   **Independence:** The verifier of the APAC retry logic (Lane C) must be distinct from the implementer (Lane A).
+
+#### 4. Landing & Human Decisions
+*   **Merge Train:** Once the pipeline is live on `main`, the six PRs will form a manual merge train.
+    *   **Order:** Determined by dependency (if any), otherwise by age.
+    *   **Trigger:** Each merge is a distinct human action by the Conductor, waiting for the previous PR's full 12-region suite to pass.
+*   **Human Gates:**
+    1.  **CRO Approval (14:00–16:00 UTC):** Required to authorize the pipeline structural change.
+    2.  **Merge Authorization:** Each of the six PRs requires a explicit "Merge" command only after the green signal.
+    3.  **Flake Handling:** If the APAC check fails after automated retries, the Conductor must pause the train and request specific CRO approval for a manual retry before proceeding to the next PR.
+*   **Rollback:**
+    *   **Pipeline Failure:** If the new CI config breaks, revert the pipeline commit immediately. The six PRs remain open and will revert to the old (slow) matrix automatically.
+    *   **Migration Failure:** If a DB migration fails during a PR merge, the environment is compromised. Stop the train. Do not attempt to fix forward. Restore staging from the pre-migration snapshot (manual ops task) before analyzing the failure.
+
+**Risk Mitigation:** The strict serialization prevents config conflicts and DB corruption. The two-stage gate protects the budget from lint-induced expensive runs. The CRO time-window constraint dictates the earliest start time for the actual merge train.

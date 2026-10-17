@@ -1,0 +1,38 @@
+### Delivery Plan: Winter Inventory Sync (Staged Rollout)
+
+**Lanes & Serialization**
+1.  **Lane A (Migration & Safety):** Isolate and dry-run database migration scripts on a production snapshot. Verify reversibility below the 50% threshold. *Serialized:* Must complete before Lane B integration.
+2.  **Lane B (Core Implementation):** Implement offline caching fix in the mobile codebase. Ensure no changes to the shared encryption module to bypass the absent Security Lead; if encryption touches are unavoidable, this lane blocks until Tuesday.
+3.  **Lane C (Verification):** Execute full regression suite once on the integrated SHA. Manually verify accessibility on dark mode (bypassing the flaky automated check).
+4.  **Lane D (Release Config):** Configure distribution channel for 10% internal beta, scaling to 25% over 48h contingent on <0.5% crash rate. Prepare changelog entry highlighting the offline fix.
+
+*Parallel Execution:* Lanes A, B, and D start immediately. Lane C starts only after A and B merge to an integration branch.
+
+**Gates & Checks**
+*   **G2 (Plan):** Confirm budget cap of 400 credits for one full regression run. Explicitly state: "No encryption module changes" or "Blocked until Tuesday."
+*   **G4 (Implement):** Code freeze on the integration branch. Migration scripts must show successful dry-run logs.
+*   **G5 (Verify):** Run build, lint, and unit tests on the exact integration SHA. Run the single allowed full regression suite. Manual accessibility sign-off recorded.
+*   **G6 (Review):** Independent review of the offline logic by a senior engineer (not the author). Security review limited to non-encryption scopes; encryption changes require Security Lead return.
+*   **G7 (Integrate):** Merge to release candidate branch. Re-run only affected unit tests on the final merged SHA.
+
+**Review Strategy**
+*   **Builder:** Implements fix and migration scripts.
+*   **Independent QA:** Validates regression results and manual accessibility check on the exact G7 SHA.
+*   **Security:** Reviews non-encryption changes now. Encryption changes are gated until the Security Lead returns (hard block).
+*   **Constraint:** Builder never reviews their own code. QA never implements fixes.
+
+**Landing & Human Gates**
+*   **Human Approval 1 (Pre-Deploy):** Product Owner and Regional Operations Director must both approve the G7 release manifest and the migration dry-run evidence. No deployment occurs without dual signatures.
+*   **Deployment Phases:**
+    1.  **Phase 1:** Deploy to 10% internal beta. Monitor crash rates for 24 hours.
+    2.  **Phase 2:** If crash rate <0.5%, expand to 25% general users over the next 48 hours.
+    3.  **Stop Condition:** If crash rate ≥0.5% or data mismatches reappear, halt expansion immediately.
+*   **Rollback Plan:**
+    *   **<50% Rollout:** Trigger automated rollback script to revert app version and database schema. This is reversible.
+    *   **>50% Rollout:** Rollback requires full service outage. This is the "point of no return." The plan explicitly prevents reaching this state without a separate, high-risk human decision.
+*   **Changelog:** Publish update notes emphasizing the offline caching fix immediately upon Phase 1 success.
+
+**Risk Controls**
+*   **Cost:** Strict limit of one full regression run. Flaky accessibility checks are manual-only to prevent credit-wasting retries.
+*   **Scope:** Zero modifications to the shared encryption module until the Security Lead returns. If the fix inherently requires this, the release is delayed until Tuesday.
+*   **Irreversibility:** The 50% rollout mark is a hard barrier. Expansion beyond this point requires a new, explicit human authorization acknowledging the outage risk.

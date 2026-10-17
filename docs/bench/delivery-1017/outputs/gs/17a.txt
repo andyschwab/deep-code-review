@@ -1,0 +1,81 @@
+### Delivery Plan: Helios CI Matrix Optimization
+
+**Objective:** Deploy six critical updates by Friday, satisfying audit requirements while avoiding budget freezes and overtime.
+
+#### 1. Work Lanes & Parallelization
+
+**Lane A: Pipeline Refactoring (Serialized)**
+*   **Owner:** Senior DevOps Engineer.
+*   **Task:** Modify the shared CI configuration to implement a two-stage gate.
+    *   *Stage 1:* Lightweight sanity check (linting, unit tests, syntax validation). Estimated time: <5 mins.
+    *   *Stage 2:* Heavy regional matrix (12 regions). Triggered *only* if Stage 1 passes.
+*   **Constraint:** Must address the shared configuration file conflict risk first. This work cannot be parallelized with code changes to avoid merge conflicts.
+
+**Lane B: Code Preparation (Parallel within lane, Serialized against Lane A completion)**
+*   **Owner:** Development Team (6 developers).
+*   **Task:** Prepare the six PRs.
+    *   Developers must rebase their branches on the *current* main to identify potential config conflicts locally before the pipeline change merges.
+    *   Once Lane A merges, developers must immediately rebase again onto the new pipeline structure.
+*   **Constraint:** Do not push final changes until Lane A is complete and verified to avoid triggering the old, expensive matrix.
+
+**Lane C: Audit & Compliance Verification (Parallel)**
+*   **Owner:** QA Lead.
+*   **Task:** Prepare the audit evidence package. Since the database migrations are irreversible and parallel testing is forbidden, QA must verify the migration scripts statically and prepare a sequential execution order for the staging environment.
+
+#### 2. Gates & Checks
+
+**Gate 1: Configuration Sanity (Pre-Merge)**
+*   **What:** A dry-run of the new CI config file.
+*   **Where:** Local developer machine or a isolated scratch branch.
+*   **When:** Before merging Lane A.
+*   **Check:** Verify the "Stage 1" logic correctly blocks "Stage 2" on simulated lint failures.
+
+**Gate 2: The "Asia-Pacific" Flaky Check Bypass**
+*   **What:** Automated retry logic or manual override flag.
+*   **Where:** CI Pipeline definition.
+*   **When:** During Stage 2 execution.
+*   **Check:** If the APAC network check fails, the system must flag for "Manual Retry Approval" rather than failing the whole build immediately. This prevents wasting the double-rate budget on known flakiness.
+
+**Gate 3: Budget Cap Monitor**
+*   **What:** Hard timeout enforcement.
+*   **Where:** CI Orchestrator.
+*   **When:** Continuous.
+*   **Check:** Any job approaching 28 minutes must auto-terminate to prevent hitting the 30-minute double-rate threshold.
+
+**Gate 4: Sequential Migration Lock**
+*   **What:** Database lock mechanism.
+*   **Where:** Staging Environment.
+*   **When:** During final integration testing.
+*   **Check:** Ensure no two migration scripts attempt to run simultaneously. The pipeline must queue these jobs strictly sequentially.
+
+#### 3. Review Strategy
+
+**Independent Reviewer:** Chief Risk Officer (CRO) or designated delegate.
+*   **Dependency:** Cannot review until Lane A (Pipeline) and Lane B (Code) are merged to the staging branch.
+*   **Timing Constraint:** Review must be scheduled strictly between **14:00 and 16:00 UTC**.
+*   **Scope:**
+    1.  Verification that the new pipeline prevents expensive runs on lint failures.
+    2.  Confirmation of the sequential migration plan.
+    3.  Audit trail completeness for the six updates.
+*   **Rule:** No other approver can authorize production deployment. If the 14:00–16:00 window is missed, deployment halts until the next business day.
+
+#### 4. Landing & Rollback
+
+**Merge Strategy:**
+1.  **Merge Lane A** (Pipeline) to Main.
+2.  **Rebase & Merge Lane B** (Six PRs) individually to Main.
+3.  **Trigger Staging Deploy:** Runs Stage 1 → Stage 2 (with APAC retry logic) → Sequential Migrations.
+4.  **CRO Approval:** Obtained during the 14:00–16:00 UTC window based on Staging success.
+5.  **Production Deploy:** Automated upon CRO sign-off.
+
+**Human Decisions Required:**
+*   **Manual Retry Approval:** If the APAC check fails twice, a human must explicitly approve the retry to proceed.
+*   **CRO Sign-off:** Mandatory for production release.
+
+**Rollback Plan:**
+*   **Code Rollback:** Immediate revert of the specific PR commit in the version control system.
+*   **Database Rollback:** **NOT POSSIBLE** (Scripts are irreversible).
+    *   *Mitigation:* If a migration fails in Staging, the environment is discarded and rebuilt from scratch. If a migration fails in Production, a "forward-fix" patch must be developed and approved by the CRO to restore consistency. There is no "undo" button for data changes.
+
+**Timeline Critical Path:**
+The bottleneck is the CRO's availability. All Staging validations must complete successfully by 13:45 UTC on the target day to allow a 15-minute buffer for the CRO's review before the 14:00 window opens.
