@@ -1,0 +1,25 @@
+**Decision:** Proceed with a **Parallel Shadow Migration and Phased Cutover** strategy; do not attempt a "big bang" migration. The single constraint driving this is the **10-day window** before sales spike, which is insufficient for a full dry-run of 10 years of data if errors occur.
+
+**Figures:** 25 days total – 10 days pre-spike = **15 days** available for full stabilization; 5 developers ÷ 2 (split focus) = **2.5 effective engineers** for migration logic vs. 2.5 for platform hardening.
+
+**Migration Sequence & Testing:**
+1.  **Days 1–4 (Shadow Copy):** Migrate a read-only snapshot of the 10-year loyalty database to the new infrastructure while the old system remains live. No writes occur here.
+2.  **Days 5–9 (Dual-Write & Verification):** Enable dual-writing for *new* loyalty points to both systems. Run automated reconciliation scripts comparing old vs. new balances every hour.
+3.  **Days 10–12 (Load Testing):** Simulate 60,000 concurrent users against the new infrastructure using the migrated data.
+4.  **Days 13–14 (Final Sync):** Pause writes for a maximum 15-minute maintenance window (scheduled at 4 AM) to sync the final delta, then switch read traffic to the new platform.
+5.  **Day 15:** Platform declared stable for the sales spike.
+
+**Specialist Lead:**
+Assign your **Senior Backend Engineer with Database Internals expertise** to lead the data integrity check. Do not assign this to a DevOps specialist or a junior developer; this requires someone who understands transaction isolation and checksum validation at the row level.
+
+**Critical Go/No-Go Decisions:**
+You must prepare to make these three binary calls:
+1.  **Reconciliation Threshold (Day 9):** If automated checks show >0.01% discrepancy in loyalty points between old and new systems, **NO-GO**. Revert to manual patching; do not proceed to load testing.
+2.  **Latency Ceiling (Day 12):** If the 99th percentile response time under 50k load exceeds 400ms, **NO-GO**. Scale up infrastructure immediately or disable non-essential features (e.g., complex recommendation engines) for the sale.
+3.  **The "Hard Stop" (Day 13):** If the final delta sync cannot be verified within a 30-minute window, **NO-GO** on the new platform for ticket sales. Fall back to the legacy system for ticketing only, disabling loyalty redemption temporarily to ensure the premiere sells out.
+
+**First Concrete Step:**
+Immediately instruct the team to **write the reconciliation script** that compares a sample set of 10,000 random customer accounts between the current database and a test instance of the new schema. Do not start moving data until this script exists and passes on the sample set. This validates the mapping logic before risking the full dataset.
+
+*Note: This plan assumes the new infrastructure is already provisioned and accessible. If provisioning is incomplete, the timeline collapses.*
+*Note: Ensure legal/compliance approves the temporary disablement of loyalty redemption if the fallback scenario is triggered.*
