@@ -49,7 +49,7 @@ try:
     (old / "outputs" / "sub").mkdir()
     for b_ in (new, old):
         (b_ / "outputs" / "sub" / "a.txt").write_text("z")
-    assert any("t1.txt" in e for e in errs(root, new)) and not any("sub" in e for e in errs(root, new))
+    assert any("t1.txt" in e for e in errs(root, new)) and not any("outputs/sub" in e for e in errs(root, new))
     (new / "reuse-allow.txt").write_text("outputs/t1.txt\noutputs/sub\n")
     assert errs(root, new) == []
     (new / "outputs" / "t1.txt").write_text("")  # 0-byte files are never reuse
