@@ -1,0 +1,6 @@
+### Added
+- `docs/bench/xvendor-judge-1017/`: a cross-vendor re-judge of every rival bench whose raw outputs are committed. Qwen3.5-397B-A17B re-scored the pairwise skill benches (blind, both orders, original judge prompt) and the H7 and H7b review verifier; GLM-5.2 broke ties where Qwen and the original judge disagreed. The driver, raw verdicts and `results.json` are committed, and `scripts/test_xvendor_judge.py` (registered in `scripts/ci-tests.d/xvendor-judge.sh`) pins the recomputed original numbers.
+- `docs/perun-vs-rivals.md`: a new H1g section, and the cross-vendor value next to each original in H1, H1b to H1f, H7 and H7b. Losses are reported: the product-discovery loss and the comms-quality-fix loss replicate, no shipped skill passes a rubric-free pair on Qwen, the H7 precision lead is no longer significant and the compact card's F1 is significantly worse. The product-output-safety rubric-free loss did not replicate (judge-dependent, not a win).
+
+### Changed
+- `docs/perun-vs-rivals.md`: the Bottom line, "How to read the evidence" and "What was not measured" no longer say that no different-vendor judge was run; the comms-fix cross-references now point to H1f (they said H1e).
