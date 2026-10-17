@@ -1,0 +1,53 @@
+### Delivery Plan: Q3 Payments API Sunset
+
+**Objective:** Remove v1 Payments Gateway routing logic, update documentation, disable v1 monitoring, and ensure zero downtime for v2 users by September 30th.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** Remove legacy v1 routing logic and database schema dependencies.
+    *   *Constraint:* Irreversible DB change; requires exact migration script validation.
+    *   *Parallelism:* Can run parallel to Lane B, but must complete before Lane C (Integration).
+*   **Lane B (Documentation & Comms):** Update public docs to reflect v1 unavailability; verify migration guide links.
+    *   *Parallelism:* Independent; can run immediately.
+*   **Lane C (Observability):** Identify and disable v1-specific monitoring alerts.
+    *   *Constraint:* Must not disable v2 or shared infrastructure alerts.
+    *   *Parallelism:* Runs after Lane A code removal is drafted, before merge.
+*   **Lane D (Verification - Exclusion):** Validate that the known flaky currency conversion check is excluded from the release gate.
+    *   *Action:* Configure CI to ignore this specific failure for this release train only.
+
+**Serialization:** Lane A (Code) and Lane B (Docs) run in parallel. Lane C (Alerts) validates against Lane A's diff. Lane D (CI Config) must be ready before the final integration build. All lanes merge into a single integration branch for final verification.
+
+#### 2. Gates & Checks
+*   **G2 Plan (Now):** Define exact files for removal, list of alerts to kill, and doc URLs to update. Confirm budget for one off-peak full regression run.
+*   **G3 Design:** Architect review of the irreversible DB migration script. Explicit "Go/No-Go" on the backup restore procedure.
+*   **G4 Implement:**
+    *   Lane A: Code removed, unit tests for v2 paths updated.
+    *   Lane B: Docs PR opened.
+    *   Lane C: Alert config PR opened.
+*   **G5 Verify (Off-Peak):**
+    *   Run full regression suite (50 mins) on the **exact integration SHA** during off-peak hours.
+    *   **Flake Handling:** If the currency conversion check fails, verify it matches the known flake signature. If yes, proceed; if no, block.
+    *   **Load Test Limitation:** Acknowledge staging load test is unreliable due to data volume; rely on code review and unit coverage for performance safety.
+*   **G6 Review:**
+    *   **Security/Compliance:** Verify encryption standards in remaining v2 code.
+    *   **Independence:** Lead Architect reviews Lane A (cannot be the author). Compliance Officer reviews Lane C (alert changes).
+
+#### 3. Review Strategy
+*   **Code (Lane A):** Reviewed by Senior Backend Engineer (not the author). Focus: No v1 remnants, v2 stability.
+*   **Docs (Lane B):** Reviewed by Product Lead. Focus: Clarity on v1 sunset date.
+*   **Ops (Lane C):** Reviewed by SRE Lead. Focus: Zero false positives, no v2 impact.
+*   **Compliance:** Final sign-off by Compliance Officer on the aggregate change.
+
+#### 4. Landing & Rollback
+*   **Merge Train:**
+    1.  Merge Lane B (Docs) and Lane C (Alerts) to integration branch.
+    2.  Merge Lane A (Code) to integration branch.
+    3.  Trigger off-peak regression on the combined SHA.
+*   **Human Decisions (G8 Release):**
+    *   **Dual Approval Required:** Lead Architect AND Compliance Officer must explicitly approve the deploy to production.
+    *   **Timing:** Deploy strictly before September 30th deadline, during a low-traffic maintenance window.
+*   **Rollback Plan:**
+    *   **Code:** Revert the merge commit immediately if v2 errors spike post-deploy.
+    *   **Database:** Since the schema change is irreversible, rollback requires a full backup restore. This is a high-cost operation; thus, the G3 design review of the migration script is the primary safety net.
+    *   **Alerts:** Re-enable v1 alerts manually if unexpected traffic appears (indicating incomplete client migration).
+
+**Risk Mitigation:** The hard deadline is compliance-driven. Failure to deploy by Sept 30th leaves outdated encryption active. The plan prioritizes the irreversible DB change verification and the dual-approval gate to prevent accidental data loss or compliance breach.

@@ -1,0 +1,45 @@
+**Delivery Plan: CargoManifest → FreightDeclaration Refactor**
+
+**Objective:** Rename core entity and all references across ~200 files, ensuring zero regression in customs calculations and strict legal compliance, before Friday code freeze.
+
+**Roles & Lanes**
+*   **Conductor:** Orchestrates sequencing, manages the single write-lock on the release branch, and coordinates the dual-approval workflow.
+*   **Compliance Liaison (Human):** Validates the exact string "FreightDeclaration" against legal docs before work begins (G0).
+*   **Builder (Lane 1 - Core Logic):** Executes the global rename in backend services and domain models.
+*   **Builder (Lane 2 - Interface & DB):** Updates frontend display logic, API contracts, and generates database migration scripts.
+*   **QA (Independent):** Runs full regression suite, specifically auditing customs calculation outputs and manually verifying flaky network check logs.
+*   **Security Officer & Platform Lead (Human):** Dual-approval gate for shared configuration files.
+
+**Sequence & Parallelism**
+1.  **Serialization Point 1 (G0/G1):** Conductor halts all other merges. Compliance Liaison confirms the target term. Conductor defines the exact base SHA for the refactor.
+2.  **Parallel Execution (G4):**
+    *   Lane 1 and Lane 2 operate in **isolated worktrees** branched from the exact base SHA. They must not share a working directory to prevent index collisions.
+    *   Lane 2 generates the DB migration script but **does not apply it** yet.
+3.  **Serialization Point 2 (Integration):** Conductor merges Lane 1 and Lane 2 into a temporary integration branch. Shared configuration files are updated here, triggering the dual-approval requirement.
+4.  **Verification (G5/G6):** QA runs the full 45-minute pipeline on the **exact integration SHA**.
+    *   *Constraint:* QA must manually inspect logs for the known flaky network check; automated pass is insufficient for this specific test.
+    *   *Focus:* Customs calculation module must show bitwise identical results to the base SHA.
+
+**Gates & Checks**
+*   **G0 (Intake):** Compliance sign-off on terminology.
+*   **G2 (Plan):** Token/budget cap set for the CI run (due to per-minute billing). No iterative fixes allowed; the plan must be correct before execution.
+*   **G4 (Implement):** Both lanes submit patches against the immutable base SHA.
+*   **G5 (Verify):**
+    *   Build/Lint/Type: Green.
+    *   Regression Suite: Green on the integration SHA.
+    *   Manual Check: QA explicitly signs off on network check logs.
+    *   Customs Module: Verified no change in calculation logic.
+*   **G6 (Review):** Independent review of the diff. Security Officer and Platform Lead must both approve the shared config changes.
+*   **G7 (Integrate):** Merge to release branch 4.2.
+
+**Landing Strategy**
+*   **Merge:** Single commit to the release branch containing the aggregated refactor.
+*   **Human Decision:** The Security Officer and Platform Lead must explicitly approve the shared config modification before the merge button is enabled.
+*   **Rollback Plan:**
+    *   *Code:* Immediate revert of the merge commit if post-merge smoke tests fail.
+    *   *Database:* Since staging DB changes are irreversible without restore, the migration script must include a verification step that runs *before* application. If the staging environment is already tainted, a full backup restore is the only recovery path. Do not apply DB migration to production until staging is verified stable for 4 hours.
+
+**Risk Mitigation**
+*   **Cost:** The 45-minute CI run is expensive. The "no iterative fixes" rule means the Builders must dry-run the rename locally to ensure compilation before pushing.
+*   **Flakiness:** The network check is manually gated; a red CI status due to this specific check does not block release if QA manually verifies the log as a false positive.
+*   **Timing:** If the integration branch fails G5, there is no time for a second full cycle. The Conductor must be prepared to slice the scope (e.g., defer non-critical UI renames) to meet the Friday deadline, prioritizing backend and DB correctness.

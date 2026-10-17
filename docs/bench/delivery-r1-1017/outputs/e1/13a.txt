@@ -1,0 +1,59 @@
+**Delivery Plan: AcmeHealth APAC Launch**
+
+**Scope & Constraints**
+Two repositories (`acme-cloud-apac`, `patient-portal-core`). Hard constraint: data residency (no cross-border replication). Critical path: Legal sign-off on data flow diagrams before G8 (Release). High-cost CI (45m/$12) requires "local green" before any remote run. Irreversible DB creation demands strict pre-flight verification.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Legal & Architecture (Serial Blocker)**
+    *   **Owner:** Product Analyst + Security Hat.
+    *   **Work:** Draft data flow diagrams proving local-only storage and backup exclusion. Submit to Legal.
+    *   **Gate:** G1 Spec. **Blocker:** No code merges until Legal signs off (G8 precondition).
+    *   **Output:** Signed PDF artifact referenced in PR body.
+
+2.  **Lane B: Infrastructure Provisioning (`acme-cloud-apac`)**
+    *   **Owner:** Builder (Infra).
+    *   **Work:** Define APAC cluster, encryption keys, and network routes. Explicitly disable US backup targets in config.
+    *   **Serialization:** Must complete before Lane C (App Config) to provide endpoint URLs.
+    *   **Check:** Local `terraform plan` (dry-run) to verify no US regions/backups. **No remote CI** until plan is visually verified by Security.
+    *   **Gate:** G4 (Plan review), G5 (Apply in staging only first).
+
+3.  **Lane C: Application Configuration (`patient-portal-core`)**
+    *   **Owner:** Builder (App).
+    *   **Work:** Update routing logic to point to Lane B's APAC endpoints. Add feature flag `APAC_ENABLED`.
+    *   **Dependency:** Waits for Lane B's staging endpoint availability.
+    *   **Check:** Local unit tests + integration test against Lane B's staging env.
+    *   **Gate:** G5 (Functional verification of routing).
+
+4.  **Lane D: Independent Verification (QA + Security)**
+    *   **Owner:** QA + Security (Distinct from Builders).
+    *   **Work:**
+        *   Verify `data-residency-check` job manually (bypass flakiness) on the exact merged SHA.
+        *   Audit backup job configs to confirm US vaults are unreachable.
+        *   Validate traffic routing via headed-browser or network trace.
+    *   **Gate:** G6. **Hard Fail:** Any evidence of cross-border data flow.
+
+**Review Strategy**
+*   **Infra PR:** Reviewed by Security (focus: encryption, backup exclusion) + Senior Infra Engineer. Builder never self-approves.
+*   **App PR:** Reviewed by QA (focus: routing logic) + Backend Lead.
+*   **Integration:** One aggregate G7 gate on a throwaway integration branch combining both SHAs to verify end-to-end connectivity before mainline merge.
+
+**CI & Cost Control**
+*   **Rule:** Run expensive CI (45m/$12) exactly once per candidate SHA, only after local dry-runs and unit tests pass.
+*   **Flake Handling:** If `data-residency-check` fails due to latency, do not auto-retry. Trigger manual re-run once; if it fails again, treat as block and investigate network, not code.
+
+**Landing & Human Gates**
+*   **Merge Train:** Lane B merges first. Lane C merges second. Integration SHA verified.
+*   **G8 Release (Production):** Requires **dual approval** (Regional Director + Chief Compliance Officer).
+    *   *Input to Humans:* Link to signed Legal diagram (Lane A), Security audit receipt (Lane D), and rollback proof.
+    *   *Action:* Enable `APAC_ENABLED` flag and point DNS.
+*   **Rollback:**
+    *   App: Disable feature flag (instant).
+    *   Infra: **Irreversible DB.** Rollback plan is strictly "traffic cut-off" and "destroy environment via new ticket" if data corruption occurs. No automated destroy in this pipeline.
+
+**Risk Mitigation**
+*   **Data Residency:** Verified by Security hat reading raw config, not just CI output.
+*   **Frozen Config:** Lane C updates must occur outside business hours if touching shared common libraries.
+*   **Cost:** Zero retries on CI without local repro.
+
+**Next Step:** Await confirmation of Legal team availability to start Lane A.

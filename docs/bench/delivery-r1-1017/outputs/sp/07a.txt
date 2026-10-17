@@ -1,0 +1,37 @@
+### Delivery Plan: Monorepo Build Cache Migration
+
+#### 1. Lanes and Parallelism
+Work is divided into three lanes to maximize parallel throughput while respecting serialization constraints.
+
+*   **Lane A (Core Logic - Serialized):** One senior engineer modifies the root build tool to replace timestamp logic with content-addressable hashing. This lane is strictly serialized; no other lane touches the build configuration until Lane A produces a stable candidate.
+*   **Lane B (Signing Compatibility - Parallel):** The second senior engineer works in parallel to audit the existing artifact signing workflow. They will create a simulation harness to verify that content-based hashes do not break the cryptographic signature validation used by warehouse automation.
+*   **Lane C (Resilience & Metrics - Parallel):** A third engineer develops the partial-failure handler to ensure cache invalidation is scoped to individual microservices rather than global. Simultaneously, they instrument the CI pipeline to capture precise compute time metrics for the 20% reduction verification.
+
+**Serialization Point:** Lane B and Lane C cannot merge their changes until Lane A's core logic is code-complete and reviewed. Lane A must finish before integration testing begins.
+
+#### 2. Gates and Checks
+All checks run on a dedicated Git worktree isolated from the `main` branch. No checks run on `main` until the final merge proposal.
+
+*   **Gate 1 (Unit Logic):** Runs on the initial commit of Lane A. Verifies the hashing algorithm produces deterministic outputs for identical inputs and distinct outputs for modified files.
+*   **Gate 2 (Signing Simulation):** Runs on the combined commit of Lane A + Lane B. Executes the simulation harness against the `core-utils` library using its pinned version hash. **Constraint:** This requires manual confirmation from the Chief Architect before proceeding if any deviation in `core-utils` behavior is detected.
+*   **Gate 3 (Resilience Stress Test):** Runs on the full integration branch. Simulates network flakiness in the staging environment. The gate fails if *any* of the thirty regional microservices experience a global cache invalidation due to a single service failure.
+*   **Gate 4 (Performance Benchmark):** Runs on the final release candidate. Compares build times against the baseline 90-minute average. **Hard Gate:** The build must complete in ≤72 minutes (20% reduction). If the flaky network check triggers a false failure during this run, the test must be manually re-triggered once; a second failure pauses the merge for investigation.
+
+#### 3. Review Process
+Reviews are independent and blind to the author's intent to prevent bias.
+
+*   **Logic Review:** A senior engineer *not* involved in Lane A reviews the content-addressable implementation. They focus solely on hash collision risks and memory overhead.
+*   **Security Review:** The second senior engineer (if not the author of Lane B) or an external security auditor reviews the signing compatibility report. They must verify that the new cache keys do not expose signature secrets.
+*   **Operational Review:** The logistics division lead reviews the partial-failure handling logic. They must sign off on the "blast radius" scope, confirming that a failure in one region cannot cascade.
+
+**Conflict Resolution:** If the Logic and Security reviewers disagree on the safety of the hash mechanism, the Chief Architect acts as the tie-breaker.
+
+#### 4. Landing and Rollback
+*   **Merge Window:** Merging is permitted only between 06:00 UTC and 02:00 UTC. **Absolute Hard Stop:** No merges occur after 02:00 UTC, ensuring a 2-hour buffer before the irreversible 04:00 UTC shipping manifest generation.
+*   **Human Decision Required:** Final merge requires explicit approval from both senior key-holders confirming the artifact signing keys remain secure.
+*   **Rollback Strategy:**
+    *   If performance metrics post-merge show <20% improvement or increased timeout rates, an immediate revert to the previous commit is triggered.
+    *   If artifact signing fails in production, the system automatically falls back to the legacy timestamp-based cache reader (which remains in the codebase as a read-only legacy path for 48 hours) while the hotfix is prepared.
+    *   Rollback must be completed before 03:30 UTC to avoid interfering with the manifest generation.
+
+This plan prioritizes the stability of the warehouse automation signing workflow and the strict timing of the shipping manifest over speed of delivery.

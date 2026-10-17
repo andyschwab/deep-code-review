@@ -1,0 +1,49 @@
+**Delivery Plan: Refund Policy Wording Update**
+
+**Scope & Constraints**
+*   **Target:** `/apps/checkout/src/locales/en.json` (English locale).
+*   **Change:** "5-7 business days" → "3-5 business days".
+*   **Risk:** Irreversible auto-deploy on merge; Staging unstable (verify locally only); SRL offline until 16:00 UTC.
+*   **Strategy:** Single-lane execution with mandatory human gate before merge. No CI skip; cost of failure exceeds $12.
+
+**Lane 1: Implementation & Local Verification (Serial)**
+*   **Actor:** Builder (implements) + QA (verifies locally). *Note: Due to low risk and single file, these roles collapse into one operator performing dual-check, but logically distinct.*
+*   **Work:**
+    1.  Create isolated worktree from `main`.
+    2.  Edit `en.json`: Update refund timeline string.
+    3.  **Local Verify:** Run local dev server. Navigate to checkout confirmation. Visually confirm "3-5 business days" renders correctly. Check for JSON syntax errors (build failure).
+    4.  **Commit:** Message `fix: update refund timeline to 3-5 days` (Do **not** use `docs:` prefix; we require the integration suite to run to ensure no downstream breakage despite the "tiny" claim).
+*   **Output:** Patch ready for review, local screenshot evidence.
+
+**Gates & Checks**
+*   **G4 (Implement):** Passes when local build succeeds and visual verification matches spec.
+*   **G5 (Verify):** **Mandatory Local Stack Up.** Since staging is unstable, the builder must run the application locally. Unit tests run in CI. The 45-minute integration suite will run in CI; we do not skip it. Skipping it risks deploying a broken JSON structure to production.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Peer (not the Builder).
+    *   **Scope:** Diff of `en.json` only. Verify exact string match.
+    *   **Condition:** Reviewer must see green CI status (Integration Suite passed) before approving.
+
+**Landing Strategy**
+*   **Merge Train:** Single PR to `main`.
+*   **Human Gate (Critical):**
+    *   **Trigger:** PR is approved and CI is green.
+    *   **Blocker:** Auto-deployer pushes immediately on merge. SRL is offline until 16:00 UTC.
+    *   **Action:** **Do not merge** until 16:00 UTC or explicit written approval is obtained from the SRL (or delegated authority) via the ticket.
+    *   **Decision Request:**
+        > **Issue:** Merge refund policy update (irreversible auto-deploy).
+        > **A:** Wait until 16:00 UTC for SRL availability, then merge. (Recommended) — Ensures human oversight during holiday rush.
+        > **B:** Request emergency delegation from SRL now to merge immediately. — Faster, but requires explicit out-of-band authorization.
+*   **Rollback:**
+    *   Since static assets are irreversible on deploy, rollback requires a hotfix PR reverting the string to "5-7 business days" and merging immediately.
+    *   **Preparation:** Draft the revert PR locally now, but do not open it unless the deployment causes immediate legal/UX breach.
+
+**Timeline**
+1.  **Now:** Implement, local verify, push PR.
+2.  **CI Run:** 45 mins (Integration suite).
+3.  **Review:** Peer review during CI window.
+4.  **Hold:** Park at "Ready to Merge" pending 16:00 UTC or SRL approval.
+5.  **Merge:** Execute post-approval. Monitor production logs for 10 mins post-deploy.
+
+**Risk Mitigation**
+*   **Instability:** By verifying locally and refusing the `docs:` skip, we ensure the change doesn't break the build pipeline, which is the only safety net given the unstable staging.
+*   **Timing:** Explicitly parking the merge prevents an unmonitored deploy during the SRL's absence.

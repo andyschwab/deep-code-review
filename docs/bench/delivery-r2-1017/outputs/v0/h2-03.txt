@@ -1,0 +1,61 @@
+### Delivery Plan: CustomerEvents Table Split & Legacy View
+
+**Objective:** Split `CustomerEvents` into `Events_Transactional` and `Events_Audit`, deploy a backward-compatible view, and migrate data with zero downtime.
+
+#### 1. Lanes & Serialization
+*Work is serialized where state collision or irreversible risk exists.*
+
+*   **Lane A (Design & Contract) – Conductor + Architect**
+    *   **Task:** Define exact split logic (row classification), new schemas, and the SQL definition for the legacy view. Produce an Architecture Decision Record (ADR).
+    *   **Constraint:** Must complete before any code or migration script is written.
+    *   **Output:** Signed ADR, precise SQL DDL/DML scripts.
+
+*   **Lane B (Implementation) – Builder (Database Engineer)**
+    *   **Task:** Implement migration scripts (idempotent), create the view, and update application ORM mappings if strictly necessary (target is zero code change).
+    *   **Parallelism:** Can start once Lane A's DDL is frozen.
+    *   **Output:** Migration scripts, view definition, unit tests for row classification logic.
+
+*   **Lane C (Staging Validation) – QA + Data Governance**
+    *   **Task:** Execute dry-run on Staging (10% volume). Verify data integrity counts, view query performance, and Executive Dashboard rendering.
+    *   **Serialization:** Must wait for Lane B's scripts. Must complete before Lane D.
+    *   **Special Handling:** Manual retry protocol for the known flaky connection-pooling check; do not treat as a hard block unless it fails 3 times consecutively.
+
+*   **Lane D (Production Prep) – Release Engineer**
+    *   **Task:** Prepare rollout plan, verify 3-zone sync strategy, and draft rollback procedure (restore from pre-migration snapshot).
+    *   **Serialization:** Depends on Lane C's "Go" signal.
+
+#### 2. Gates & Checks
+*Every check runs on an exact, immutable revision (SHA).*
+
+*   **G1 (Spec Freeze):** Review of Lane A's ADR. **Gate:** Lead Architect approval.
+*   **G3 (Design Review):** Security and Data Governance review of the split logic and view permissions. **Gate:** Data Governance Officer sign-off.
+*   **G5 (Staging Verify):** Run full CI pipeline (45 mins) on the migration branch in Staging.
+    *   **Check:** Row counts (Source vs. Sum of Targets) must match 100%.
+    *   **Check:** Executive Dashboard queries executed against the View must return identical results to pre-migration baselines.
+    *   **Check:** Load test on the View to ensure no timeout regression.
+*   **G7 (Integration):** Final merge to the integration branch. Re-run affected CI gates on the final merge SHA.
+*   **G8 (Release Approval):** **Human Gate.** Requires explicit approval from *both* Lead Architect and Data Governance Officer. No deploy without both signatures.
+
+#### 3. Review Strategy
+*Independent verification only; builders do not self-approve.*
+
+*   **Code/SQL Review:** Performed by a Senior Database Engineer (not the Builder). Focus on idempotency and transaction safety.
+*   **Data Integrity Review:** Performed by Data Governance. They verify the reconciliation reports from Lane C.
+*   **Security Review:** Focus on view permissions ensuring no privilege escalation via the new table split.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** Merge to `main` only after G8 approval. The migration script must be wrapped in a transaction that locks the table minimally or uses an online schema change tool compatible with the 3-zone sync.
+*   **Deployment Window:** Scheduled during lowest traffic, despite "zero downtime" goal, to minimize lock contention risk.
+*   **Rollback Plan:**
+    *   **Trigger:** Any data mismatch >0% or Dashboard timeout >threshold post-deploy.
+    *   **Action:** Immediate restoration from the pre-migration snapshot. Since the split is irreversible once archived, the rollback reverts the *entire* state to pre-deploy.
+    *   **Constraint:** Rollback script must be tested in Staging (Lane C) before G8.
+
+**Human Decisions Required:**
+1.  Approval of the Split Logic (G1).
+2.  Sign-off on Staging Data Integrity (G5 outcome).
+3.  Final Deploy Authorization (G8 - Dual signature).
+
+**Risk Mitigation:**
+*   **Flaky Check:** Documented exception process; manual verification of connection pool metrics replaces automated pass/fail if flake persists.
+*   **CI Cost:** Only one full run permitted in Staging; subsequent fixes require targeted unit tests before final commit.

@@ -1,0 +1,31 @@
+### Delivery Plan: Async Sync Report Migration
+
+**1. Lanes & Parallelism**
+*   **Lane A (Backend Core):** Refactor the report endpoint to enqueue jobs instead of executing logic. Implement the new status polling endpoint. This lane owns the application code changes.
+*   **Lane B (Infrastructure & Queue):** Configure the new priority queue in the message broker and provision/verify the background worker nodes. Since staging lacks these nodes, Lane B must validate worker connectivity directly in a production-like sandbox or via local integration tests that mock the missing hardware.
+*   **Lane C (Frontend Integration):** Implement the polling mechanism (5-second interval) consuming the new job ID and status endpoint. This runs strictly parallel to Lane A, provided the API contract (request/response schema) is agreed upon immediately.
+*   **Serialization Constraint:** Lane A and Lane B must complete integration testing before Lane C can finalize end-to-end validation. The database migration (part of Lane A) is irreversible and must be applied before any code touching the new schema is deployed.
+
+**2. Gates & Checks**
+*   **Gate 1: Contract Freeze (Day 1):** Before coding, Lane A and Lane C must agree on the JSON schema for the job submission response (Job ID) and the status payload. No code merges without this written agreement.
+*   **Gate 2: Migration Dry-Run (Day 2):** Execute the irreversible database migration script on a local clone or isolated ephemeral environment to verify syntax and data safety. *Check:* Confirm no data loss on rollback simulation.
+*   **Gate 3: Persistence Verification (Day 3):** Simulate a server restart mid-job in the test environment. *Check:* Verify the job survives in the database and resumes processing upon worker restart. This addresses the critical data loss risk.
+*   **Gate 4: CI Trigger Control:** Due to the 45-minute runtime and $12 cost, CI runs only on the final Release Candidate branch, not on every feature commit. Local regression testing is mandatory before pushing to the RC branch.
+*   **Revision Control:** All gates apply to a specific release branch `feat/async-reports-rc`. No changes merge to `main` until all gates pass.
+
+**3. Review Strategy**
+*   **Code Review:** Independent peer review from a senior engineer *outside* the Data Integrity team to ensure no hidden coupling with the locked `global_config.yaml`.
+*   **Architecture Review:** Jane Smith (Data Integrity) must review the persistence strategy and queue configuration to ensure alignment with compliance requirements.
+*   **Frontend Review:** The frontend team lead reviews the polling implementation to ensure it handles edge cases (timeouts, job failures) gracefully.
+*   **Independence:** The code reviewer cannot be the author of the migration script. The architecture reviewer cannot be the implementer of the worker logic.
+
+**4. Landing & Rollback**
+*   **Deployment Window:** Deploy to production Monday morning, providing a full day before the Tuesday deadline to address unforeseen issues.
+*   **Approval Gate:** Deployment requires dual approval: Jane Smith and the current Shift Lead. This is a hard stop; no automation bypasses this.
+*   **Feature Flag:** Wrap the new async endpoint behind a feature flag. Initially, route 5% of traffic to the new flow. Monitor error rates and job completion times.
+*   **Rollback Plan:**
+    *   *Scenario A (Logic Failure):* Toggle the feature flag to revert traffic to the synchronous endpoint immediately.
+    *   *Scenario B (Data/Schema Failure):* Since the DB migration is irreversible, a true rollback requires restoring the database from the pre-migration backup. This is a high-cost operation reserved only for data corruption or total system failure.
+*   **Human Decision Point:** If the 5% canary shows increased latency or dropped jobs, the Shift Lead must decide whether to halt the rollout or proceed with a hotfix. The system does not auto-promote.
+
+**Timeline Critical Path:** Contract Freeze → Migration Dry-Run → Persistence Test → Code Complete → CI Run → Dual Approval → Canary Deploy. Any slip in the migration or persistence verification endangers the Tuesday deadline.

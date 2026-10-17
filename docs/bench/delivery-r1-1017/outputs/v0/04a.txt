@@ -1,0 +1,63 @@
+**Delivery Plan: Sunset Analytics SDK Replacement**
+
+**Objective:** Swap DataPulse SDK for MetricFlow with zero data loss (>4h gap) and exact schema parity by EOD Nov 14.
+
+### 1. Lanes & Serialization
+*Worktrees must be isolated; one writer per tree.*
+
+*   **Lane A (Schema & Contract) [Serialized First]**
+    *   **Actor:** Senior Engineer (Backend).
+    *   **Work:** Map legacy DataPulse event schemas to MetricFlow equivalents in `data-schema.json`. Draft migration ADR.
+    *   **Constraint:** Blocks all other lanes. Requires explicit sign-off from Backend Lead + Compliance Officer before merge.
+    *   **Output:** Approved `data-schema.json` diff + ADR.
+
+*   **Lane B (Implementation) [Parallel after Lane A Sign-off]**
+    *   **Actor:** Senior Engineer (Platform).
+    *   **Work:** Remove DataPulse SDK; integrate MetricFlow SDK using approved schema. Implement dual-write or buffer mechanism to ensure <4h gap during cutover.
+    *   **Constraint:** Must target the exact SHA of Lane A's merged commit.
+    *   **Output:** Feature branch with implementation + unit tests for event mapping.
+
+*   **Lane C (Verification & Load Sim) [Parallel to Lane B]**
+    *   **Actor:** QA Engineer.
+    *   **Work:** Since staging lacks real traffic, build a synthetic load generator replaying production-like event volumes against the new SDK. Validate schema fidelity.
+    *   **Constraint:** Runs against Lane B's build artifacts.
+    *   **Output:** Test receipt confirming 100% schema match and performance baseline.
+
+### 2. Gates & Checks
+*Every check runs on an exact, immutable SHA.*
+
+*   **G0/G1 (Intake/Spec):** Confirm MetricFlow contract details and penalty clauses. Define "zero data loss" technical metric (e.g., event count delta < 0.1% over 24h sim).
+*   **G2 (Plan):** Graph dependency: Lane A → Lane B/C. Set budget: Max 3 full CI runs ($135 total). Use targeted test paths only.
+*   **G3 (Design):** ADR review for data mapping logic. Compliance sign-off on `data-schema.json`.
+*   **G4 (Implement):** Code complete. Unit tests green.
+*   **G5 (Verify):**
+    *   Run synthetic load test (Lane C) on Lane B's SHA.
+    *   **Flake Handling:** If `audit-log` fails on a Tuesday, mark as `UNVERIFIED` but proceed to manual log inspection; do not block solely on this flake.
+    *   **Critical:** Verify buffer/dual-write logic ensures continuity if cutover stalls.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer *not* involved in Lanes A/B (independent).
+    *   **Scope:** Full diff against Lane A's base SHA. Security check for new vendor keys/egress.
+*   **G7 (Integrate):** Merge to integration branch. Re-run critical path tests on final merge SHA.
+
+### 3. Review Strategy
+*   **Code Review:** Independent Senior Engineer (no author overlap).
+*   **Compliance Review:** Compliance Officer (mandatory for `data-schema.json`).
+*   **Security Review:** Verify MetricFlow SDK supply chain integrity and key handling.
+
+### 4. Landing & Human Gates
+*   **Merge Train:** Serialized. Lane A merges first. Lane B merges only after Lane A is live in the integration branch.
+*   **Human Decision Required:**
+    *   **Sign-off:** Backend Lead + Compliance Officer on schema change (Gate G3).
+    *   **Deploy Approval:** Senior Engineer with production merge key (Gate G8). *No auto-deploy.*
+    *   **Cutover Execution:** Manual trigger during low-traffic window to monitor the <4h gap constraint.
+*   **Rollback Plan:**
+    *   Production deploy is irreversible without a 6-hour DB restore.
+    *   **Mitigation:** Deploy behind a feature flag. If MetricFlow fails validation post-deploy, flip flag back to DataPulse immediately (if contract allows final hours) or enable local buffering until DB restore completes.
+    *   **Decision Point:** If validation fails at G5, abort merge. Do not attempt "fix-forward" on the deadline day.
+
+**Timeline:**
+*   **Now - Nov 12:** Lanes A, B, C execution.
+*   **Nov 13:** Final G6 Review, G7 Integration.
+*   **Nov 14 (EOD):** Human approval (G8), Deploy, Verify (G9).
+
+**Risk Note:** Missing the Nov 14 deadline results in permanent Q4 historical data loss. All non-essential work is suspended to prioritize this lane.

@@ -1,0 +1,66 @@
+# Delivery Plan: Nexus Core Pipeline Migration
+
+## Lanes & Parallelism
+
+**Lane A: Pipeline Engineering (Parallel)**
+*   **Owner:** Platform Reliability Team
+*   **Work:** Port build scripts to the new provider. Refactor the integration suite to run under the new 30-minute timeout (splitting tests or optimizing fixtures). Remove the legacy flaky network check logic.
+*   **Constraint:** Must not modify `global-rules.json` until Lane B validates compatibility.
+
+**Lane B: Compliance & Data (Parallel)**
+*   **Owner:** Data Engineering / Compliance
+*   **Work:** Execute historical data migration to the new platform. Generate sample compliance reports from both old and new systems to verify bit-for-bit accuracy.
+
+**Lane C: Documentation & Training (Serialized after A & B)**
+*   **Owner:** Technical Writing / Shift Leads
+*   **Work:** Draft new runbooks and approval trigger guides. Conduct training sessions for shift leads only after Lane A and B sign off.
+
+**Serialization Point:** Lane C cannot begin until Lanes A and B produce a successful "Dry Run" build. Lane A and B run simultaneously but must merge their outputs for the validation gate.
+
+## Gates & Checks
+
+**Gate 1: Artifact Equivalence Check**
+*   **Trigger:** First successful build on new provider.
+*   **Action:** Compare checksums and binary contents of artifacts from Legacy vs. New Provider.
+*   **Revision:** Latest `main` branch commit at time of test.
+*   **Pass Criteria:** Zero differences in output artifacts; `global-rules.json` remains backward compatible.
+
+**Gate 2: The "Friday Shadow" Run**
+*   **Trigger:** The Wednesday prior to go-live.
+*   **Action:** Run the new pipeline in parallel with the legacy pipeline using the exact same commit.
+*   **Constraint:** New pipeline must complete under 30 minutes.
+*   **Pass Criteria:** New pipeline succeeds; legacy pipeline succeeds (or fails only due to known flakiness which is now documented as ignored); artifacts match.
+
+**Gate 3: Dual-Approval Simulation**
+*   **Trigger:** Post-"Friday Shadow" success.
+*   **Action:** Simulate the deployment approval flow.
+*   **Participants:** Jane Smith and Security Lead.
+*   **Pass Criteria:** Both approvers confirm the new interface triggers are clear and functional.
+
+## Review Process
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer from a different squad (not Platform Reliability).
+*   **Scope:** Review the new pipeline configuration and the integration suite refactor.
+*   **Focus:** Verify the removal of the flaky network check and ensure timeout handling is robust.
+*   **Timing:** Before Gate 1.
+
+**Compliance Sign-off**
+*   **Reviewer:** Compliance Officer.
+*   **Scope:** Validate migrated historical data reports.
+*   **Timing:** Before Gate 2.
+
+## Landing Strategy
+
+**The Switch (Go-Live)**
+*   **Timing:** Immediately following a successful "Friday Shadow" run, targeting the next Friday deployment window.
+*   **Method:** Update the repository webhook to point to the new provider. Disable the legacy webhook but do not delete it for 48 hours.
+*   **Human Decision:** Jane Smith and the Security Lead must explicitly authorize the webhook flip in the change management ticket.
+
+**Rollback Protocol**
+*   **Trigger:** If the new pipeline fails to start, exceeds 30 minutes, or produces a mismatched artifact during the live Friday window.
+*   **Action:** Immediately revert the webhook configuration to the legacy provider.
+*   **Communication:** Notify Shift Leads via the emergency channel; the legacy system remains the source of truth until the next business day.
+
+**Post-Landing**
+*   **Action:** Monitor the first three weekly releases. If successful, decommission legacy provider access and finalize documentation updates.

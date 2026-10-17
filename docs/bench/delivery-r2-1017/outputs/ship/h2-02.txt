@@ -1,0 +1,77 @@
+**Delivery Plan: Session Store Migration (Zero Downtime)**
+
+**Scope & Constraints**
+Migrate `AuthModule` (core-monolith) to managed service.
+**Hard Constraints:** Zero user logout, dual-write + lazy migration, fallback on timeout, data sovereignty compliance.
+**Appetite:** Complete before holiday rush; no business-hour disruption.
+
+### Lanes & Parallelism
+
+**Lane 1: Adapter & Serialization (Builder)**
+*   **Work:** Implement translation layer between legacy non-standard serializer and managed service format. Build the dual-write client (write to both, read from legacy first).
+*   **Parallel:** Yes.
+*   **Output:** Patch with unit tests for serialization edge cases.
+
+**Lane 2: Fallback & Resilience (Builder)**
+*   **Work:** Implement circuit breaker/timeout logic. If managed service times out, fail over to legacy store immediately without erroring the user request.
+*   **Parallel:** Yes (depends on Lane 1's client interface).
+*   **Output:** Patch with chaos-tests simulating service latency/failure.
+
+**Lane 3: Migration Script & Reconciliation (Builder)**
+*   **Work:** Write the lazy-migration trigger (migrate session on next activity). Create a one-off reconciliation script to verify count/integrity post-cutover (read-only).
+*   **Parallel:** Yes.
+*   **Output:** Script + dry-run report.
+
+**Lane 4: Independent QA (QA)**
+*   **Trigger:** Lanes 1–3 green at exact SHA.
+*   **Work:** Verify "no logout" scenario. Test fallback under load. Validate data sovereignty flags.
+*   **Serialization:** Must wait for Lanes 1–3 integration.
+*   **Output:** Test receipts, headed-browser evidence of seamless transition.
+
+**Lane 5: Security & Compliance Review (Security)**
+*   **Trigger:** Final integrated SHA.
+*   **Work:** Audit data flow for sovereignty rules. Review fallback logs for PII leakage.
+*   **Serialization:** Blocks merge.
+
+### Gates & Checks
+
+*   **G1 Spec:** Pin base SHA. Define "Zero Downtime" as 0 active session drops in load test.
+*   **G2 Plan:** Set per-lane token budgets. Explicitly mark the "flaky network latency suite" as *non-blocking* unless manually verified as a real regression.
+*   **G4 Implement:** Unit tests run locally per lane. No CI triggered until local green.
+*   **G5 Verify (Local/Staging):**
+    *   Run full integration suite **once** on the candidate SHA (avoid re-runs).
+    *   **Critical:** Simulate managed service outage; verify fallback serves existing sessions.
+    *   **UI Evidence:** Record user journey maintaining login state during forced latency.
+*   **G6 Review:**
+    *   **Code:** Independent review (not Builder).
+    *   **Security:** AppSec sign-off on data handling.
+    *   **Flake Check:** If network suite fails, human verifies logs before proceeding.
+
+### Landing Strategy
+
+**Integration (G7)**
+1.  Merge Lanes 1–3 into a staging branch.
+2.  Run single integration pipeline (45 mins).
+3.  Generate `deep-code-review` diff report.
+
+**Human Gates (G8 - Required Before Merge)**
+*   **Approvals Required:** Lead Architect + Compliance Officer.
+*   **Decision Format:**
+    *   *Issue:* Deploy dual-write session migration.
+    *   *A:* Deploy behind feature flag, enable 5% traffic, monitor 1 hour (Recommended) — Limits blast radius.
+    *   *B:* Full cutover immediately — Faster but higher risk if edge case missed.
+*   **Constraint:** Deployment cannot occur during business hours.
+
+**Rollback Plan**
+*   **Trigger:** Error rate > 0.1% or session validation failures.
+*   **Action:** Flip feature flag to disable managed service writes; revert to legacy-only read/write.
+*   **Data Safety:** Since dual-write is active, no data is lost; new sessions exist in both stores. Lazy migration pauses automatically.
+
+**Post-Deploy (G9)**
+*   Monitor latency spikes and fallback counts.
+*   Verify no mass logout tickets in support queue.
+
+**Cost Control**
+*   CI triggered exactly once per candidate SHA.
+*   No re-runs on merged SHA unless code changes.
+*   Flaky check ignored unless manually confirmed.

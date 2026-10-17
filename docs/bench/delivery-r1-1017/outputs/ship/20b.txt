@@ -1,0 +1,76 @@
+**Delivery Plan: Inventory Sync Conflict Resolution**
+
+**Objective:** Implement a merge prompt in the 'Stock Audit' module to resolve concurrent edits between field agents (offline) and dispatchers (cloud), ensuring data integrity for Q3 compliance.
+
+**Constraints & Risks:**
+*   **Cost:** CI is $45/run; flaky tests must be fixed immediately.
+*   **Freeze:** No merges on Fridays.
+*   **Dependency:** `conflict_handler.py` is shared; signature changes require Marcus Thorne's sign-off.
+*   **Production:** Deploys are irreversible without a 4-hour DB rollback.
+*   **Noise:** `nightly-reconcile` creates false positives; logs must be distinguished.
+
+---
+
+### Lanes & Serialization
+
+**Lane 1: Specification & Contract (Product Analyst + Conductor)**
+*   **Work:** Define the "Merge Prompt" UI spec and the conflict resolution logic (e.g., "Agent Value + Dispatcher Adjustment" vs. "Choose One"). Define the "Done-when" criteria: Agent sees distinct labels ("Device" vs. "Cloud") and resolves the conflict without data loss.
+*   **Output:** Testable spec + Acceptance Criteria.
+*   **Parallel:** Yes (Starts immediately).
+
+**Lane 2: Core Logic Refactor (Builder)**
+*   **Work:** Modify `conflict_handler.py` to expose conflict metadata without breaking the desktop billing app.
+*   **Constraint:** If the function signature changes, this lane **blocks** until Marcus Thorne approves (Human Gate). If possible, extend via optional args to avoid breaking changes.
+*   **Serialization:** Must complete before Lane 3 (UI) and Lane 4 (Integration) can finalize.
+*   **Check:** Unit tests for merge logic (local, free).
+
+**Lane 3: UI Implementation (Builder)**
+*   **Work:** Implement the 'Stock Audit' merge prompt. Highlight discrepancies. Label sources clearly ("Device" vs. "Cloud").
+*   **Dependency:** Waits for Lane 2's interface definition.
+*   **Check:** Local UI render, accessibility check.
+
+**Lane 4: Independent Verification (QA)**
+*   **Work:** Simulate concurrent edits (Agent offline update + Dispatcher change). Verify the prompt appears, labels are correct, and the final sync preserves both values as per spec.
+*   **Environment:** Emulated hardware cluster (costly).
+*   **Strategy:** Run only once per candidate SHA after local green. Filter out `nightly-reconcile` false positives in log analysis.
+*   **Serialization:** Runs after Lane 2 & 3 are code-complete.
+
+**Lane 5: Security & Data Integrity (Security)**
+*   **Work:** Verify that the merge logic cannot be exploited to overwrite authorized dispatcher adjustments maliciously. Ensure no PII leaks in conflict logs.
+*   **Parallel:** Can run alongside Lane 4.
+
+---
+
+### Gates & Checks
+
+*   **G1 (Spec):** Spec pinned to base SHA. Explicitly names `conflict_handler.py` scope.
+*   **G2 (Plan):** Budget set: Max 3 CI runs ($135 cap). Marcus Thorne identified for signature review.
+*   **G4 (Implement):**
+    *   Lane 2 commits must pass local unit tests (free).
+    *   **Human Gate:** If `conflict_handler.py` signature changes, pause for Marcus Thorne's approval before merging to integration branch.
+*   **G5 (Verify):**
+    *   **Exact Revision:** QA runs against the specific commit SHA from Lanes 2+3.
+    *   **Check:** Functional test on emulated cluster (1 run). Verify UI labels ("Device" vs. "Cloud").
+    *   **Log Check:** Confirm sync success is not masked by `nightly-reconcile` noise.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent senior dev (not the Builder).
+    *   **Focus:** Logic correctness, UI clarity, and billing app compatibility.
+    *   **Security:** AppSec verdict on data integrity.
+
+---
+
+### Landing & Rollback
+
+**Merge Strategy:**
+*   **Train:** Merge Lanes 2, 3, 5 into an integration branch. Run G5/G6 on the *merged* SHA.
+*   **Timing:** Complete merge by Thursday EOD to respect the Friday change freeze.
+*   **Human Decision:** Owner approves the production deploy (G8) after reviewing the QA receipt and Security verdict.
+
+**Rollback Plan:**
+*   **Trigger:** Any data discrepancy reported post-deploy or SLO breach.
+*   **Action:** Since deploys are irreversible, execute the full database rollback (4-hour window).
+*   **Preparation:** Verify rollback script readiness in G3. Communicate the 4-hour downtime window to stakeholders before initiating.
+
+**Post-Merge:**
+*   Monitor sync logs for 24 hours, filtering known `nightly-reconcile` false positives.
+*   Confirm zero data loss in the next Q3 compliance sample.

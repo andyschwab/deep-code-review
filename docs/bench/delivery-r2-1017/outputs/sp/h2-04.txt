@@ -1,0 +1,58 @@
+# Delivery Plan: Burst-Aware Rate Limiting (Public API v2)
+
+## Lanes & Parallelism
+
+**Lane A: Configuration & Logic (Platform Team)**
+*   **Work:** Modify `global-throttle.rules` to inject the 300% capacity logic for 'Tier-One' accounts. Implement the separate logging stream for rejected requests.
+*   **Constraint:** Must include the specific cache-busting flag in the deploy script, or changes will stall for four hours.
+*   **Parallelism:** Can run concurrently with Lane B.
+
+**Lane B: Client Coordination (Billing/Support Team)**
+*   **Work:** Identify and verify the specific 'Tier-One' account IDs and their scheduled maintenance windows. Provide the exact list to Lane A for whitelist configuration.
+*   **Parallelism:** Runs parallel to Lane A; must complete before final integration testing.
+
+**Lane C: Verification & Safety (SRE Lead)**
+*   **Work:** Prepare the database snapshot strategy. Since reverts require a two-hour irreversible restore, SRE must manually snapshot the production DB immediately before the cutover.
+*   **Serialization:** This lane waits for Lane A & B to merge but must complete *before* the traffic switch.
+
+## Gates & Checks
+
+**Gate 1: Code Review (Pre-Merge)**
+*   **Who:** One senior engineer from Platform, one from Billing.
+*   **What:** Verify the 300% calculation logic and the separation of log streams. Ensure no baseline limits are weakened for non-Tier-One traffic.
+*   **Revision:** Merge Request branch based on `main` (latest stable).
+
+**Gate 2: Staging Sanity (Pre-Deploy)**
+*   **Who:** Automated CI + Manual QA.
+*   **Constraint:** Do **not** rely on staging load tests for burst validation (environment lacks the balancer). Only verify config syntax and log stream routing.
+*   **Cost Control:** Trigger CI only once after Gate 1 approval to avoid unnecessary $45/55min runs.
+
+**Gate 3: Production Pre-Flight (Immediate Pre-Launch)**
+*   **Who:** SRE Lead.
+*   **Action:** Take manual database snapshot.
+*   **Check:** Verify the deploy command includes the cache-busting flag. Without this, the gate fails.
+
+## Review Strategy
+
+*   **Independent Review:** The code review (Gate 1) requires dual approval from distinct team leads (Platform & Billing). Neither can approve their own team's changes.
+*   **Logic Verification:** Since staging cannot validate burst loads, the "review" of the burst logic relies on a dry-run simulation using production read-only logs replayed against the new ruleset in a sandbox, verified by the SRE Lead.
+*   **Log Audit:** Support Team Lead must confirm they can distinguish "malicious" vs. "config error" logs in a test output before sign-off.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge Lane A & B to `main`.
+2.  Trigger single CI build (55 mins).
+3.  SRE executes deploy with cache-busting flag.
+4.  **Soft Launch:** Enable new logic for 5% of Tier-One traffic only. Monitor for 15 minutes.
+5.  **Full Rollout:** If error rates remain baseline, enable for all Tier-One accounts.
+
+**Human Decisions Required:**
+*   **Go/No-Go:** Site Reliability Lead must explicitly approve the cutover after verifying the DB snapshot.
+*   **Tier-One List:** Billing Lead must sign off on the final account list to prevent unauthorized burst access.
+
+**Rollback Protocol:**
+*   **Trigger:** Any increase in baseline rejection rates or failure in the 5% soft launch.
+*   **Action:** Immediate revert of the code deployment.
+*   **Data Recovery:** If data corruption occurred during the window, initiate the two-hour database snapshot restore. This is the nuclear option; code revert is the primary recovery method.
+*   **Post-Rollback:** Invalidate the throttle cache manually to ensure the old rules propagate immediately.

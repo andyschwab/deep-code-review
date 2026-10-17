@@ -1,0 +1,51 @@
+**Delivery Plan: DE/FR/JP Localization Launch**
+
+**Strategy**
+Execute via three serialized phases to respect CMS approval windows and shared database constraints. Parallelize code extraction and template refactoring; serialize CMS updates and final verification.
+
+**Lane 1: Extraction & Consolidation (Builder)**
+*   **Work:** Scan logic layer and HTML templates. Move all hardcoded strings to a central resource file. Update the template engine to consume keys. Implement auto-formatting for dates/currencies.
+*   **Parallelism:** Can run simultaneously with Lane 2 (Drafting).
+*   **Gate (G4/G5):** Run existing pre-commit hook locally. It must pass with zero hardcoded strings detected in view files.
+*   **Output:** Patch with new resource files and updated engine logic.
+
+**Lane 2: Translation Drafting (Product Analyst + External Vendor)**
+*   **Work:** Extract keys from Lane 1's output. Generate DE, FR, JP translations. Format CMS import payloads.
+*   **Parallelism:** Runs parallel to Lane 1.
+*   **Constraint:** No CMS write access yet. Prepare payloads for Tuesday submission.
+*   **Output:** Three locale JSON files and CMS import manifests.
+
+**Lane 3: CMS Integration (Release + Regional Marketing Lead)**
+*   **Work:** Submit import manifests to Regional Marketing Lead.
+*   **Serialization:** **Blocked** until Tuesday (Human Gate). Requires Lead approval before any staging write.
+*   **Risk Mitigation:** Since staging DB is shared and swaps are irreversible, this lane must coordinate a "DB Freeze" window with the QA team or utilize a disposable staging clone if available. If no clone exists, this step waits for the nightly backup snapshot immediately prior to import.
+*   **Output:** CMS populated with locale-specific content.
+
+**Verification Strategy (QA)**
+*   **Scope:** Independent verification on the **exact integrated SHA** containing Lane 1 code + Lane 3 CMS data.
+*   **Check 1 (Automated):** Run unit tests for date/currency formatters.
+*   **Check 2 (Visual):** Render every screen in DE, FR, JP. Verify no mixed-language pages.
+*   **Check 3 (Data):** Confirm CMS banners match the imported manifests.
+*   **Constraint:** Verification cannot begin until Lane 3 completes (post-Tuesday).
+*   **Failure Mode:** If mixed languages appear, fail closed. Do not attempt "quick fixes" in staging; restore from nightly backup and retry.
+
+**Review Protocol**
+*   **Code Review:** Senior Engineer (independent of Builder) reviews Lane 1 patch. Focus: separation of concerns, key naming consistency, formatter logic.
+*   **Content Review:** Native speakers (or validated vendor) verify Lane 2 translations against the spec before CMS submission.
+*   **Security/Privacy:** Verify no PII is exposed in translation logs or resource files.
+
+**Landing Plan**
+1.  **Merge Train:** Lane 1 merges to `main` only after Code Review passes and pre-commit hooks succeed locally.
+2.  **Deployment to Staging:** Deploy Lane 1 code to staging. Wait for Tuesday.
+3.  **CMS Update:** Execute Lane 3 (Human Gate: Marketing Lead).
+4.  **Final Verification:** QA signs off on the running staging instance (G5).
+5.  **Production Release (G8):**
+    *   **Human Decision:** Product Owner approves the "Flip Switch" for the beta group based on QA receipt.
+    *   **Rollback:** If production issues arise, revert the CMS content immediately (via CMS undo) and roll back the code deployment to the previous SHA. Note: Database restore is the nuclear option due to shared QA data; prefer feature-flagging the new locales off if possible.
+
+**Risks & Mitigations**
+*   **Pipeline Slowness (45m):** Run localization-specific integration tests only, not the full suite, during the iterative Lane 1 phase. Run the full suite only once before final merge.
+*   **Shared DB:** Explicitly schedule the CMS update during a QA downtime window or after a fresh nightly backup. Do not overwrite QA data unexpectedly.
+*   **Tuesday Bottleneck:** All code must be ready and reviewed by Monday EOD to maximize the Tuesday approval window.
+
+**Next Step:** Confirm QA team availability for a staging DB freeze/restore window on Tuesday.

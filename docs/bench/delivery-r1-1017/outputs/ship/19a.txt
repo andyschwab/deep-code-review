@@ -1,0 +1,55 @@
+**Delivery Plan: BillingCycle → SubscriptionTerm Rename**
+
+**Strategy:** Single-lane execution to prevent collision on the shared configuration and release branch. No parallelization; risk of partial rename breaking the build outweighs speed gains.
+
+**Lane 1: Scope & Impact Analysis (Conductor)**
+*   **Work:** Grep repository for `BillingCycle`. Map occurrences into three buckets: Code/Logic, API/Contracts, and Comments/Logs. Identify the shared configuration file dependencies.
+*   **Gate:** Manual review of the map by Tech Lead to confirm no hidden data-structure changes are implied.
+*   **Output:** A definitive file list and a "Shared Config Compatibility Plan."
+
+**Lane 2: Implementation & Local Verification (Builder)**
+*   **Work:** Execute rename on the file list in a dedicated worktree.
+    *   Update logic, API contracts, and strings.
+    *   Preserve comments/logs as requested.
+    *   **Critical:** Ensure the shared configuration file exposes both terms or maintains backward compatibility aliases.
+    *   Draft the database migration script (rename only, no structural change).
+*   **Checks (Local):**
+    *   Run migration script dry-run against a local production mirror copy. **Stop if any schema alteration is detected beyond naming.**
+    *   Compile build.
+    *   Run unit tests.
+*   **Gate:** Local green required before pushing.
+
+**Lane 3: Independent Verification (QA + Security)**
+*   **Trigger:** Exact SHA from Lane 2.
+*   **Work:**
+    *   Verify backward compatibility of the shared config by simulating calls from the three dependent microservices.
+    *   Run full regression suite (55 mins).
+    *   **Flake Mitigation:** If the known network check fails, capture the specific error signature. Retry exactly once. If it fails again, flag for Admin manual retry; do not merge.
+*   **Gate:** Regression green OR documented flake with Admin acknowledgment.
+
+**Review Process**
+*   **Code Review:** Senior Engineer (not the Builder). Focus: Missed references, backward compatibility in the shared config, and ensuring no logic changes occurred.
+*   **Compliance Review:** Compliance Officer. Focus: Confirming "BillingCycle" is fully eradicated from user-facing strings and logs to satisfy the legal mandate.
+*   **Security Review:** Automated scan + Human spot-check on the migration script to ensure irreversibility constraints are met.
+
+**Landing Strategy**
+*   **Branch:** Target the `release/4.2` branch directly (as per freeze constraints), not main.
+*   **Merge Method:** Squash merge to keep history clean for the cherry-pick requirement.
+*   **Human Decisions (Gated):**
+    1.  **Tech Lead:** Approves the backward-compatibility plan for the shared config.
+    2.  **Compliance Officer:** Sign-off on the terminology shift completeness.
+    3.  **Dual Approval:** Both Tech Lead and Compliance Officer must approve the final merge button press.
+*   **Rollback Plan:**
+    *   Since DB changes are irreversible in prod mirror, the migration script must be wrapped in a transaction that can be rolled back if the deployment fails mid-flight.
+    *   If post-merge issues arise: Revert the commit immediately. The code rename is reversible; the DB script must be designed to be idempotent or reversible via a counter-script prepared during Lane 2.
+
+**Cost Control**
+*   The 55-minute regression suite runs exactly once on the candidate SHA. No re-runs unless the SHA changes.
+*   Flaky network check retries are capped at one automatic attempt; subsequent attempts require human intervention to save compute credits.
+
+**Timeline**
+*   Analysis: 2 hours.
+*   Implementation: 4 hours.
+*   Verification: 1 hour (setup) + 55 mins (suite) + buffer for flake.
+*   Review/Approval: Dependent on stakeholder availability.
+*   Total Elapsed: ~1 business day excluding approval wait times.

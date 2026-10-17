@@ -1,0 +1,57 @@
+**Delivery Plan: Loyalty Tier SMS Template Update**
+
+**Scope & Constraints**
+Update SMS template logic to fetch thresholds from the configuration service. Ensure exact legal copy match. **Hard Constraint:** Zero production message leakage during verification. Deployment must occur before Friday EOD to meet the marketing push.
+
+**Lane Decomposition**
+
+*   **Lane 1: Specification & Legal Alignment (Product Analyst)**
+    *   **Work:** Extract exact approved legal text and new opt-out phrasing. Define the "Done-when" criteria: message content matches legal doc character-for-character.
+    *   **Output:** A testable spec document pinned to the legal version ID.
+    *   **Parallel:** Can run immediately.
+
+*   **Lane 2: Implementation (Builder)**
+    *   **Work:** Modify template logic to read from the configuration service instead of hardcoded values. Isolate changes to the messaging module; do not touch the shared read-only config file yet.
+    *   **Environment:** Local worktree with mocked configuration service responses.
+    *   **Safety:** Hardcode a `DRY_RUN=true` flag in the local build that physically prevents any outbound network call to SMS gateways, regardless of config.
+    *   **Parallel:** Starts after Lane 1 spec is ready.
+
+*   **Lane 3: Independent Verification (QA)**
+    *   **Work:** Verify logic using **only** local mocks and unit tests.
+    *   **Critical Check:** Assert that under no input condition does the code attempt an outbound connection to the production SMS gateway. Review the `DRY_RUN` enforcement and network isolation layers.
+    *   **Flake Handling:** Document the known timezone conversion flake in the test receipt but mark it as non-blocking per ticket instructions.
+    *   **Serialization:** Must wait for Lane 2 commit.
+
+*   **Lane 4: Security & Compliance Review (Security)**
+    *   **Work:** Audit the change for data leakage risks. Verify that staging data cannot route to live phone numbers. Confirm the "irreversible" nature of production batches is respected by the new logic (i.e., no accidental triggers).
+    *   **Serialization:** Runs parallel to Lane 3, blocks on Lane 2.
+
+*   **Lane 5: Configuration Coordination (Conductor + Team Leads)**
+    *   **Work:** Prepare the dual sign-off request for the shared read-only configuration file update (Engagement Squad + Billing Module leads).
+    *   **Serialization:** Triggered only after Lanes 3 and 4 pass. This is the highest risk of collision; serialize the actual file edit to avoid merge conflicts.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Owner approves legal text alignment.
+*   **G4 (Implement):** Builder commits code with `DRY_RUN` enforcement active. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Local Only:** Run unit tests and integration tests against mocked services. **Do not run the full CI pipeline** yet due to the $200 cost and 45-minute latency.
+    *   **Proof:** Provide logs showing zero outbound SMS attempts.
+    *   **Condition:** Green local tests + Security sign-off on "No Leakage."
+*   **G6 (Review):**
+    *   **Independent Review:** Security and QA review the diff. Builder does not self-approve.
+    *   **CI Trigger:** Only after G6 approval, trigger the full CI pipeline once on the exact candidate SHA. Accept the timezone flake as documented noise; fail only on actual logic errors.
+*   **G7 (Integrate):** Merge to the integration branch.
+*   **G8 (Release):** **Human Gate.** VP of Customer Experience must approve deployment (Friday rule).
+
+**Landing Strategy**
+
+1.  **Merge Train:** Once CI passes (G6), merge to the release branch.
+2.  **Human Decision:** Present the VP with a single approval request: "Deploy Loyalty SMS Update (SHA: <hash>) containing verified legal copy and zero-leakage guarantees."
+3.  **Rollback:** Since production batches are irreversible, rollback strategy is **preventative**, not reactive. If a bad message sends, it cannot be recalled. Therefore, the "rollback" is an immediate feature flag kill-switch to stop *future* messages if the config is wrong. Ensure this switch is tested in Lane 3.
+4.  **Timing:** Target deployment for Friday morning to allow buffer before the marketing push.
+
+**Risk Mitigation**
+*   **Cost/Latency:** Full CI runs exactly once on the final candidate SHA, never on intermediate commits.
+*   **Compliance:** Physical network isolation in local/dev environments ensures no accidental production sends.
+*   **Collision:** Shared config file edit is serialized behind dual lead approval.

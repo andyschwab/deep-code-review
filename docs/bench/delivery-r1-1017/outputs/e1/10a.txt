@@ -1,0 +1,56 @@
+### Delivery Plan: Nordic GDPR Export Filter
+
+**Objective:** Strip patient names/SSNs and add `anonymized` flag for `Region-Nordic` tenants in the monthly billing export without impacting US reports.
+**Deadline:** Thursday Noon (Hard Gate).
+**Base SHA:** `HEAD` of `main` at plan approval (Immutable).
+
+#### 1. Lanes & Serialization
+*Work is serialized on the shared `ReportGenerator` module to prevent collision. Parallel verification follows.*
+
+*   **Lane A: Implementation (Builder)**
+    *   **Work:** Modify `BillingCore/ReportGenerator` to inject filtering logic gated by `tenant.region == 'Region-Nordic'`. Append `anonymized` header flag.
+    *   **Constraint:** Must not alter logic for non-Nordic tenants.
+    *   **Output:** Patch + Unit Tests covering Nordic vs. US data paths.
+    *   **Budget:** Capped at $X token cost (no unlimited retries).
+
+*   **Lane B: Compliance Spec & Test Data (Product Analyst)**
+    *   **Work:** Define exact PII patterns to strip. Generate sanitized test dataset mimicking high-load Nordic traffic (>50 concurrent users) to expose flakiness early.
+    *   **Output:** Test data fixture + Acceptance Criteria document.
+
+*   **Lane C: Security & Privacy Review (Security Hat)**
+    *   **Work:** Static analysis of the filter logic. Verify no PII leakage in error logs or temp files.
+    *   **Trigger:** Runs only after Lane A code is frozen.
+
+#### 2. Gates & Checks (Exact Revisions)
+*Cost control: CI runs once per candidate SHA. No redundant builds.*
+
+*   **G0/G1 (Intake/Spec):** Confirm scope matches ticket. **Evil Twin** attacks the "Region-Nordic" logic for edge cases (e.g., dual-region tenants) before coding starts.
+*   **G2 (Plan):** Serialize Lane A and B. Define budget caps.
+*   **G3 (Design):** Brief ADR confirming the `if/else` split does not introduce regression risk for US tenants.
+*   **G4 (Implement):** Lane A commits to a feature branch. Unit tests run locally first (cheap).
+*   **G5 (Verify):**
+    *   **CI Run:** Trigger full regression suite **once** on the exact commit SHA.
+    *   **Flake Mitigation:** Run the `patient_masking` check in isolation with the high-load dataset from Lane B. If it flakes, retry max 2 times; if still red, escalate to decorrelate load, not blind retry.
+    *   **UI/Data Evidence:** Verify CSV output contains `anonymized` flag and zero raw PII for Nordic sample; verify US sample remains untouched.
+*   **G6 (Review):**
+    *   **Independent Review:** Lead Backend Engineer (Code) + Compliance Officer (Logic).
+    *   **Constraint:** Compliance review must occur Tuesday or Thursday. Given the deadline, this must be scheduled for the immediate upcoming window.
+
+#### 3. Landing & Human Gates
+*Deploy is irreversible; rollback requires full DB restore.*
+
+*   **G7 (Integrate):** Merge to `main` only after G6 approval. Re-run affected CI gates on the merge SHA (no full suite if diff is narrow, otherwise required).
+*   **G8 (Release - Human Decision):**
+    *   **Approver:** Compliance Officer + Release Owner.
+    *   **Action:** Deploy to Production.
+    *   **Rollback Plan:** Documented procedure to restore from last nightly backup if PII is detected post-deploy.
+*   **G9 (Production Verify):**
+    *   **Action:** Run a live dry-run export for a single Nordic tenant immediately post-deploy. Verify SFTP file content.
+    *   **Evidence:** Log receipt confirming `anonymized=true` and no SSN presence.
+
+#### 4. Risk & Contingency
+*   **Compliance Bottleneck:** If the Compliance Officer is unavailable before Thursday noon, the deployment is blocked. No workaround; regulatory violation risk outweighs speed.
+*   **CI Cost:** If the pipeline fails due to flakiness, do not re-run the full 45-minute suite. Isolate the failing test and run only that subset.
+*   **Irreversibility:** The "stop the world" condition is any detection of raw PII in the Nordic output. Immediate rollback to nightly backup is the only recovery path.
+
+**Status:** Ready for G0 approval. Awaiting confirmation of Compliance Officer's next available review slot.

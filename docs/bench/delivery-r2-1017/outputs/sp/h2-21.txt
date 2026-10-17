@@ -1,0 +1,74 @@
+# Delivery Plan: Nexus Core Audit Logging
+
+## Lanes & Parallelism
+
+**Lane A: Standards & Schema (Owner: Senior Engineer)**
+*Define the audit contract.*
+1.  Draft `AuditEvent` schema (User ID, Timestamp, Entity ID, Action, Changed Fields, Request ID).
+2.  Define serialization format (JSON) and secure store ingestion protocol.
+3.  **Constraint:** Do not modify `common-utils`; embed logic locally or create a new internal module.
+*Parallel Start.*
+
+**Lane B: Instrumentation (Owner: Implementation Team)**
+*Apply logging to write paths.*
+1.  Identify all write endpoints (Create, Update, Delete) in Nexus Core.
+2.  Inject logging hooks post-validation but pre-commit.
+3.  Implement asynchronous shipping to the central secure store to ensure zero latency impact on user requests.
+*Starts after Lane A defines schema.*
+
+**Lane C: Infrastructure & Routing (Owner: DevOps)**
+*Ensure log delivery.*
+1.  Configure staging network rules to allow Nexus Core to reach the central secure store.
+2.  Verify credentials/keys for the secure store are available in the staging environment.
+*Parallel Start with Lane A.*
+
+## Gates & Checks
+
+**Gate 1: Schema Freeze (Revision: `audit-schema-v1`)**
+*   **Check:** Jane Smith (Data Integrity Lead) + Security Representative.
+*   **Criteria:** Schema captures all compliance requirements; async shipping guarantees non-blocking behavior.
+*   **Action:** Merge schema definition to `develop`. Lane B proceeds only after this merge.
+
+**Gate 2: Unit & Integration Test (Revision: `feature/audit-logging-head`)**
+*   **Check:** CI Pipeline.
+*   **Strategy:** Run targeted unit tests for new logging modules first. Run full regression suite *only* if unit tests pass.
+*   **Mitigation:** If 'network-isolation' check times out, flag for manual review rather than failing the build automatically, given known flakiness.
+*   **Cost Control:** Fail fast on linting and unit tests to avoid burning cloud credits on broken builds.
+
+**Gate 3: Staging Validation (Revision: `staging-candidate`)**
+*   **Check:** Automated smoke tests + Manual verification by Security.
+*   **Timing:** Must complete before Friday 03:00 UTC (before data sanitization).
+*   **Criteria:** Logs appear in the central secure store with correct schema; request latency remains unchanged.
+
+## Review Process
+
+**Independent Code Review:**
+*   **Reviewer:** Senior Engineer from a team *other than* Data Integrity (to ensure separation of duties).
+*   **Focus:** Verify that no read-only endpoints were modified; confirm async implementation does not swallow exceptions silently; ensure no PII is logged beyond the spec.
+*   **Timing:** Before merging to `staging`.
+
+**Security Compliance Review:**
+*   **Reviewer:** Security Representative.
+*   **Focus:** Confirm data flow to the secure store is encrypted and authenticated.
+*   **Timing:** Parallel with Code Review, final sign-off required before deployment.
+
+## Landing Strategy
+
+**Deployment to Staging:**
+*   **Trigger:** Successful Gate 3 checks.
+*   **Approvals:** Dual approval required (Security + Operations).
+*   **Deadline:** Deploy by Friday 12:00 UTC to allow validation before the weekend.
+
+**Production Rollout (Post-Validation):**
+*   **Prerequisite:** Security sign-off confirming staging logs match compliance needs.
+*   **Method:** Canary deployment (5% traffic) to monitor performance and log volume.
+*   **Human Decision:** Operations Lead must manually approve promotion to 100% after 24-hour monitoring.
+
+**Rollback Plan:**
+*   **Trigger:** Latency spike >5% or secure store connection failures.
+*   **Action:** Immediate revert of the deployment commit.
+*   **Fallback:** Disable audit logging via feature flag (if implemented) or redeploy previous stable image.
+*   **Data Safety:** Since production writes are irreversible, ensure rollback does not attempt to "undo" logged events, only stop future logging.
+
+**Risk Mitigation:**
+*   If the CI pipeline flakiness threatens the Friday deadline, prioritize the targeted audit-log tests over the full suite for the initial staging push, scheduling the full regression for off-peak hours.

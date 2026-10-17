@@ -1,0 +1,63 @@
+**Delivery Plan: Ledger Schema Migration (Dual-Write & Backfill)**
+
+**Constraints & Decisions**
+*   **Month-End Freeze:** All code must be merged and deployed *before* the freeze window. No intermediate PRs containing migration logic; the migration script runs only in the final release.
+*   **CI Cap (6/day):** Local verification is mandatory before triggering CI. Flaky staging reconciliation checks will be retried with logs cited, not skipped.
+*   **Irreversibility:** Once backfill >10%, schema revert is impossible. Rollback strategy prioritizes code revert and feature flag toggle; data repair is a separate, manual contingency.
+*   **External Dependency:** DB scripts require Chief Data Officer (CDO) approval. This is a hard human gate before G4 implementation begins.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Dual-Write Implementation (Builder)**
+    *   **Work:** Modify payment ingestion service to write to both legacy and columnar tables. Implement the "Read Switch" feature flag (default: legacy).
+    *   **Parallelism:** Can run parallel to Lane B (pre-approval) but must finish before Lane C.
+    *   **Verification:** Unit tests for dual-write logic; integration test verifying both rows exist.
+
+2.  **Lane B: Migration Script Coordination (Conductor + CDO)**
+    *   **Work:** Request access/update ticket in Data Governance repo for the backfill script. Secure CDO approval *before* code freeze.
+    *   **Serialization:** Blocks Lane C (Backfill Job) until approved.
+    *   **Verification:** Confirmation of approved script hash from Data Governance.
+
+3.  **Lane C: Backfill Job & Observability (Builder + QA)**
+    *   **Work:** Implement the backfill trigger job and the latency monitor (threshold alert). Ensure the monitor triggers the "Read Switch" flag to OFF (legacy) on spike.
+    *   **Serialization:** Depends on Lane A (schema must exist) and Lane B (script approved).
+    *   **Verification:** Dry-run backfill against sanitized staging data (accepting known flakiness with logged retries).
+
+**Gates & Checks**
+
+*   **G0/G1 (Spec):** Define latency threshold numeric value and exact feature flag name. Confirm CDO approval path.
+*   **G2 (Plan):** Verify acyclic graph. Set per-lane token budgets.
+*   **G3 (Design):** ADR detailing the rollback sequence: 1. Code Revert, 2. Flag OFF, 3. Data Repair. Explicitly state: "No automated rollback after 10% backfill."
+*   **G4 (Implement):** Code committed to isolated worktrees.
+*   **G5 (Verify):**
+    *   *Local:* Run ingestion service locally, verify dual writes.
+    *   *CI:* Trigger one build per candidate SHA (max 6 daily). Run crypto validation.
+    *   *Staging:* Deploy to staging. Run backfill dry-run. If reconciliation flakes, retry once and attach logs.
+*   **G6 (Review):**
+    *   *Security:* Independent review of the dual-write consistency and flag kill-switch.
+    *   *QA:* Sign-off on latency monitor triggering the fallback.
+    *   *Data Governance:* CDO confirms script alignment.
+*   **G7 (Integrate):** Merge train. Single integration SHA. Re-run critical path tests on merge commit.
+*   **G8 (Release - Human Gate):**
+    *   **Decision:** Owner approves deployment to 3 regional clusters.
+    *   **Action:** Deploy code (dual-write active, reads still on legacy).
+    *   **Action:** Execute backfill job (manual trigger or automated post-deploy).
+    *   **Decision:** Owner approves "Read Switch" flip to new schema *only* after integrity audit passes.
+
+**Rollback Strategy**
+*   **Latency Spike (>threshold):** Automated system flips "Read Switch" to legacy. No code change required.
+*   **Data Corruption/Logic Error:**
+    1.  **Immediate:** Flip "Read Switch" to legacy (if not already).
+    2.  **Code:** Revert deployment to previous version (stops dual-write).
+    3.  **Data:** If backfill <10%, truncate new table and restart. If >10%, engage Data Governance for manual repair (no automated revert).
+
+**Human Approvals Required**
+1.  **CDO:** Approval of migration script (Lane B).
+2.  **Owner:** Deployment to production (G8).
+3.  **Owner:** Flipping read traffic to new schema post-audit.
+4.  **Owner:** Waiving any High/Critical security findings.
+
+**Risk Mitigation**
+*   **CI Bottleneck:** Strict local testing enforced; no "try and see" CI runs.
+*   **Flaky Staging:** Reconciliation failures trigger immediate retry + log capture; do not block on single flake.
+*   **Deadline:** If CDO approval slips, abort migration for this cycle; do not bypass governance.

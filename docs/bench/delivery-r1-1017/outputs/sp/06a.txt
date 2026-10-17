@@ -1,0 +1,53 @@
+### Delivery Plan: Bulk Status Update for Logistics Manifests
+
+#### 1. Work Lanes & Parallelization
+*   **Lane A (Backend Logic - Serialized):** Develop the core bulk update service. This must happen first to define the validation rules and transaction boundaries.
+    *   *Constraint:* Must strictly adhere to the legacy audit logging format; no new schema changes without approval.
+    *   *Dependency:* None, but blocks Lane B's integration testing.
+*   **Lane B (Admin Interface - Parallel):** Build the CSV upload UI and result visualization dashboard.
+    *   *Parallel Start:* Can begin immediately using mock API responses.
+    *   *Dependency:* Requires Lane A's API contract definition to finalize error handling display.
+*   **Lane C (Infrastructure & Migration - Serialized/Gated):** Prepare the database migration strategy.
+    *   *Constraint:* No code changes yet. Only draft the migration script for dual approval.
+    *   *Dependency:* Requires final sign-off from Jane Smith and Lead DBA before any merge to main.
+
+#### 2. Gates & Checks
+*   **Gate 1: Local Validation (Pre-Commit):**
+    *   *Revision:* Feature branch head.
+    *   *Check:* Unit tests verifying the "Delivered/Archived" lockout logic and audit log string formatting.
+    *   *Runner:* Developer local environment. No CI trigger yet to save costs.
+*   **Gate 2: Integration Dry-Run (Staging):**
+    *   *Revision:* Release candidate branch.
+    *   *Check:* Load test with 5,000 rows to verify the <30 second database lock constraint.
+    *   *Runner:* Staging environment.
+    *   *Workaround:* Mock the external carrier APIs locally within the test harness to bypass staging timeout errors. Do not rely on staging's native network config.
+*   **Gate 3: Data Integrity & Migration Approval:**
+    *   *Revision:* Pre-merge branch.
+    *   *Check:* Manual review of SQL migration scripts.
+    *   *Approvers:* Jane Smith AND Lead DBA. Both signatures required before CI pipeline initiation.
+*   **Gate 4: Cost-Gated CI Pipeline:**
+    *   *Revision:* Approved pre-merge branch.
+    *   *Check:* Full data integrity suite ($45 cost).
+    *   *Trigger:* Only after Gate 3 is cleared. Limit to one final run before production merge.
+
+#### 3. Review Strategy
+*   **Code Review:** Conducted by a senior engineer from a *different* squad (not Fulfillment) to ensure unbiased validation of the transaction locking mechanism.
+*   **Audit Format Review:** Specific review of the log output strings by the Compliance Team lead to prevent dashboard parser crashes.
+*   **Security Review:** Focused solely on the CSV parsing logic to prevent injection attacks during bulk processing.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A and Lane B into a release branch.
+    2.  Apply approved migration (Lane C) during a low-traffic maintenance window.
+    3.  Deploy backend service.
+    4.  Deploy frontend interface.
+*   **Human Decision Points:**
+    *   Final go/no-go for the database migration (Jane Smith/Lead DBA).
+    *   Approval to proceed to production if the staging load test exceeds 25 seconds (buffer for production variance).
+*   **Rollback Plan:**
+    *   *Scenario:* Database lock exceeds 30s or audit logs corrupt.
+    *   *Action:* Immediate revert of the application deployment.
+    *   *Data Recovery:* Since the update is a single transaction, a database rollback script (pre-written and tested in Gate 2) will revert all status changes atomically. No partial updates will exist.
+    *   *Communication:* Notify operations team to resume manual single-record updates until the fix is redeployed.
+
+This plan minimizes expensive CI runs, respects the dual-approval database constraint, and isolates the risky bulk transaction behind rigorous local and staged load testing.

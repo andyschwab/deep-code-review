@@ -1,0 +1,32 @@
+### Delivery Plan: Read Replica Routing with Lag Guardrails
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Platform Reliability):** Provision the read replica in the secondary zone and configure network access. This is a prerequisite for all other work.
+*   **Lane B (Application Team):** Develop the routing logic and lag guardrail implementation locally. This runs in parallel with Lane A, using a mocked replica endpoint.
+*   **Lane C (QA/Validation):** Prepare the local data integrity test suite and simulate high-lag scenarios to verify the 3-second threshold and 5-second debounce logic.
+
+**Serialization Point:** Lane B cannot finalize configuration values until Lane A provides the actual replica endpoint and credentials. Lane C cannot run full integration tests until Lane B merges code with Lane A's infrastructure.
+
+#### 2. Gates & Checks
+*   **Gate 1 (Local Validation):** Before any push, developers must run the full data integrity suite locally. Failure here blocks all commits to prevent incurring cloud compute costs on the 45-minute CI pipeline.
+*   **Gate 2 (Code Review):** An independent senior engineer (not the author) must review the routing logic, specifically verifying that the `reporting` module is isolated and transactional screens remain untouched.
+*   **Gate 3 (Topology Sign-off):** The Platform Reliability team must provide manual sign-off in the deployment portal confirming the replica topology is stable and ready for traffic.
+*   **Gate 4 (CI Pipeline):** The 45-minute CI run must pass on the release candidate branch. Any failure triggers an immediate rollback of the candidate branch to the previous stable state.
+
+#### 3. Review Process
+*   **Logic Review:** Conducted by a Senior Backend Engineer independent of the implementation team. Focus: Correctness of the lag calculation, debounce implementation, and failover fallback mechanism.
+*   **Configuration Review:** Conducted jointly by the Application Lead and a representative from the Billing/Inventory teams. Focus: Ensuring the shared JSON routing file changes do not inadvertently affect billing or inventory services.
+*   **Operational Review:** Conducted by Platform Reliability. Focus: Verification that the monitoring agent's false positive window (nightly backup) is correctly handled by the debounce logic.
+
+#### 4. Landing Strategy
+*   **Merge Window:** Tuesday night during the coordinated deploy window.
+*   **Merge Method:** Merge the release candidate into `main` only after Gates 1–4 are cleared.
+*   **Human Decision Points:**
+    *   Final "Go/No-Go" decision rests with the Release Manager after reviewing the CI results and Platform Reliability sign-off.
+    *   If replication lag exceeds thresholds immediately post-deploy, the on-call engineer must manually decide whether to keep the failover active (accepting slower loads) or force all traffic to primary (accepting stale data risk) based on real-time executive dashboard usage.
+*   **Rollback Plan:**
+    *   **Immediate:** Revert the shared JSON configuration to the pre-deploy version to route all traffic back to the primary cluster.
+    *   **Secondary:** If the code change caused instability, revert the application deployment to the previous tag.
+    *   **Verification:** Post-rollback, verify transactional screens and reporting modules are functioning on the primary cluster within 5 minutes.
+
+This plan ensures strict isolation of reporting traffic, protects data accuracy via automatic failover, and respects organizational constraints regarding cost, coordination, and approval workflows.

@@ -1,0 +1,52 @@
+### Delivery Plan: SMS Trigger Update (24h → 48h)
+
+**Strategy:** Isolate the timing logic change from the template configuration to avoid file locks. Execute in a dedicated worktree with a pinned base SHA. The pipeline's 55-minute runtime and privacy replay dictate a "run once per candidate" discipline; no re-runs on merge unless the SHA changes.
+
+#### 1. Lanes & Serialization
+
+*   **Lane A: Logic Implementation (Builder)**
+    *   **Work:** Modify the appointment reminder trigger interval from 24h to 48h in the notification service code. Ensure the query filters strictly for bookings created *after* the deployment timestamp to prevent duplicate sends to patients already notified. Verify cancellation notification logic remains untouched.
+    *   **Constraint:** Must complete before Lane B.
+    *   **Parallelism:** Can run parallel to Lane C (Docs/Comms).
+
+*   **Lane B: Privacy & Regression Verification (QA)**
+    *   **Work:** Trigger the full CI pipeline (55m synthetic data replay) on the exact SHA from Lane A. Manually inspect the timezone conversion log lines to clear the known flaky check (DST transition). Confirm zero privacy leaks in the mirrored database replay.
+    *   **Dependency:** Waits for Lane A's commit.
+    *   **Serial Constraint:** This is the bottleneck. Do not spawn multiple variants; get Lane A right first.
+
+*   **Lane C: Compliance & Release Prep (Conductor/Release)**
+    *   **Work:** Draft the deployment manifest and the specific approval request for the Chief Medical Officer and VP of Engineering. Prepare the rollback script (revert to 24h config).
+    *   **Parallelism:** Runs parallel to Lane A.
+
+#### 2. Gates & Checks
+
+*   **G1 (Spec):** Confirm acceptance criteria: "48h lead time," "Future bookings only," "No duplicate SMS," "Cancellation logic unchanged."
+*   **G2 (Plan):** Pin base SHA. Define token budget for the single required CI run.
+*   **G4 (Implement):** Lane A commits code. Unit tests run locally (fast) before pushing.
+*   **G5 (Verify):**
+    *   **Environment:** Lower environment (staging).
+    *   **Check:** Full CI pipeline run on the **exact revision** from G4.
+    *   **Manual Step:** Engineer manually verifies the timezone log line to bypass the flaky DST check.
+    *   **Evidence:** CI green status + manual log sign-off + confirmation that cancellation tests passed.
+*   **G6 (Review):** Independent review by a senior engineer not involved in Lane A. Focus on the "future bookings only" filter logic to prevent duplicates.
+*   **G7 (Integrate):** Merge to the integration branch. Re-run affected gates only if the SHA changed (it won't, if we merge the verified SHA).
+
+#### 3. Review & Independence
+
+*   **Code Review:** Performed by a senior backend engineer independent of the Builder. They must verify the SQL/query logic ensuring no historical appointments are re-triggered.
+*   **Security/Privacy:** The CI pipeline's synthetic data replay serves as the automated security gate. The manual log check serves as the epistemic gate for the known flake.
+*   **Compliance:** The Chief Medical Officer and VP of Engineering do not review code; they review the *release manifest* and *risk assessment* prepared in Lane C.
+
+#### 4. Landing & Human Gates
+
+*   **Merge Strategy:** Merge the verified SHA to the release branch. Do not rebase or rewrite history to avoid invalidating the 55-minute privacy verification.
+*   **Human Approval (G8):**
+    *   **Required Approvers:** Chief Medical Officer AND VP of Engineering.
+    *   **Trigger:** Deployment to the three regional production clusters.
+    *   **Action:** Explicit written approval required before enabling the new configuration in production.
+*   **Rollback:**
+    *   **Trigger:** Any increase in no-show rates due to confusion, or reports of duplicate messages.
+    *   **Mechanism:** Immediate revert of the configuration flag to 24h. The code supports dynamic configuration; no code redeploy needed if feature-flagged, otherwise revert the commit.
+*   **Post-Deploy (G9):** Monitor SMS delivery logs for the first 4 hours of production traffic to ensure the 48h window calculates correctly for new bookings.
+
+**Risk Note:** The shared configuration file lock during business hours is avoided by implementing this as a code-level logic change rather than a template edit. If template editing becomes necessary, it must be scheduled outside business hours.

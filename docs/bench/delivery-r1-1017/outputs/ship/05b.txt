@@ -1,0 +1,63 @@
+### Delivery Plan: DST Shift Fix for Santiago Loyalty Points
+
+**G0/G1 Intake & Spec**
+*   **Goal:** Correct timezone offset logic for Santiago, re-calculate affected points, prevent double-processing, and deploy before Monday billing.
+*   **Constraints:** No full CI runs unless necessary ($45/55min); Staging cannot reproduce (UTC only); DB backup irreversible (dry-run mandatory); Compliance Lead approval required for deploy.
+*   **Scope:** `rewards_engine` date logic, `scheduling_module` config (preserve line endings), corrective script for 4k users.
+*   **Non-Goals:** Global region changes, SMS gateway modifications, staging environment fixes.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Logic Patch (Builder)**
+    *   **Work:** Isolate date calculation logic in `rewards_engine`. Implement explicit timezone offset handling for Santiago. Add idempotency check to prevent double-processing.
+    *   **Constraint:** Must not modify line endings in shared `config` file used by SMS gateway.
+    *   **Parallelism:** Can run immediately.
+
+2.  **Lane B: Corrective Script (Builder)**
+    *   **Work:** Write a standalone script to re-calculate expiry for the 4,000 affected Santiago users only.
+    *   **Requirement:** Must include `--dry-run` flag that outputs proposed changes without writing to DB.
+    *   **Parallelism:** Can run parallel to Lane A, but must use the *fixed* logic from Lane A for calculation.
+
+3.  **Lane C: Targeted Verification (QA)**
+    *   **Work:** Since Staging is UTC-only, verification must be unit-test based with mocked timezone objects asserting Santiago offsets. Run lint and type checks locally.
+    *   **Trigger:** Depends on Lane A completion.
+    *   **Serialization:** Must complete before G6 Review. No full CI pipeline trigger yet.
+
+**Gates & Checks**
+
+*   **G2 Plan (Now):** Approve this plan. Define token/cost budget for Lane A/B execution.
+*   **G4 Implement:**
+    *   Lane A commits patch with unit tests proving Santiago offset correctness.
+    *   Lane B commits script with dry-run proof.
+    *   **Check:** Local lint/type pass. Verify `config` file checksum matches original (ensuring no line-ending drift).
+*   **G5 Verify (Exact Revision):**
+    *   Run unit tests mocking `America/Santiago` DST transition.
+    *   Execute Lane B script in `--dry-run` mode against a read-only replica or snapshot; verify output matches expected 4,000 users and zero others.
+    *   **Condition:** No full CI pipeline run unless local checks fail or integration risk is high. If CI is mandatory, run only on the final merge candidate SHA.
+*   **G6 Review:**
+    *   **Reviewer:** Independent Senior Engineer (not Builder).
+    *   **Focus:** Timezone logic correctness, idempotency safety, config file integrity.
+    *   **Security:** Verify no PII leakage in logs; ensure script permissions are least-privilege.
+
+**Landing & Human Gates**
+
+*   **G7 Integrate:**
+    *   Merge Lane A and B into a single integration branch.
+    *   Re-run affected unit tests on the merged SHA.
+*   **G8 Release (Human Gate - Blocked until tomorrow):**
+    *   **Action:** Deploy to Production.
+    *   **Approver:** Compliance Lead (explicit written approval required).
+    *   **Preparation:** Prepare deployment manifest and rollback plan now. Park the merge commit ready for approval.
+*   **G9 Production Verify:**
+    *   **Action:** Execute Lane B script in live environment (initially dry-run, then actual run upon approval).
+    *   **Check:** Verify 4,000 users have correct points; monitor trust score metrics.
+*   **Rollback:**
+    *   If script causes error: Restore from pre-job snapshot (if available) or manually reverse entries using audit log.
+    *   If code deploy fails: Revert merge commit immediately.
+
+**Risk Mitigation**
+*   **Double-Processing:** Idempotency key based on `user_id + job_date` ensures retries are safe.
+*   **Config Breakage:** Pre-commit hook or manual checksum verification of the shared config file before any commit.
+*   **Cost Control:** Avoid full CI pipeline; rely on targeted local verification and unit tests. Only trigger full pipeline if the merge queue requires it for the final SHA.
+
+**Immediate Next Step:** Begin Lane A and B implementation. Prepare dry-run output for Compliance Lead review tomorrow morning.

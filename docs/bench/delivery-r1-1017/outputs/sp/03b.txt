@@ -1,0 +1,69 @@
+# Delivery Plan: Legacy Billing API Restriction
+
+## Lanes & Parallelism
+
+**Lane A: Configuration & Auth Logic (Serialized)**
+*Owner: Platform Reliability Engineer*
+1.  Modify `global_access_matrix.json` to restrict `/LedgerSync` to `Finance-Admins`.
+2.  Update the authentication middleware to enforce the new matrix and explicitly return `403 Forbidden` for non-members (including engineering leads).
+3.  Inject logging hooks to record denied attempts to the security audit trail.
+*Constraint:* These three steps are strictly serialized due to the immutable nature of the config file and the dependency of the middleware on the matrix structure.
+
+**Lane B: Batch Reconciliation Validation (Parallel Start, Serialized Merge)**
+*Owner: QA Automation*
+1.  Isolate the nightly batch reconciliation test suite.
+2.  Mock the `Finance-Admins` credential set to verify the batch process retains access under the new rules.
+*Constraint:* Cannot finalize until Lane A produces a candidate build, but test script preparation runs in parallel.
+
+**Lane C: Governance & Documentation (Parallel)**
+*Owner: Compliance Lead*
+1.  Draft the change request in the governance portal.
+2.  Pre-brief the CFO and Head of Security on the audit urgency to expedite the dual-approval requirement.
+
+## Gates & Checks
+
+**Gate 1: Local Verification (Pre-Commit)**
+*   **Revision:** Working directory only.
+*   **Check:** Static analysis to ensure no hardcoded IPs or bypass logic exists.
+*   **Pass Criteria:** Zero warnings; explicit `403` return path visible in diff.
+
+**Gate 2: Staged Integration (The Costly Gate)**
+*   **Revision:** Feature branch `feat/restrict-ledger-sync`.
+*   **Trigger:** Manual trigger required to save costs.
+*   **Check:** Full CI regression suite (45 mins).
+*   **Risk Mitigation:** If Stage 3 (network checks) fails, analyze logs. If failure matches the known 15% flaky pattern, authorize one manual retry. If it fails twice, halt for engineering review.
+*   **Specific Check:** Verify the batch reconciliation mock (Lane B) passes with `Finance-Admins` credentials and fails with standard accounts.
+
+**Gate 3: Cache Purge Validation**
+*   **Revision:** Staging Environment.
+*   **Check:** Execute the manual 20-minute cache purge procedure.
+*   **Pass Criteria:** Verify the new access matrix is active within the application without requiring a full application restart. Confirm `global_access_matrix.json` changes are reflected immediately post-purge.
+
+## Review Strategy
+
+**Independent Code Review**
+*   **Reviewer:** Senior Security Engineer (must *not* be from the Platform Reliability team).
+*   **Focus:** Verify that the `403` logic cannot be bypassed and that the audit log entry contains sufficient detail (user ID, timestamp, endpoint) for the upcoming audit.
+*   **Constraint:** Reviewer must confirm the change does not impact endpoints other than `/LedgerSync`.
+
+**Compliance Review**
+*   **Reviewer:** Internal Audit Representative.
+*   **Focus:** Confirm the logging format meets external audit standards before code merge.
+
+## Landing & Rollback
+
+**Merge Strategy**
+*   **Timing:** Merge must occur no later than Thursday 23:59 to allow a 48-hour observation window before the Tuesday fiscal close.
+*   **Approval:** Requires dual digital signature (CFO + Head of Security) in the governance portal *before* the merge button is enabled.
+*   **Deployment:** Immediate deployment post-merge followed by the mandatory 20-minute cache purge.
+
+**Rollback Plan**
+*   **Trigger:** Any reported inability of the nightly batch process to connect, or false-positive blocks on verified Finance-Admins during the observation window.
+*   **Action:**
+    1.  Revert the git commit immediately.
+    2.  Re-deploy the previous stable tag.
+    3.  **Critical:** Execute the manual cache purge procedure again to revert `global_access_matrix.json` to the permissive state.
+*   **Human Decision:** If the rollback fails to restore access within 30 minutes, the CTO must authorize a direct database configuration override to bypass the config file cache entirely.
+
+**Post-Landing**
+*   Monitor security audit logs for 24 hours to confirm `403` events are being recorded for non-finance users attempting access.

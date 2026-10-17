@@ -1,0 +1,75 @@
+**Delivery Plan: Staged Payment Gateway Credential Rotation**
+
+**Objective:** Rotate secrets across three regional clusters with zero downtime, automated rollback on >0.1% error rate, and verified pre-production safety.
+
+**Constraints & Facts:**
+- **Window:** Late night only (config file locked during business hours).
+- **Approvals:** Dual approval (Shift Lead + Compliance Officer) required for deploy.
+- **CI Cost:** Expensive; full E2E limited to 2x daily.
+- **Flake:** Staging network check is flaky; requires manual log verification bypass.
+- **DB:** Schema frozen; changes irreversible.
+- **Deadline:** Friday.
+
+---
+
+### Lanes & Serialization
+
+**Lane 1: Pre-Production Verification (QA Lead)**
+- **Work:** Deploy new secrets to pre-prod mirror. Execute handshake tests. Validate automated rollback trigger by simulating failure.
+- **Parallelism:** Can run immediately (non-production).
+- **Serialization:** Must complete before Lane 2 starts.
+- **Check:** Manual log verification to bypass flaky network check. Confirm 0% error rate and successful auto-revert in simulation.
+
+**Lane 2: Configuration & Secret Injection (Builder)**
+- **Work:** Update shared configuration file to support dual-secret mode (old + new). Prepare secret injection scripts for all three regions.
+- **Parallelism:** Runs after Lane 1 confirms pre-prod safety.
+- **Serialization:** Must complete before any regional rollout.
+- **Check:** Static analysis and unit tests only (avoid CI cost). Verify config schema compatibility.
+
+**Lane 3: Staged Regional Rollout (Release Engineer)**
+- **Work:** Execute late-night deployment window.
+  1. Region A: 5% traffic → verify → 100% traffic.
+  2. Region B: 5% traffic → verify → 100% traffic.
+  3. Region C: 5% traffic → verify → 100% traffic.
+- **Parallelism:** Regions must be serialized (A → B → C) to contain blast radius.
+- **Serialization:** Depends on Lane 2 completion.
+- **Check:** Monitor error rates in real-time. Automated rollback triggers if errors >0.1%.
+
+**Lane 4: Legacy Cleanup (Builder)**
+- **Work:** Remove legacy secrets from configuration after all regions confirm 100% success for 24 hours.
+- **Parallelism:** Runs post-rotation (Saturday/Sunday).
+- **Serialization:** Must wait until Lane 3 completes for all regions.
+
+---
+
+### Gates & Checks
+
+- **G1 Spec (Now):** Define acceptance criteria: 0% transaction failure, auto-rollback verified in pre-prod, dual-approval recorded.
+- **G3 Design (Before Lane 2):** ADR confirming dual-secret support and rollback logic. Pin base SHA for config changes.
+- **G5 Verify (Per Region):**
+  - **Pre-prod:** Full E2E test (uses 1 of 2 daily CI slots). Manual log review for flake bypass.
+  - **Production:** 5% traffic handshake verification at exact deployed SHA. Automated metrics check for error spikes.
+- **G6 Review:** Independent review by Security (secret handling) and QA (rollback logic). Builder does not self-review.
+- **G8 Release:** Dual human approval (Shift Lead + Compliance Officer) required before each regional step.
+
+---
+
+### Review Strategy
+
+- **Configuration (Lane 2):** Reviewed by Security (secret exposure) and QA (dual-mode logic). Independent of Builder.
+- **Rollout Procedure (Lane 3):** Reviewed by Release Engineer peer and Shift Lead. Focus on rollback triggers and monitoring thresholds.
+- **Pre-prod Results (Lane 1):** Verified by QA Lead; evidence logged for Compliance Officer audit.
+
+---
+
+### Landing & Human Decisions
+
+- **Merge Strategy:** Configuration changes merged to release branch after G6 approval. Deployment scripts versioned and tagged per region.
+- **Human Gates:**
+  1. **Pre-prod go-ahead:** Shift Lead confirms Lane 1 success.
+  2. **Each regional step:** Dual approval (Shift Lead + Compliance Officer) before shifting from 5% to 100% traffic.
+  3. **Legacy cleanup:** Compliance Officer approves removal of old secrets.
+- **Rollback:** Automated if error rate >0.1%. Manual intervention only if auto-rollback fails (escalate to Shift Lead immediately).
+- **Final State:** All regions on new secrets, legacy removed, post-mortem scheduled if any anomalies occurred.
+
+**Risk Mitigation:** CI slots reserved in advance. Flaky check bypass documented. Config file edits scheduled strictly for late-night windows.

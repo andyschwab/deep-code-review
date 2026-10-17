@@ -1,0 +1,61 @@
+**Delivery Plan: S3 Archive Ingestion Policy Update**
+
+**Constraints & Decisions**
+*   **Deadline:** End-of-month compliance is binding; no scope reduction.
+*   **Shared Risk:** `global-audit-log` touches three clusters. Editing it requires serialization and explicit owner approval (Jane Smith + Security Lead). No workarounds; named approval required.
+*   **Cost Control:** CI simulation ($45, 22m) runs exactly once per candidate SHA after local validation. Never re-run on merged SHA unless changed.
+*   **Flake Handling:** Drift detection is skipped on Tuesdays; manual verification of final state replaces it. Logs cited if retried.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Spec & Safety (Product/Security)**
+    *   **Work:** Define exact vendor IAM ARN, encryption requirement (SSE-S3/KMS), and `pending-review` prefix scope. Draft the "Rollback Script" (revert policy to previous version ID).
+    *   **Parallel:** Yes.
+    *   **Output:** Testable spec + Rollback script ready for dry-run.
+
+2.  **Lane B: Infrastructure Change (Builder)**
+    *   **Work:** Modify infrastructure definition in `core-network`. Isolate changes to the specific bucket policy; do not touch `global-audit-log` unless the vendor identity is defined there (if so, serialize after Lane A confirms identity).
+    *   **Parallel:** Yes (unless `global-audit-log` edit is required, then wait for Lane A).
+    *   **Constraint:** One writer per worktree. Clean base to mainline before starting.
+
+3.  **Lane C: Verification & Dry-Run (QA/Security)**
+    *   **Work:** Review Lane B's diff against Lane A's spec. Execute Rollback Script dry-run against a production snapshot (or non-prod clone) to prove <5min revert capability.
+    *   **Serialization:** Must wait for Lane B's patch ready.
+    *   **Check:** Run local lint/type checks first. Trigger CI simulation ($45) ONLY once on the candidate SHA.
+
+**Gates & Checks**
+
+*   **G0/G1 (Intake/Spec):** Confirm vendor ARN and encryption standard. Output: Spec + Rollback Plan.
+*   **G2 (Plan):** Acyclic graph. Budget set: 1 CI run max.
+*   **G3 (Design):** Explicitly document that `global-audit-log` changes (if any) are scoped strictly to the vendor identity addition.
+*   **G4 (Implement):** Patch committed with immutable base SHA.
+*   **G5 (Verify):**
+    *   Local: Syntax validation of policy JSON.
+    *   CI: Run simulation once on candidate SHA. Green required.
+    *   **UI/State:** Manual verification of drift (if Tuesday) or automated check (other days).
+    *   **Rollback Proof:** Evidence that rollback script executes successfully in <5 mins.
+*   **G6 (Review):**
+    *   **Reviewers:** Jane Smith + Security Lead (Independent of Builder).
+    *   **Scope:** Full diff + Rollback evidence.
+    *   **Rubric:** Blocker/Critical findings block merge. High needs owner acceptance.
+
+**Landing & Human Gates**
+
+*   **Merge Strategy:** Single PR to `core-network`. No merge train needed for single file change, but serialized if `global-audit-log` is touched.
+*   **Human Approval Required:**
+    1.  **Push/Merge:** Jane Smith and Security Lead must approve the PR.
+    2.  **Deploy:** Owner approves the outward production change (policy update).
+*   **Rollback Plan:**
+    1.  **Trigger:** Vendor test upload fails OR monitoring flags unexpected traffic.
+    2.  **Action:** Execute pre-verified Rollback Script (reverts policy to previous version ID).
+    3.  **Order:** Code revert (if needed) → Flag/Policy off → Data repair (last).
+    4.  **Timebound:** Must complete within 5 minutes.
+*   **Post-Deploy:** Verify vendor can write encrypted files to `pending-review`. Confirm internal auditors retain read-only access.
+
+**Risk Mitigation**
+*   **Irreversible Step:** None (policy updates are reversible via versioning).
+*   **Collision:** If `global-audit-log` is edited, coordinate with Billing system owners to avoid concurrent changes.
+*   **Flake:** If drift detection fails (Tuesday), manual state verification is mandatory before G6 sign-off.
+
+**Summary**
+One CI run. Two human approvers. Rollback proven <5min. Strict isolation of `global-audit-log`.

@@ -1,0 +1,33 @@
+**Decision:** Proceed immediately with a **Read-Only Schema Audit and Immutable Backup Protocol** before writing a single line of migration code. The single number driving this plan is **0**: zero writes to the production database are permitted until the backup integrity is cryptographically verified.
+
+**Figures:**
+*   **Data Volume:** 30,000 student records × ~50 related tables (grades, enrollments, financials) ≈ 1.5M row dependencies to map.
+*   **Time Remaining:** Today through August 20th (~6–8 weeks depending on current date).
+*   **Risk Factor:** 1 irreversible script failure = 30,000 students unable to register; cost of delay > cost of over-engineering safety.
+*   **Correction:** Your prompt implies the migration script itself is the primary risk; the actual primary risk is the **lack of a verified, restorable baseline**. If you cannot restore the pre-migration state in under 4 hours, the migration script is irrelevant.
+
+**Decisions Requiring Your Personal Approval (Registrar/Lead):**
+1.  **The "Stop-Loss" Trigger:** Define the exact metric that halts the migration (e.g., >0.1% data mismatch in grade totals, or restore time >4 hours). You must sign off on this threshold before testing begins.
+2.  **The Cutover Window:** Approve the specific 4-hour blackout window for the final swap. If the swap isn't complete by T-minus 4 hours to registration open, you must authorize the rollback to the legacy system.
+3.  **Data Mapping Logic:** Sign off on the transformation rules for historical grades (e.g., how "Incomplete" or legacy letter grades map to the new numeric schema). This is business logic, not code.
+
+**Work Executable by Database Administrators (Immediate Start):**
+1.  **Immutable Backup Creation:** Generate full logical and physical backups of the current production database. Store these on write-once media or an isolated S3 bucket with Object Lock enabled.
+2.  **Schema Diff Analysis:** Run automated tools to compare the current schema against the target schema, generating a gap report of missing columns, type mismatches, and constraint violations.
+3.  **Dry-Run Environment Setup:** Clone the production backup into an isolated staging environment that mirrors production hardware specs. No connection to live registration portals allowed.
+4.  **Checksum Baseline:** Calculate and record SHA-256 checksums for all critical tables (especially grades and enrollments) in the source database to serve as the "truth" metric for later validation.
+
+**Logical Order of Operations (Design to Validation):**
+1.  **Freeze & Backup:** Lock schema changes on production; create verified immutable backups.
+2.  **Map & Transform (Staging):** Write conversion scripts; run against the staging clone; compare checksums against the baseline.
+3.  **Iterative Dry Runs:** Execute the full migration pipeline on staging at least three times, measuring duration and error rates. Introduce artificial failures to test rollback procedures.
+4.  **User Acceptance Testing (UAT):** Have registrar staff verify random student records in the staged new schema against the old system.
+5.  **Final Rehearsal:** A full dress rehearsal during a low-traffic window, including the communication plan to stakeholders.
+6.  **Execution & Verification:** Perform the live migration during the approved blackout window; run immediate checksum validation.
+7.  **Rollback Readiness:** Keep the old system running in read-only mode for 48 hours post-migration as a safety net.
+
+**Very First Concrete Action:**
+Instruct your senior DBA to **execute a full production backup and immediately perform a restore test to a sandbox server**, timing the operation. Do not proceed to schema design until you have a confirmed timestamped report showing the backup is valid and the restore completed successfully. This proves your safety net exists before you walk the tightrope.
+
+*Note: If the restore test fails or exceeds 4 hours, your immediate task is fixing backup infrastructure, not migration logic.*
+*Do not allow any admin to test conversion scripts on the live database, even for "small samples."*

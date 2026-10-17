@@ -1,0 +1,49 @@
+### Delivery Plan: Password Policy Enforcement & Legacy Grace Flow
+
+**Strategy:** Parallel implementation of policy engine and grace flow, serialized database migration, independent security verification, dual-human production gate.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Policy Engine):** Implement new complexity rules and generic error messages.
+    *   *Worker:* Builder.
+    *   *Constraint:* Must not expose specific validation logic in errors.
+*   **Lane B (Grace Flow):** Implement login interceptor for non-compliant users, forced reset UI, and compliance logging.
+    *   *Worker:* Builder (distinct from Lane A if possible, otherwise sequential tasks).
+    *   *Constraint:* Zero impact on compliant accounts.
+*   **Lane C (Migration Script):** Adapt legacy script for the 4% violating accounts with dry-run capability.
+    *   *Worker:* Senior Builder.
+    *   *Serialization:* **Must wait** for Lane A & B code review approval before final execution prep. Irreversible nature requires extreme caution.
+*   **Lane D (Independent QA):** Build test harness for both flows.
+    *   *Worker:* QA (Independent of Builder).
+    *   *Focus:* Verify compliant users are unaffected; verify violating users are forced to reset; verify logs are generated.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Define exact regex rules and generic error text. Pin base SHA.
+*   **G3 Design Review:** Architect approves the grace period state machine and logging schema.
+*   **G4 Implementation:**
+    *   Lane A & B commit to isolated worktrees.
+    *   Lane C prepares migration script (dry-run mode only).
+*   **G5 Verification (Exact Revision):**
+    *   Run full regression suite (45 mins) on the merged integration branch of A+B.
+    *   **Timing Constraint:** Final verification runs must complete outside the 02:00–03:00 UTC window to avoid data sync flakiness.
+    *   **Cost Gate:** Ensure local linting/type-checking passes before triggering CI to avoid financial penalties for failed builds.
+*   **G6 Security Review:**
+    *   Security Lead reviews code for logic leaks in error messages and robustness of the forced reset flow.
+    *   Auditor verifies log format meets compliance requirements.
+
+#### 3. Review Strategy
+*   **Code Review:** `deep-code-review` (Full scope) on the integrated SHA of Lanes A+B.
+*   **Independence:**
+    *   Builder of Lane A cannot approve Lane B (shared auth module risk).
+    *   Security Lead must perform a manual "Red Team" check on error messages to ensure no enumeration attacks are possible.
+    *   QA verifies the "no lockout" requirement via automated regression and manual exploration.
+
+#### 4. Landing & Human Gates
+*   **Integration:** Merge A+B into the integration branch. Run final CI.
+*   **Human Gate 1 (Migration Approval):** Security Lead + Platform Manager must explicitly approve the execution of the Lane C migration script against the primary shard. This is a one-way operation.
+*   **Human Gate 2 (Deployment):** Dual approval (Security Lead + Platform Manager) required to deploy to production.
+*   **Rollback Plan:**
+    *   Feature flag the grace period flow. If issues arise, toggle off immediately to bypass the interceptor.
+    *   Database changes (migration) are irreversible; rollback strategy relies on the feature flag preventing the new logic from touching migrated accounts until a fix is deployed.
+*   **Schedule:** Deploy outside 02:00–03:00 UTC. Target completion 48 hours before the end-of-quarter review to allow buffer time.
+
+**Risk Mitigation:** The 45-minute CI cost dictates a "fail fast" local strategy. The irreversible migration demands a verified dry-run on a staging clone before the Human Gate 1 approval.

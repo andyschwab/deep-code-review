@@ -1,0 +1,56 @@
+**Delivery Plan: Legacy Feature Flag Audit & Removal**
+
+**Objective:** Audit, document, and safely remove stale feature flags from the payment processing module without impacting enterprise clients or fraud detection services.
+
+**Team & Roles**
+*   **Conductor:** Orchestrates the plan, manages serialization, and compiles evidence.
+*   **Product Analyst:** Defines "active usage" criteria with Jane Smith (Core Payments Lead) and validates business criticality.
+*   **Builder:** Implements audit scripts and removal patches in isolated worktrees.
+*   **QA:** Verifies functional integrity in the staged environment; explicitly validates fraud service continuity.
+*   **Security:** Reviews supply chain implications of config changes and access controls.
+*   **Human Approvers:** Two senior engineers (mandatory for deploy); Jane Smith (for scope validation).
+
+**Work Lanes & Serialization**
+*   **Lane 1: Discovery & Traffic Analysis (Parallel Safe)**
+    *   *Actor:* Builder + Product Analyst.
+    *   *Work:* Scan codebase for flag definitions. Correlate with live traffic logs to identify zero-usage flags over a 30-day window.
+    *   *Output:* `audit_report.md` listing flags as "Remove," "Keep," or "Investigate."
+*   **Lane 2: Safe Removal Implementation (Serialized)**
+    *   *Actor:* Builder.
+    *   *Constraint:* **Strict Serialization.** Due to the shared immutable config file and fraud service dependency, flags must be removed one by one (or in strictly non-overlapping batches verified by the Conductor).
+    *   *Work:* For each "Remove" candidate: refactor code to eliminate the branch, update the config file, and ensure no dead code remains.
+    *   *Isolation:* Dedicated worktree per flag batch; clean base to mainline before start.
+*   **Lane 3: Fraud Service Impact Verification (Parallel to Lane 2 Prep, Serial to Lane 2 Merge)**
+    *   *Actor:* QA.
+    *   *Work:* Run targeted integration tests on the staged environment mimicking production data volume. Specifically verify fraud scoring latency and accuracy after each config change.
+    *   *Constraint:* Skip the known flaky latency check unless it fails consistently; rely on functional fraud scoring assertions.
+
+**Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Product Analyst confirms "active usage" definition with Jane Smith. Conductor freezes the list of candidates.
+*   **G2 (Plan):** Conductor publishes the serialized removal order. Budget set for CI runs (minimized due to cost).
+*   **G3 (Design):** ADR drafted for the config file modification strategy to ensure atomicity and rollback capability.
+*   **G4 (Implement):** Builder commits changes. Each commit includes updated unit tests for the removed logic.
+*   **G5 (Verify):**
+    *   *Revision:* Exact SHA of the removal commit.
+    *   *Check:* Staged environment deployment. **Hard Gate:** Fraud scoring must remain 100% operational. CI pipeline must pass (excluding known flake if unrelated).
+    *   *Evidence:* QA receipt confirming "Fraud Service OK" and "Zero Regression."
+*   **G6 (Review):** Independent review by Security and a Senior Engineer (not the Builder). Focus: Config file integrity and rollback logic.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected CI gates on the final merged SHA.
+
+**Landing & Human Decisions**
+*   **Merge Strategy:** One PR per flag (or small logical group) to minimize blast radius. No massive "cleanup" PR.
+*   **Human Gates:**
+    1.  **Scope Approval:** Jane Smith must approve the `audit_report.md` before any code changes.
+    2.  **Deployment:** Each PR requires approval from **two senior engineers** before merging to the deployment branch.
+    3.  **Production Flip:** Final promotion to production is a manual trigger by an approver after staged verification.
+*   **Rollback Plan:**
+    *   Automated revert script prepared in G3.
+    *   If fraud scoring fails post-deploy: immediate revert of the specific config commit.
+    *   Note: Revert may still incur the 15-minute fraud outage; thus, G5 staged verification is the primary safety net.
+
+**Risk Mitigation**
+*   **Flaky Tests:** QA to explicitly mark the latency flake as "non-blocking" in the test runner for this specific lane, provided functional fraud checks pass.
+*   **Config Collision:** Conductor enforces strict locking; no two writers touch the config file simultaneously.
+*   **Cost Control:** CI runs triggered only on verified ready-to-merge SHAs, not every intermediate commit.
+
+**Next Step:** Await confirmation of the "active usage" time window from Jane Smith to finalize the audit scope.

@@ -1,0 +1,56 @@
+### Delivery Plan: Ledger Schema Migration
+
+**Strategy:** Minimize CI consumption by serializing high-cost verification and isolating the irreversible database migration from the application dual-write logic.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (App Dual-Write):** Implement logic to write incoming payments to both legacy and columnar tables.
+    *   *Constraint:* Must not modify database schema files directly; calls migration scripts as external dependencies.
+    *   *Parallelism:* Can run immediately alongside Lane B.
+*   **Lane B (Migration Script Wrapper):** Create a wrapper in the ledger repo to invoke the read-only Data Governance scripts.
+    *   *Constraint:* Requires manual CDO approval externally. The wrapper must handle the "irreversible after 10%" safety check locally before invocation.
+    *   *Parallelism:* Runs parallel to Lane A, but blocks on external CDO approval.
+*   **Lane C (Backfill & Audit):** Develop the historical backfill job and the data integrity audit suite.
+    *   *Constraint:* Must run against sanitized staging data; must include logic to ignore known reconciliation flakiness.
+    *   *Serialization:* Must wait for Lane B's script to be approved and available in staging before final integration testing.
+
+#### 2. Gates & Checks
+*   **G2 Plan (Now):** Define the "10% irreversibility" hard stop in code. Set per-lane token budgets.
+*   **G3 Design:** ADR detailing the rollback switch mechanism (latency threshold trigger).
+*   **G4 Implementation:**
+    *   Lane A & B commit to feature branches.
+    *   **Check:** Local unit tests only (avoid CI burn).
+*   **G5 Verification (Staging):**
+    *   **Trigger:** Only after Lane A and B are merged to a temporary integration branch.
+    *   **Execution:** Run the 45-minute CI pipeline **once** on this integration SHA.
+    *   **Specifics:** Run backfill on sanitized data. If reconciliation fails, verify if it matches the known flakiness pattern before marking red.
+    *   **Latency Test:** Simulate load to prove the rollback switch triggers above the threshold.
+*   **G6 Review:**
+    *   **Security:** Independent review of the dual-write consistency and the irreversibility guard.
+    *   **QA:** Sign-off on the audit results from the single CI run.
+    *   **Data Governance:** Confirm CDO approval artifact is attached.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lane A and B.
+*   **Independent QA:** Verifies G5 receipts (CI logs, latency graphs). Does not review code, only evidence.
+*   **Security Engineer:** Reviews the rollback mechanism and the "point of no return" logic.
+*   **Chief Data Officer (Human):** External gate for the migration script usage.
+
+#### 4. Landing & Rollback
+*   **Merge Train:**
+    1.  Merge Lane A (App) to `main`.
+    2.  Deploy to all three regional clusters with the **dual-write active but reads still pointing to legacy**.
+    3.  **Human Gate:** Finance confirms month-end freeze window is open.
+    4.  **Human Gate:** CDO approval verified.
+    5.  Trigger Backfill (Lane C).
+*   **Read Switch (G8):**
+    *   Once the audit passes, a Feature Flag flip switches reads to the new schema.
+    *   **Condition:** This is a distinct human-approved action, not automatic.
+*   **Rollback Plan:**
+    *   **Scenario:** Latency spikes > threshold OR audit fails.
+    *   **Action:** Instantly flip the Feature Flag to revert reads to the legacy table.
+    *   **Constraint:** If the backfill exceeded 10%, the *schema* cannot be reverted. The system must remain on the dual-write path, reading from legacy, while a fix is developed for the new schema. The "rollback" is strictly a read-path reversion, not a database drop.
+
+**Risk Mitigation:**
+*   **CI Cap:** By merging A and B to a temp branch first, we ensure only one 45-minute build is consumed for validation.
+*   **Flakiness:** The audit suite explicitly filters known false positives; any other failure blocks the release.
+*   **Timing:** All prep work (A, B, C code) completes before the month-end freeze. The actual backfill trigger is the only step occurring during the tight window.

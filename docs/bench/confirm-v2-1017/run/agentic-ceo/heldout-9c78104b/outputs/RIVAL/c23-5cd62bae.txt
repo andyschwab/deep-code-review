@@ -1,0 +1,30 @@
+### SkyRoute Airlines API Transition Plan
+
+**1. Structured Approach for API Transition**
+Adopt a "Parallel Run with Feature Flag" strategy over the three-day window to mitigate the risk of irreversible deprecation.
+*   **Day 1 (Stabilization & Shadowing):** Freeze non-essential features. Deploy the new API alongside the legacy endpoint. Enable traffic shadowing to route 100% of live requests to both systems, comparing responses internally without affecting partners.
+*   **Day 2 (Canary & Validation):** Shift 5% of live partner traffic to the new API for one partner at a time. Monitor latency and error rates against the 15,000 RPM baseline. If metrics deviate by >0.1%, immediately rollback that partner's traffic.
+*   **Day 3 (Full Cutover Prep):** Once all five partners are successfully canaried, prepare the feature flag for 100% switchover. Conduct a final "dry-run" deprecation simulation in a staging environment that mirrors production load.
+*   **Monday 5 PM Freeze:** Lock the codebase. No further merges allowed. The switch to disable the old endpoint is scheduled for post-freeze monitoring only, executed only if Day 2 and 3 metrics are flawless.
+
+**2. Testing Responsibilities**
+*   **Backend Group (4 Specialists):**
+    *   **Contract Compliance:** Verify every JSON field, data type, and nullability constraint matches the agreed schema exactly.
+    *   **Load & Latency:** Stress test the new endpoint to ensure it sustains 15,000+ RPM with p99 latency under the legacy baseline.
+    *   **Idempotency & Inventory:** Validate that retry logic does not create duplicate bookings and that inventory locks release correctly on timeout.
+*   **Frontend/Integration Group (4 Specialists):**
+    *   **End-to-End Checkout Flows:** Execute full booking cycles for each of the five partners using their specific test credentials.
+    *   **Error Handling:** Verify that specific error codes (e.g., 400, 409, 503) are returned correctly and that partner UIs display the appropriate user messages.
+    *   **Response Parsing:** Confirm that partner systems can parse the new response format without throwing exceptions, focusing on date formats and currency precision.
+
+**3. Contract Definitions for CTO Validation**
+Before proceeding, you must personally sign off on these three critical artifacts:
+*   **The Immutable Schema Spec:** A finalized OpenAPI/Swagger document highlighting *only* the breaking changes from the legacy version, explicitly confirming no silent field removals.
+*   **The Error Code Matrix:** A mapping of every possible new error code to its legacy equivalent, ensuring partners' existing error-handling logic remains valid or has a documented migration path.
+*   **The Rollback/Recovery Protocol:** A written confirmation that while the endpoint disablement is irreversible, the database transaction logs allow for manual reconciliation of any inventory discrepancies caused by a failed cutover.
+
+**4. First Concrete Step**
+Immediately convene a 30-minute "Schema Lock" workshop with the lead backend engineer and one representative from each of the five travel agency partners. The sole objective is to walk through the Immutable Schema Spec line-by-line and obtain verbal (followed by email) confirmation that the proposed response format matches their current parser expectations. Do not write new code until this alignment is achieved.
+
+*Note: Any deviation found after Monday 5 PM will require a manual hotfix process that risks the Tuesday integration deadline.*
+*Ensure the "Schema Lock" workshop is recorded for audit purposes regarding the irreversible deprecation decision.*

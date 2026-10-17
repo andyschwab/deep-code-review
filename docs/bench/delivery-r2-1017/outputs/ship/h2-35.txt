@@ -1,0 +1,46 @@
+### Delivery Plan: PaymentEvent Schema Update
+
+**Strategy:** Contract-first, backward-compatible evolution with serialized rollout coordination. Zero downtime is enforced by maintaining the old field as optional/deprecated while introducing `refund_reason_code`.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Schema Definition & Local Validation):**
+    *   **Actor:** Builder.
+    *   **Work:** Update `/contracts/events` to add `refund_reason_code` (optional). Retain old field with `@deprecated` annotation. Run local linting and unit validation.
+    *   **Parallelism:** Can run immediately.
+*   **Lane B (Downstream Impact Analysis):**
+    *   **Actor:** Product Analyst + Builder.
+    *   **Work:** Dry-run compatibility check against known consumer schemas for Billing, Logistics, Analytics, Fraud, and Support. Identify breaking changes in nested array depths (mitigating flaky `schema-compatibility` risk).
+    *   **Parallelism:** Runs parallel to Lane A.
+*   **Lane C (Rollout Coordination):**
+    *   **Actor:** Conductor.
+    *   **Work:** Contact Data Engineering Lead to secure a specific rollout window. Define rollback triggers.
+    *   **Serialization:** **Must complete before G8 (Release).** Cannot merge without a confirmed window.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Pin base SHA. Explicitly state: "Old field optional/deprecated; new field optional."
+*   **G2 (Plan):** Confirm CI budget. Since full validation takes 45 mins and is limited to 3/day, schedule the **single** required full run for the candidate SHA only. Do not run on intermediate commits.
+*   **G3 (Design):** Verify backward compatibility strategy. Ensure no nested array depth changes trigger false-positive flakiness.
+*   **G4 (Implement):** Commit patch. Message must cite the Q3 returns initiative.
+*   **G5 (Verify):**
+    *   **Environment:** Staging only.
+    *   **Action:** Trigger `schema-compatibility` check. If it fails due to known nested array flakiness, manually re-trigger once. If it fails again, halt for manual inspection (do not auto-merge).
+    *   **Constraint:** Full validation suite runs **once** on the final candidate SHA.
+*   **G6 (Review):**
+    *   **Reviewers:** Platform Architect AND Data Governance Officer (Independent of Builder).
+    *   **Scope:** Full diff + G5 receipts. Focus on irreversibility of registry publish.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected gates on the merge SHA if the hash changed.
+*   **G8 (Release):** **Human Gate.** Requires dual approval (Architect + DGO) + confirmed rollout window from Lane C. Publish to global registry.
+
+#### 3. Review Strategy
+*   **Independence:** Builder never reviews Builder. The two required approvers (Architect, DGO) act as independent Security/Quality gates.
+*   **Focus:** Reviewers must verify that the old field remains functional and that the new field does not break existing consumers.
+
+#### 4. Landing & Rollback
+*   **Merge Condition:** Green G5 (Staging) + Green G6 (Dual Approval) + Confirmed Rollout Window (Lane C).
+*   **Human Decision:** The actual "Publish" to the global registry is a manual human action post-merge, executed only within the agreed window.
+*   **Rollback:** Since registry publishes are irreversible:
+    *   **Mechanism:** Publish a superseding version immediately reverting the change or marking the new field as ignored if data loss/corruption is detected.
+    *   **Trigger:** Any data loss signal or downstream consumer failure during the rollout window.
+*   **Post-Landing:** Monitor downstream teams for 24 hours. Log the lesson regarding the flaky `schema-compatibility` check if manual re-triggers were needed.
+
+**Risk Note:** The "irreversible" nature of the registry makes G6 (Review) the critical fail-closed point. No automation bypasses the dual human approval.

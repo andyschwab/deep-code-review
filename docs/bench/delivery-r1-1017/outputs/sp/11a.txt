@@ -1,0 +1,49 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Tier Access
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Infrastructure Code):** One engineer modifies the policy definition in `core-net-storage`. This work is strictly additive; no existing blocks are deleted to prevent legacy lockout.
+*   **Lane B (Simulation Prep):** A second engineer prepares the CI environment and monitors the queue. This runs parallel to Lane A but cannot proceed to execution until Lane A commits.
+*   **Serialization Point:** Lane B cannot start the topology simulation until Lane A pushes the commit. The simulation (22 mins) is the critical path bottleneck.
+
+#### 2. Gates & Checks
+*   **Pre-Commit Gate:** Local static analysis to verify syntax and ensure no `Deny` statements or encryption/lifecycle modifications are present.
+*   **CI Gate (Staging):**
+    *   **Trigger:** Push to `feature/auditor-access` branch.
+    *   **Check:** Full topology simulation (22 mins).
+    *   **Flake Handling:** If `network-latency-validator` fails, one manual retry is authorized immediately. Any other failure blocks progress.
+    *   **Verification:** Confirm `auditor-svc` has `s3:GetObject` on `legal-archive-09` and *no* `s3:PutObject` or `s3:DeleteObject` permissions.
+*   **Security Gate:** Manual review by two senior engineers and one security lead. This occurs *after* a successful staging simulation but *before* the production merge request.
+
+#### 3. Review Process
+*   **Independent Reviewers:** The three approvers (2 Senior Eng, 1 Security) must be distinct from the author in Lane A.
+*   **Review Focus:**
+    1.  Verify the diff contains *only* the new service account grant.
+    2.  Confirm no changes to encryption keys or lifecycle rules.
+    3.  Validate the rollback script exists and targets the exact previous commit hash.
+*   **Decision Authority:** The Security Lead holds veto power regarding public exposure risks.
+
+#### 4. Landing & Merge Strategy
+*   **Merge Window:** Tuesday 02:00 – 04:00 UTC only.
+*   **Procedure:**
+    1.  At 02:00 UTC, merge the approved PR to `main`.
+    2.  Trigger production deployment pipeline immediately.
+    3.  **Validation:** Run a live read-test using `auditor-svc` credentials against a known 7+ year old file in production.
+*   **Human Decision Points:**
+    *   Final "Go/No-Go" at 01:55 UTC based on staging results.
+    *   Authorization to proceed if the flaky check required a retry.
+
+#### 5. Rollback Plan
+*   **Trigger Conditions:**
+    1.  `auditor-svc` successfully writes/deletes an object (write access detected).
+    2.  Bucket policy becomes publicly readable.
+    3.  Legacy backup system reports access denial within 5 minutes of deploy.
+*   **Execution:**
+    *   Do not edit the policy live.
+    *   Revert the merge commit immediately using the pre-verified rollback script.
+    *   Target time: < 5 minutes from detection to restoration of previous state.
+*   **Post-Rollback:** Freeze all further attempts until a root cause analysis is completed.
+
+#### 6. Constraints & Risks
+*   **Immutable Zones:** Encryption settings and lifecycle rules are strictly read-only in this ticket.
+*   **Destructive Action Warning:** Deleting the policy resource entirely is forbidden; it causes irreversible legacy lockout. Edits must be purely additive.
+*   **Resource Cost:** Each simulation consumes 400 credits; ensure the code is clean before pushing to avoid wasted runs.

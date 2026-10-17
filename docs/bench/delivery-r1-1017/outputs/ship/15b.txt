@@ -1,0 +1,40 @@
+**Delivery Plan: Stabilize Orbit-9 Checkout Flow Tests**
+
+**Objective:** Reduce Orbit-9 E2E flakiness from 40% to <1% without disabling mandatory compliance checks or modifying the immutable global-setup network check.
+
+**Lanes & Parallelism**
+*   **Lane A (Analysis & Reproduction):** Investigate the specific failure modes of the Orbit-9 suite against the read-only midnight snapshot. Isolate whether failures stem from the known global-setup network check or genuine Orbit-9 race conditions.
+    *   *Constraint:* Must coordinate with QA Ownership Team before altering test logic.
+    *   *Parallel:* Can run immediately alongside Lane B.
+*   **Lane B (Infrastructure Probe):** Profile the CI cluster execution to determine if the 28-minute runtime contributes to timeout-induced flakiness. Analyze logs for resource contention during the 40% failure window.
+    *   *Parallel:* Runs concurrently with Lane A.
+*   **Lane C (Fix Implementation):** Implement targeted stabilizations (e.g., explicit waits, retry logic for non-compliance steps, data seeding adjustments) based on Lane A's findings.
+    *   *Serialization:* Must wait for Lane A's root cause analysis and QA coordination approval. Cannot start until Lane A completes.
+
+**Gates & Checks**
+*   **G1 Spec:** Define the exact failure signature (stack trace/timing) and the proposed stabilization mechanism. Pin base SHA from `main` before the latest failing merge.
+*   **G2 Plan:** Confirm QA Ownership Team alignment on the proposed logic changes. Verify the fix does not bypass the immutable global-setup check.
+*   **G4 Implement:** Commit changes in a dedicated worktree. Include a local reproduction script that simulates the flaky condition.
+*   **G5 Verify (Local):** Run the Orbit-9 suite locally 10 times against the midnight snapshot. Success requires 10/10 passes.
+*   **G5 Verify (CI):** Trigger the full pipeline on the exact candidate SHA.
+    *   *Cost Control:* Run the costly ($12, 28m) suite exactly once per candidate SHA. Do not re-run on merge unless the SHA changes.
+    *   *Condition:* Green status required on the specific Orbit-9 job and the global-setup check.
+*   **G6 Review:** Independent review by a senior engineer not involved in Lane C. QA Ownership Team must sign off on logic changes. Security review to ensure compliance checks remain intact.
+
+**Review Strategy**
+*   **Builder:** Implements Lane C.
+*   **Independent QA:** Validates that the 40% failure rate is resolved and compliance rules are unbroken. Distinct from the Builder.
+*   **Compliance Officer (Jane Smith):** Required for G8 approval only if the fix alters the test runner configuration behavior in staging (per repository facts). If the fix is purely code-level logic within allowed parameters, her approval is needed only for the final deployment to staging.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Merge to `main` via a merge train only after G6 approval and one green CI run on the candidate SHA.
+*   **Human Decisions:**
+    1.  **QA Ownership Team:** Approval of test logic changes (G2).
+    2.  **Jane Smith (Compliance Officer):** Explicit written approval required before deploying the fix to the staging environment (G8).
+*   **Rollback:** If the fix introduces new failures or increases runtime beyond 30 minutes, immediately revert the merge using the previous stable SHA. The read-only snapshot ensures data consistency during rollback.
+
+**Risk Mitigation**
+*   **Flake Recurrence:** If the global-setup check remains the culprit, implement a verified retry wrapper specifically for that check if audit rules allow, or document the false negative pattern for future audit reconciliation.
+*   **Cost Overrun:** Limit CI retries to a maximum of two attempts per SHA. Further failures trigger a stop for re-analysis.
+
+**Next Step:** Initiate Lane A and Lane B. Coordinate with QA Ownership Team immediately upon identifying the root cause.

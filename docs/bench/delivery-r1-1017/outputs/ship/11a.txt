@@ -1,0 +1,41 @@
+**Delivery Plan: Fix Stale Inventory Counts**
+
+**Objective:** Eliminate the 15-minute cache latency in the shared logistics client by ensuring immediate invalidation upon database commit.
+
+**Lanes & Parallelism**
+*   **Lane A (Investigation & Spec):** Isolate the cache invalidation trigger in the shared client source. Define the exact commit hook required. *Serial:* Must complete before Lane B.
+*   **Lane B (Implementation):** Patch the client library to fire the invalidation signal immediately post-commit. Add a unit test simulating the scan-to-read latency. *Writer:* Dedicated worktree.
+*   **Lane C (Flake Mitigation):** Isolate the flaky network simulation check. Create a retry wrapper or mark it non-blocking for this specific PR if unrelated to cache logic. *Parallel:* Can run alongside Lane B.
+
+**Gates & Checks**
+*   **G1 (Spec):** Output must name the specific function/file in the client library and the expected signal payload.
+*   **G2 (Plan):** Confirm Lane B uses a pinned base SHA of the current client version. Explicitly budget for one full CI run (45 mins); no re-runs unless SHA changes.
+*   **G4 (Build):** Unit tests must pass locally in Lane B's worktree before pushing.
+*   **G5 (Verify):**
+    *   Run full regression suite on the exact candidate SHA in staging.
+    *   **Constraint:** If the network simulation flake triggers, apply Lane C's mitigation and re-run once. Do not merge if the cache-specific test fails.
+    *   **Evidence:** Log showing stock update latency < 5 seconds after a simulated scan.
+*   **G6 (Review):**
+    *   **Code Review:** Independent senior engineer (not the implementer).
+    *   **Security/Compliance:** Mandatory review by **Jane Smith** (Platform Security Lead) due to artifact feed rules.
+*   **G7 (Integration):** Merge to the integration branch only after G6 approval.
+
+**Review Strategy**
+*   **Builder:** Implements the fix in isolation.
+*   **QA:** Verifies the latency fix against the staging mirror. Independent of the builder.
+*   **Security:** Jane Smith reviews the client library change for compliance. This is a hard gate; no bypass.
+
+**Landing & Human Decisions**
+*   **Merge Train:** Serialized landing. Only one candidate SHA proceeds to merge at a time to avoid polluting the 45-minute CI window.
+*   **Human Approval Required:**
+    1.  **Jane Smith:** Must explicitly approve the client library version bump for the private artifact feed.
+    2.  **Release Owner:** Must approve the deployment timing. Due to the **24-hour irreversible rollback freeze** during business hours, the deploy must be scheduled for a maintenance window outside business hours.
+*   **Rollback Plan:**
+    *   If the fix causes overselling or data corruption post-deploy, immediate rollback is blocked for 24 hours if during business hours.
+    *   **Mitigation:** The deployment must include a feature flag to disable the new invalidation logic without a full redeploy, allowing instant reversion to the cached behavior (latency returns, but data consistency is preserved) if critical failures occur during the freeze window.
+
+**Risk Management**
+*   **Flaky CI:** The network simulation failure is known. If it fails on the candidate SHA, verify it is unrelated to cache logic before retrying. If it persists, escalate to Lane C owner; do not merge on a red gate unless explicitly marked non-blocking for this scope.
+*   **Timing:** The 45-minute CI + 24-hour freeze means a failed deploy during business hours is catastrophic. Verification (G5) must be exhaustive before the G8 release approval.
+
+**Next Step:** Await confirmation of the maintenance window to schedule the G8 release approval.

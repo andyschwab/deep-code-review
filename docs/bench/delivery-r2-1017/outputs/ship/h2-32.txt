@@ -1,0 +1,72 @@
+### Delivery Plan: Read Replica Routing with Lag Guardrails
+
+**Scope:** Route reporting queries to the new read replica with a >3s lag failover (5s debounce). Isolate impact to the reporting module; protect transactional screens.
+
+#### 1. Lanes & Serialization
+
+*   **Lane A: Configuration & Topology (Serial)**
+    *   **Owner:** Platform Reliability Team (Human).
+    *   **Work:** Provision replica in secondary zone; update shared JSON routing config.
+    *   **Constraint:** Must occur during the Tuesday night deploy window. Requires manual sign-off in the deployment portal.
+    *   **Dependency:** None, but blocks Lane B's integration.
+
+*   **Lane B: Routing Logic Implementation (Parallel Prep)**
+    *   **Owner:** Builder.
+    *   **Work:** Implement query router logic in the reporting module.
+        *   Detect replication lag.
+        *   Enforce 3s threshold with 5s debounce (to ignore backup noise).
+        *   Failover to primary on breach.
+        *   Verify no leakage to billing/inventory/transactional services.
+    *   **Environment:** Dedicated worktree. Local validation mandatory (no CI until green locally).
+
+*   **Lane C: Independent Verification (Serial, post-Lane B)**
+    *   **Owner:** QA (Independent).
+    *   **Work:** Simulate lag >3s during backup windows; verify failover triggers correctly. Confirm transactional screens remain unaffected. Validate debounce logic.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec (Now):** Define acceptance criteria: "Dashboard loads from replica unless lag >3s for >5s, then primary." Pin base SHA.
+*   **G2 Plan (Now):** Confirm Tuesday window and Platform Reliability sign-off path. Set token budget for CI runs (max 2 attempts).
+*   **G3 Design:** Document the debounce mechanism and JSON schema changes. Explicitly state isolation boundaries for billing/inventory.
+*   **G4 Implement:**
+    *   **Builder:** Code changes in isolated worktree.
+    *   **Local Check:** Run unit tests and mock lag scenarios locally. **Must pass before push.**
+*   **G5 Verify:**
+    *   **Revision:** Exact SHA from Lane B.
+    *   **Check:** Run full data integrity suite (45m) only after local green.
+    *   **QA:** Execute chaos testing (induce lag) on the exact revision. Evidence: Logs showing failover trigger and fallback to primary.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Engineer (Independent of Builder).
+    *   **Focus:** Logic correctness, debounce timing, and isolation guarantees.
+    *   **Security:** Verify no exposure of primary credentials to reporting module beyond failover necessity.
+*   **G7 Integrate:** Merge to integration branch. Re-run affected integrity checks on final SHA.
+*   **G8 Release (Human Gate):**
+    *   **Trigger:** Tuesday night window.
+    *   **Action:** Platform Reliability Team approves topology change + config deploy.
+    *   **Condition:** Rollback plan proven.
+
+#### 3. Review Strategy
+
+*   **Code Review:** Independent senior engineer reviews Lane B code. Builder does not self-approve.
+*   **Topology Review:** Platform Reliability Team validates the replica setup and JSON changes (G8).
+*   **QA Review:** Independent verification of failover behavior and debounce logic. No reliance on builder's test logs.
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:**
+    *   Lane B merges to integration branch after G6/G7.
+    *   **Hold:** Do not deploy to production until Tuesday window.
+*   **Human Decision Required:**
+    *   Platform Reliability sign-off in deployment portal (G8).
+    *   Go/No-Go decision at start of Tuesday window based on G5/G6 receipts.
+*   **Rollback Plan:**
+    *   **Trigger:** Lag guardrails fail, data inconsistency detected, or performance degradation on primary.
+    *   **Action:** Revert JSON config to route all traffic to primary immediately. Decommission replica routing.
+    *   **Verification:** Confirm all dashboards loading from primary with correct totals.
+
+**Risk Mitigation:**
+*   **False Positives:** 5s debounce explicitly handles backup noise.
+*   **Cost Control:** Local validation mandatory before triggering 45m CI suite. Max 2 CI runs permitted.
+*   **Isolation:** Strict scope limits changes to reporting module; regression tests confirm no impact on billing/inventory.
+
+**Next Step:** Confirm Tuesday deploy window availability with Platform Reliability Team and pin base SHA for Lane B.
