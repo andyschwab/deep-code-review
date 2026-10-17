@@ -1,0 +1,16 @@
+# Deviations and status (after PREREGISTERED.md v2)
+
+1. Judge retry: the driver.py judge loop retries each model call 3 times (the first pass had transient "no JSON array" failures that dropped 6 tune cases). Verdict logic is unchanged.
+2. Judging is per-finding classification, not pairwise, so no both-order swap applies.
+3. Held-out has 22 cases, tune 21 (split.json is authoritative).
+4. Tune result for variant V1 (a stub SKILL.md that routes a small DIFF to references/compact-mode.md and everything else to references/full-map.md; built by mk_v1.py), n=19 of 21 (2 cases dropped after retry: execa-sync-duplicate-file-targets, nvm-install-alias-gate-inverted):
+   - Tokens per review: V1 20956 vs BASE 104679 (same 16 cases with a BASE record), ratio 0.200; TK 5201.
+   - F1 V1 0.619 vs TK 0.473, difference +0.146 (95% CI -0.012 to 0.319); precision difference +0.212 (CI -0.015 to 0.380); recall difference +0.105 (CI -0.105 to 0.316).
+   - V1 meets the tune qualification (T <= 50% of BASE, F1 difference >= -0.03). Only one variant was tried.
+5. SUPERSEDED by items 6-9 (held-out run made, decision revert). Original note: the skill edit was not applied to .claude/skills/deep-code-review in the repo, because the sandbox refuses writes under .claude/skills (PermissionError, Operation not permitted). V1 was therefore never frozen in a commit and the held-out run was not made. No keep/revert decision exists. To continue: run `python3 mk_v1.py .claude/skills/deep-code-review` where that path is writable, commit, then follow PREREGISTERED.md procedure step 3.
+
+## Held-out result and decision (PREREGISTERED-V1-heldout.md, v3)
+6. V1 was frozen (file hashes in PREREGISTERED-V1-heldout.md) and run once on the 22 held-out cases with BASE (unedited skill via SKILL_DIR) and TK, PCSS Qwen3.5-397B-A17B, no paid call. Judge calls that failed from a first attempt run without network access were re-judged (same free judges, no change to any review output); reviews that errored twice are dropped from all arms: axios-interceptor-nullish-handlers, click-parameter-source-late, execa-pipe-series-source, execa-shebang-short-file. n=18. Results: compare.py, results-V1-heldout-vs-BASE.json, results-V1-heldout.json, results-BASE-heldout.json.
+7. F1: V1 0.566, BASE 0.643, TK 0.504. V1 minus BASE -0.077 (95% CI -0.201 to 0.032; precision -0.110, recall -0.056). V1 minus TK +0.062 (CI -0.116 to 0.258). Mean tokens per review: V1 19964, BASE 86920 (ratio 0.23), TK 4790.
+8. Keep rule: quality (CI lower bound of V1-BASE F1 >= -0.02) fails; cost (V1 tokens <= TK tokens) fails, V1 uses 4.2x the rival's tokens. Decision: revert. The skill edit is not shipped; this directory ships as evidence. The tune-half F1 gain over TK (+0.146) did not repeat on held-out (+0.062, CI spans 0).
+9. Reading for follow-up: the lean stub cuts BASE tokens by about 4.3x but cannot reach the rival's cost because every review still loads the stub, compact-mode.md and several tool turns (mean 5.6 turns, from results-V1-heldout.json, which covers n=19 cases; results-V1-heldout.json and results-BASE-heldout.json are per-arm files on a slightly different case set than the n=18 paired numbers above); a variant that meets "tokens <= TK" would need a single-read, single-turn path. Not tried here: held-out is spent.

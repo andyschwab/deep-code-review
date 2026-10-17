@@ -1,0 +1,62 @@
+# Delivery Plan: Secure Payment Logging Implementation
+
+**Deadline:** Thursday 2:00 PM
+**Owner:** Development Team
+**Stakeholders:** Tom (Security Lead)
+
+## Phase 1: Sanitization Foundation (Thursday 9:00 AM)
+**Objective:** Extend `src/logger_util.rb` to automatically mask sensitive fields before writing to stdout/file.
+
+1.  **Define Sensitive Patterns:** Create a constant list of regex patterns for:
+    *   Credit Card Numbers (13-19 digits, with/without separators).
+    *   CVV codes (3-4 digits following specific keywords).
+    *   Customer Names (associated with specific JSON keys like `"name"`, `"cardholder"`).
+2.  **Implement Filter Method:** Add a `sanitize(message)` method to `LoggerUtil`.
+    *   Logic: Scan input string/JSON hash against patterns.
+    *   Replacement: Replace matches with `[REDACTED]` or show only last 4 digits for cards (e.g., `****-****-****-1234`).
+    *   Scope: Apply to both string interpolation and structured JSON logging.
+3.  **Hook Integration:** Ensure all logger instances (`INFO`, `WARN`, `ERROR`) route messages through `sanitize()` before output.
+
+## Phase 2: Instrumentation Points (Thursday 11:00 AM)
+**Objective:** Add specific log statements in `src/payment_gateway.rb` without exposing raw data.
+
+**Insert logs at these exact locations:**
+1.  **Entry Point:** `process_payment(payload)` start.
+    *   *Log:* "Payment processing initiated."
+    *   *Data:* `transaction_id`, `amount`, `currency`, `timestamp`. (Exclude `payload` dump).
+2.  **Pre-Validation:** Before external API call.
+    *   *Log:* "Validating payment details."
+    *   *Data:* `card_last_four`, `expiry_month`, `validation_status`.
+3.  **External Call:** During HTTP request to gateway.
+    *   *Log:* "Request sent to payment provider."
+    *   *Data:* `request_id`, `response_code`, `latency_ms`. (Never log request body).
+4.  **Error Handling:** Inside `rescue` blocks.
+    *   *Log:* "Payment failed."
+    *   *Data:* `error_class`, `error_message` (sanitized), `transaction_id`.
+5.  **Completion:** On success/failure return.
+    *   *Log:* "Payment processing completed."
+    *   *Data:* `final_status`, `transaction_id`.
+
+## Phase 3: Verification & Testing (Thursday 1:00 PM)
+**Objective:** Prove PII is never logged, even in tests.
+
+1.  **Create `spec/logging_security_spec.rb`:**
+    *   **Test Case A (Direct Injection):** Construct a test payload containing a fake valid credit card number (e.g., Stripe test token format) and a customer name. Pass this to the logger directly. Assert the output string *does not* contain the number or name and *does* contain `[REDACTED]`.
+    *   **Test Case B (Integration Flow):** Run a full `process_payment` cycle in the test environment with the fake payload. Capture the test logger output. Assert no PII exists in the buffer.
+    *   **Test Case C (Edge Cases):** Test partial numbers, numbers with spaces/dashes, and names with special characters to ensure regex robustness.
+2.  **Execution:** Run `bundle exec rspec spec/logging_security_spec.rb`. All tests must pass green.
+
+## Phase 4: Security Review (Thursday 1:45 PM)
+**Objective:** Manual validation by Tom.
+
+1.  **Generate Sample Output:** Run a script that processes 5 dummy transactions (mix of success/failure) using the fake PII data.
+2.  **Export Logs:** Save the resulting log file to `tmp/security_review_logs.txt`.
+3.  **Handoff:** Submit `tmp/security_review_logs.txt` and the `spec/logging_security_spec.rb` file to Tom.
+4.  **Criteria:** Tom verifies visually that no raw numbers/names appear and approves the format.
+
+## Contingency
+If regex patterns fail to catch a specific format during testing, pause implementation, update the pattern list in Phase 1, and re-run Phase 3. Do not proceed to Phase 4 until tests guarantee 100% masking.
+
+---
+*Note: Ensure the test environment logger is configured to output to a capture buffer, not disabled, to satisfy the verification requirement.*
+*All fake data used in tests must be generated via a factory, never hardcoded real numbers.*
