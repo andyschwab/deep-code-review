@@ -203,7 +203,7 @@ What changed: a six-step decision method in `SKILL.md` (steelman then attack; do
 | Comparison | Win rate [95% CI] | Order splits | Result |
 |---|---|---|---|
 | new skill vs old skill | 0.650 [0.450, 0.850] (n=10); cross-vendor 0.550 [0.350, 0.750] | 5 of 10 | No measured loss, not shown better; change kept under the preregistered rule |
-| new skill vs the H1d rival | incomplete: cap hit after 4 of 10 scenarios (0.875 on those 4, not a result); cross-vendor, not preregistered, on all 10 scenarios: 0.350 [0.100, 0.600] (2-5-3), GLM-5.2 tiebreak 0.400 [0.150, 0.650], not shown better | n/a | Not measured |
+| new skill vs the H1d rival | incomplete: cap hit after 4 of 10 scenarios (0.875 on those 4, not a result); cross-vendor, not preregistered, on all 10 scenarios: 0.350 [0.100, 0.600] (2-5-3), GLM-5.2 tiebreak 0.400 [0.150, 0.650] (Qwen-only on 5 scenarios), not shown better | n/a | Not measured |
 | new skill vs the plain model | not run (cap) | n/a | Not measured |
 
 The estimate that the cap would cover all three pairs was wrong (a Sonnet judge call cost $0.0167, not the $0.008 assumed); finishing the rival and plain pairs needs about $0.65 more. Judge reasons favour the new skill for dated kill criteria, a leading metric, branching decision rules and caught date errors, and the old skill where it was more specific on a fallback or a ready-to-send draft. The Council became Veche (`scripts/veche.py`; `council.py` forwards to it): its seats, fixed criteria, twin dissent and convene gate are unit-tested (`scripts/test_veche.py`), not measured for accuracy.
@@ -227,7 +227,7 @@ Why: every verdict above came from a judge in the generator's vendor family, whi
 | H1d product-discovery vs phuryn | 0.300 [0.100, 0.500] (1-5-4) | **0.275 [0.125, 0.400]** (0-5-5) LOSS | 0.325 [0.150, 0.550] (1-5-4) FAIL | 12 of 20 |
 | H1d growth-analytics vs marketingskills | 0.700 [0.500, 0.900] (5-1-4) | **0.600 [0.350, 0.800]** (4-2-4) FAIL | 0.600 [0.300, 0.850] (5-3-2) FAIL | 6 of 20 |
 | H1e idea-critic v2 vs old skill | 0.650 [0.450, 0.850] (4-1-5) | **0.550 [0.350, 0.750]** (3-2-5) FAIL | 0.550 [0.350, 0.750] (3-2-5) FAIL | 10 of 20 |
-| H1e idea-critic v2 vs gstack plan-ceo-review | incomplete (4 scenarios, 0.875), not a result | **0.350 [0.100, 0.600]** (2-5-3) FAIL | 0.400 [0.150, 0.650] (2-4-4) FAIL | 4 of 9 |
+| H1e idea-critic v2 vs gstack plan-ceo-review | incomplete (4 scenarios, 0.875), not a result | **0.350 [0.100, 0.600]** (2-5-3) FAIL | 0.400 [0.150, 0.650] (2-4-4) FAIL (Qwen-only on 5 scenarios) | 4 of 9 |
 | H1f communication-structure fix vs humanizer | 0.100 [0.000, 0.300] (1-9-0) | **0.150 [0.000, 0.400]** (1-8-1) LOSS | 0.000 [0.000, 0.000] (0-10-0) LOSS | 5 of 20 |
 | H1f communication-structure fix vs plain model | 0.100 [0.000, 0.300] (1-9-0) | **0.100 [0.000, 0.250]** (0-8-2) LOSS | 0.050 [0.000, 0.150] (0-9-1) LOSS | 2 of 20 |
 | H1f revised comms (exploratory) vs plain model | 0.700 [0.400, 1.000] (one order per scenario) | **0.000 [0.000, 0.000]** (0-10-0) LOSS | 0.050 [0.000, 0.150] (0-9-1) LOSS | 7 of 10 |
