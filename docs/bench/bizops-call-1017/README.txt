@@ -15,3 +15,8 @@ Reading: the direction is positive (+0.083; e scored higher than v0 on 12 scenar
 Files: mkvariants.py builds prompts/perun_business-ops_{v0,c,d,e}.txt from the frozen base; bench.py runs seeds, scenarios, check, run, paired; results/ holds per-arm and paired records; outputs/ and judge/ hold every generated answer and judge verdict.
 
 Redaction note: the writer used one first name that the repository's local privacy banlist matches (a common given name, fictional here). After the run, that single token was replaced with another fictional first name in the three files that contain it (scenarios/business-ops-heldout.json, outputs/e/h01.txt, outputs/v0/h01.txt) so the privacy gate passes. SHA256-scenarios.txt is the pre-redaction freeze and so no longer matches the heldout file byte for byte; no scores or verdicts were recomputed or changed.
+
+Review notes (independent review of PR #1642):
+- The four judge records for h01 (arms e and v0, both orders) were made on the pre-redaction text, so their stored text keys no longer match the committed h01 files. The judged original is not kept in git, because it contains the banlisted token. Scoring h01 either way leaves the paired e minus v0 interval lower bound below 0, so the decision does not depend on it.
+- Scenario ids t01-t10 and h01-h40 reuse the id labels of business-ops rounds r3/r4, but the texts are new (0 exact matches; maximum 6-word-shingle overlap 0.167) and this round uses its own outputs/ and judge/ trees, so no earlier output was reused.
+- The preregistration-before-generation order rests on the frozen hashes (9 of 9 match the committed blobs) and the lane's ledger, not on separate commits; everything landed in one commit.
