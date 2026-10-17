@@ -1,0 +1,47 @@
+### Delivery Plan: Payment Gateway Timeout Hotfix
+
+**Strategy:** Emergency lane with compressed gates. No code freeze bypass; instead, expedite via parallel verification on the exact fix revision. The "sandbox verification" provided is evidence for G5 but does not replace G6 independent review.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Builder):** Isolate worktree `hotfix/pool-reset`. Apply connection pool limit reset. *Constraint:* Do not touch `global-config` (locked) or database schema (immutable).
+*   **Lane B (QA - Parallel):** Re-run automated sanity checks on Lane A's commit SHA. Explicitly exclude the flaky `database-schema-sync` job to avoid false negatives; verify pool metrics via unit/integration tests only.
+*   **Lane C (Security - Parallel):** Independent review of the pool reset logic for injection risks or DoS potential.
+*   **Serialization Point:** Lane A must commit before B and C start. B and C run in parallel. Merge (G7) waits for both.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Confirmed. Scope: Pool limits only. Non-goals: Schema changes, config file edits.
+*   **G2 (Plan):** Budget capped at one CI run ($15). If the flaky job triggers accidentally, manual retry is authorized once.
+*   **G3 (Design):** Skipped (config change only), but the specific limit value must be documented in the commit message.
+*   **G4 (Implement):** Builder commits to `hotfix/pool-reset`. Base SHA: Current `main`.
+*   **G5 (Verify):**
+    *   Run CI pipeline on the exact commit SHA.
+    *   **Condition:** Sanity checks must pass. Ignore `database-schema-sync` failure if it occurs (known flake); verify other jobs are green.
+    *   **Evidence:** Link to CI run showing green status (excluding known flake).
+*   **G6 (Review):**
+    *   **Reviewers:** Security Lead AND On-Call Manager (Dual approval required).
+    *   **Independence:** Neither reviewer is the Builder. They review the exact SHA from G4, not the sandbox result.
+*   **G7 (Integrate):** Merge to `main` (or release branch) only after dual approval.
+
+#### 3. Landing & Human Decisions
+*   **Human Gate (G8 Release):**
+    *   **Decision:** The On-Call Manager must manually trigger the production deploy after G7 merge. This cannot be automated due to the dual-approval policy.
+    *   **Action:** Manager confirms "Deploy" after verifying G6 approvals.
+*   **Rollback Protocol:**
+    *   **Trigger:** Automated monitor detects latency >200ms post-deploy.
+    *   **Action:** Immediate revert of the merge commit.
+    *   **Preparation:** The revert command/script must be prepared and dry-run (against staging if possible) *before* the G8 deploy decision.
+*   **Post-Deploy (G9):** Monitor error dashboards for 15 minutes. If stable, close incident. If rollback triggers, initiate post-mortem (G10).
+
+#### 4. Risk Mitigation
+*   **Flaky Job:** Explicitly documented as "ignored if failed" in the CI gate criteria for this specific hotfix to prevent blocking.
+*   **Cost:** One CI run authorized. If a retry is needed due to the flake, it consumes the emergency budget; a third run requires owner approval.
+*   **Collision:** `global-config` lock is respected; no changes attempted there.
+
+**Execution Order:**
+1.  Builder commits fix (Lane A).
+2.  QA & Security start parallel reviews (Lanes B & C) on that commit.
+3.  Upon dual approval, On-Call Manager merges and deploys (Human Gate).
+4.  Monitor triggers auto-rollback if latency >200ms.
+
+**Total Estimated Time:** 45 minutes (excluding queue wait).
+**Blockers:** Missing dual approval or CI failure (non-flake).

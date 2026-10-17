@@ -1,0 +1,45 @@
+### Delivery Plan: Seasonal Trend Filter
+
+**Lanes & Parallelism**
+Three lanes launch immediately from `main` (SHA pinned at G1):
+1.  **Backend/Data Lane:** Implement the API endpoint or query logic to fetch last year's corresponding dates. Must verify data accuracy against enterprise client scenarios.
+2.  **Frontend Lane:** Build the "Seasonal View" toggle, the overlay rendering logic on the revenue graph, and local-storage persistence for state. Must adhere to the frozen visualization library constraints (no v2.4 upgrades).
+3.  **QA/Media Lane:** Prepare the test harness for lower-resolution screens and the screen-recording workflow. This lane waits for the Frontend Lane's initial build but runs verification in parallel with final backend integration.
+
+**Serialization Points:**
+*   The Frontend Lane cannot finalize until the Backend Lane confirms the data contract (JSON shape).
+*   Integration (G7) waits for both lanes to pass independent verification.
+
+**Gates & Checks**
+*   **G1 Spec:** Define acceptance criteria: Toggle visibility, overlay accuracy, persistence after refresh, and specific low-res breakpoints. Pin base SHA.
+*   **G3 Design:** Confirm no changes to the frozen visualization library core; document the overlay approach as an extension.
+*   **G4 Implement:**
+    *   Backend: Unit tests for date-mapping logic.
+    *   Frontend: Component tests + accessibility checks (WCAG).
+    *   *Constraint:* Do not trigger the full $45 CI suite for text edits; run targeted lint/type/unit checks locally first.
+*   **G5 Verify (Exact Revision):**
+    *   Bring up the local stack. Verify the toggle works and state persists on refresh.
+    *   **UI Evidence:** Record a headed-browser video on the exact route showing the overlay on a low-res viewport. Unit tests alone are insufficient.
+    *   *Flake Handling:* Skip the automated screenshot comparison check due to known animation flakiness; rely on the manual video receipt.
+*   **G6 Review:**
+    *   **Independent Reviewers:** A senior frontend engineer (not the builder) reviews code.
+    *   **Mandatory Approvals:** Product Lead (feature fit) and Accessibility Champion (a11y compliance) must sign off before merge.
+*   **G7 Integrate:** Merge to the integration branch. Run one final targeted CI check on the merged SHA to ensure no regression in the dashboard module.
+
+**Review Strategy**
+*   **Builder:** Implements features.
+*   **Independent QA:** Validates the video evidence and persistence behavior on the exact SHA.
+*   **Security:** Lightweight check for any new data exposure in the API response (no heavy scan needed for UI toggle).
+*   **Product & A11y:** Human gates required for merge approval.
+
+**Landing & Rollback**
+*   **Merge:** Once G6 approvals (Product Lead + A11y) are secured and G7 integration is green, merge via PR.
+*   **Human Decision:** Production deployment requires manual sign-off from the VP of Engineering during business hours. Staging deployment is automatic post-merge.
+*   **Rollback:** If the overlay causes rendering errors or performance degradation in staging:
+    1.  Revert the merge immediately (code rollback).
+    2.  Since no data migration occurs, no data rollback is needed.
+    3.  Notify enterprise clients of the delay.
+*   **Cost Control:** Limit CI runs to the final integration SHA and one retry for confirmed flakes only. Avoid re-running full suites for intermediate commits.
+
+**Output Contract**
+Deliverables include the merged PR, the recorded video proof on low-res, a summary of accessibility checks passed, and confirmation of state persistence. No claims of "fixed" without the video evidence.

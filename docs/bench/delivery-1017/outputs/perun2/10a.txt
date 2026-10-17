@@ -1,0 +1,43 @@
+### Delivery Plan: Sequence Six Dependent PRs (#101–#106)
+
+**Objective:** Merge six strictly ordered PRs to update the inventory lockfile and documentation without corrupting the master ledger or triggering false flaky checks.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Conductor & Coordination):** Single writer. Responsible for scheduling the window with Logistics, monitoring the merge train, and managing the known flake.
+*   **Lane B (Merge Execution):** Serialized. PRs #101 through #106 must merge strictly sequentially. No parallel execution is permitted due to the shared generated lockfile dependency.
+*   **Lane C (Verification):** Runs in parallel to the merge window preparation but executes sequentially against each merged SHA. Validates the dashboard stock counts and mobile scanner compatibility.
+
+**Constraint:** All lanes operate within the designated low-traffic window tomorrow morning.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Pre-Flight):** Conductor confirms the low-traffic window with Logistics and verifies that no other writes to the lockfile are pending.
+*   **G4 (Merge Gate):**
+    *   **Actor:** Senior Ops Engineer (Human).
+    *   **Action:** Approves and merges PR #N only after PR #(N-1) is fully integrated and green.
+    *   **Rule:** No squashing; preserve individual generation steps.
+*   **G5 (Verification Gate):**
+    *   **Trigger:** Immediately after each PR merge.
+    *   **Check 1 (CI):** Run the 45-minute pipeline on the exact merged SHA.
+    *   **Check 2 (Flake Mitigation):** If the "network simulation" stage fails on the 3rd merge (or any subsequent merge), do not retry immediately. Escalate to the Lead Logistics Manager for a manual retry authorization to avoid burning credits on known false positives.
+    *   **Check 3 (Functional):** Verify dashboard stock counts match the new lockfile state.
+*   **G8 (Release Gate):**
+    *   **Trigger:** After PR #106 merges and passes G5.
+    *   **Action:** Publish documentation to the external partner portal.
+    *   **Condition:** Irreversible action requires explicit human confirmation that Staging and Dev environments are stable.
+
+#### 3. Review Strategy
+*   **Code/Logic Review:** Already completed (PRs are open).
+*   **Process Review:** The Conductor acts as the independent verifier for the sequence integrity. The Senior Ops Engineer provides the mandatory human approval for each merge, ensuring no automated race conditions occur.
+*   **Audit Trail:** The "no squash" rule ensures the generation steps remain visible in the history for compliance.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** One-by-one via the Senior Ops Engineer. The Conductor monitors the CI cost ($12/run) and halts the sequence if a non-flake failure occurs to prevent wasting credits on a corrupted base.
+*   **Human Decisions Required:**
+    1.  Confirmation of the low-traffic window start.
+    2.  Approval for each individual PR merge (#101–#106).
+    3.  Authorization to retry the specific flaky network simulation check.
+    4.  Final go-ahead for external documentation publication.
+*   **Rollback Plan:**
+    *   **Code/Lockfile:** If corruption is detected post-merge (before publication), revert the specific PR immediately. If multiple PRs have landed, revert the entire sequence to the pre-#101 SHA.
+    *   **Documentation:** Once published to the partner portal, code revert is insufficient. A full manual rollback of the external portal content is required, coordinated with the partner team.
+*   **Completion Criteria:** PR #106 is merged, all six CI runs are green (including manual flake retries if needed), dashboard reflects accurate stock counts, and documentation is live. Conductor issues the final confirmation receipt.

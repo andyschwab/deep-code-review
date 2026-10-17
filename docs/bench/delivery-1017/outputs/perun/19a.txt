@@ -1,0 +1,42 @@
+### Delivery Plan: Billing Calculator Isolation
+
+**Objective:** Extract billing logic to a standalone service with zero calculation drift, maintaining interface parity for downstream reports.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Contract):** Define the exact API interface and data schema to ensure downstream report compatibility. Identify all tax computation paths. *Serial dependency: None.*
+*   **Lane B (Extraction & Build):** Create the new service repository. Port logic from the monolith. Implement tax calculations using `tax-rates.json` with 90-day backward compatibility logic. *Parallel with Lane C.*
+*   **Lane C (Verification Harness):** Build a "shadow mode" harness that runs identical inputs against both the legacy monolith and the new service to verify cent-perfect matching. Explicitly handle the known timezone flake by flagging it for manual review rather than auto-fail. *Parallel with Lane B.*
+*   **Lane D (Integration & Migration):** Update the monolith to route calls to the new service (via feature flag). Prepare deployment scripts. *Serial: Must wait for Lane B & C green.*
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Owner approves API contract before code moves.
+*   **G4 (Build):** Lane B commits to a dedicated worktree. CI runs on this exact SHA. Cost guard: Max 2 runs/hour to avoid budget freeze.
+*   **G5 (Verification):** Lane C executes the shadow harness against the G4 SHA.
+    *   **Pass Condition:** 100% match on financial outputs.
+    *   **Flake Handling:** Timezone errors trigger a "Manual Verify" state, not a hard block.
+    *   **Failure:** Any cent mismatch blocks progression immediately.
+*   **G6 (Independent Review):**
+    *   **Code Review:** Platform Guild senior engineer (not the Builder) reviews Lane B.
+    *   **Security/Compliance:** Risk Officer verifies tax logic isolation and `tax-rates.json` handling.
+*   **G7 (Integration):** Merge to integration branch. Run full suite once (cost awareness).
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lane B. Cannot approve their own code.
+*   **QA Engineer:** Owns Lane C results. Verifies the shadow harness proves parity.
+*   **Security/Compliance:** Independent review of tax logic and data isolation.
+*   **Chief Architect & Risk Officer:** Final human gate for Production deployment.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Land Lane B (new service) to `main` behind a disabled feature flag.
+    2.  Land Lane D (monolith routing) to `main` behind the same flag.
+    3.  **Human Decision:** Chief Architect and Risk Officer must explicitly approve enabling the flag in Production (G8).
+*   **Rollback Plan:**
+    *   If calculation drift is detected post-deploy: Instantly disable the feature flag to revert traffic to the monolith's native logic.
+    *   No code revert required for immediate mitigation; code revert follows if the flag remains off for >24 hours.
+*   **Post-Deploy (G9):** Monitor financial logs for 48 hours. Compare aggregate totals against legacy baseline.
+
+**Constraints Enforced:**
+*   **Cost:** CI limited to 2 runs/hour; local verification preferred before push.
+*   **Compliance:** Zero tolerance for calculation drift; manual sign-off mandatory for production.
+*   **Flake Management:** Timezone failures bypassed for manual check only; never auto-blocked.

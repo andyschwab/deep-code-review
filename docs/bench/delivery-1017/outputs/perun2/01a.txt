@@ -1,0 +1,44 @@
+### Delivery Plan: Ledger Schema Migration (Zero-Downtime)
+
+**Lanes & Parallelism**
+*   **Lane A (Schema & Dual-Write):** Implement new `entries` and `metadata` tables. Update the write path to dual-write to both the legacy `transaction_log` and new tables. *Writer: Senior Backend Engineer.*
+*   **Lane B (Read Path & Switch):** Implement the read abstraction to source from new tables, with a feature flag to revert to `transaction_log`. *Writer: Senior Backend Engineer (Distinct worktree from Lane A).*
+*   **Lane C (Backfill Engine):** Develop the batched backfill script with exponential backoff and lag monitoring (threshold <2s). *Writer: Data Engineer.*
+*   **Lane D (Rollback & Reversion):** Script the instant reversion logic (disable dual-write, force read-from-legacy) and verify data consistency snapshots. *Writer: SRE.*
+*   **Serialization Point:** Lanes A and B must merge into an integration branch before Lane C (Backfill) runs against the new schema in the staging environment. Lane D runs in parallel but validates against the integrated A+B state.
+
+**Gates & Checks**
+*   **G2 Plan Review:** Verify batch sizing logic against the 4s replication lag constraint. Confirm `audit-trail` immutability guards are hardcoded (no writes attempted).
+*   **G4 Implementation:** Code frozen on exact SHA. Unit tests must mock replication lag scenarios.
+*   **G5 Verification (Staging):**
+    *   Run backfill on a production snapshot. Monitor DB lag; fail if >3s.
+    *   **Critical Check:** Assert zero writes to `audit-trail`.
+    *   Validate dual-write consistency: Sample 1,000 random transactions across both schemas.
+*   **G6 Independent Review:**
+    *   **Security/Compliance:** Audit code for `audit-trail` write attempts and data masking.
+    *   **Architecture:** Verify dual-write atomicity and feature flag failover speed.
+    *   *Constraint:* Do not trigger full CI suite until G5 local/staging green to save hardware resources. Run only affected unit/integration tests.
+*   **G7 Integration:** Merge A, B, C, D into `release-candidate`. Run one final targeted integration test suite on this exact SHA.
+
+**Review Strategy**
+*   **Builder:** Implements lanes. Cannot approve own code.
+*   **Independent QA:** Validates backfill integrity and lag handling on the exact G7 SHA.
+*   **Security/Compliance:** Verifies `audit-trail` safety and data sovereignty.
+*   **Chief Architect & Compliance Officer:** Required human approvers for G8.
+
+**Landing & Rollback**
+*   **Human Gates:**
+    1.  **Deploy Approval:** Synchronous sign-off from Chief Architect and Compliance Officer via internal portal required before enabling dual-write in Production.
+    2.  **Backfill Start:** Manual trigger by SRE only after market close confirmation.
+    3.  **Switchover:** Manual toggle of read-path feature flag post-backfill verification.
+*   **Merge Strategy:** Merge to `main` behind a disabled feature flag. Deploy code silently.
+*   **Rollback Plan:**
+    *   **Trigger:** Any data mismatch, lag spike >4s, or metadata service error.
+    *   **Action:** Instant feature flag flip to legacy read path. Disable dual-write.
+    *   **Data Safety:** Since dual-write ensures legacy `transaction_log` remains current until switchover, reverting the flag restores full functionality immediately. No data migration reversal needed.
+    *   **Test:** Rollback drill performed in G5 on staging; evidence attached to G8 approval request.
+
+**Risk Mitigation**
+*   **Replication Lag:** Backfill script includes a circuit breaker; pauses if lag >3s.
+*   **Audit Contamination:** Code-level ban on `audit-trail` writes; database user for migration explicitly revoked write access to this table as a secondary guard.
+*   **Freeze Constraint:** No changes to `shared-ledger-utils`; all logic implemented in local service layer.

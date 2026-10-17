@@ -1,0 +1,56 @@
+**Delivery Plan: Canary Release for Smart Irrigation Logic**
+
+**Safety Constraint:** Reverting a bad deploy requires physical technician visits. Therefore, the "automated kill switch" must prevent the bad packet from ever reaching the device, not just revert it afterward. The 0.5% error threshold is a *deployment gate*, not a post-deploy metric.
+
+### 1. Lanes (Parallel vs. Serialized)
+
+*   **Lane A: Algorithm Encapsulation (Builder)**
+    *   **Work:** Wrap the new soil-moisture prediction logic behind an internal interface. Ensure it accepts the same inputs as the legacy method.
+    *   **Constraint:** Must not modify the shared read-only manifest schema.
+    *   **Parallelism:** Can run immediately.
+
+*   **Lane B: Flag & Routing Logic (Builder)**
+    *   **Work:** Implement the 5% Oregon-region sampling logic. This must read the existing manifest without altering its schema (e.g., use a sidecar config or hash-based routing within the allowed fields).
+    *   **Constraint:** Logic must default to "Legacy" if the flag service is unreachable.
+    *   **Parallelism:** Can run parallel to Lane A.
+
+*   **Lane C: Dashboard & Telemetry (Builder)**
+    *   **Work:** Build the real-time dashboard comparing water usage variance.
+    *   **Dependency:** Requires the output schema from Lane A and B to be finalized.
+    *   **Serialization:** Starts only after Lane A and B specs are frozen.
+
+*   **Lane D: The "Hard" Kill Switch (Security/Safety)**
+    *   **Work:** Implement the pre-deployment gate. If simulation error > 0.5% or support ticket spike detected (via API), the CI pipeline must *abort* the build/upload process entirely.
+    *   **Critical:** This runs *before* the cellular transmission.
+    *   **Serialization:** Must be integrated and verified before any canary traffic is authorized.
+
+### 2. Gates and Checks
+
+*   **G1 Spec Freeze:** Define the exact hash-based routing algorithm for the 5% split to ensure reproducibility. Confirm the manifest reading strategy does not break the fertilizer dosing system.
+*   **G3 Design Review:** Architect and Safety Officer must approve the "Hard Kill Switch" logic. Proof required: The system physically cannot transmit a packet if the error threshold is breached in simulation.
+*   **G4 Implementation:** Code complete on all lanes.
+*   **G5 Verification (Off-Peak Only):**
+    *   **Window:** 2 AM – 5 AM Local Time.
+    *   **Action:** Run hardware-in-the-loop simulation.
+    *   **Flake Handling:** Ignore network latency module failures *only* if logs confirm successful packet delivery. Any other failure blocks the gate.
+    *   **Metric:** Verify error rate calculation against the 0.5% limit using synthetic drought data.
+*   **G6 Independent Review:**
+    *   **Reviewer:** Senior Engineer (not the Builder).
+    *   **Focus:** Verify the kill switch cannot be bypassed and the manifest schema remains untouched.
+
+### 3. Landing and Human Decisions
+
+*   **Integration:** Merge Lanes A, B, and D into a release candidate. Lane C (Dashboard) can deploy separately as it is read-only.
+*   **Human Gate (Pre-Deploy):**
+    *   **Approvers:** Lead Agronomist AND Safety Officer.
+    *   **Input:** G5 Simulation Receipt showing 0% error on the candidate build and a successful "Kill Switch Trigger" test.
+    *   **Decision:** Explicit sign-off required to enable the 5% Oregon route.
+*   **Deployment Strategy:**
+    1.  Deploy to a single non-production device (smoke test).
+    2.  If successful, enable 5% Oregon canary.
+    3.  Monitor dashboard for 24 hours.
+*   **Rollback Protocol:**
+    *   **Software:** The "Kill Switch" automatically halts further updates if metrics degrade.
+    *   **Field:** If a bad packet *already* transmitted (e.g., logic error in the threshold itself), the system flags affected devices. A ticket is auto-generated for physical technician visits. No remote revert is possible.
+
+**Immediate Next Step:** Draft the G1 Spec detailing the manifest read-strategy to ensure zero impact on the fertilizer dosing system, then await owner confirmation before writing code.

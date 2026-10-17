@@ -1,0 +1,53 @@
+### Delivery Plan: Legacy Billing API Restriction
+
+**Objective:** Restrict `/billing/adjust` access to `Senior Finance Auditor` only, blocking `Support` role, without altering logging schemas. Live before Monday audit.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Policy Logic):** Update the shared JSON policy file to deny `Support` and allow only `Senior Finance Auditor` on the target path.
+    *   *Constraint:* Must not alter logging keys or structure.
+    *   *Parallelism:* Can run independently but must merge before Lane B.
+*   **Lane B (Verification Mock):** Create a localized test harness in Staging.
+    *   *Action:* Manually inject `Senior Finance Auditor` claims into the sanitized Staging environment to verify access.
+    *   *Action:* Simulate `Support` role requests to verify 403 rejection.
+    *   *Constraint:* Do not trigger the full 55-minute CI data integrity check until the final candidate SHA is ready. Run only unit/integration tests targeting the auth module.
+*   **Lane C (Audit Trail Check):** Scan existing support tickets referencing this tool.
+    *   *Action:* Document which specific audit-team users hold the `Senior Finance Auditor` role to ensure their workflow remains unbroken.
+    *   *Serialization:* Must complete before final sign-off to confirm "audit team" exception is valid.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Confirm exact JSON path and role string names. Define "blocked" response code (expected 403).
+*   **G4 Implementation:**
+    *   Lane A commits policy change to isolated worktree.
+    *   Lane B commits mock test scripts.
+    *   *Base SHA:* Pin to current `main` head before branching.
+*   **G5 Verification (Staging):**
+    *   Deploy candidate to Staging.
+    *   **Check 1:** `Support` role request → 403 Forbidden.
+    *   **Check 2:** `Senior Finance Auditor` mock claim → 200 OK.
+    *   **Check 3:** Verify log output matches existing schema exactly (no new fields, no renamed keys).
+    *   *Cost Control:* Skip full 55-min integrity scan; run only auth-specific integration suite.
+*   **G6 Review:**
+    *   **Security Review:** Independent verification that no other roles (e.g., `Admin`, `Manager`) retain accidental access.
+    *   **Compliance Review:** Verify logging schema unchanged for fraud detection pipeline.
+    *   *Reviewer Constraint:* Neither reviewer can be the author of Lane A or B.
+
+#### 3. Landing & Human Decisions
+*   **Integration:** Merge Lanes A and B into a release candidate branch. Run the full 55-minute data integrity check **once** on this exact SHA.
+*   **Human Gate (Dual Approval):**
+    *   **Required Approvers:** Lead Architect AND Compliance Officer.
+    *   **Trigger:** Merge to `main` (or production deployment trigger).
+    *   **Evidence Provided:** G5 test receipts (Pass/Fail), G6 security/compliance sign-off, and log schema diff showing zero changes.
+*   **Deployment Strategy:**
+    *   Deploy to production.
+    *   **Wait Period:** Observe for 11 minutes (exceeding the 10-minute edge cache TTL) before declaring success.
+    *   **Verification:** Live probe with `Support` credentials (must fail) and `Senior Finance Auditor` credentials (must pass).
+*   **Rollback Plan:**
+    *   If live probes fail or audit team reports breakage: Immediate revert of the JSON policy commit.
+    *   Since the change is configuration-only (JSON), rollback is instantaneous upon merge of the revert, subject to the same 10-minute cache propagation.
+
+#### 4. Risk & Constraints
+*   **Cache Delay:** Users may retain access for up to 10 minutes post-deploy due to edge caching. This is acceptable provided the policy is enforced at the origin immediately.
+*   **Staging Data:** Lack of real finance roles in Staging requires manual claim injection; failure to mock correctly results in false negatives.
+*   **Cost:** Limit CI runs to one final validation to avoid unnecessary $45 charges.
+
+**Status:** Ready for Conductor to assign lanes and pin base SHA.

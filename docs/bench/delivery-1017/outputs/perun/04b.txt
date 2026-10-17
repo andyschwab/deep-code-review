@@ -1,0 +1,52 @@
+**Delivery Plan: Pediatric Syrup Configuration Update**
+
+**Scope & Constraints**
+Three configuration updates for Cherry Flavor SKU: max daily dose (15ml→12ml), storage instruction (add refrigeration), and allergen warning (soy lecithin).
+*Critical Constraints:* 18-minute validation pipeline; high merge conflict risk on spec file; irreversible physical reprint upon deploy; dual human approval required.
+
+**Lanes & Serialization**
+Two lanes are required to prevent merge collisions on the primary specification file.
+
+*   **Lane A (Spec Updates):** Updates the primary specification file.
+    *   *Work:* Apply dose limit change (12ml) and storage instruction update.
+    *   *Constraint:* Must verify against the attached medical directive before commit.
+    *   *Isolation:* Dedicated worktree; rebased immediately against main before commit.
+*   **Lane B (Compliance Update):** Updates the separate compliance manifest.
+    *   *Work:* Add soy lecithin allergen warning.
+    *   *Isolation:* Dedicated worktree (no file collision with Lane A, but serialized at integration).
+
+**Execution Sequence**
+1.  **G0/G1 (Intake/Spec):** Conductor verifies the medical directive attachment. Explicitly confirm the 12ml limit and exact refrigeration wording. Define "Done" as passing the 18-minute validation with zero warnings.
+2.  **G2 (Plan):** Serialize Lane A and Lane B. Although they touch different files, the high conflict history and critical nature mandate a single integration owner to merge them into one candidate SHA.
+3.  **G3 (Design):** No architecture changes. Data contracts remain static.
+4.  **G4 (Implement):**
+    *   Builder A edits spec file.
+    *   Builder B edits compliance manifest.
+    *   *Rule:* Both builders run local syntax linting before pushing to avoid wasting the 18-minute pipeline credit.
+5.  **G5 (Verify):**
+    *   Trigger full pipeline on the **integrated SHA** (not individual branches).
+    *   *Check:* Validation must pass (exit 0).
+    *   *Visual Check:* Human reviewer compares the generated label preview against the medical directive for the 12ml dose and allergen text. Unit tests alone are insufficient for regulatory labeling.
+
+**Review Strategy**
+*   **Independent QA:** A reviewer distinct from both builders verifies the integrated output. They must confirm the 12ml dose matches the directive exactly and that the soy warning is present in the manifest.
+*   **Security/Compliance:** Automated check ensures ingredient codes match the government database. Any mismatch blocks the gate.
+
+**Landing & Human Gates**
+*   **Integration:** Once G5 passes, the Conductor merges both lanes into a release candidate branch.
+*   **G8 (Release Approval):** **STOP.** This is a hard human gate.
+    *   Required Approvers: Quality Assurance Lead AND Chief Medical Officer.
+    *   Action: Both must explicitly approve the specific integrated SHA.
+    *   Warning: Approval authorizes an irreversible physical reprint of warehouse stock tags.
+*   **Deploy:** Only after dual approval, push to the labeling printer interface.
+
+**Rollback & Contingency**
+*   **Pre-Deploy:** If the pipeline fails or QA rejects, discard the candidate SHA. Fix in lanes and re-integrate.
+*   **Post-Deploy:** Since physical reprints are irreversible, there is no technical rollback for printed tags.
+    *   *Contingency:* If an error is found post-deploy, immediately issue a digital hold notice to regional pharmacies and schedule a manual sticker overlay campaign while a corrected reprint is queued.
+    *   *Prevention:* The G5 visual check against the medical directive is the primary failure barrier.
+
+**Risk Mitigation**
+*   **Merge Conflicts:** Lane A rebases on main immediately before final commit. Lane B waits for Lane A to merge to a staging branch before integrating, ensuring a single writer sequence for the final candidate.
+*   **Cost Waste:** Local linting is mandatory before triggering the 18-minute pipeline.
+*   **Regulatory Recall:** The "triple-check" is formalized as the G5 visual verification by an independent QA agent against the source directive, not just a diff review.

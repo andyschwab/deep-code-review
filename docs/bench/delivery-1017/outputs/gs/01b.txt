@@ -1,0 +1,29 @@
+### Delivery Plan: Ledger Schema Migration
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Application Logic - Payments Core):** Implement the dual-write adapter in the ledger service. This code must write to both the legacy row-store and the new columnar table simultaneously. This lane runs independently of the database script approval.
+*   **Lane B (Schema Migration - Data Governance):** Prepare the migration scripts for the new columnar table in the separate read-only repository. This requires immediate submission for Chief Data Officer (CDO) manual approval.
+*   **Lane C (Backfill & Audit):** Develop the historical backfill job and the data integrity audit suite. This must account for staging flakiness by implementing retry logic or noise filtering for reconciliation checks.
+
+*Parallel Strategy:* Lanes A and B run in parallel. Lane C begins once Lane A’s dual-write interface is defined. All three must converge before the integration gate.
+
+**2. Gates & Checks**
+*   **Gate 1 (Schema Approval):** The migration cannot proceed without the CDO’s approved script hash from the read-only repo.
+*   **Gate 2 (CI Build Window):** Due to the 45-minute CI duration and 6-build daily cap, the final integration build must be queued immediately after Lane A and B converge. No other non-critical builds should occupy the queue during this window.
+*   **Gate 3 (Staging Reconciliation):** Deploy to staging first. The integrity audit must pass despite known data sanitization flakiness. A "pass" is defined as successful reconciliation over three consecutive runs to mitigate false positives.
+*   **Gate 4 (Pre-Month-End Freeze):** The final production deployment must complete at least 24 hours before the finance team’s month-end freeze. If the window is missed, the launch pauses until the freeze lifts.
+
+**3. Review Strategy**
+*   **Code Review:** Lane A (dual-write logic) requires review by a senior Payments Core engineer *not* involved in the implementation to verify transactional consistency.
+*   **Schema Review:** Lane B is effectively reviewed by the CDO during approval, but a secondary review by a Data Governance peer is required to ensure no downstream analytics breakage.
+*   **Operational Review:** Lane C (rollback and latency thresholds) must be reviewed by an SRE to validate that the latency spike detection logic correctly triggers the read-revert mechanism.
+
+**4. Landing & Merge Strategy**
+*   **Phase 1 (Dual-Write Live):** Merge Lane A and deploy. Traffic reads from legacy; writes go to both. Monitor write latency overhead.
+*   **Phase 2 (Backfill Trigger):** Once Phase 1 is stable, trigger the historical backfill job. Monitor progress strictly. **Critical Constraint:** If the backfill exceeds 10% completion, the schema change becomes irreversible. A "point of no return" check must be implemented in the deployment pipeline to halt if this threshold is crossed unexpectedly.
+*   **Phase 3 (Read Switch):** Upon 100% backfill completion and a passing data integrity audit, switch read traffic to the new columnar schema.
+
+**5. Rollback Plan**
+*   **Pre-10% Backfill:** If latency spikes or errors occur before the 10% backfill mark, instantly revert the application code to the legacy-only write path. The partial backfill data is discarded.
+*   **Post-10% Backfill:** Rollback is **impossible** for the schema. The only contingency is an instant code-level switch to force all reads back to the legacy table if latency exceeds the threshold. The new columnar table will remain populated but unused until the root cause is fixed.
+*   **Human Decision Point:** The switch to Phase 3 (Read Switch) requires explicit human confirmation from the Payments Core Lead and the Data Governance representative after verifying the audit logs. No automation should perform this final cutover.

@@ -1,0 +1,40 @@
+### Delivery Plan: Core Ledger Engine v4.0 Upgrade
+
+**Strategy:** Zero-downtime staged rollout with irreversible migration rehearsed in sandbox. High-cost CI ($450/run) and flaky tests require strict gating before full suite execution.
+
+#### Lanes & Parallelism
+*   **Lane A (Spec & Migration Design) [Conductor + Architect]:** Define the six-month backward compatibility contract and the irreversible migration rollback procedure. *Must complete before Lane C.*
+*   **Lane B (Plugin Verification) [Builder]:** Audit custom plugins against v4.0 breaking changes. Isolate failing plugins in a dedicated worktree. *Parallel with Lane A.*
+*   **Lane C (Implementation & Tests) [Builder]:** Update dependency, refactor transaction serialization, and update integration tests for new error codes. Depends on Lane A's contract. *Serial after A.*
+*   **Lane D (Sandbox Rehearsal) [QA + Security]:** Execute the migration script in the pre-production sandbox mirroring live traffic. Validate data integrity and rollback mechanics. *Serial after C merges to integration branch.*
+*   **Lane E (Compliance Sign-off) [Security]:** Verify banking regulation alignment and privacy impact. *Parallel with Lane D.*
+
+#### Gates & Checks
+*   **G1 (Spec):** Freeze base SHA. Output: Compatibility contract and migration runbook.
+*   **G4 (Implement):** Builders commit to isolated worktrees. Unit tests run locally first to avoid CI costs.
+*   **G5 (Verify):**
+    *   **Local:** Full stack up, lint, type, unit tests green.
+    *   **CI (Exact SHA):** Run cheap lints first. Trigger full suite ($450) only if cheap gates pass.
+    *   **Flake Handling:** If currency conversion tests fail, run `scripts/flake_ledger.py`. Allow one capped re-run; second failure blocks merge.
+    *   **Sandbox:** Lane D confirms migration success and data reversibility on the exact integration SHA.
+*   **G6 (Review):** Independent QA verifies plugin functionality and error code coverage. Security validates compliance. Neither reviewer is the Builder.
+*   **G7 (Integrate):** Merge train lands to integration branch. Re-run affected regression suite once on final SHA.
+
+#### Review
+*   **Code:** Senior Engineer (not the Builder) reviews serialization logic and plugin updates.
+*   **Security/Compliance:** Security Lead validates regulation adherence and migration safety.
+*   **QA:** QA Lead signs off on sandbox rehearsal receipts and updated integration test coverage.
+
+#### Landing & Rollback
+*   **Merge:** Automated merge to `main` only after G7 green.
+*   **Human Gates (G8):**
+    1.  **Jane Smith** approves the deployment manifest.
+    2.  **Chief Risk Officer** approves the production rollout window.
+    *   *Constraint:* Deployment cannot occur during market hours. Config files locked during business hours; deployment script must handle this lock or wait for off-hours.
+*   **Rollout:** Staged canary (5% traffic) → 50% → 100%.
+*   **Rollback:**
+    *   **Code:** Revert merge if application errors spike.
+    *   **Data:** Since migration is irreversible, rollback relies on the **pre-tested restore procedure** from Lane D (restoring from pre-migration snapshot or dual-write shadow). This is not a code revert but a data restoration event triggered by the on-call lead.
+*   **Post-Deploy (G9):** Monitor reconciliation jobs for one full cycle. Verify no downtime during market hours.
+
+**Cost Control:** No lane exceeds budget. CI runs minimized by local verification. Sandbox usage logged.

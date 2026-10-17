@@ -1,0 +1,42 @@
+### Delivery Plan: Helios CI Matrix Optimization
+
+**Objective:** Refactor the CI pipeline to implement a two-stage validation gate (Sanity → Regional) to clear six critical PRs by Friday, adhering to budget caps and deployment constraints.
+
+#### 1. Lanes and Parallelism
+Work is divided into three distinct lanes to maximize parallel throughput while respecting serialization constraints.
+
+*   **Lane A (Pipeline Logic):** Refactor the CI configuration to introduce a `sanity_check` stage (linting, unit tests, syntax validation). Configure the `regional_matrix` stage to depend strictly on the success of `sanity_check`. This lane handles the logic to skip the 45-minute heavy suite if lightweight checks fail.
+*   **Lane B (Flake Mitigation):** Isolate the known flaky Asia-Pacific network check. Create a specific retry policy or quarantine script for this single test case to prevent it from blocking the entire matrix manually.
+*   **Lane C (PR Hygiene):** Serialize the preparation of the six PRs. Since the team shares a single configuration file prone to merge conflicts, PRs must be rebased and validated one by one against the `main` branch to ensure the shared config remains stable. **Do not parallelize PR updates.**
+
+#### 2. Gates and Checks
+All checks run on the specific commit SHA of each PR head before any merge is attempted.
+
+*   **Gate 1: Local Sanity (Pre-Push):** Developers must run the lightweight sanity suite locally. Any PR pushed with failing lint or unit tests is immediately rejected by the CI without triggering the regional suite, saving budget.
+*   **Gate 2: CI Sanity Stage:** The first CI job. If this fails, the pipeline terminates instantly. No regional jobs spawn.
+*   **Gate 3: Regional Matrix:** Triggers *only* if Gate 2 passes.
+    *   *Constraint:* Database migration scripts within this stage must run sequentially, not in parallel, to prevent irreversible staging corruption.
+    *   *Constraint:* The Asia-Pacific job includes an automatic retry mechanism for the known flaky network check before marking the stage as failed.
+*   **Gate 4: Budget Watchdog:** A check to ensure no single job exceeds 30 minutes. If a job approaches this limit, it must alert immediately to avoid double-rate charges and budget freezes.
+
+#### 3. Review Process
+Reviews are independent of the authors to ensure objectivity and safety.
+
+*   **Code Review:** A senior engineer (not the PR author) reviews the CI configuration changes (Lane A) and the flake mitigation logic (Lane B). This must happen before the first PR is merged.
+*   **Audit Verification:** Once the pipeline passes for a PR, the output logs are compiled into a validation report. This report is reviewed by the Compliance Lead to ensure it meets quarterly audit standards.
+*   **Conflict Check:** A designated maintainer reviews the shared configuration file after every single PR merge to detect early signs of drift or conflict before the next PR is processed.
+
+#### 4. Landing Strategy
+Merging is serialized and time-gated due to human approval constraints.
+
+*   **Serialization:** Merge PRs one at a time. Wait for the full regional matrix to pass and the audit report to be generated before merging the next PR. This prevents "merge storms" that could break the shared config or overload the staging database.
+*   **The Human Gate:** The Chief Risk Officer (CRO) must approve each deployment.
+    *   *Window:* 14:00 – 16:00 UTC only.
+    *   *Process:* Present the passing CI logs and the Audit Verification report to the CRO during this window. Do not request approval outside these hours.
+*   **Rollback Plan:** Since database migrations are irreversible in staging:
+    *   If a deployment fails post-merge, do not attempt a database rollback.
+    *   Immediately revert the application code to the previous stable commit.
+    *   Flag the specific migration script for manual repair in a hotfix branch before attempting re-deployment.
+*   **Completion:** The process is complete when all six PRs are merged, validated by the CRO, and the audit report is signed off by Friday EOD.
+
+**Risk Note:** If the budget watchdog triggers or the CRO window is missed, the remaining PRs slip to the next business day. Prioritize the highest-risk PRs first within the serialization order.

@@ -1,0 +1,48 @@
+### Delivery Plan: Daily LLM Spend Cap
+
+**Objective:** Enforce a $450 daily hard cap on external LLM calls with user-facing feedback, live before Tuesday's marketing blast.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** Modify `parser-service` to check daily usage against the $450 limit before invoking the external API. Implement the "try again tomorrow" user message.
+    *   *Constraint:* Must use the production database schema (irreversible migration).
+    *   *Parallel:* Yes, starts immediately.
+*   **Lane B (Infrastructure/Config):** Update the global configuration file shared with the billing daemon to expose the current daily cost counter to the parser service.
+    *   *Parallel:* Yes, runs alongside Lane A.
+*   **Lane C (Pipeline Optimization):** Refactor the CI regression suite to skip historical dataset re-processing for this specific change, targeting only the `parser-service` logic.
+    *   *Dependency:* Must complete before Lane D (Verification) to avoid 28-minute delays.
+    *   *Serialized:* Runs after Lane A/B code is committed to a feature branch.
+
+#### 2. Gates & Checks
+*   **G2 Plan (Now):** Confirm the $450 cap logic and the exact text of the user error message. Define the "exact revision" for testing.
+*   **G3 Design:** Document the irreversible database migration plan. Define the dry-run procedure for the migration on a staging snapshot.
+*   **G4 Implement:** Commit code to isolated worktrees. Lane A and B merge into a single integration branch.
+*   **G5 Verify (Critical):**
+    *   *Environment:* Cannot use standard staging (mock API does not increment counters).
+    *   *Action:* Spin up a temporary ephemeral environment connected to a read-only replica of production data (sanitized) or a dedicated test DB with the new schema.
+    *   *Test:* Simulate usage hitting $449, then $450. Verify the hard stop triggers and the specific user message appears.
+    *   *CI:* Run the optimized suite from Lane C. Exit status must be 0.
+*   **G6 Review:**
+    *   *Security:* Verify no sensitive billing data is exposed in the user error message.
+    *   *Code:* Independent review of the cap logic and migration script.
+*   **G7 Integrate:** Merge to the integration branch. Re-run the optimized CI suite on the final SHA.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lane A and B.
+*   **Independent QA:** Verifies G5 in the ephemeral environment. Must confirm the "hard stop" behavior; unit tests alone are insufficient due to the mock API limitation in standard staging.
+*   **Security Review:** Validates the migration script (irreversible) and ensures the cap cannot be bypassed via race conditions.
+*   **Constraint:** The Builder cannot approve their own code. Reviewers must be distinct from the implementers.
+
+#### 4. Landing & Human Gates
+*   **Merge Approval:** **Marcus Thorne (Lead Architect)** must personally approve the merge to `main` during business hours. No automated merging.
+*   **Deployment Window:** Deploy immediately after merge approval, ensuring completion before Tuesday morning.
+*   **Rollback Plan:**
+    *   *Code:* Revert the merge commit.
+    *   *Data:* The database migration is **irreversible**. Rollback of code will simply disable the check, reverting to uncapped spending until a new fix is deployed. There is no data rollback path; the schema change remains.
+*   **Post-Deploy Verification (G9):** Monitor the billing dashboard for 1 hour post-deploy. Trigger a test request to ensure the counter increments and the cap holds.
+
+#### 5. Risk Mitigation
+*   **Race Conditions:** The cap check and increment must be atomic to prevent overspending in high-concurrency scenarios.
+*   **Silent Failure:** Explicitly tested to ensure the user sees the message, not a generic error.
+*   **Cost Control:** The optimized CI pipeline (Lane C) is mandatory to prevent $12/run waste during iterative testing.
+
+**Immediate Next Step:** Draft the migration script and the user-facing error message for Marcus Thorne's preliminary review before coding begins.

@@ -1,0 +1,52 @@
+### Delivery Plan: Claims Ingestion Latency Resolution
+
+**Objective:** Restore parsing performance from 3m+ to <45s/file using the standard load test dataset.
+**Constraint:** Zero production deployment until metrics confirm <2m threshold. Dual approval required (Senior Engineer + Jane Smith).
+
+#### 1. Lanes & Serialization
+*Work is split into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is strictly serialized after both.*
+
+*   **Lane A: Diagnostic Isolation (Builder)**
+    *   **Task:** Profile the parsing logic on the standard load test dataset locally. Identify the specific commit or logic change causing the regression (e.g., regex backtracking, N+1 query, memory allocation spike).
+    *   **Output:** Root cause analysis and a targeted fix patch.
+    *   **Constraint:** Do not modify `global-rates.json`. If the fix requires config changes, flag for a separate change request.
+
+*   **Lane B: Baseline Benchmark Setup (QA)**
+    *   **Task:** Establish the "Before" metric. Run the standard load test against the current HEAD (pre-fix) in an isolated environment. Capture exact processing times and resource usage.
+    *   **Output:** Verified "Before" report (Average >3m).
+    *   **Independence:** QA runs this independently of the Builder's local profiling to ensure test harness integrity.
+
+*   **Lane C: Verification & Reporting (QA + Builder)**
+    *   **Task:** Apply the fix from Lane A. Run the standard load test again. Generate the "Before-and-After" benchmark report.
+    *   **Trigger:** Starts only after Lane A (fix ready) and Lane B (baseline confirmed) are complete.
+    *   **Special Handling:** If the automated memory leak check flakes, perform manual verification of memory stability over a sustained run and document findings in the report.
+
+#### 2. Gates & Checks
+*All checks run on the exact revision of the fix branch before any merge consideration.*
+
+*   **G4 (Implement):** Builder commits the fix. Unit tests for the parser must pass locally.
+*   **G5 (Verify):**
+    *   **Performance Gate:** The benchmark report must show average processing time <45 seconds (target) and definitively <2 minutes (hard stop).
+    *   **Stability Gate:** Manual verification of memory usage if the automated check fails flakily.
+    *   **Cost Control:** CI pipeline is triggered **only once** for the final candidate revision to validate the build and run the full suite. No intermediate CI runs.
+*   **G6 (Review):**
+    *   **Reviewer 1:** Senior Engineer (Technical correctness, root cause validation).
+    *   **Reviewer 2:** Jane Smith (Compliance lead, ensures no data integrity risks or unauthorized config changes).
+    *   **Artifact:** The Before-and-After benchmark report is attached to the PR.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:** Squash merge to the integration branch upon dual approval.
+*   **Human Decision Points:**
+    1.  **Approval to Merge:** Requires explicit sign-off from both the Senior Engineer and Jane Smith based on the benchmark report.
+    2.  **Deployment Authorization:** Owner must explicitly authorize the production deploy after reviewing the G5 metrics. No auto-deploy.
+*   **Rollback Plan:**
+    *   Since production deploys are irreversible after 02:00 UTC, the deploy must occur early in the window.
+    *   If latency spikes post-deploy, immediate rollback to the previous stable release is mandatory.
+    *   **Contingency:** If the fix does not meet the <2m threshold in G5, the ticket is rejected, and the previous version remains in production. No partial deploys.
+
+**Summary of Flow:**
+1.  **Parallel:** Builder diagnoses/fixes; QA establishes baseline.
+2.  **Serial:** QA verifies fix against baseline; generates report.
+3.  **Gate:** Single CI run on final SHA.
+4.  **Review:** Dual approval (Tech + Compliance) with report attached.
+5.  **Deploy:** Human authorizes deploy before 02:00 UTC only if metrics pass.

@@ -1,0 +1,32 @@
+### Delivery Plan: Restore Checkout Latency to Baseline
+
+**Lanes & Parallelism**
+Three lanes launch immediately, serialized only by data dependencies:
+1.  **Diagnostic Lane (Builder):** Profiles the `ledger-service` locally against a production data snapshot. Identifies the specific query or asset sequence causing the 2.6s regression. *Dependency:* Must complete before Lane 2 can target a fix.
+2.  **Benchmark Lane (QA):** Configures the synthetic traffic generator to establish a reproducible "before" baseline (targeting ~3.8s) on the exact current staging SHA. Validates the mock payment gateway's timeout behavior to distinguish false positives from real latency.
+3.  **Cost-Control Lane (Conductor):** Reserves the CI window (02:00–04:00 local) and calculates the maximum burn rate ($15 for 15 mins). Sets a hard job timeout to prevent overrun.
+
+**Implementation & Verification Sequence**
+*   **Step 1 (Local Fix):** Builder implements the fix (query optimization, caching, or asset deferral) in an isolated worktree. Schema changes, if any, are dry-run locally first; no irreversible migrations occur without local proof.
+*   **Step 2 (Staging Proof):** QA deploys the *exact fixed SHA* to staging. The synthetic generator runs the "after" benchmark.
+    *   **Gate Condition:** The fix is **BLOCKED** unless the benchmark proves average latency < 1.5s. Unit tests alone are insufficient; this requires end-to-end timing receipts.
+    *   **Flake Handling:** If the mock payment gateway times out during the benchmark, the run is discarded and retried once; repeated false positives trigger a manual verification step before proceeding.
+*   **Step 3 (CI Validation):** Only after the staging benchmark passes does the system enter the reserved 02:00–04:00 CI window for final integration tests and security scans on that same SHA.
+
+**Review Strategy**
+*   **Code Review:** A senior backend engineer (independent of the Builder) reviews the diagnostic data and the code fix. They must verify the root cause matches the symptom.
+*   **Performance Review:** The Site Reliability Lead reviews the benchmark receipts (before/after graphs) and the CI cost log. They do not review code logic, only the validity of the performance claim.
+*   **Security Review:** Automated supply chain and secret scanning runs on the final SHA; any findings go to the Security Lead for triage.
+
+**Landing & Human Gates**
+*   **Merge:** The PR merges to the integration branch only after Code, Performance, and Security reviews are green.
+*   **Deployment Gate:** Merging is **not** deploying. Deployment requires dual approval from the Site Reliability Lead and the Product Owner. The request to deploy will present:
+    *   Issue: Deploy latency fix to Production.
+    *   A: Deploy now (Recommended) — Benchmark confirms <1.5s latency; cart abandonment risk is active.
+    *   B: Delay until morning — Risk of unknown side-effects outside reserved monitoring window.
+*   **Rollback Plan:** Since the schema migration tool is irreversible, if the fix involves schema changes, the rollback strategy is a code-level revert that maintains backward compatibility with the new schema. If no schema changes occurred, a standard git revert and redeploy is the rollback path. The Site Reliability Lead holds the authority to trigger rollback immediately if post-deploy monitoring shows latency > 1.5s for more than 5 minutes.
+
+**Cost & Constraints**
+*   **Budget Cap:** $15.00 (15 mins @ $45/hr). Exceeding this blocks the lane.
+*   **Time Window:** CI jobs strictly confined to 02:00–04:00 local time.
+*   **Evidence:** No deployment occurs without the synthetic traffic generator's signed receipt showing < 1.5s average latency.

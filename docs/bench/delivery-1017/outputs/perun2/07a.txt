@@ -1,0 +1,45 @@
+**Delivery Plan: Hotfix Payment Gateway Timeout**
+
+**Lanes & Parallelism**
+*   **Lane A (Builder):** Implement connection pool limit reset in a dedicated isolated worktree. Branch from the exact production SHA currently serving traffic.
+    *   *Constraint:* Must serialize access to `global-config` if modification is required; otherwise, run parallel to verification prep.
+*   **Lane B (QA - Independent):** Prepare verification harness targeting the specific North America routing logic.
+    *   *Serialization:* Waits for Lane A's commit SHA. Runs functional sanity checks and latency simulation against the built artifact.
+*   **Lane C (Security - Independent):** Review the diff for side effects on data masking or auth flows.
+    *   *Parallel:* Can review the intent and code logic once Lane A pushes the draft PR, independent of QA's runtime results.
+
+**Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Owner goal confirmed (revenue loss, <1hr fix). Scope strictly limited to connection pool limits. No schema changes.
+*   **G2 (Plan):** Budget capped at one CI run ($15). Flaky `database-schema-sync` job marked for manual retry only if strictly necessary (unlikely for config/code change).
+*   **G3 (Design):** No ADR needed for hotfix; change must be trivial.
+*   **G4 (Implement):** Lane A commits patch. Tests included.
+*   **G5 (Verify):**
+    *   Run CI pipeline on the **exact commit SHA** from Lane A.
+    *   *Requirement:* Sanity checks must pass green.
+    *   *Flake Handling:* If `database-schema-sync` fails, inspect logs. If network latency >50ms is cited, trigger one manual retry. Fail closed if it fails twice.
+    *   *Sandbox:* Owner's sandbox verification is noted but does not replace G5 gate on the actual build artifact.
+*   **G6 (Review):**
+    *   **Approvers:** Security Lead AND On-Call Manager (Dual approval required).
+    *   **Independence:** Neither approver is the Builder (Lane A).
+    *   **Evidence:** Review the specific diff, G5 sanity check receipts, and latency simulation results.
+*   **G7 (Integrate):** Merge to production branch only after dual approval.
+
+**Review Strategy**
+*   **Builder (Lane A)** cannot approve their own code.
+*   **Security Lead** verifies no new vulnerabilities or data exposure in the pool reset logic.
+*   **On-Call Manager** verifies operational safety and rollback readiness.
+*   Review occurs on the **immutable PR diff** linked to the G5 green SHA.
+
+**Landing & Rollback**
+*   **Human Decision:** Direct production push/merge requires explicit sign-off from both Security Lead and On-Call Manager. This bypasses the code freeze but enforces the dual-key rule.
+*   **Merge Strategy:** Direct merge to production branch (bypassing long-lived integration branches due to urgency), immediately triggering deployment.
+*   **Deployment Monitor:**
+    *   Watch error dashboards and latency metrics immediately post-deploy.
+    *   **Rollback Trigger:** If latency >200ms or error rate spikes, execute immediate automatic rollback to the previous stable SHA.
+    *   **Rollback Plan:** The "previous stable SHA" is recorded in G2. Reverting the merge is the primary rollback mechanism; since no schema changes occur, data consistency is preserved upon revert.
+*   **Post-Incident:** Once stable, a retrospective (G10) will analyze why pool limits were insufficient and why the flaky job exists, but this is post-hotfix.
+
+**Cost & Risk Controls**
+*   **Cost:** Strictly one full CI run ($15). No re-runs unless the specific known flake occurs.
+*   **Risk:** Immutable database ensures no accidental data corruption. `global-config` lock prevents race conditions during business hours.
+*   **Verification:** Owner's sandbox check is supplementary; the pipeline sanity check on the real artifact is the hard gate.

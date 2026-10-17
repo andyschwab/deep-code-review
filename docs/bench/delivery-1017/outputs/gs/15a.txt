@@ -1,0 +1,31 @@
+### Delivery Plan: Smart Irrigation Canary Release
+
+**1. Work Lanes & Parallelization**
+*   **Lane A (Logic & Safety):** Implement the soil-moisture prediction algorithm wrapper. Crucially, build the **automated kill switch** logic first. This must monitor error rates (>0.5%) and support ticket spikes locally on the device or edge gateway to trigger an instant revert to legacy calculation. *Constraint:* Since reverts are irreversible over-the-air, the kill switch must be a local fallback, not a remote patch.
+*   **Lane B (Configuration):** Modify the shared read-only manifest to add the feature flag. *Constraint:* Do not alter the schema. Append the flag configuration strictly within existing allowed structures to prevent breaking the fertilizer dosing system. Targeting logic must filter for "Oregon region" and "5% random sample."
+*   **Lane C (Observability):** Build the real-time dashboard. It must ingest telemetry to compare water usage variance between Control (Legacy) and Test (New Algorithm) groups.
+*   **Serialization Point:** Lane A and Lane B must complete integration testing before Lane C connects to live data streams to ensure valid metric tagging.
+
+**2. Gates & Checks**
+*   **Pre-Build Gate:** Manual verification by the Lead Agronomist that the 5% sampling logic correctly isolates Oregon devices.
+*   **CI Pipeline Gate:** Runs strictly between **02:00 and 05:00 local time**.
+    *   *Check 1:* Hardware-in-the-loop simulation passes.
+    *   *Check 2:* Network latency module failure is ignored *only* if logs confirm successful packet delivery. Any other failure blocks the build.
+    *   *Check 3:* Static analysis confirms no schema changes to the shared manifest.
+*   **Safety Gate:** The Safety Officer must sign off on the kill switch trigger thresholds (0.5% error rate) before the build is queued.
+
+**3. Review Strategy**
+*   **Code Review:** Conducted by a Senior Embedded Engineer independent of the implementation team. Focus: Memory safety and kill-switch latency.
+*   **Logic Review:** Conducted by the Lead Agronomist. Focus: Verification that the legacy fallback produces known-safe irrigation values under failure conditions.
+*   **Configuration Review:** Conducted by the Maintainer of the shared manifest. Focus: Ensuring zero schema drift that could impact the fertilizer system.
+*   **Independence:** The Safety Officer reviews the *test results* of the kill switch, not the code, to ensure unbiased validation of the safety mechanism.
+
+**4. Landing & Rollback**
+*   **Deployment:** The build is staged for cellular tower distribution but paused at 99% completion.
+*   **Human Decision:** The Safety Officer and Lead Agronomist must jointly authorize the final "Go" command to release the packet to the initial 5% cohort.
+*   **Monitoring Window:** Immediate observation of the dashboard for 1 hour post-release.
+*   **Rollback Protocol:**
+    *   *Scenario A (Remote):* If the kill switch triggers automatically, devices revert to legacy logic instantly. No remote patch is possible.
+    *   *Scenario B (Catastrophic):* If the new logic causes physical damage before the kill switch engages, or if the kill switch fails, **no remote rollback exists**. A "Stop Distribution" command halts further tower broadcasts, but affected devices require **physical technician visits** to flash legacy firmware. This risk must be explicitly acknowledged in the final sign-off.
+
+**Priority:** Safety overrides speed. If the kill switch cannot be proven to act faster than the damage threshold, the release is aborted.

@@ -1,0 +1,49 @@
+### Delivery Plan: Inventory Sync Sequence (PRs #101–#106)
+
+**1. Lanes & Serialization**
+*   **Serialized Lane (Critical Path):** All six PRs (#101 through #106) must merge strictly sequentially. No parallel execution is permitted.
+    *   **Actor:** Senior Ops Engineer (sole approver/merger).
+    *   **Constraint:** PR $N$ merges only after PR $N-1$ is fully integrated, CI-passed, and verified in Staging.
+*   **Parallel Lane (Observation):** Logistics Team monitors the dashboard and warehouse sensors.
+    *   **Actor:** Logistics Coordinators.
+    *   **Timing:** Active during the low-traffic window, verifying data integrity after each individual merge.
+
+**2. Gates & Checks**
+*   **Pre-Merge Gate (Every PR):**
+    *   **Revision:** Head of the feature branch rebased on the immediate previous merged PR (e.g., #102 on top of merged #101).
+    *   **Check:** Full CI pipeline (45 mins).
+    *   **Flaky Check Protocol:** If the "network simulation" stage fails on the 3rd merge (likely PR #103 or #104), a Lead Logistics Manager must manually verify the error is false before triggering a retry. Do not retry automatically.
+*   **Staging Verification Gate (Every PR):**
+    *   **Timing:** Immediately after CI passes and merge to Staging/Main (depending on branch protection).
+    *   **Action:** Logistics Team confirms dashboard stock counts match expected values for that specific delta.
+    *   **Stop Condition:** Any mismatch halts the sequence immediately.
+
+**3. Review Strategy**
+*   **Primary Review:** Completed previously (assumed by "open PR" status).
+*   **Independent Verification:**
+    *   **Who:** Lead Logistics Manager (independent of the Ops Engineer merging).
+    *   **What:** Validates the "network simulation" failure if it occurs; signs off on the Staging data integrity after every single PR.
+    *   **Separation:** The Senior Ops Engineer executes the merge; the Logistics Lead validates the business outcome. Neither approves their own work.
+
+**4. Landing & Merge Protocol**
+*   **Window:** Tomorrow morning (low-traffic).
+*   **Method:** Standard Merge Commit (No Squash). This preserves the individual generation steps for the audit trail.
+*   **Human Decision Points:**
+    1.  **Go/No-Go:** Logistics Lead confirms the previous PR's data accuracy before authorizing the next merge.
+    2.  **Flaky Failure:** Lead Logistics Manager decides if a CI failure is the known false positive.
+    3.  **Abort:** Any data mismatch triggers an immediate stop.
+
+**5. Rollback Plan**
+*   **Trigger:** Data corruption detected in Production or irreversible documentation published with errors.
+*   **Action:**
+    1.  Halt all further merges.
+    2.  Revert the most recent PR immediately via a new revert commit (preserving history).
+    3.  If multiple PRs have landed, revert in reverse order (#106 down to the culprit).
+    4.  Restore the master ledger from the pre-window backup if sensor mismatch persists.
+*   **Constraint:** Documentation published to the external partner portal cannot be edited; a full revert and republish cycle is required if that specific artifact is corrupted.
+
+**6. Completion Criteria**
+*   All six PRs merged individually.
+*   CI green on final state.
+*   Logistics Team confirms final dashboard accuracy against warehouse sensors.
+*   Audit trail verified (6 distinct merge commits present).

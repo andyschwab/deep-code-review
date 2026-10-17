@@ -1,0 +1,74 @@
+**Delivery Plan: Fix Duplicate Payouts in Vendor Disbursement Loop**
+
+**Objective:** Enforce strict idempotency on retry tokens in the disbursement service to prevent double payments, verified against staging ledger logs.
+
+**Constraints & Risks:**
+- **Cost:** CI runs $45/50min; mandatory local validation required.
+- **Environment:** Test simulator is unreliable for duplicates; must verify against staging ledger.
+- **Approval:** CFO approval required for payment gateway changes; unavailable Fridays.
+- **Scope:** `finance-core` monolith; read-only config shared with invoicing (no modifications).
+- **Deadline:** Before quarterly audit (next Tuesday).
+
+---
+
+### 1. Lanes & Serialization
+
+**Lane A: Analysis & Spec (Serial, Pre-requisite)**
+- **Actor:** Product Analyst / Conductor
+- **Work:** Parse last week's failed batch logs to identify exact retry patterns causing duplicates. Define the "retry token" schema and the strict enforcement rule.
+- **Output:** A testable spec listing specific log IDs that previously failed vs. succeeded, and the exact acceptance criteria for "blocked legitimate payouts."
+- **Gate:** G1 Spec approved by Owner.
+
+**Lane B: Implementation (Parallel to C after A)**
+- **Actor:** Builder (Isolated Worktree)
+- **Work:** Patch the disbursement service logic to check the retry token against the ledger *before* initiating the transfer. Ensure no changes to the shared read-only config.
+- **Constraint:** Must include a local script to simulate the network blip/retry scenario without using the flawed mock simulator.
+- **Output:** Code patch + local reproduction script showing the fix prevents the duplicate.
+
+**Lane C: Verification Data Prep (Parallel to B)**
+- **Actor:** QA
+- **Work:** Extract specific transaction hashes from the staging ledger corresponding to the identified failure logs. Prepare a "golden set" of legitimate pending payouts that must *not* be blocked.
+- **Output:** A dataset of staging transaction IDs for direct verification.
+
+**Lane D: Staging Verification (Serial, depends on B+C)**
+- **Actor:** QA (Independent)
+- **Work:** Deploy Lane B's patch to a staging instance (manual trigger). Run the disbursement loop against the **staging ledger** (not the mock simulator) using the dataset from Lane C.
+- **Check:** Confirm zero duplicate transfers for retry scenarios; confirm all legitimate pending payouts proceed.
+- **Output:** Verification receipt with staging ledger evidence.
+
+---
+
+### 2. Gates & Checks
+
+- **G0/G1 (Intake/Spec):** Conductor validates the log analysis and spec. *Check:* Does the spec explicitly address the "network blip" retry vector?
+- **G2 (Plan):** Confirm token budget for any AI-assisted code gen. Confirm CFO availability window (Mon-Thu).
+- **G3 (Design):** Review idempotency key generation logic. *Check:* Is the key immutable per manifest?
+- **G4 (Implement):** Builder submits patch. *Check:* Local script runs green, proving the duplicate is stopped locally.
+- **G5 (Verify):** **Critical Gate.** QA runs against **Staging Ledger**. *Hard Condition:* Evidence of exactly one transfer per manifest ID in staging logs, even with forced retries. Unit tests alone are insufficient.
+- **G6 (Review):** Independent Security/Finance review of the patch. *Check:* No side effects on the shared read-only config.
+- **G7 (Integrate):** Merge to integration branch. Re-run local validation on the merged tip.
+
+---
+
+### 3. Review Strategy
+
+- **Code Review:** Senior Engineer (not the Builder) reviews the idempotency logic. Focus: Race conditions during the token check.
+- **Security/Finance Review:** Independent AppSec or Finance Lead verifies that the change cannot be bypassed and does not expose reserve account credentials.
+- **QA Review:** QA Lead signs off on the Staging Ledger evidence, explicitly noting the mock simulator was bypassed.
+
+---
+
+### 4. Landing & Human Gates
+
+- **Merge Strategy:** Single commit to `main` (or release branch) after G7.
+- **Human Decision (G8):** **CFO Approval Required.**
+    - *Timing:* Must be scheduled Mon-Thu before Tuesday's audit.
+    - *Action:* CFO reviews the Staging Ledger receipt (Lane D) and the Security verdict.
+    - *Constraint:* If today is Friday, halt at G7. Do not deploy.
+- **Deployment:** Manual trigger by Release Engineer post-CFO approval.
+- **Rollback Plan:**
+    - *Trigger:* Any duplicate payment detected in production within 1 hour of deploy.
+    - *Action:* Immediate revert of the merge commit.
+    - *Preparation:* Revert script prepared and dry-run locally during G4.
+
+**Immediate Next Step:** Execute Lane A (Log Analysis) and present the Spec (G1) for approval. Do not write code until the retry token pattern is mathematically defined from the logs.

@@ -1,0 +1,53 @@
+### Delivery Plan: Ledger Schema Migration
+
+**Strategy:** Dual-write implementation followed by historical backfill, gated by data integrity audits. No read-switch occurs until audit passes. Rollback is instant reversion to legacy reads.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Dual-Write Logic):** Implement write-path updates to both legacy and columnar tables.
+    *   *Owner:* Builder.
+    *   *Constraint:* Must not alter existing legacy write behavior.
+*   **Lane B (Audit & Latency Guard):** Implement the data integrity audit job and the latency-spike circuit breaker (auto-revert reads).
+    *   *Owner:* Builder (different worktree than Lane A).
+    *   *Constraint:* Logic must be independent of the dual-write implementation.
+*   **Lane C (Migration Script Coordination):** Prepare the pull request against the read-only Data Governance repo.
+    *   *Owner:* Conductor (manual assembly).
+    *   *Constraint:* Serialized after Lane A code is frozen; requires Chief Data Officer (CDO) approval.
+*   **Lane D (Backfill Job):** Configure the historical backfill trigger.
+    *   *Owner:* Builder.
+    *   *Constraint:* Must wait for Lane A deployment; cannot run until dual-writes are live.
+
+**Parallel Execution:** Lanes A, B, and D (setup) run in parallel. Lane C waits for A's code freeze. Lane D (execution) waits for deployment.
+
+#### 2. Gates & Checks
+*   **G2 (Plan):** Freeze scope. Define latency threshold numeric value for rollback. Confirm CDO approval window aligns with month-end freeze.
+*   **G4 (Implement):**
+    *   Lane A & B: Unit tests for dual-write consistency and circuit-breaker logic.
+    *   Lane C: Draft migration script locally; verify syntax against known schema.
+*   **G5 (Verify):**
+    *   **Exact Revision:** The specific SHA combining Lanes A and B.
+    *   **Action:** Deploy to Staging. Run reconciliation checks.
+    *   **Handling Flakiness:** If reconciliation fails, manually verify if it is a known sanitization false-positive. If unknown, treat as Blocker.
+    *   **Latency Test:** Simulate load to trigger the circuit breaker; verify instant reversion to legacy reads.
+*   **G6 (Review):**
+    *   **Security:** Independent review of the circuit breaker (fail-closed behavior) and data privacy in logs.
+    *   **QA:** Independent validation of the audit job output on Staging.
+    *   **Constraint:** Builder of Lane A cannot review Lane A; Builder of Lane B cannot review Lane B.
+*   **G7 (Integrate):** Merge Lanes A and B into the integration branch. Trigger the 45-minute CI pipeline.
+    *   **Timing:** Must complete within the 6-build daily cap. Schedule to avoid hitting the cap before the month-end freeze.
+*   **G8 (Release - Human Gate):**
+    *   **Decision 1:** CDO approves migration script in the external repo.
+    *   **Decision 2:** Payments Core Lead approves production deployment of dual-write code.
+    *   **Decision 3:** Finance Lead confirms deployment window is open (pre-month-end freeze).
+
+#### 3. Landing & Rollback
+*   **Merge Strategy:** Merge Lanes A and B together. Deploy to all three regional clusters simultaneously to prevent data skew.
+*   **Migration Execution:** Once code is live, execute the migration script (Lane C) and trigger the backfill (Lane D).
+*   **Monitoring:** Watch the data integrity audit.
+    *   **Pass:** Proceed to plan read-switch (future ticket).
+    *   **Fail:** Trigger immediate rollback.
+*   **Rollback Plan:**
+    *   **Code:** Revert the deployment to the previous version (legacy writes only).
+    *   **Data:** If backfill <10%, wipe columnar table and restart. If backfill >10%, **stop immediately**; data state is irreversible. The circuit breaker handles read traffic instantly; data repair requires manual intervention.
+*   **Human Decision Required:** Authorization to proceed with backfill past the 10% mark is a hard stop requiring explicit owner confirmation.
+
+**Risk Mitigation:** The 45-minute CI time and 6-build cap require a "green on first try" discipline in Staging. Any failure consumes 16% of daily capacity.

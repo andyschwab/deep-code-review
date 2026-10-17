@@ -1,0 +1,57 @@
+### Delivery Plan: Helios Payment Gateway Critical Patches
+
+**Objective:** Deploy six critical patches by Friday 5 PM while preserving transaction integrity, adhering to governance constraints, and optimizing compute usage without unauthorized configuration changes.
+
+#### 1. Work Lanes & Parallelism
+
+*   **Lane A: Patch Preparation (Serial → Parallel)**
+    *   **Action:** Isolate the six specific fixes into a single release branch (`hotfix/audit-q3`).
+    *   **Constraint:** Do not edit the monolithic CI configuration file. The Platform Architect is unavailable, and unauthorized edits violate governance.
+    *   **Parallel Work:** Once the branch is created, the six patches can be developed and committed in parallel by available engineers, provided they do not conflict.
+
+*   **Lane B: Validation Strategy (Parallel to A)**
+    *   **Action:** Define a manual "Critical Path" test suite.
+    *   **Scope:** This suite includes *only* core security checks and transaction integrity tests.
+    *   **Exclusion:** Explicitly exclude non-essential regional simulation tests from the *manual* verification plan. Note: The automated pipeline will still trigger the full matrix unless the config is changed (which we are not doing). We will manually verify the critical subset to unblock the decision, ignoring the full suite's completion status for the go/no-go meeting.
+    *   **Flake Mitigation:** If the currency conversion check fails, immediately trigger a single retry. If it fails a second time, flag for manual data inspection rather than re-running the whole suite.
+
+*   **Lane C: Governance & Approval (Serial, Dependent on A & B)**
+    *   **Action:** Secure dual approval.
+    *   **Actors:** Lead Engineer and Risk Officer.
+    *   **Timing:** Schedule the review immediately after Lane B's critical path tests pass. Do not wait for the full 110-minute matrix if the critical path is clear.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Code Freeze (Thursday EOD)**
+    *   **Check:** All six patches merged into `hotfix/audit-q3`. No further code changes allowed after this point.
+    *   **Revision:** Exact commit hash of the squash-merge of the six patches.
+
+*   **Gate 2: Integrity Verification (Friday Morning)**
+    *   **Check:** Execution of the "Critical Path" manual suite against the staged build.
+    *   **Location:** Staging environment (reset at midnight; ensure tests run early to maximize data freshness).
+    *   **Pass Criteria:** 100% pass on security and transaction integrity. Regional simulation failures are noted but do not block this gate.
+
+*   **Gate 3: Dual Authorization (Friday 2 PM Deadline)**
+    *   **Check:** Written sign-off from both Lead Engineer and Risk Officer.
+    *   **Condition:** Based on Gate 2 results and a risk acceptance memo regarding the skipped regional simulations.
+
+#### 3. Review Process
+
+*   **Primary Review:** Peer review of the six patches within the `hotfix/audit-q3` pull request.
+*   **Independent Audit:** The Risk Officer performs an independent review of the *test results* from Gate 2, not the code itself. This separates engineering validation from compliance validation.
+*   **Constraint:** The Platform Architect is not involved in this cycle due to leave; their sign-off on the CI config is bypassed by not modifying the config.
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:**
+    *   Merge `hotfix/audit-q3` into `main` only after Gate 3 is cleared.
+    *   Trigger the production deployment pipeline immediately.
+    *   **Human Decision:** The actual "Deploy to Production" button requires the physical or digital presence of both approvers simultaneously (dual control).
+
+*   **Rollback Plan:**
+    *   **Trigger:** Any critical alert on transaction integrity or security within 1 hour of deployment.
+    *   **Action:** Immediate revert of the merge commit on `main`.
+    *   **Constraint:** Since production deploys are irreversible at the infrastructure level, the "rollback" is strictly a code-level revert and redeploy of the previous stable version.
+    *   **Pre-requisite:** The previous stable build artifact must be verified as available and promotable before the Friday 5 PM deadline.
+
+**Risk Note:** This plan accepts the risk of skipping regional simulations to meet the audit deadline. The full CI matrix will still run in the background; if it fails post-deployment due to a regional issue, a follow-up patch will be issued Monday. The priority is audit compliance on core transaction integrity.

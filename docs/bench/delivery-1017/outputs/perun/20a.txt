@@ -1,0 +1,52 @@
+**Delivery Plan: Irreversible Right-to-Erasure Endpoint**
+
+**Strategy:** High-risk, irreversible data destruction requires strict serialization, independent security verification, and explicit human gating. No speculative commits; no parallel writes to shared state.
+
+### 1. Lanes & Serialization
+*   **Lane A (Spec & Contract) – Product Analyst + Security Lead**
+    *   **Task:** Define exact cascade scope (linked tables), audit event schema, and error handling. Confirm "no trace" definition against backup indices.
+    *   **Constraint:** Must complete before any code is written.
+    *   **Output:** Testable spec with acceptance criteria; pinned base SHA.
+*   **Lane B (Implementation) – Builder (Data Integrity Squad)**
+    *   **Task:** Implement endpoint in isolated worktree. Logic: Verify compliance approval token → Execute cascade delete → Write immutable audit event.
+    *   **Constraint:** **Serialized** after Lane A. Cannot touch `deletion_log` or run migration until Spec is signed.
+    *   **Exclusion:** Does not modify frozen `audit-logger` library; uses existing certified interface only.
+*   **Lane C (Independent Verification) – QA + Security**
+    *   **Task:** Verify cascade completeness and irreversibility on a staging clone. Confirm audit log contains *only* the event, not data.
+    *   **Constraint:** **Serialized** after Lane B commit. Runs on the exact SHA from Lane B.
+    *   **Flake Handling:** If backup verification check fails, re-run once; if persistent, mark as known flake (do not block unless data integrity is suspect).
+
+### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Owner (Chief Compliance Officer) approves the spec defining "irreversible" scope.
+*   **G2 (Plan):** Conductor confirms serialization order. **Budget Cap:** Explicit dollar limit set for CI runs (max 3 attempts due to $45 cost).
+*   **G3 (Design):** Security Lead signs off on cascade logic and audit schema.
+*   **G4 (Implement):** Builder commits to isolated branch. Tests included (unit + integration mock).
+*   **G5 (Verify):**
+    *   **Environment:** Staging clone (never production).
+    *   **Action:** Run full CI suite on exact commit SHA.
+    *   **Check:** Verify `deletion_log` entry exists; verify source tables are empty; verify no data in logs.
+    *   **Condition:** Green build required. Flaky backup check bypassed only with Security Lead written confirmation.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Architect (independent of Builder).
+    *   **Scope:** Full diff + Security audit.
+    *   **Verdict:** Blocker/Critical findings stop the line.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected tests on final merge SHA.
+
+### 3. Landing & Human Gates
+*   **Human Approval (G8):**
+    *   **Required Sign-offs:** Dual approval via governance portal from **Lead Architect** AND **Chief Compliance Officer**.
+    *   **Trigger:** Approval unlocks the merge to `main` (or release branch).
+    *   **Note:** This is a hard gate; no auto-merge.
+*   **Deployment:**
+    *   Deploy to production immediately post-merge (if CI green).
+    *   **Rollback Strategy:** **Code rollback is possible** (revert commit), but **data deletion is irreversible**. If logic errors occur (e.g., wrong ID deleted), recovery relies on off-line backup restoration, not code revert.
+*   **Post-Deploy (G9):**
+    *   Verify audit event generation in production logs (sanity check only, no data access).
+    *   Confirm ombudsman requests can be processed.
+
+### 4. Risk Controls
+*   **Irreversibility:** The `deletion_log` write is final. Testing must prove the *condition* for writing is correct before production touch.
+*   **Cost Containment:** Max 3 full CI runs permitted without explicit budget increase.
+*   **Frozen Dependency:** Strict adherence to existing `audit-logger` interface; no workaround attempts.
+
+**Next Step:** Await Owner approval on Spec (Lane A) before initiating Builder lane.

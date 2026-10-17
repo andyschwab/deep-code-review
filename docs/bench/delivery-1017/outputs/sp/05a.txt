@@ -1,0 +1,36 @@
+### Delivery Plan: Loan Status Payload Update
+
+#### 1. Lanes and Parallelism
+*   **Lane A (Spec & Contract):** Update the `financial-specs` library to include the optional `graceEndUtc` field. This is a prerequisite for all other work.
+*   **Lane B (Core Implementation):** Modify the Core Lending service response schema and serialization logic to populate `graceEndUtc`. This lane waits for Lane A to merge before finalizing the build.
+*   **Lane C (Consumer Coordination):** Parallel to Lane A, the Ticket Owner contacts leads for the Customer Portal and Collections Dashboard. They must confirm readiness to ingest the new optional field or agree on a simultaneous deployment window.
+
+**Serialization Constraint:** Lane B cannot merge until Lane A is complete. No lane proceeds to "Merge to Main" until Lane C provides written confirmation of consumer readiness.
+
+#### 2. Gates and Checks
+*   **Gate 1: Spec Validation.** Before coding, verify the `financial-specs` PR explicitly marks `graceEndUtc` as optional. This prevents the "silent schema shift" incident.
+*   **Gate 2: Pre-Merge Integration Check.** Trigger the CI pipeline on the Core Lending feature branch *only after* the `financial-specs` library update is merged and the Core Lending dependency is bumped.
+    *   **Revision:** Run against the latest `main` + feature branch.
+    *   **Filter:** Ignore failures in the known flaky currency formatting check. Proceed if only that check fails; halt on any other error.
+    *   **Cost Control:** Ensure local unit tests pass before triggering the 45-minute data-replay simulation.
+*   **Gate 3: Consumer Sign-off.** The Compliance Officer (manual approval gate) must see evidence of Lane C's confirmation (email or ticket comment) before approving the SecureZone deployment.
+
+#### 3. Review Strategy
+*   **Code Review:** Performed by a senior engineer from the Transactional Banking team *excluding* the author. They must verify that `graceEndUtc` is strictly optional in the serialization logic and that no existing fields were altered.
+*   **Contract Review:** Performed by an engineer from either the Customer Portal or Collections team (whichever is available first). They verify the `financial-specs` change matches their ingestion expectations.
+*   **Independence:** The Code Reviewer cannot be the same person who coordinated Lane C. This ensures the "do not break consumers" requirement is validated by someone other than the coordinator.
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A (`financial-specs`) to its main branch.
+    2.  Update Core Lending dependency, pass CI, and merge Lane B to `main`.
+    3.  **Human Decision Point:** The Compliance Officer manually approves the deployment to SecureZone only after verifying the deployment ticket includes the "Consumer Ready" confirmation.
+*   **Deployment Window:** Deploy strictly before 01:00 UTC.
+    *   **Reasoning:** The ledger batch job starts at 02:00 UTC. Reverting after this time is irreversible. A 01:00 UTC deployment leaves a 45-minute buffer to detect issues and revert before the batch job locks the state.
+*   **Rollback Plan:**
+    *   If errors are detected between deployment and 01:45 UTC: Immediately revert the Core Lending deployment to the previous stable revision.
+    *   If errors are detected after 02:00 UTC: Reversion is blocked. The team must implement a hotfix to ignore the bad data or handle the calculation error manually until the next cycle. This risk reinforces the strict 01:00 UTC cutoff.
+
+#### 5. Critical Risks
+*   **Silent Failure:** If the field is added as required by mistake, downstream services will crash. The optional flag in the spec is the primary control.
+*   **Timing:** Missing the 01:00 UTC window removes the safety net. If the 45-minute CI run delays the merge past 00:15 UTC, the deployment must be aborted and rescheduled for the next day.

@@ -1,0 +1,42 @@
+### Delivery Plan: Partial Refund Logic Fix
+
+**Lanes & Parallelism**
+*   **Lane 1 (Spec & Migration Design):** Define the proration formula and draft the irreversible migration script. *Serialized:* Must complete before Lane 2 starts to ensure the code matches the schema change.
+*   **Lane 2 (Implementation):** Update the billing service calculation logic in a dedicated worktree. Implement the "future-only" guard to prevent historical data alteration. Write unit tests for the proration edge cases.
+*   **Lane 3 (QA Strategy):** Prepare the integration test run plan. Identify the specific currency conversion flake logs to ignore. No code changes; parallel to Lane 2.
+
+**Gates & Checks**
+*   **G2 Plan:** Confirm the per-lane budget cap ($12 max for integration tests; limit to 1 successful run + 1 capped re-run for the known flake). Verify the migration script is marked irreversible.
+*   **G3 Design:** Review the proration formula and migration safety (dry-run on snapshot). Explicitly sign off on the "no retroactive change" logic.
+*   **G4 Implement:** Commit code with unit tests. Base SHA pinned.
+*   **G5 Verify:**
+    *   Run unit tests locally (green required).
+    *   Run integration suite **once** on the exact final SHA in staging.
+    *   **Condition:** If the currency module fails with specific timeout errors in logs, mark as known flake and pass; otherwise, fail.
+    *   **Validation:** Confirm via staging logs that historical records remain untouched and new partial cancellations reflect prorated fees.
+*   **G6 Review:**
+    *   **Code Review:** Senior Engineer (independent of Builder) reviews logic and tests.
+    *   **Security/Compliance:** Verify the "future-only" constraint and data integrity.
+*   **G7 Integrate:** Merge to the integration branch. Re-run affected integration tests on the merged SHA if the diff touches calculation paths.
+
+**Review Independence**
+*   The Builder (Lane 2) cannot approve their own code.
+*   One Senior Engineer approves the code logic; a second Senior Engineer approves the staging deployment.
+*   The Compliance Officer acts as the independent security/audit gate for production.
+
+**Landing & Human Decisions**
+*   **Merge:** Merge to `main` only after G6 approval and G7 integration receipt.
+*   **Staging Deploy:** Requires approval from **two senior engineers**.
+*   **Production Deploy:**
+    *   **Window:** Tuesday, 2 PM – 4 PM only.
+    *   **Approver:** Compliance Officer must explicitly sign off.
+    *   **Constraint:** Do not deploy outside this window.
+*   **Rollback Plan:**
+    *   **Code:** Revert the merge immediately if refund calculations fail in production.
+    *   **Data:** The database migration is **irreversible**. Rollback of the binary does not undo the schema change. If data corruption occurs, a manual repair script (to be drafted in Lane 1 as a contingency) must be executed by the Ledger Team.
+    *   **Decision:** The Compliance Officer must approve the rollback execution if triggered.
+
+**Risk Controls**
+*   **Cost:** Integration tests capped at 2 runs ($24 total hard limit).
+*   **Data Safety:** Migration applied only after successful staging verification.
+*   **Scope:** Strictly limited to future cancellations; no historical data modification.

@@ -1,0 +1,61 @@
+# Delivery Plan: Sequential PR Merge for Generated Assets
+
+## Lanes and Serialization
+**Single Serialized Lane:** All six pull requests (PRs) must merge strictly in sequence (PR-1 → PR-2 → PR-3 → PR-4 → PR-5 → PR-6). No parallel execution is permitted.
+*   **Executor:** One designated senior operator from the Operations group performs all merges to ensure consistent handling of the JSON lockfile.
+*   **Constraint:** The warehouse integration team stands by for coordination but does not perform merges. Their role is limited to verifying business logic post-merge if anomalies appear.
+
+## Gates and Checks
+**Pre-Merge Gate (Per PR):**
+1.  **Revision Check:** Ensure the local branch is rebased on the immediate predecessor's merge commit (e.g., PR-3 rebases on PR-2's merge hash).
+2.  **Conflict Scan:** Manually verify `package-lock.json` (or equivalent shared JSON lockfile) for auto-generation conflicts before pushing. If conflicts exist, resolve locally before initiating the CI run.
+3.  **CI Execution:** Trigger the CI pipeline. Wait for the **green status check** (45-minute duration).
+    *   *Failure Protocol:* If CI fails due to checksum mismatch, do not retry immediately. Verify the previous PR merged correctly. If the previous PR is sound, the failure indicates a genuine conflict; resolve and re-push.
+
+**Environment Gate:**
+*   **Timing Restriction:** No merges or CI triggers may occur on **Tuesdays** due to staging instability. Schedule the sequence to complete before Tuesday 00:00 or begin after Tuesday 23:59.
+
+## Review Strategy
+**Independent Verification:**
+*   **Reviewer:** A second senior lead from the Operations group (distinct from the Executor).
+*   **Scope:** Review occurs **once**, prior to the first merge (PR-1). The reviewer validates the *sequence order* and the *rebase strategy* for all six PRs.
+*   **Checklist:**
+    1.  Confirm PR order matches the dependency graph.
+    2.  Confirm "No Squash" policy is selected for all merges.
+    3.  Confirm audit trail requirements are met (individual commit history preserved).
+*   **Re-review:** No further code reviews are needed for PRs 2–6 unless the Executor encounters unexpected merge conflicts that alter logic.
+
+## Landing and Deployment
+**Merge Protocol:**
+1.  Executor merges PR-N (No Squash).
+2.  System waits for CI success (Green).
+3.  Executor updates local trunk (`git pull origin main`).
+4.  Executor rebases PR-(N+1) on the new trunk.
+5.  Repeat until PR-6 is merged and green.
+
+**Post-Merge Action:**
+*   **Trigger:** Immediately after PR-6 confirms green, the Executor triggers the **manual snapshot job**.
+*   **Deadline:** This must complete before the morning shift starts to ensure field tablets have updated routing maps.
+
+## Human Decisions and Rollback
+**Human Decision Points:**
+*   **Approval:** Only senior leads from the Operations group can approve the final deploy to production. This approval is required after the snapshot job succeeds but before the morning shift relies on the data.
+*   **Tuesday Block:** If the sequence cannot finish before a Tuesday, the human lead must decide whether to pause between PRs or delay the entire sequence.
+
+**Rollback Protocol:**
+*   **Critical Warning:** Reverting a merged PR requires a **full database rollback**, which is **irreversible** for tracked shipment events.
+*   **Condition:** Rollback is authorized *only* if a merged PR causes data corruption or critical routing failures affecting live shipments.
+*   **Procedure:**
+    1.  Halt all incoming shipment processing.
+    2.  Senior Lead authorizes database restore to the pre-PR-1 state.
+    3.  Acknowledge loss of shipment events tracked during the window.
+    4.  Do not attempt partial reverts; the dependency chain makes individual reverts unsafe.
+
+## Summary Checklist
+- [ ] Verify today is not Tuesday.
+- [ ] Senior Lead A reviews sequence strategy.
+- [ ] Senior Lead B executes PR-1 → Wait 45m → Green?
+- [ ] Repeat for PR-2 through PR-6.
+- [ ] Trigger manual snapshot job.
+- [ ] Senior Lead approves production deploy.
+- [ ] Confirm field tablets updated before morning shift.
