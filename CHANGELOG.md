@@ -3,6 +3,22 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.590.0] — 2026-10-17
+
+### Added
+- `docs/bench/comms-round2-1017/`: a pre-registered, free-model (PCSS, no paid call) second attempt to make `communication-structure` beat humanizer after round 1 (`docs/bench/loss-fix-1017`, 0.175). Root cause from the judge reasons: the rival returns a send-ready email with a stated recommendation, ours returned a headed memo that listed options and asked the reader to choose; answer length was the same. One candidate edit (email form for messages to a named person, plus a flagged lean derived from the source's facts before the ask) was tuned on 20 scenarios (0.15 unedited to 0.30), then run once on 40 fresh held-out scenarios: 0.438, 95% CI 0.312 to 0.562, against a preregistered keep bar of a lower bound above 0.5 (unedited skill on the same set: 0.312, 0.200 to 0.425). The bar was not met, so the SKILL.md edit was reverted and only the bench ships. Post hoc and descriptive: on the 16 status-note scenarios the edit moved the win rate from 0.094 to 0.406; on the 12 PR and 12 executive-summary scenarios it did not move (0.458 both).
+
+### Added
+- `docs/bench/comms-round3-1017/`: a pre-registered, free-model (PCSS, no paid call) third attempt to make `communication-structure` beat humanizer, bench only. Candidate edits were derived from the judge reasons of 196 round-2 verdicts where the rival won (trailing meta notes and skill vocabulary in the answer, a `pr` template that forces invented Why and Risk lines, executive summaries cut to three findings), tuned on 10 fresh scenarios, then the tune-selected candidate (a no-trailing-note rule plus a `pr` template without forced Why and Risk lines) ran once on 40 fresh held-out scenarios with three judges (DeepSeek-V4-Flash, GLM-5.2, gpt-oss_120b), both orders, strict agreement per judge, majority across judges: 0.325, 95% CI 0.225 to 0.438, against a preregistered keep bar of a lower bound above 0.5 (unedited skill on the same set: 0.212, 0.125 to 0.300). The bar was not met, so no SKILL.md, template or eval edit ships. Post hoc and descriptive: status notes 0.312 vs 0.062 for the unedited skill, PR bodies 0.333 vs 0.458, executive summaries 0.333 vs 0.167.
+
+Positioning: commit to one call instead of a menu; business-ops edit tested and reverted
+
+Positioning loses to the hedge it was told to write: judges preferred the rival for being decisive and ready to use, and called Perun "a cautious hypothesis with validation caveats". Positioning `SKILL.md` gains one new section, "Deliver the call, not a menu" (commit to one segment and lead message with a one-line reason, give a ready-to-use statement and headline, answer each named alternative, say "hypothesis" once, route trademark, legal or market-size questions only when asked or claimed), one Verification bullet naming it, and one eval, `commits-to-one-call-and-answers-each-alternative` (the bench arm that was run had the section but not the Verification bullet). No other skill text changes; no version bump, SHA256SUMS, INDEX.md or size-budgets.tsv change in this commit.
+
+Preregistered bench (docs/bench/posbiz-r3-1017, free PCSS models, $0): 40 fresh fictional held-out scenarios per skill, three judges (none the generator), both orders each with strict agreement, majority decides, bootstrap 95% interval. Positioning: unedited 0.675 [0.562, 0.775], edited 0.787 [0.688, 0.887] (paired gain +0.1125, interval 0.013 to 0.213); kept under the rule (lower bound above 0.5 and at least the unedited score). Business-ops: unedited 0.287 [0.163, 0.412], best candidate 0.338 [0.225, 0.463]; reverted, business-ops `SKILL.md` is unchanged and the candidate is kept only as docs/bench/posbiz-r3-1017/edits-reverted-business-ops.patch. Unedited business-ops loses clearly to marketingskills pricing. The earlier near-0.5 readings were n=10 to n=20.
+
+- size-budget-raise: .claude/skills/positioning/SKILL.md 8579→9468 one new "Deliver the call, not a menu" section
+
 ## [1.589.0] — 2026-10-17
 
 ### Added
