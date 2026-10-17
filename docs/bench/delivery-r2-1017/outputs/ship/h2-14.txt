@@ -1,0 +1,56 @@
+### Delivery Plan: Inventory Sync Worker
+
+**Goal:** Deploy a rate-limited background worker for `stock-updates` by Friday, preventing VendorAPI lockouts.
+**Appetite:** Time-boxed to Friday EOD. If rigorous sandbox verification fails by Thursday noon, scope reduces to "Dead-Letter implementation + Manual Runbook" for immediate safety, deferring full automation.
+
+#### 1. Lanes & Parallelism
+*Work is split into three independent lanes. Lanes 1 and 2 run in parallel; Lane 3 waits for Lane 1.*
+
+*   **Lane A: Core Logic & Rate Limiter (Builder)**
+    *   **Work:** Implement the worker loop, exponential backoff logic, and the strict 40 req/min throttle. Crucially, implement local simulation of the 24-hour lockout trigger to verify backoff without hitting the real API.
+    *   **Constraint:** Must not modify the shared configuration file yet. Config changes are deferred to Lane C.
+    *   **Output:** Unit tests proving backoff math and lockout avoidance; worker binary/script.
+
+*   **Lane B: Dead-Letter & Observability (Builder)**
+    *   **Work:** Implement the retry counter (max 3) and dead-letter queue (DLQ) movement. Fix the logging truncation issue for this specific worker (ensure full payload logging for failures, bypassing the 2KB limit for error paths).
+    *   **Output:** Integration tests showing message flow from Queue → Retry → DLQ; verified full-payload error logs.
+
+*   **Lane C: Config & Deployment Prep (Conductor + David Chen)**
+    *   **Work:** Draft the minimal change to the guarded shared config file. Prepare the deployment request package for David Chen.
+    *   **Serialization:** Waits for Lane A/B code freeze to ensure config matches implementation.
+    *   **Output:** PR for config change (ready for dual approval); Deployment manifest.
+
+#### 2. Gates & Checks
+*CI is scarce (4 runs/day, 35 mins each). We verify locally first. CI runs only on the final candidate SHA.*
+
+*   **G4 (Implement):**
+    *   **Check:** Local unit tests (Lane A & B) must pass in isolated worktrees.
+    *   **Check:** "Chaos Test" – A local script simulates 50 rapid requests; the worker must never exceed 40/min and must trigger backoff before lockout.
+*   **G5 (Verify - The Hard Gate):**
+    *   **Environment:** Sandbox only (Staging is useless for rate limits).
+    *   **Action:** Run the worker against the sandbox for 1 hour.
+    *   **Success Criteria:** Zero lockouts, zero dropped messages, DLQ receives failures correctly, logs show full payloads.
+    *   **CI Usage:** Submit **one** candidate SHA to CI only after local sandbox green. Do not re-run CI unless the SHA changes.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Focus:** Rate limit algorithm correctness, DLQ safety, and the logging fix.
+    *   **Security:** Verify no credentials are hardcoded; check DLQ data sensitivity.
+
+#### 3. Review Strategy
+*   **Code:** Independent review of Lanes A & B. The Builder cannot self-approve.
+*   **Config:** Dual approval required (Lead Ops + Security) for the shared config change (Lane C). This is a human gate; agents prepare the diff, humans approve.
+*   **Safety:** The "Chaos Test" results serve as the primary evidence for the Security review regarding the lockout risk.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A & B code (non-config) to `main` once G6 passes.
+    2.  Submit Lane C (config) PR. Upon dual approval, merge to `main`.
+*   **Human Decision (G8):**
+    *   **David Chen** must manually deploy the worker to production using the prepared manifest. No auto-deploy.
+    *   **Lead Ops + Security** must explicitly approve the config merge.
+*   **Rollback Plan:**
+    *   **Trigger:** Any sign of rate-limit headers approaching the threshold or DLQ filling unexpectedly fast.
+    *   **Action:** David Chen kills the worker process immediately.
+    *   **Recovery:** Messages remain in the source queue (idempotent design) or DLQ; no data loss. Revert config merge if necessary.
+
+**Risk Note:** If the sandbox environment behaves differently than production regarding network latency, the rate limiter may drift. The local "Chaos Test" must include a safety margin (e.g., cap at 35 req/min) to account for this variance.

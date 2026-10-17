@@ -1,0 +1,67 @@
+**Delivery Plan: CargoManifest → FreightDeclaration Refactor**
+
+**Objective:** Rename entity across ~200 files, update DB schema, verify customs logic, and merge before Friday code freeze.
+
+### 1. Lanes & Parallelism
+
+*   **Lane A: Specification & Compliance (Serial Pre-requisite)**
+    *   **Actor:** Product Analyst + Compliance Officer (Human).
+    *   **Work:** Confirm exact string "FreightDeclaration" and case rules against legal docs. Define scope (code, config, DB, docs).
+    *   **Output:** Signed spec document. *No code changes until this is approved.*
+*   **Lane B: Code Refactoring (Parallelizable)**
+    *   **Actor:** Builder (Implementer).
+    *   **Work:** Execute global rename in isolated worktrees. Split into three sub-tasks to avoid lock contention:
+        1.  Backend services & logic.
+        2.  Frontend display & components.
+        3.  Test fixtures & mocks.
+    *   **Constraint:** Do not touch shared config files or DB migration scripts yet.
+*   **Lane C: Database Migration (Serialized, High Risk)**
+    *   **Actor:** Senior Builder + DBA oversight.
+    *   **Work:** Write irreversible migration script. Must include a verified rollback script (restore from backup procedure).
+    *   **Constraint:** Runs only after Lane B code is green locally. Requires separate PR due to risk profile.
+*   **Lane D: Configuration & Security (Serialized, Dual-Approval)**
+    *   **Actor:** Security Officer + Platform Lead.
+    *   **Work:** Update shared config files.
+    *   **Constraint:** Requires manual dual-approval workflow. Isolate this change to prevent blocking the main refactor if approval is delayed.
+
+### 2. Gates & Checks
+
+*   **G0/G1 (Intake/Spec):** Blocked until Compliance Officer signs off on the exact term.
+*   **G2 (Plan):** Verify acyclic dependency. Lane B must not depend on Lane C's DB state for compilation, only for runtime integration.
+*   **G3 (Design):** ADR for the DB migration strategy (irreversible nature) and rollback proof.
+*   **G4 (Implement):**
+    *   **Base SHA:** Pin to current `release-4.2` head.
+    *   **Local Check:** Run fast linters and unit tests *excluding* the flaky network check.
+    *   **Cost Control:** No CI runs until local green.
+*   **G5 (Verify):**
+    *   **CI Run:** Trigger full 45-min regression suite **once** per candidate SHA.
+    *   **Flake Handling:** If "network connectivity" fails, human must manually inspect logs. Do not auto-retry.
+    *   **Customs Module:** Specific regression test suite must pass. If custom calculations differ, fail immediately.
+    *   **Environment:** Verify against a ephemeral staging DB, *not* the persistent staging DB (to avoid irreversible lock-in before final approval).
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Scope:** Full diff against pinned base SHA. Focus on customs logic and variable scoping.
+    *   **Security:** Security Officer reviews config changes (Lane D) independently.
+
+### 3. Integration & Landing
+
+*   **Merge Strategy:**
+    1.  Merge Lane B (Code) first.
+    2.  Merge Lane D (Config) upon dual-approval.
+    3.  Merge Lane C (DB) last, immediately before deployment window.
+*   **Human Gates (Required):**
+    *   **Approval 1:** Compliance Officer sign-off on spec (G0).
+    *   **Approval 2:** Dual-approval for shared config changes (Lane D).
+    *   **Approval 3:** Explicit "Go" for irreversible DB migration (Lane C) after staging verification.
+    *   **Approval 4:** Final merge to `release-4.2` and deployment.
+*   **Rollback Plan:**
+    *   **Code/Config:** Revert PRs immediately if customs calculations fail in production.
+    *   **Database:** Execute prepared backup restore script. *Note: This causes downtime; timing must be coordinated.*
+
+### 4. Risk Mitigation
+
+*   **Cost:** Limit CI runs to one per finalized lane. No iterative "fix-and-push" cycles; fix locally first.
+*   **Time:** Start Lane A immediately. If spec is not signed by EOD today, escalate to release owner as a blocker.
+*   **Quality:** The "network connectivity" flake is marked as "manual verify only." Automated gates will treat it as pending, not failed, requiring human intervention to clear.
+
+**Next Step:** Request Compliance Officer availability for G0 sign-off.

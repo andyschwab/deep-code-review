@@ -1,0 +1,69 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Ingestion
+
+**G0/G1 Intake & Spec**
+*   **Goal:** Grant third-party vendor write access to `pending-review` prefix; restrict reads to internal auditors.
+*   **Constraints:** Deadline end-of-month; $45/22min CI cost; shared `global-audit-log` file risk; flaky Tuesday drift check.
+*   **Non-Goals:** No changes to Billing logging or other prefixes.
+*   **Appetite:** 4 hours total execution window.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane 1 (Builder):** Draft Terraform/CloudFormation change in isolated worktree.
+    *   *Scope:* Modify bucket policy JSON. Explicitly scope `s3:PutObject` to `arn:.../pending-review/*` for vendor IAM entity. Verify `s3:GetObject` remains denied for vendor.
+    *   *Serialization:* Must complete before Lane 2.
+*   **Lane 2 (Security Reviewer - Independent):** Static analysis of policy JSON.
+    *   *Trigger:* Lane 1 commit SHA.
+    *   *Check:* Verify no wildcard (`*`) actions or resources. Confirm auditor read restrictions are intact.
+    *   *Constraint:* Must be human (Security Lead) or distinct agent instance with no write access.
+*   **Lane 3 (QA/Simulation):** Targeted CI run.
+    *   *Trigger:* Lane 2 approval + Exact SHA from Lane 1.
+    *   *Action:* Run single environment simulation ($45).
+    *   *Verification:* Confirm vendor identity can write to `pending-review` and fails elsewhere. Confirm Billing logs untouched.
+    *   *Note:* Skip if today is Tuesday (drift check flaky); rely on Lane 2 static proof + manual post-deploy check.
+
+**G3 Design: Rollback Strategy**
+*   **Artifact:** Pre-written script `rollback_s3_policy.sh` stored in the PR.
+*   **Mechanism:** Script re-applies the previous policy version (captured in G1) using AWS CLI.
+*   **SLA:** Must execute within 5 minutes.
+*   **Trigger Condition:** Vendor test upload failure OR internal monitoring flags unexpected traffic (e.g., writes outside `pending-review`).
+
+**G4 Implementation**
+*   **Writer:** Platform Reliability Engineer (or Builder Agent).
+*   **Worktree:** Isolated branch `feature/archive-vendor-access`.
+*   **Safety:** Read `global-audit-log` context first to ensure no accidental indentation/key collisions affecting Billing clusters.
+
+**G5 Verification**
+*   **Exact Revision:** The SHA passing Lane 3.
+*   **Checks:**
+    1.  CI Simulation Green (non-Tuesday) OR Static Analysis + Manual Config Diff (Tuesday).
+    2.  **Rollback Drill:** Execute rollback script in staging/sandbox; verify restoration time < 5 mins.
+
+**G6 Review**
+*   **Reviewers:** Jane Smith (Platform) + Security Lead.
+*   **Independence:** Neither reviewer is the Builder.
+*   **Focus:** Policy scope precision, rollback validity, and Billing cluster safety.
+
+**G7 Integration & G8 Release (Human Gates)**
+*   **Merge Strategy:** Squash merge to `main` after dual approval.
+*   **Human Decisions Required:**
+    1.  Approval to merge (Jane Smith + Security Lead).
+    2.  Authorization to deploy to production (Owner).
+    3.  Go/No-Go on Tuesday if drift check is skipped.
+*   **Deployment:** Triggered manually post-merge.
+
+**G9 Production Verify**
+*   **Action:** Vendor performs test upload during next nightly window.
+*   **Monitoring:** Watch for `AccessDenied` (failure) or writes to root/other prefixes (breach).
+*   **Contingency:** If breach detected, execute `rollback_s3_policy.sh` immediately.
+
+**G10 Learn**
+*   **Retrospective:** Record if Tuesday flakiness impacted confidence. Update drift check documentation if manual verification succeeded.
+
+**Risk Mitigation Summary**
+*   **Billing Breakage:** Mitigated by strict prefix scoping and pre-merge diff review of shared config.
+*   **Cost Overrun:** Limited to one CI run via pre-validation (Lane 2).
+*   **Deadline Miss:** Rollback plan ensures quick recovery; parallel Security Review (Lane 2) saves time.
+*   **Flaky Check:** Manual verification procedure defined for Tuesdays.
+
+**Final Output Contract**
+*   **Artifact:** PR with policy diff, rollback script, and simulation receipt.
+*   **State:** Merged, deployed, vendor test successful, rollback verified.

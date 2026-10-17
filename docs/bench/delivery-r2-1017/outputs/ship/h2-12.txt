@@ -1,0 +1,42 @@
+**Delivery Plan: Deprecate `--format-type` with Compatibility Layer**
+
+**Lanes & Parallelism**
+*   **Lane A (Implementation):** Builder modifies `core-utils` CLI parser to accept both `--format-type` and `--output-schema`. Implements stderr deprecation warning for the legacy flag. Updates help text immediately.
+    *   *Constraint:* Must run in an isolated worktree.
+    *   *Parallel:* Can run concurrently with Lane B.
+*   **Lane B (Documentation & Comms):** Product Analyst drafts the migration notice for the Partner Success team and updates user-facing docs to reflect `--output-schema` as primary.
+    *   *Parallel:* Runs concurrently with Lane A.
+    *   *Serialization:* Must complete before G8 (Release) approval.
+*   **Lane C (Verification):** QA executes functional tests on the exact revision.
+    *   *Strategy:* Runs local unit tests first. Triggers the 45-minute CI integration suite **once** on the candidate SHA only after local green.
+    *   *Flake Handling:* If the Windows 'partner-compatibility' check fails, QA marks it `UNVERIFIED` and requests manual re-execution by a senior maintainer; does not auto-retry.
+
+**Gates & Checks**
+*   **G1 (Spec):** Confirm acceptance criteria: Legacy flag functions identically + logs warning; new flag works; help text updated. Pin base SHA.
+*   **G3 (Design):** Verify the deprecation warning message is clear and includes the removal timeline (next quarter).
+*   **G4 (Implement):** Code changes in Lane A. Tests included with the change.
+*   **G5 (Verify):**
+    *   **Local:** Build, lint, and unit tests green.
+    *   **CI:** Full integration suite (3 OS containers) runs on the exact candidate SHA.
+    *   **UI/CLI:** Manual verification that `--format-type` outputs the warning to stderr while succeeding.
+*   **G6 (Review):** Independent review of code (not by Builder) and comms draft. Security reviews the change to ensure no new injection vectors in the parser.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected gates on the final merged SHA.
+
+**Review Strategy**
+*   **Code:** Reviewed by a senior engineer independent of the Builder.
+*   **Security:** AppSec verifies the parser logic handles duplicate/conflicting flags safely.
+*   **Comms:** Partner Success team lead reviews the notification draft before any external contact.
+
+**Landing & Human Gates**
+*   **Merge:** Merged via train only after G7 green.
+*   **Human Approvals Required (G8):**
+    1.  **Platform Lead:** Approval to tag and push to the public registry.
+    2.  **Security Officer:** Sign-off on the release manifest.
+    3.  **Partner Success Confirmation:** Explicit confirmation that partner leads have been notified before the version is published.
+*   **Rollback:** Since published packages are immutable, rollback strategy is **immediate publication of a patch version** reverting the deprecation warning if critical breakage occurs, coupled with an urgent hotfix communication to partners.
+*   **Post-Deploy (G9):** Monitor error logs for unexpected parser failures or spike in support tickets regarding the flag.
+
+**Risk Mitigation**
+*   **CI Cost:** The 45-minute suite runs only once per candidate SHA. No re-runs on merge unless the SHA changes.
+*   **Flaky Tests:** Windows runner failure triggers a human-in-the-loop manual re-run, not an automated retry loop.
+*   **Irreversibility:** Pre-release validation is strict; no "fix forward" on the public registry.

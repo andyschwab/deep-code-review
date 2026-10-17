@@ -1,0 +1,63 @@
+### Delivery Plan: Archive Legacy Billing Gateway
+
+**Objective:** Retire Legacy Billing Gateway, archive data to cold storage, redirect traffic to Payment Hub, and update status page by next Friday with zero data loss.
+
+#### 1. Lanes & Serialization
+*Work is split into four lanes. Lanes 1 and 2 run in parallel. Lanes 3 and 4 are strictly serialized after Lane 1 completes.*
+
+*   **Lane A (Data Freeze & Export):**
+    *   **Actor:** Builder (Data Specialist).
+    *   **Work:** Implement write-freeze logic in the gateway code. Execute the final full export script to the cold storage bucket. Generate a checksum manifest and row-count report for source vs. destination.
+    *   **Constraint:** Must complete before any traffic redirection.
+*   **Lane B (Traffic Redirection & Config):**
+    *   **Actor:** Builder (Platform Engineer).
+    *   **Work:** Update service mesh configuration to point callers to the new Payment Hub. Prepare the rollback switch.
+    *   **Constraint:** Code ready, but execution blocked until Lane A verification passes.
+*   **Lane C (Observability & Comms):**
+    *   **Actor:** Builder (Frontend/Docs).
+    *   **Work:** Update the internal status page to reflect the maintenance window and potential lookup failures.
+    *   **Parallel:** Can run immediately alongside Lane A.
+*   **Lane D (Independent Verification):**
+    *   **Actor:** QA (Independent).
+    *   **Work:** Verify row counts match exactly between source and cold storage. Validate the checksum manifest. Confirm the write-freeze is active by attempting a test write in a staging clone.
+
+#### 2. Gates & Checks
+*Checks run on the exact revision SHA produced by each lane. No flaky health checks trigger rollbacks automatically.*
+
+*   **G0/G1 (Spec & Plan):** Confirm freeze scope, export target bucket, and redirection routing rules. Define "exact match" criteria for row counts.
+*   **G2 (Budget):** Explicitly cap CI runs. Trigger regression suites *only* for the specific modules changed (freeze logic, mesh config) to avoid the 45-minute full suite cost.
+*   **G3 (Design):** Review the export script for idempotency and the mesh config for blast radius.
+*   **G4 (Implement):**
+    *   Lane A commits freeze/export code.
+    *   Lane B commits mesh config.
+    *   Lane C commits status page updates.
+*   **G5 (Verify - Critical):**
+    *   **Revision:** Exact SHA of Lane A's export script execution.
+    *   **Check:** QA runs row-count comparison. **Hard Gate:** If counts differ by even one row, STOP. Do not proceed to deletion or redirection.
+    *   **Check:** Verify status page is live and accurate.
+*   **G6 (Review):**
+    *   **Reviewer:** Security Lead (independent of Builder) reviews export logs for PII leakage.
+    *   **Reviewer:** Platform Lead (independent of Builder) reviews mesh config.
+    *   **Note:** The flaky health check is excluded from automatic rollback triggers during this window; manual observation required.
+
+#### 3. Landing & Human Decisions
+*Merging and deployment require specific human approvals. No automated merge to production.*
+
+*   **Integration (G7):**
+    *   Merge Lane A, B, and C into the release branch only after G5/G6 pass.
+    *   Create a single integration receipt showing all green checks.
+*   **Human Approval (G8 - Mandatory):**
+    *   **Decision 1:** **Platform Lead** must approve the service mesh redirection.
+    *   **Decision 2:** **Finance Compliance Officer** must approve the final data archive verification and the subsequent database deletion.
+    *   *Both approvals are required before the deletion script runs.*
+*   **Execution Sequence:**
+    1.  Apply Lane C (Status Page) – Low risk.
+    2.  Apply Lane A (Freeze) – Monitor for errors.
+    3.  Run Export & Verify (Lane D) – **Stop point.**
+    4.  Upon dual approval, apply Lane B (Redirect Traffic).
+    5.  Upon dual approval, execute Database Deletion (Irreversible).
+*   **Rollback Plan:**
+    *   If redirection causes errors, immediately revert the service mesh config to point back to the Legacy Gateway (if still running) or fail closed to a maintenance page.
+    *   If data mismatch is found post-export, halt deletion. Restore from cold storage backup if corruption occurred during freeze.
+
+**Risk Mitigation:** The irreversible database deletion is the final step, gated by two distinct human roles and a mathematical proof of data integrity (row counts). The flaky health check is manually monitored to prevent false rollbacks during the high-load transition.

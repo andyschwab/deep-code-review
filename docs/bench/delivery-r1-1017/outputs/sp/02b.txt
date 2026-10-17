@@ -1,0 +1,59 @@
+# Delivery Plan: Legacy Webhook Signature Support
+
+## Lanes & Parallelism
+
+**Lane A: Core Implementation (Serialized)**
+1.  **Middleware Update:** Modify `core-gateway` validation logic to detect scheme version headers. Route legacy schemes to the deprecated verifier and new schemes to the standard verifier.
+2.  **Unit Testing:** Add unit tests covering both schemes, ensuring no regression in the standard path.
+3.  **Performance Benchmark:** Run local benchmarks to verify the added branching logic does not degrade throughput for the majority (new standard) traffic.
+
+**Lane B: Infrastructure & Secrets (Parallel to Lane A)**
+1.  **Vault Access Verification:** The Deployment Service Account must verify read-access to the legacy key vault. *Constraint:* Do not attempt rotation or write operations.
+2.  **Staging Configuration:** Prepare staging environment variables to point to the legacy vault endpoint.
+
+**Lane C: Documentation & Comms (Parallel to Lane A)**
+1.  **Incident Update:** Notify logistics partners that a fix is in progress and request a temporary throttle on retries if possible.
+2.  **Runbook Update:** Document the temporary nature of this fix and the specific sunset date for the legacy support.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Static Analysis (Pre-CI)**
+*   **Revision:** `feat/legacy-webhook-fix` (latest commit before CI trigger).
+*   **Check:** Static analysis must pass locally. No new dependencies added.
+*   **Owner:** Lead Engineer.
+
+**Gate 2: CI Pipeline (Automated)**
+*   **Revision:** Same as Gate 1.
+*   **Check:** Full 45-minute integration suite.
+*   **Contingency:** If the `latency-check` job fails on a weekend, a manual re-run is authorized immediately without waiting for architecture approval.
+
+**Gate 3: Security Review (Manual)**
+*   **Revision:** The specific commit that passed Gate 2.
+*   **Check:** Verification that legacy keys are only *read*, never logged or exposed in error messages. Confirmation that the new standard path remains the default and optimized path.
+*   **Approver:** One Senior Architect (The one currently available). *Constraint:* The second architect is on leave; their absence must be noted, but the single available approver is sufficient for this critical hotfix provided the "temporary" flag is set in the code comments.
+
+## Review Strategy
+
+*   **Code Review:** Performed by a Senior Backend Engineer not involved in Lane A implementation. Focus strictly on the routing logic and error handling.
+*   **Security Review:** Independent of the Code Review. Performed by the available Senior Architect. Focus on secret handling and attack surface expansion.
+*   **Validation:** Staging deployment must successfully process a webhook signed with a legacy key from the read-only vault while simultaneously processing standard keys.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge to `staging` branch only after Gates 2 and 3 are cleared.
+2.  Monitor staging for 30 minutes. Verify partner delivery success rates.
+3.  If staging is stable, merge to `main` and trigger production deployment.
+
+**Human Decisions Required:**
+*   **Security Approval:** The available Senior Architect must explicitly approve the bypass of the "two-approver" rule due to the critical nature of the outage.
+*   **Sunset Date:** Product Owner must confirm the hard deadline for removing this legacy code (to be added to the ticket before merge).
+
+**Rollback Plan:**
+*   **Trigger:** If error rates increase or latency spikes >5% in production.
+*   **Action:** Immediate revert of the merge commit on `main`.
+*   **Fallback:** Re-deploy the previous stable tag. Since legacy keys are in a separate vault, no secret rotation is needed for rollback; simply stopping the code from accessing them is sufficient.
+
+**Post-Landing:**
+*   Create a follow-up ticket to track the removal of this legacy support.
+*   Schedule a post-mortem once the immediate outage is resolved.

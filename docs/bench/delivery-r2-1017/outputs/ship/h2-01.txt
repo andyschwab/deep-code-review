@@ -1,0 +1,62 @@
+**Delivery Plan: Fleet Runtime v12 Upgrade**
+
+**Scope & Constraints**
+Upgrade shared base image from Runtime v10 to v12 for 12 payment services.
+**Hard Gates:** Security Lead + Product Owner written approval required for deploy. Staging lacks hardware encryption (risk of masked issues). Base image is immutable once published. Smoke tests are 15% flaky (DB connections); manual verification mandatory.
+**Appetite:** Complete staging validation by next Tuesday low-traffic window.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Base Image Build & Publish (Serializer)**
+    *   **Worker:** Platform Engineer (Builder).
+    *   **Work:** Update shared Dockerfile to v12. Build base image. Push to global registry.
+    *   **Constraint:** Must complete first. Image is immutable; if broken, a new version tag is required (no overwrite).
+    *   **Output:** New base image SHA/tag.
+
+2.  **Lane B: Service Compatibility Matrix (Parallel Fan-out)**
+    *   **Worker:** 12 Service Owners (or assigned Builders), one per service.
+    *   **Trigger:** Starts only after Lane A publishes the base image.
+    *   **Work:** Update each service's `FROM` clause to the new base image. Run local unit tests. Build service container.
+    *   **Parallelism:** All 12 can run simultaneously in isolated worktrees.
+    *   **Output:** 12 build artifacts, 12 unit test receipts.
+
+3.  **Lane C: Staging Integration & Verification (Serializer)**
+    *   **Worker:** QA Lead (Independent).
+    *   **Trigger:** Starts after all 12 Lane B builds succeed locally.
+    *   **Work:** Deploy all 12 updated services to Staging. Execute full integration suite.
+    *   **Critical Check:** Manually verify database connectivity and transaction logic (bypassing flaky smoke tests). Validate behavior against known encryption module gaps (document assumptions).
+    *   **Output:** Staging Green Receipt + Manual Verification Log.
+
+4.  **Lane D: Rollback & Deploy Scripting (Parallel to B/C)**
+    *   **Worker:** DevOps Engineer.
+    *   **Work:** Prepare phased rollout script with automatic rollback triggers. Define "low-traffic window" execution parameters.
+    *   **Output:** Ready-to-run deploy manifest with rollback logic.
+
+**Gates & Checks**
+
+*   **G2 (Plan):** Confirm lane budgets and serialization strategy (Base first, then parallel builds, then integrated staging).
+*   **G4 (Implement):**
+    *   Lane A: Base image build logs + registry push receipt.
+    *   Lane B: 12 local build logs + unit test passes (exact revision per service).
+*   **G5 (Verify):**
+    *   **Staging Gate:** Lane C must report "Green" on the exact integrated SHA in Staging.
+    *   **Manual Override:** QA must explicitly sign off on DB connection stability despite smoke test flakiness.
+    *   **Encryption Note:** Explicitly document any behavior inferred rather than observed due to missing hardware module.
+*   **G6 (Review):**
+    *   **Security Review:** Independent Security Lead reviews v12 changelog, supply chain implications, and the Encryption Gap analysis.
+    *   **Code Review:** Peer review of Dockerfile change (Lane A) and service configs (Lane B). Builder never reviews self.
+*   **G7 (Integrate):** Merge 12 service PRs to the integration branch only after Staging is Green and Reviews are accepted.
+
+**Landing & Human Decisions**
+
+*   **Human Gate (Pre-Deploy):** Explicit written approval from **Security Lead** and **Product Owner** is required before executing Lane D's script. This is a hard stop; no auto-merge to production.
+*   **Execution:** Phased rollout during next Tuesday's low-traffic window.
+*   **Rollback:** Automatic rollback triggers on any SLO breach or error rate spike >0.1% during phased rollout.
+*   **Final Sign-off:** Confirmation of "Staging Green" is a prerequisite for the human approval, not the approval itself.
+
+**Risk Mitigation**
+*   **Flaky Tests:** Manual DB verification replaces reliance on automated smoke tests for the go/no-go decision.
+*   **Immutable Image:** If Lane A fails post-push, the plan halts for a new version tag; no force-overwrite attempts.
+*   **Encryption Gap:** Risks associated with the missing hardware module in Staging are documented and accepted by the Security Lead during G6.
+
+**Next Step:** Await confirmation of Lane A resource availability to begin base image build.

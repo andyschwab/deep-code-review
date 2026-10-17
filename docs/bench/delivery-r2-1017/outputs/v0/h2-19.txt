@@ -1,0 +1,65 @@
+### Delivery Plan: Production Memory Leak Resolution
+
+**Scope & Constraints**
+Target: Payment Gateway Service.
+Critical Constraints: 45m CI cost, flaky pre-deploy check, no production data in staging, 4h heap dump retention.
+Appetite: Immediate stabilization for next Tuesday peak; root cause fix follows.
+
+#### Lanes & Parallelism
+
+**Lane 1: Forensic Analysis (Serial, Human-Led Start)**
+*   **Actor:** Senior Engineer (Security/Perf Hat).
+*   **Input:** Captured production heap dumps (must be secured immediately before rotation).
+*   **Work:** Analyze heap diffs to identify accumulating object graphs. Map retention paths to specific code modules.
+*   **Output:** Root Cause Report (RCR) identifying the exact class/method and trigger condition.
+*   **Dependency:** None. Must complete before Lane 2.
+
+**Lane 2: Hypothesis & Reproduction Strategy (Parallel to Lane 1 start, waits for RCR)**
+*   **Actor:** Builder.
+*   **Work:** Design a synthetic load test mimicking the specific object allocation pattern identified in Lane 1, since raw data cannot be copied. Prepare a "debug build" with extended logging/heap snapshots triggered by specific thresholds to catch the leak earlier than 4 hours.
+*   **Output:** Synthetic test script and debug instrumentation patch.
+
+**Lane 3: Fix Implementation (Serial, depends on Lane 1 & 2)**
+*   **Actor:** Builder (Distinct from Lane 1 analyst).
+*   **Work:** Implement the memory fix (e.g., closing streams, clearing caches, fixing listener leaks). Integrate the synthetic test from Lane 2 to verify the fix locally.
+*   **Output:** Patch commit + Local verification receipt.
+
+**Lane 4: CI/CD Pipeline Preparation (Parallel to Lane 1)**
+*   **Actor:** Release Engineer.
+*   **Work:** Pre-authorize the manual retry for the flaky network check. Prepare the rollback script and feature flag kill-switch configuration.
+*   **Output:** Ready-to-execute rollback plan and CI bypass authorization token.
+
+#### Gates & Checks
+
+*   **G1 Spec:** Defined by this plan. Base SHA: Current `main` head at ticket start.
+*   **G3 Design (RCR Review):** Independent review of Lane 1's findings by a Staff Engineer not involved in the analysis. Must confirm the leak path before coding begins.
+*   **G4 Implement:** Code review of Lane 3 patch by a senior engineer distinct from the Builder and Analyst. Focus: memory lifecycle and thread safety.
+*   **G5 Verify (Staging):**
+    *   Run synthetic load test (Lane 2) against the debug build in staging.
+    *   **Condition:** Memory growth must plateau, not linearly increase, over a 2-hour sustained run.
+    *   **CI Execution:** Trigger full suite once. If flaky network check fails, apply pre-authorized retry immediately. Do not re-run full suite unless code changes.
+*   **G6 Security/Privacy:** Confirm no PII was exposed in heap analysis or debug logs.
+
+#### Review & Independence
+
+*   **Code Review:** Performed by a Transactions Squad member who did not write the fix (Lane 3) or analyze the heap (Lane 1).
+*   **Verification Review:** QA Lead verifies the synthetic test results and memory graphs.
+*   **Security Review:** On-call lead reviews the debug instrumentation to ensure no sensitive data leakage in extended logs.
+
+#### Landing & Human Decisions
+
+**Merge Strategy:**
+1.  **Integration:** Merge Lane 3 to `release-candidate` branch only after G5 green.
+2.  **Human Approval Required:**
+    *   **Jane Smith** and **On-Call Lead** must explicitly approve the deployment to production.
+    *   Manual authorization for the flaky network check retry during the final CI run.
+3.  **Deployment:**
+    *   Deploy to 5% canary first.
+    *   Monitor memory metrics for 30 minutes.
+    *   If stable, roll to 100%.
+4.  **Rollback:**
+    *   **Trigger:** Memory growth resumes or error rate > 0.1% in canary.
+    *   **Action:** Immediate revert to previous SHA using the pre-prepared script (Lane 4). No debugging in production; revert first, investigate later.
+
+**Post-Incident (G10):**
+Once stabilized, schedule a retrospective to address the CI flakiness and improve staging data masking to allow better reproduction without compromising privacy.

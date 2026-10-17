@@ -1,0 +1,65 @@
+**Delivery Plan: APAC Region Enablement with Data Residency**
+
+**Scope & Constraints**
+Two repos: `global-net` (infrastructure) and `dispatch-core` (routing logic).
+Critical constraints: Singapore data residency (backups included), irreversible DB migration, flaky CI in `dispatch-core`, expensive `global-net` CI (batch off-hours), dual human approval for production.
+Appetite: Internal testing live by Friday; customer traffic blocked until compliance sign-off.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Infrastructure Provisioning (`global-net`)**
+    *   **Worker:** Builder (Infra).
+    *   **Work:** Define Singapore cluster, configure backup retention policies to enforce local-only snapshots, set up private endpoints.
+    *   **Parallelism:** Runs parallel to Lane B initially, but **must serialize** before Lane C (migration).
+    *   **CI Strategy:** Batch commits to run once during off-hours to save cost/time.
+
+2.  **Lane B: Routing Logic & Guards (`dispatch-core`)**
+    *   **Worker:** Builder (Backend).
+    *   **Work:** Implement geo-routing logic to direct citizen data to SG cluster; add hard guards preventing personal address egress to US; update currency converter error handling to fail strictly (fix flaky check tolerance).
+    *   **Parallelism:** Runs parallel to Lane A.
+
+3.  **Lane C: Data Migration & Schema Apply**
+    *   **Worker:** Senior Engineer (Database).
+    *   **Work:** Execute irreversible schema migration on the new SG cluster.
+    *   **Serialization:** **Blocked** until Lane A is verified green (infrastructure ready) and Lane B code is reviewed (logic safe). This is the point of no return.
+
+4.  **Lane D: Compliance & Documentation**
+    *   **Worker:** Product Analyst.
+    *   **Work:** Generate data flow diagrams showing backup locality and routing paths for the Compliance Officer.
+    *   **Parallelism:** Runs parallel to A/B, but **blocks G8 (Release)** until sign-off is received.
+
+**Gates & Checks**
+
+*   **G1 Spec:** Pin base SHAs for both repos. Explicitly define "Data Residency" test cases (e.g., attempt to write SG user data to US bucket must fail).
+*   **G4 Implement:**
+    *   `dispatch-core`: Unit tests must include the currency converter failure case (force >2% error to ensure CI doesn't ignore it).
+    *   `global-net`: Terraform/Config plan output reviewed for backup region settings.
+*   **G5 Verify (Internal Test):**
+    *   **Revision:** Exact SHA of merged A+B.
+    *   **Action:** Deploy to SG staging. Run end-to-end journey: Create SG user → Verify data stored in SG → Verify backup created in SG → Attempt cross-border leak (must block).
+    *   **Condition:** Stack must be up; unit tests alone are insufficient for data residency.
+*   **G6 Review:**
+    *   **Security:** Independent review of `dispatch-core` guards and `global-net` backup config. Must verify no PII leaves SG.
+    *   **QA:** Independent verification of the flaky check fix and routing logic.
+*   **G7 Integrate:** Merge to integration branch. Re-run affected gates on final SHA.
+
+**Landing & Human Gates**
+
+*   **Internal Go-Live (Friday):**
+    *   **Trigger:** G7 Green + Lane D diagrams submitted.
+    *   **Human Decision:** Regional Director approval to enable internal endpoints.
+    *   **Action:** Deploy to SG, enable internal allow-list.
+*   **Customer Go-Live (Post-Compliance):**
+    *   **Trigger:** Compliance Officer sign-off on data flow diagrams (Lane D).
+    *   **Human Decision:** **Dual Approval** required (Regional Director + Chief Security Officer) via internal portal.
+    *   **Action:** Flip feature flag for customer traffic.
+
+**Rollback Strategy**
+*   **Code/Config:** Revert PRs in both repos; redeploy previous stable SHA.
+*   **Data:** Since migration (Lane C) is irreversible without a 6-hour cold restore, rollback of *traffic* is immediate (route back to US if safe, or disable SG writes), but data in SG remains.
+*   **Contingency:** If residency guard fails post-launch, immediately disable SG write path and engage 6-hour restore procedure only if data corruption/leak is confirmed.
+
+**Risk Mitigation**
+*   **Flaky CI:** Lane B must explicitly fix the tolerance threshold; no merging if the test passes only by ignoring errors.
+*   **Cost:** All `global-net` CI runs batched late night/early morning.
+*   **Drift:** Conductor monitors Lane A/B progress; if either stalls, escalate immediately to meet Friday internal deadline.

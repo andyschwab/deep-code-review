@@ -1,0 +1,65 @@
+### Delivery Plan: Monorepo Build Caching Strategy
+
+**G0 Intake & G1 Spec**
+*   **Work:** Product Analyst drafts the spec defining "affected packages" via dependency graph traversal. Explicitly list non-goals (no change to audit log schema, no modification of the flaky network retry logic yet).
+*   **Gate:** Chief Architect and Security Lead written sign-off on the spec before any code changes.
+*   **Parallelism:** None. This is the serial entry point.
+
+**G2 Plan & G3 Design**
+*   **Work:** Conductor maps the work graph.
+    *   *Lane A (Logic):* Implement dependency graph validation and cache-key generation.
+    *   *Lane B (Observability):* Verify audit logs capture "cache hit/miss" events without altering log structure.
+    *   *Lane C (Resilience):* Isolate the known flaky network check to prevent it from invalidating valid caches or causing false negatives.
+*   **Budget:** Set strict token/cost caps per lane. Total budget cannot exceed current weekly slip cost.
+*   **Gate:** Design review confirming the cache invalidation algorithm prevents false negatives (stale code deployment).
+
+**G4 Implement**
+*   **Worktrees:** Three isolated worktrees (one per lane) branched from the exact pinned base SHA.
+    *   *Writer A:* Modifies shared build configuration.
+    *   *Writer B:* Adds logging assertions.
+    *   *Writer C:* Patches the network check handling.
+*   **Discipline:** Tests written before or with logic. No writer touches another's files.
+
+**G5 Verify (Local & CI)**
+*   **Sequence:**
+    1.  **Local:** Each lane runs unit tests and a dry-run build simulation on a tiny documentation change vs. a core library change.
+    2.  **CI:** One costly integration run per candidate SHA on the private cluster.
+        *   *Check:* Verify 40m compile reduces to <2m for docs-only changes.
+        *   *Check:* Confirm audit logs show every attempt.
+        *   *Check:* Ensure flaky network failure does not corrupt cache state.
+*   **Condition:** Gate fails if the app never starts or if cache hits result in unverified binaries.
+
+**G6 Review**
+*   **Reviewers:**
+    *   *Security Lead:* Reviews Lane A (cache poisoning risk) and Lane C (network isolation). Independent of Builder A/C.
+    *   *Chief Architect:* Reviews the dependency graph logic and overall integration. Independent of all builders.
+    *   *Compliance Rep:* Verifies audit log output (Lane B).
+*   **Rubric:** Any risk of stale code deployment is a Blocker.
+
+**G7 Integrate**
+*   **Work:** Conductor merges lanes into a temporary integration branch.
+*   **Check:** Re-run the full affected suite on the *merged* SHA to detect interaction bugs between caching and logging.
+*   **Output:** Integration receipt with exact final SHA.
+
+**G8 Release (Human Gate)**
+*   **Decision:** Owner approves the rollout strategy.
+*   **Strategy:** Canary deployment to non-production services first. Since production rollback requires a scheduled DB maintenance window, the initial merge will be behind a feature flag or limited to a specific non-critical pipeline subset.
+*   **Action:** Human authorizes the merge to the main integration branch.
+
+**G9 Production Verify**
+*   **Work:** Monitor the first weekly release window.
+*   **Metrics:** Compare compute credits spent ($45/job baseline) vs. new cost. Verify zero stale code deployments.
+*   **Rollback:** If false negatives occur, immediately revert the merge and trigger the scheduled maintenance window for DB rollback if state was corrupted.
+
+**G10 Learn**
+*   **Work:** Record the actual time saved and compute credits preserved. Update the "flake ledger" if the network check behavior changed.
+
+**Serialization Constraints**
+*   G0/G1 must complete before G4.
+*   G4 lanes run in parallel but must serialize on G5 CI resources (run one full integration build at a time to avoid queue bottlenecks on the shared network volume).
+*   G8 is strictly human-gated; no auto-merge to production-facing branches.
+
+**Rollback Plan**
+*   Revert the commit introducing the caching logic.
+*   If cache corruption occurred, execute the pre-approved database rollback procedure during the next scheduled maintenance window.
+*   Restore previous build script version from history.

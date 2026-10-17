@@ -1,0 +1,58 @@
+**Delivery Plan: Inventory Sync Conflict Resolution**
+
+**Owner:** Jordan Lee (Warehouse Mobility)
+**Conductor:** AI Assistant (Planning & Coordination)
+**Appetite:** 3 Days (Time-boxed)
+
+### 1. Lanes & Parallelism
+*Worktrees must be isolated; one writer per tree.*
+
+*   **Lane A (Spec & Contract) [Serial Start]:** Define the conflict detection algorithm (Last-Write-Wins vs. Manual Merge) and the exact JSON payload for sync collisions.
+    *   *Output:* `spec_sync_conflict.md`, API contract update.
+    *   *Constraint:* Must finalize before Lane B starts coding logic.
+*   **Lane B (Core Logic) [Parallel with C]:** Implement the conflict detector and merger in the sync engine.
+    *   *Work:* Unit tests for 50+ concurrent simulations; logic to flag collisions without blocking UI.
+    *   *Constraint:* Cannot touch DB schema yet.
+*   **Lane C (UI Integration) [Parallel with B]:** Build the non-blocking prompt in the scanner interface.
+    *   *Work:* "Resolve Conflict" modal; background sync thread verification.
+    *   *Constraint:* Depends on Lane A's contract for data display.
+*   **Lane D (Migration & Safety) [Serial End]:** Write the DB migration script for the legacy reporting tool compatibility and the rollback plan.
+    *   *Constraint:* Must run after Lane B's data structure changes are frozen.
+
+### 2. Gates & Checks
+*Every gate requires an exact SHA. No "latest" branches.*
+
+*   **G1 (Spec Freeze):** Review `spec_sync_conflict.md`. Verify acceptance criteria: "50 simultaneous attempts" defined as a load test scenario.
+*   **G2 (Plan Approval):** Conductor validates acyclic graph. **Budget Cap:** Set token limits for Lane B's simulation loops to prevent CI credit exhaustion.
+*   **G4 (Implementation):**
+    *   Lane B: Tests committed with code.
+    *   Lane C: UI component rendered in local dev build.
+    *   *Check:* Static analysis on DB access patterns (Lane D prep).
+*   **G5 (Verification - Critical):**
+    *   **Local Stack:** Bring up the scanner emulator.
+    *   **Load Test:** Run the 50-agent simulation script at the exact commit SHA. **Pass condition:** Zero crashes, zero data overwrites without prompt.
+    *   **UI Proof:** Screenshot/Video of the conflict prompt appearing during a simulated network reconnect.
+    *   **Note:** Skip the flaky "network simulation module" check on Tuesdays; rely on the local load test receipt instead.
+*   **G6 (Independent Review):**
+    *   **Security/Logic:** Reviewer (not Lane B author) audits the merge logic for data loss vectors.
+    *   **UX:** Reviewer (not Lane C author) verifies the prompt does not block workflow.
+    *   **Deep Code Review:** Full scan on the DIFF from G1 base SHA.
+
+### 3. Review Strategy
+*   **Builder vs. Reviewer:** The engineer implementing Lane B (Logic) cannot approve the merge logic. A senior backend engineer must sign off.
+*   **UI Independence:** The frontend implementer (Lane C) cannot approve the UX flow; Product Analyst or Lead Designer must verify the "non-blocking" requirement.
+*   **DB Safety:** The migration script (Lane D) requires sign-off from the Legacy Tool maintainer (external dependency).
+
+### 4. Landing & Human Gates
+*   **Integration (G7):** Merge Lanes B, C, and D into a release candidate branch. Run a *single* targeted regression suite (not full, to save credits) on this exact SHA.
+*   **Human Decision (G8 - Deploy):**
+    *   **Approver:** Operations Director.
+    *   **Artifact:** Release Manifest containing the G5 load test receipt, G6 review verdicts, and the Rollback Plan (which states: "Revert is impossible post-sync; deployment is final").
+    *   **Action:** Director signs off on the OTA push.
+*   **Propagation:** Monitor the 4-hour OTA window.
+*   **G9 (Production Verify):** Once 5% of fleet updates, verify sync logs for zero "overwrite" errors. If errors appear, halt rollout immediately (cannot rollback binary, but can disable feature flag if implemented, or stop further pushes).
+
+**Risk Mitigation:**
+*   **Irreversible Deploy:** The "Rollback Plan" is actually a "Stop Loss" plan. We must be 100% certain in G5/G6.
+*   **CI Costs:** Load tests run locally or on a dedicated cheap runner; only final green builds trigger the expensive cloud regression.
+*   **Flaky Check:** Explicitly marked as "ignored" in the merge ticket with a link to the local passing load test receipt.

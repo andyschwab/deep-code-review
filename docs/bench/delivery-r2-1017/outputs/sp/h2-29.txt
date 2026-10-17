@@ -1,0 +1,62 @@
+# Delivery Plan: Password Policy Enforcement with Legacy Handling
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+1.  **Policy Engine Update:** Modify the validation module to enforce new complexity rules.
+2.  **Grace Period Middleware:** Implement the login interceptor that detects legacy violations and redirects to the reset flow instead of authenticating.
+3.  **Audit Logging:** Integrate forced-reset events into the compliance logger.
+
+**Lane B: User Interface (Parallel to Lane A)**
+1.  **Reset Flow:** Build the password reset screen displaying generic error messages (hiding specific validation logic).
+2.  **Notification System:** Prepare generic "Security Update" notifications (no specific details) to be triggered upon forced redirect.
+
+**Lane C: Data & Ops (Serialized, Dependent on A)**
+1.  **Migration Script Prep:** Finalize the irreversible legacy user tagging script.
+2.  **Deployment Configuration:** Configure the dual-approval gateway in the CI/CD pipeline.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Static Analysis**
+*   **Revision:** `feat/password-policy-v1` (pre-merge).
+*   **Check:** Static analysis must pass before CI submission to avoid financial penalties.
+*   **Owner:** Lead Developer.
+
+**Gate 2: CI Regression Suite**
+*   **Revision:** `feat/password-policy-v1` (merged to `staging`).
+*   **Check:** Full 45-minute regression suite. **Constraint:** Trigger must be scheduled to complete outside the 02:00–03:00 UTC window to avoid data sync flakiness.
+*   **Owner:** Automated Pipeline.
+
+**Gate 3: Staging Verification**
+*   **Revision:** `staging` (post-CI).
+*   **Check:** Verify 4% legacy account simulation triggers reset flow; verify compliant accounts login normally; verify audit logs capture events.
+*   **Owner:** QA Engineer + Security Lead.
+
+**Gate 4: Production Approval**
+*   **Revision:** `main` (release candidate).
+*   **Check:** Dual approval required.
+*   **Approvers:** Security Lead AND Platform Manager.
+
+## Review Strategy
+
+*   **Logic Review:** Independent Senior Backend Engineer (not the author) reviews Lane A code, focusing on the "no premature lockout" logic and audit completeness.
+*   **Security Review:** Security Lead reviews error message genericism and the irreversibility safeguards of the migration script.
+*   **UI/UX Review:** Product Owner verifies the reset flow clarity without exposing validation rules.
+*   **Integration Review:** Platform Manager verifies the deployment window scheduling and rollback hooks.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge `feat/password-policy-v1` to `staging` only after Gate 1 passes.
+2.  Once Gate 2 (CI) and Gate 3 (Staging) pass, create a Release PR to `main`.
+3.  **Human Decision Point:** Security Lead and Platform Manager must both approve the Release PR (Gate 4).
+4.  **Deployment Window:** Deploy to production immediately after approval, ensuring the process starts and finishes outside 02:00–03:00 UTC.
+
+**Rollback Plan:**
+*   **Trigger:** Critical failure in login rates or audit logging silence detected within 1 hour of launch.
+*   **Action:** Revert the `main` commit and redeploy the previous stable tag.
+*   **Data Caveat:** If the legacy migration script (Lane C) has executed, a full database restore from pre-deployment backup is required, as the script is irreversible. This decision requires immediate CTO authorization.
+
+**Post-Landing:**
+*   Monitor audit logs for forced reset volume matching the predicted 4%.
+*   Verify no increase in support tickets regarding "unclear error messages."

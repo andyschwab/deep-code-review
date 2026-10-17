@@ -1,0 +1,44 @@
+**Delivery Plan: SMS Trigger Update (24h → 48h)**
+
+**1. Lanes & Serialization**
+*   **Lane A (Configuration & Logic):** Implement the 48-hour window change in the notification service.
+    *   *Constraint:* Must acquire the lock on the shared message template file outside business hours.
+    *   *Scope:* Strictly future bookings; ensure logic excludes existing 24h-scheduled messages to prevent duplicates. Verify cancellation logic remains untouched.
+*   **Lane B (Test Infrastructure):** Prepare the lower environment with synthetic data mirroring the production state required for the 55-minute CI replay.
+*   **Serialization:** Lane A must wait for Lane B to confirm the lower environment is ready before committing code. Lane A cannot proceed until the template lock is available.
+
+**2. Gates & Checks**
+*   **G1 Spec:** Define acceptance criteria: "No duplicate SMS for existing appointments," "Cancellation intervals unchanged," "New bookings trigger at T-48h." Pin base SHA.
+*   **G3 Design:** Document the timezone handling strategy to address the known flaky check. Define the manual verification step for the daylight savings log line.
+*   **G4 Implement:** Commit changes in a dedicated worktree. Include unit tests for the new timing logic and regression tests for cancellation flows.
+*   **G5 Verify (Lower Env):**
+    *   Run the full 55-minute CI pipeline with synthetic data replay.
+    *   **Manual Step:** Inspect timezone conversion logs during the run to confirm no daylight savings false positives.
+    *   **Validation:** Confirm zero duplicate messages in the test output and correct 48h triggers for new mock bookings.
+*   **G6 Review:**
+    *   **Independent QA:** Verify test receipts and log inspection results against the exact green SHA.
+    *   **Security/Privacy:** Audit the synthetic data replay results for any privacy leaks.
+    *   **Code Review:** Independent engineer reviews logic, specifically the duplicate prevention mechanism.
+
+**3. Review Independence**
+*   The Builder (Lane A) cannot approve their own code.
+*   QA verification must be performed by a role distinct from the implementer.
+*   Security/Privacy audit is mandatory and independent due to healthcare compliance.
+
+**4. Landing & Human Gates**
+*   **Integration:** Once G6 passes, merge to the integration branch. Re-run the affected subset of the CI pipeline on the merge SHA to ensure no race conditions with the template lock.
+*   **Human Approval (G8):**
+    *   **Required Sign-offs:** Explicit written approval from the **Chief Medical Officer** and the **VP of Engineering** is mandatory before any production deployment.
+    *   **Deployment Window:** Schedule deployment during non-business hours to avoid template lock conflicts and minimize risk.
+*   **Rollback Plan:**
+    *   Prepare an immediate revert commit ready to deploy.
+    *   If duplicate messages are detected post-deploy or if no-show rates unexpectedly spike, trigger the rollback immediately.
+    *   Verify rollback success by confirming new bookings revert to 24h triggers.
+
+**5. Risk Mitigation**
+*   **Duplicate Messages:** The logic must explicitly check for existing scheduled notifications before creating new ones.
+*   **Flaky Check:** The manual log verification is a hard gate; do not bypass even if the CI status is green.
+*   **Compliance:** No deployment occurs without the two specific executive approvals.
+
+**Summary of Flow:**
+Prepare Env (B) → Acquire Lock → Implement (A) → 55m CI + Manual Log Check → Independent QA/Security Review → Merge → Executive Approval → Deploy → Monitor.

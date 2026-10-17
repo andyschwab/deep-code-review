@@ -1,0 +1,72 @@
+# Delivery Plan: Q4 Invoice PDF Template Deployment
+
+## Lanes & Parallelism
+
+**Lane A: Configuration & Compliance (Serialized Blocker)**
+*   **Owner:** Compliance Lead
+*   **Action:** Update the shared configuration file to register the new Q4 Template ID.
+*   **Constraint:** Must occur before Lane B begins. This file is locked; no parallel edits allowed.
+*   **Timing:** Immediate.
+
+**Lane B: Rendering Service Logic (Parallel to Lane C prep)**
+*   **Owner:** Backend Engineer
+*   **Action:** Implement logic in the stateless PDF rendering service.
+    1.  Detect `finance-approved` flag.
+    2.  If present: Use new Q4 Template ID.
+    3.  If missing/default: Force Legacy Template ID.
+*   **Constraint:** Do **not** modify the cached font library. Rely on existing weekend maintenance windows for font updates if the new template requires glyphs not currently cached.
+*   **Timing:** Starts immediately after Lane A completes.
+
+**Lane C: Staging Environment Prep (Parallel to Lane B)**
+*   **Owner:** DevOps Engineer
+*   **Action:** Prepare a dedicated staging build.
+*   **Constraint:** Ensure the staging environment mirrors the production font cache state to prevent "works on staging, breaks on prod" text corruption.
+*   **Timing:** Starts immediately.
+
+## Gates & Checks
+
+**Gate 1: Pre-Commit Static Analysis**
+*   **Trigger:** On every push to the feature branch.
+*   **Check:** Verify logic strictly enforces the legacy fallback when the flag is absent. No integration tests run here to save cloud costs.
+
+**Gate 2: The "One-Shot" CI Pipeline**
+*   **Trigger:** Pull Request ready for merge.
+*   **Revision:** Runs against the exact merge commit of `feature/q4-invoice` + `main`.
+*   **Check:** Full 45-minute integration suite against the legacy ledger.
+*   **Cost Control:** This run must pass on the first attempt. If it fails, the engineer must reproduce the failure locally using mocked ledger data before re-triggering CI to avoid cloud penalties.
+
+**Gate 3: Finance Manual Sign-off**
+*   **Trigger:** Successful deployment to Staging.
+*   **Actor:** Finance Director.
+*   **Deadline:** Tuesday Noon.
+*   **Artifact:** A secure link to the staging environment generating a sample batch.
+*   **Pass Condition:** Written approval in the change management portal.
+
+## Review Strategy
+
+**Code Review (Independent)**
+*   **Reviewer:** Senior Backend Engineer (not the author).
+*   **Focus:** exclusively on the fallback mechanism. The reviewer must verify that *any* request lacking the specific flag mathematically cannot route to the new template ID.
+*   **Blind Spot Check:** Verify no accidental dependencies on the font cache update cycle were introduced.
+
+**Logic Audit (Compliance)**
+*   **Reviewer:** Compliance Team Representative.
+*   **Focus:** Confirm the shared configuration change matches the registered Template ID exactly.
+
+## Landing & Rollback
+
+**Merge Protocol**
+1.  Code Review approved.
+2.  CI Pipeline passed (Green).
+3.  Finance Director sign-off received in the portal.
+4.  **Dual Approval:** Engineering Lead AND Head of Finance must click "Approve" in the change management portal.
+5.  Merge to `main`.
+
+**Deployment**
+*   Deploys automatically post-merge to Production.
+*   **Font Cache Warning:** If the new template fails due to missing fonts, do **not** attempt a hotfix to the cache. The system will default to the legacy format (safe fallback) until the next weekend maintenance window.
+
+**Rollback Plan**
+*   **Trigger:** Critical rendering failure or Finance revokes approval post-deploy.
+*   **Action:** Revert the merge commit in the change management portal.
+*   **Fallback Guarantee:** Since the code defaults to the legacy format when the flag is missing or the template fails, reverting the config registration in Lane A is the primary rollback switch. The rendering service code itself does not need reverting if the config flag is removed, as the "missing flag" logic will force legacy rendering automatically.

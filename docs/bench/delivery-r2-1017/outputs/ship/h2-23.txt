@@ -1,0 +1,64 @@
+### Delivery Plan: LedgerSync West-2 Migration
+
+**G0/G1 Intake & Spec**
+*   **Goal:** Migrate LedgerSync to West-2 with zero data loss and <200ms latency.
+*   **Constraints:** Cutover window Sat 02:00–04:00 UTC; cache tokens must persist; DNS TTL irreversible; manual network peering required; CI limited to 2x/day ($120/run).
+*   **Non-Goals:** Refactoring other services sharing `global-settings`.
+*   **Appetite:** Fixed 2-hour window; immediate rollback on latency >200ms.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane 1: Infrastructure Prep (Serial, Pre-Saturday)**
+    *   **Owner:** Builder (Infra hat).
+    *   **Work:** Manually add West-2 network peering via portal; provision West-2 cache cluster; script read-replica promotion with DB team.
+    *   **Gate:** Manual verification of peering connectivity; DB team sign-off on replica lag <1s.
+*   **Lane 2: Configuration & Cache Strategy (Serial, Pre-Saturday)**
+    *   **Owner:** Builder (App hat).
+    *   **Work:** Extract West-2 config from `global-settings` without breaking East-1 services; implement cache warmup script to replicate active session tokens to West-2 before cutover.
+    *   **Gate:** Unit tests for config isolation; dry-run of warmup script in staging.
+*   **Lane 3: Verification & Rollback Automation (Parallel to Lane 2)**
+    *   **Owner:** QA.
+    *   **Work:** Script checksum verification (East-1 vs West-2); automate latency monitoring (alert if >200ms); prepare rollback script (DNS revert + traffic shift back).
+    *   **Gate:** Rollback drill in staging; verification script exit 0 on sample data.
+*   **Lane 4: Security & Compliance (Parallel)**
+    *   **Owner:** Security.
+    *   **Work:** Review West-2 network rules; validate token replication encryption; audit access logs.
+    *   **Gate:** Security sign-off on data-in-transit and at-rest.
+
+**G3/G4 Implementation & Checks**
+*   **Base SHA:** Pin immutable SHA before Lane 1 starts.
+*   **CI Strategy:** Run full integration suite once on candidate SHA (Friday AM) to fit 2x daily limit. No re-runs unless SHA changes. Local lint/type checks precede CI.
+*   **Cache Warmup:** Execute warmup script T-30 mins before cutover; verify token count match.
+
+**G5/G6 Verification & Review**
+*   **Exact Revision:** QA and Security verify the *final* merged SHA, not builder's narrative.
+*   **Checks:**
+    *   **Functional:** Checksums match post-migration; active sessions valid in West-2.
+    *   **Performance:** Latency <200ms during smoke tests (automated gate).
+    *   **Security:** Independent AppSec review of network peering and token handling.
+*   **Reviewers:** QA (independent of Builder); Security (independent of Builder); DB Team (replica promotion). Builder never reviews own work.
+
+**G7/G8 Integration & Landing**
+*   **Merge Train:** Serialize Lane 1 & 2 changes; integrate Lane 3 & 4 receipts. One integration SHA.
+*   **Human Gates (Explicit Approval Required):**
+    *   **Jane Smith:** Production deployment approval.
+    *   **Security Lead:** Final security sign-off.
+    *   **Decision Point:** Go/No-Go at 01:45 UTC based on warmup success and replica status.
+*   **Cutover Sequence (Sat 02:00 UTC):**
+    1.  Stop writes to East-1 (maintenance mode).
+    2.  Final delta sync to West-2 cache.
+    3.  Promote read-replicas (DB team).
+    4.  Switch DNS (irreversible after TTL).
+    5.  Run smoke tests (latency, checksums).
+*   **Rollback:** If latency >200ms or checksum mismatch:
+    *   Trigger rollback script immediately.
+    *   Revert DNS (if TTL allows) or failover event.
+    *   Restore East-1 as primary.
+
+**G9/G10 Post-Deployment**
+*   **Verify:** Monitor SLOs for 1 hour; confirm zero session drops.
+*   **Learn:** Retrospective on cache warmup efficacy; update runbook for future region moves.
+
+**Risks & Mitigation**
+*   **CI Cost/Time:** Single run on Friday; local validation heavily relied upon.
+*   **Shared Config:** High risk in `global-settings`; isolated testing critical.
+*   **Irreversibility:** Rollback plan tested; manual peering verified pre-cutover.

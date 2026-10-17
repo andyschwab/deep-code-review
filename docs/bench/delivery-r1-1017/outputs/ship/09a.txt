@@ -1,0 +1,60 @@
+**Delivery Plan: Staged Payment Gateway Secret Rotation**
+
+**Constraints & Strategy**
+Zero downtime is mandatory. The 15-minute overlap window and 0.1% error threshold require precise orchestration. Due to expensive CI (50 mins/40 credits) and flaky staging crypto tests, we will run the full integration suite exactly once per candidate SHA on the main integration branch, not on feature branches. Production verification relies on error rate metrics, not trace IDs (which drop under load).
+
+**Lanes & Serialization**
+Work is strictly serialized by risk domain; no parallel execution of secret changes.
+
+1.  **Lane A: Ledger Service (Primary)**
+    *   **Actor:** Builder (Implementation) + QA (Verification).
+    *   **Work:** Update secret references in the primary ledger config. Implement the dual-secret overlap logic (accept both old and new for 15 mins).
+    *   **Constraint:** Must complete and stabilize before Lane B starts.
+
+2.  **Lane B: Fraud Detection Module**
+    *   **Actor:** Builder + QA.
+    *   **Work:** Update fraud module configs to match Lane A's new secret state.
+    *   **Constraint:** Starts only after Lane A is verified in production with <0.1% error rate.
+
+3.  **Lane C: Reporting Daemon**
+    *   **Actor:** Builder + QA.
+    *   **Work:** Update reporting daemon configs.
+    *   **Constraint:** Starts only after Lane B is verified.
+
+4.  **Lane D: Security & Compliance Gate (Parallel Prep)**
+    *   **Actor:** Security Lead + Compliance Bot.
+    *   **Work:** Pre-approve the rotation plan and prepare the dual-approval payload for Jane Smith and the policy bot. This runs in parallel with Lane A's build but must finalize before any merge.
+
+**Gates & Checks**
+
+*   **G1 Spec:** Define the exact 15-minute overlap procedure and the automated revert trigger (error rate > 0.1%).
+*   **G3 Design:** ADR confirming the rollback script (20-min execution) is tested and ready.
+*   **G4 Implement:** Code changes in isolated worktrees. No CI triggered yet.
+*   **G5 Verify (Local/Staging):**
+    *   Run unit tests locally (free, fast).
+    *   Skip full crypto tests in staging (known flaky). Rely on logic mocks.
+*   **G6 Review (Exact SHA):**
+    *   Merge Lane A changes to a temporary integration branch.
+    *   **Trigger CI Once:** Run the full 50-minute integration suite on this specific SHA.
+    *   **Independent Review:** Security Lead reviews the diff and CI results. Compliance Bot + Jane Smith provide dual approval on the config lock.
+*   **G7 Integrate & Deploy (Human Gated):**
+    *   **Human Decision:** Owner approves the deploy to Production for Lane A.
+    *   **Execution:** Deploy. Start 15-minute overlap timer.
+    *   **Verification:** Monitor error rates directly (bypassing logging aggregator). If errors > 0.1%, execute manual DB rollback immediately.
+    *   **Completion:** If stable after 15 mins, disable old secrets.
+
+**Review & Independence**
+*   **Builder** implements the change.
+*   **Security Lead** independently verifies the rotation logic and approves the production action. They do not write the code.
+*   **Compliance Team** (Jane + Bot) acts as the final lock; neither is the builder.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Sequential merges. Lane A merges and deploys. Only upon successful G9 (Production Verify) does Lane B begin its merge cycle.
+*   **Human Decisions Required:**
+    1.  Approval to merge to the integration branch (requires Jane + Bot).
+    2.  Approval to deploy to Production (Owner).
+    3.  Decision to revert if error spikes (Automated trigger recommendation, Human execution of rollback script).
+*   **Rollback:** If error rate > 0.1% at any stage, halt immediately. Execute the manual database rollback script (20 mins). Do not attempt to "fix forward" during the overlap window.
+
+**Completion**
+The request is closed only after Lane C is stable and the Security Lead confirms the final state in writing. No "blocked on deploy" status; each lane is closed at G7, with G8 (Release) tracked as a downstream human action.

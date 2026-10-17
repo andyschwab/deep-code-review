@@ -1,0 +1,36 @@
+### Delivery Plan: Enforce Tenant Isolation
+
+#### 1. Lanes and Parallelism
+*   **Lane A (Core Logic):** Senior Platform Engineer modifies the central query handler to mandatory inject the tenant ID. This is serialized; no other work proceeds until the logic is drafted.
+*   **Lane B (Audit & Compliance):** Parallel to Lane A, a second engineer updates the audit logging schema to capture the injected ID. This relies only on the spec, not the code.
+*   **Lane C (Test Harness):** Parallel to Lane A, a third engineer prepares a "shadow" test suite. Since existing unit tests must pass unmodified (relying on mock data), this lane creates integration tests that verify isolation without breaking mock assertions.
+
+#### 2. Gates and Checks
+*   **Gate 1 (Pre-Merge Security Review):** All code freezes on a dedicated release candidate branch. A Senior Platform Engineer (independent of the author) performs a manual line-by-line security review. No automated merge is permitted.
+*   **Gate 2 (The "Mock" Check):** Run existing unit tests first. If any assertion fails, the build is immediately rejected. The injection logic must be transparent to the current mock behavior.
+*   **Gate 3 (The "Leak" Check):** Run the new shadow integration suite against a sanitized production snapshot. Verify zero cross-tenant reads.
+*   **Gate 4 (Audit Verification):** Confirm audit logs contain the injected ID for every query in the integration suite.
+*   **Revision Control:** All checks run on the exact commit hash resulting from the security review. No rebasing allowed after Gate 1 passes.
+*   **Flaky Check Protocol:** If the network latency module fails, inspect logs. If logs show success, proceed. If logs show failure, halt and investigate.
+
+#### 3. Review Process
+*   **Primary Reviewer:** A Senior Platform Engineer who did not write the code. They focus exclusively on the "mandatory" nature of the injection and potential bypass vectors.
+*   **Secondary Reviewer:** A Compliance Officer reviews the audit log output format to ensure it meets regulatory standards.
+*   **Independence:** The Primary Reviewer has no access to the author's local branch; they review only the locked release candidate.
+
+#### 4. Landing Strategy
+*   **Gradual Deployment:**
+    1.  **Canary Phase:** Deploy to 5% of traffic for non-critical microservices. Monitor for latency spikes or unexpected null tenant IDs.
+    2.  **Expansion:** If stable for 2 hours, expand to 50% of services.
+    3.  **Full Rollout:** Expand to 100% after 24 hours of clean logs.
+*   **Human Decision Points:**
+    *   Approval to enter Canary Phase (requires Gate 1-4 success).
+    *   Approval to proceed from 5% to 50% (requires clean monitoring).
+    *   Approval to mark ticket complete (requires verified audit logs).
+*   **Rollback Protocol:**
+    *   **Trigger:** Any confirmed cross-tenant leak or critical service outage.
+    *   **Action:** Immediate revert of the merge request.
+    *   **Data Recovery:** Because reverting requires a full database snapshot restore (irreversible for new data), the rollback decision must be authorized by the CTO. If data written during the incident is critical, a manual data salvage operation must precede the snapshot restore.
+*   **Configuration Lock:** Ensure the shared configuration file update (if any) occurs outside business hours to prevent race conditions.
+
+This plan prioritizes security and data integrity over speed, acknowledging the high cost of failure (data leakage) and the irreversibility of the rollback.

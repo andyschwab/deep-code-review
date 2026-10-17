@@ -1,0 +1,45 @@
+### Delivery Plan: Fraud Detection Model v4.2 Promotion
+
+**Strategy:** Zero-downtime canary with automatic abort. The work is split into three serialized phases: Preparation (G0-G4), Shadow Verification (G5), and Phased Release (G7-G9). No parallel write lanes exist due to the shared `global-fraud-rules.json` lock and the singular critical path of the model swap.
+
+#### 1. Lanes & Serialization
+*   **Lane A: Configuration & Artifact Prep (Builder)**
+    *   **Work:** Update `global-fraud-rules.json` to point to v4.2. Tag the inference service commit with the v4.2 model hash.
+    *   **Constraint:** This file is shared across three microservices. The lane must acquire the merge lock before editing.
+    *   **Serialization:** Must complete before Lane B.
+*   **Lane B: Shadow Traffic Verification (QA)**
+    *   **Work:** Deploy v4.2 to staging with production shadow traffic replay. Run the automated accuracy gate.
+    *   **Constraint:** Staging lacks the bank webhook simulator; timeout tests here are flaky and must be excluded from the pass/fail criteria. Focus strictly on false positive reduction and latency.
+    *   **Serialization:** Depends on Lane A's artifact. Must pass before Lane C starts.
+*   **Lane C: Production Canary & Scale (Release)**
+    *   **Work:** Apply the promotion tag in production. Configure canary at 5%. Monitor latency.
+    *   **Serialization:** Depends on Lane B's "Pass" receipt and human sign-off.
+
+#### 2. Gates & Checks
+*   **G2 (Plan):** Confirm the $45 GPU CI cost is budgeted for exactly one run on the candidate SHA. No re-runs unless the SHA changes.
+*   **G4 (Implement):** Builder commits the config change. **Exact Revision:** The commit SHA updating `global-fraud-rules.json`.
+*   **G5 (Verify - Shadow):**
+    *   **Trigger:** Deployment of v4.2 to staging.
+    *   **Check:** Automated accuracy gate against shadow dataset.
+    *   **Pass Criteria:** False positives reduced ≥12%; Latency <200ms (p99).
+    *   **Failure Mode:** If latency >200ms or accuracy gate fails, the lane aborts automatically. No human intervention needed to stop; the system reverts to v4.1 logic immediately.
+*   **G6 (Review):**
+    *   **Reviewer 1 (Independent):** Lead Architect (verifies `global-fraud-rules.json` logic).
+    *   **Reviewer 2 (Independent):** Compliance Officer (verifies regulatory alignment).
+    *   **Constraint:** Both must approve the merge request for the shared config file. Builder cannot self-approve.
+*   **G8 (Release - Human Gate):**
+    *   **Approver:** VP of Engineering (holds the production promotion key).
+    *   **Approver:** Risk Operations Lead (manual sign-off required before scaling canary beyond 5%).
+    *   **Input:** G5 "Pass" receipt + G6 approvals.
+
+#### 3. Landing & Rollback
+*   **Merge Strategy:** The config change merges to the integration branch only after G6 approval. The production promotion is a tagged action, not a standard merge.
+*   **Human Decisions Required:**
+    1.  **VP of Engineering:** Authorizes the application of the promotion tag to production.
+    2.  **Risk Operations Lead:** Inspects the 5% canary metrics and authorizes the scale-up.
+*   **Rollback Plan:**
+    *   **Automatic:** If latency spikes >200ms or accuracy drops during the 5% canary, the system automatically reverts traffic to v4.1.
+    *   **Manual/Catastrophic:** If the automatic revert fails, a full database rollback is required (40-minute downtime). This is the last resort and requires the VP's direct command.
+*   **Post-Deploy (G9):** Monitor live transaction success rates for 1 hour post-sign-off. If stable, Risk Ops authorizes 100% traffic shift.
+
+**Risk Note:** Production deploys are irreversible without the 40-minute DB rollback. The 5% canary is the primary safety net; do not bypass the manual sign-off before scaling.

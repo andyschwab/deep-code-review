@@ -1,0 +1,58 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Ingestion
+
+**Objective:** Grant third-party vendor write access to `pending-review` prefix in ClaimsArchive bucket while maintaining internal auditor read restrictions, with a verified 5-minute rollback capability.
+
+#### Lanes & Serialization
+
+1.  **Lane A (Policy Drafting & Simulation)**
+    *   **Actor:** Builder (Infrastructure Engineer).
+    *   **Work:** Draft the specific IAM policy snippet restricting actions to `s3:PutObject` with `aws:x-amz-server-side-encryption` conditions. Isolate changes to the ClaimsArchive definition; explicitly exclude `global-audit-log` to prevent Billing system impact.
+    *   **Parallelism:** Can run parallel to Lane B.
+    *   **Constraint:** Must target a specific commit SHA before simulation.
+
+2.  **Lane B (Rollback Scripting)**
+    *   **Actor:** Builder (Distinct from Lane A writer if possible, or same writer with strict atomic commits).
+    *   **Work:** Create an executable rollback script that reverts the policy to the previous known-good version. Verify the script executes within the 5-minute window in a local dry-run mode.
+    *   **Serialization:** Must complete before Lane C integration.
+
+3.  **Lane C (Security & Compliance Review)**
+    *   **Actor:** Security Lead + Jane Smith (Human Gates).
+    *   **Work:** Review the policy scope (prefix restriction), encryption requirements, and vendor identity ARN. Verify the `global-audit-log` file remains untouched.
+    *   **Serialization:** Blocks Lane D. Requires explicit approval from both named humans.
+
+4.  **Lane D (Cost-Efficient Verification)**
+    *   **Actor:** QA / Platform Reliability.
+    *   **Work:** Trigger the $45 CI simulation *only once* after human approval. Since drift detection is flaky on Tuesdays, schedule this run for a non-Tuesday window or prepare for manual state verification if Tuesday is unavoidable.
+    *   **Serialization:** Blocks merge.
+
+#### Gates & Checks
+
+*   **G1 (Spec Freeze):** Confirm vendor ARN and encryption requirement details. Define "unexpected traffic patterns" for the rollback trigger.
+*   **G3 (Design Review):** Explicit sign-off that `global-audit-log` is not modified.
+*   **G4 (Implementation):** Commit policy change and rollback script to a feature branch.
+*   **G5 (Simulation):** Run CI pipeline on the exact merge commit SHA.
+    *   *Check:* Simulation exits green.
+    *   *Check:* Manual verification of drift state if running on Tuesday.
+*   **G6 (Human Approval):** Jane Smith and Security Lead must approve the PR. No auto-merge.
+
+#### Review Strategy
+
+*   **Independent Review:** The Security Lead reviews the policy logic (least privilege) independent of the Builder who drafted it.
+*   **Cross-Check:** Jane Smith verifies the exclusion of the `global-audit-log` and the integrity of the Billing system path.
+*   **Rollback Verification:** The Platform Reliability team validates the rollback script's logic against the previous commit SHA before deployment.
+
+#### Landing & Rollback
+
+*   **Merge Strategy:** Manual merge to `main` (or `production`) only after G5 and G6 are green.
+*   **Human Decision Points:**
+    1.  Approving the policy scope (Security Lead/Jane Smith).
+    2.  Authorizing the CI run (to avoid unnecessary $45 costs on failed drafts).
+    3.  Executing the final merge.
+*   **Rollback Plan:**
+    *   **Trigger:** Vendor test upload failure OR monitoring alert on unexpected traffic within 1 hour of deployment.
+    *   **Action:** Execute the pre-approved rollback script immediately.
+    *   **Target:** Revert to the commit SHA immediately preceding the merge.
+    *   **SLA:** Must complete within 5 minutes.
+    *   **Verification:** Confirm vendor access is denied and internal auditor access remains functional post-rollback.
+
+**Risk Mitigation:** The `global-audit-log` is treated as read-only for this ticket. If the CI simulation fails, the rollback script is tested locally against the simulation output logs before any retry. Tuesday deployments require manual drift confirmation post-merge.

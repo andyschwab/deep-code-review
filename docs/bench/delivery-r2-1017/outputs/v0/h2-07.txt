@@ -1,0 +1,37 @@
+**Delivery Plan: Prevent Duplicate Invoice Emails**
+
+**1. Lanes & Serialization**
+*   **Lane A (Investigation & Spec):** Isolate the retry logic in the billing module. Analyze logs from last Tuesday to confirm the timeout/retry collision pattern. Define the idempotency key schema (e.g., `invoice_id + cycle_date`) and the database unique constraint required. *Owner: Builder.*
+*   **Lane B (Implementation):** Implement the guardrail. Modify the send function to check/set the idempotency key *before* calling the provider. Ensure the "completed" status update is atomic with the key creation. Add a local unit test suite for the retry scenario. *Owner: Builder (Serialized after Lane A spec).*
+*   **Lane C (Verification):** Re-run last month's billing data in the lower environment using the new code. Assert zero duplicates and 100% delivery success despite simulated timeouts. *Owner: QA (Independent of Builder).*
+*   **Lane D (Rollback Prep):** Draft the SQL script to manually clear duplicate flags if a bad deploy occurs (since auto-revert is impossible) and document the manual process to pause the cron job. *Owner: Release Engineer.*
+
+**Parallelism:** Lane A runs first. Once the spec is fixed, Lane B and Lane D run in parallel. Lane C starts only after Lane B produces a candidate build.
+
+**2. Gates & Checks**
+*   **G1 (Spec Review):** Builder presents the idempotency schema and race-condition analysis. *Check:* Does this cover the 01:55–02:05 UTC flakiness window?
+*   **G4 (Build):** Lane B commits code with unit tests. *Check:* Quick-check suite passes on the exact commit SHA. Full regression skipped here to save cost/time.
+*   **G5 (Verify):** Lane C executes against lower env. *Check:* Evidence of replayed data showing 0 duplicates. The app must be running; local unit tests alone are insufficient.
+*   **G6 (Security/Logic Review):** An engineer *not* involved in Lanes A/B reviews the locking mechanism and atomicity. *Check:* Confirms no race conditions remain under high concurrency.
+
+**3. Review Strategy**
+*   **Code Review:** Performed by a senior engineer from the Payments team (independent of the Notifications team who own the cron trigger). They must verify the atomicity of the database transaction.
+*   **QA Sign-off:** The QA owner must explicitly sign off on the lower-environment replay results.
+*   **Constraint:** The Builder cannot approve their own logic changes regarding the retry mechanism.
+
+**4. Landing & Human Decisions**
+*   **Merge Strategy:** The fix merges to a release candidate branch. A full 45-minute regression suite runs *once* on this branch before any production movement.
+*   **Human Gates (Required):**
+    1.  **Team Lead:** Must approve the code merge after G6.
+    2.  **Finance Ops Manager:** Must approve the actual deployment to production, confirming the rollback script (Lane D) is ready.
+*   **Deployment Window:** Deploy outside the 01:55–02:05 UTC window to avoid immediate flakiness during rollout.
+*   **Rollback Plan:** Since email states are irreversible:
+    1.  Immediately pause the 02:00 UTC cron job.
+    2.  Execute the Lane D SQL script to flag affected records for manual support follow-up (do not re-send).
+    3.  Revert the code deploy to the previous stable SHA.
+    4.  Resume cron only after post-incident verification.
+
+**5. Risk Mitigation**
+*   **Cost Control:** Only one full regression run permitted (on the RC). All other checks use the quick-check suite.
+*   **Data Safety:** Verification relies entirely on the lower-env replay; no production dry-runs allowed.
+*   **Timing:** Complete Lane C verification at least 24 hours before the next quarter-end billing cycle to allow buffer for fixes.

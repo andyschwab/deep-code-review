@@ -1,0 +1,57 @@
+### Delivery Plan: Core Billing Module Strict Type Checking
+
+**Objective:** Enable strict type checking in `services/billing-core` by next Friday, resolving or documenting 3,000 violations without breaking the build or causing downtime.
+
+#### 1. Lanes & Parallelism
+*   **Lane A: Inventory & Triage (Serial, First)**
+    *   **Actor:** Product Analyst + Builder
+    *   **Work:** Run local type check to generate the full violation list. Categorize the 3,000 errors into: (1) Safe Fixes, (2) Legacy Gateway Wrappers (High Risk), and (3) Shared Library Conflicts.
+    *   **Output:** A draft `suppression-list.md` with justification for every exemption, specifically detailing the legacy gateway strategy.
+    *   **Gate:** Human Review (Tuesday Meeting) on the suppression list *before* any code changes.
+
+*   **Lane B: Safe Refactoring (Parallel, Post-G0)**
+    *   **Actor:** Builder
+    *   **Work:** Fix "Safe Fix" violations in isolated worktrees. Group fixes by file cluster to minimize CI runs.
+    *   **Constraint:** Do not touch shared validation library; isolate changes to `services/billing-core`.
+
+*   **Lane C: Legacy Wrapper Isolation (Parallel, Post-G0)**
+    *   **Actor:** Builder + Security
+    *   **Work:** Implement specific type exemptions (`@ts-ignore` with scoped reasons) for the legacy payment gateway wrappers identified in Lane A. Ensure these exemptions are logged in the audit-compliant documentation.
+
+*   **Lane D: CI Optimization (Parallel, Independent)**
+    *   **Actor:** Builder
+    *   **Work:** Optimize the validation step to reduce the 18-minute overhead. Implement incremental checking or caching to stay under the 25-minute timeout.
+    *   **Constraint:** Must prove cost reduction (<$45/run impact) before merging.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Completed via the Tuesday meeting. Approval of the `suppression-list.md` is the hard gate to proceed to coding.
+*   **G2 (Plan):** Finalize the acyclic work graph ensuring no lane touches the shared library without VP approval (which is out of scope; we will wrap calls instead).
+*   **G4 (Implement):** All changes committed to feature branches with immutable base SHAs.
+*   **G5 (Verify):**
+    *   **Local:** Builder verifies build success and type safety on the exact revision.
+    *   **CI:** Run optimized pipeline. **Special Handling:** If the flaky network test suite fails, trigger one manual retry immediately. If it fails twice, halt and investigate type definition collision before proceeding.
+    *   **Condition:** Build must be green; zero new runtime errors.
+*   **G6 (Review):** Independent QA verifies the suppression list matches the approved Tuesday draft. Security verifies legacy wrapper exemptions do not introduce injection risks.
+
+#### 3. Review Strategy
+*   **Code Review:** Performed by a senior engineer *not* on the Payments Squad (to ensure independence from the module owners).
+*   **Security Review:** Focused exclusively on the legacy gateway exemptions.
+*   **Compliance Check:** Verify that the documentation for every suppressed error is present and linked to the code.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane D (CI Optimization) first to ensure subsequent runs don't timeout.
+    2.  Merge Lane B (Safe Fixes) in small batches to monitor build stability.
+    3.  Merge Lane C (Legacy Wrappers) as a single atomic change after final approval.
+*   **Human Decision:** **Jane Smith** must explicitly approve the final merge request on Wednesday (Deployment Day). No auto-merge.
+*   **Deployment:** Occurs only on Wednesday post-approval.
+*   **Rollback Plan:**
+    *   **Critical Constraint:** Reverting triggers an irreversible audit alert.
+    *   **Strategy:** If a critical failure occurs post-deploy, do *not* revert immediately. Instead, deploy a "hotfix" branch that temporarily relaxes the strictness flag via a feature flag (if available) or a minimal config override that avoids a full git revert. If a full revert is unavoidable, the Compliance Officer must be notified *before* execution to prepare for the audit alert.
+
+**Timeline:**
+*   **Tuesday:** Suppression list review (G1).
+*   **Wed-Thu:** Implementation (Lanes B, C, D).
+*   **Friday Morning:** Final QA (G5/G6).
+*   **Friday Afternoon:** Merge preparation (G7).
+*   **Next Wednesday:** Deploy (G8) with Jane Smith's sign-off.

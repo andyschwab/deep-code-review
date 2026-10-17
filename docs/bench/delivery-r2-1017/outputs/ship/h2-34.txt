@@ -1,0 +1,57 @@
+### Delivery Plan: Async Sync Report Migration
+
+**Objective:** Refactor the monthly compliance summary endpoint to return a job ID immediately, persisting state to a priority queue for background processing, ensuring data durability across restarts.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data & Persistence):** Design and write the irreversible database migration script for job tracking.
+    *   *Constraint:* Must be reviewed by a DBA before execution. Cannot be dropped once run.
+    *   *Parallel:* Can run concurrently with Lane B, but must merge before Lane C integration.
+*   **Lane B (Worker Implementation):** Implement the background worker logic to consume from the new priority queue and generate reports.
+    *   *Constraint:* Must handle server restarts gracefully (durability).
+    *   *Parallel:* Independent of Lane A code-wise, but requires the DB schema to function in integration.
+*   **Lane C (API Refactor):** Modify the existing synchronous endpoint to enqueue a job and return the ID immediately.
+    *   *Dependency:* Requires the queue interface defined in Lane B.
+*   **Lane D (Verification):** Create a lightweight smoke test suite targeting only the new async flow.
+    *   *Constraint:* Do not run the full 45-minute regression suite on every commit. Use Lane D for local/PR checks; reserve full CI for the final candidate SHA.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Confirm the exact queue name and persistence mechanism (e.g., database-backed vs. Redis AOF) to satisfy the "no data loss" requirement.
+*   **G2 Plan:** Finalize the work graph. Set a strict token/cost budget for Lane B and C to prevent runaway generation.
+*   **G3 Design:** Produce an ADR detailing the irreversible migration strategy and the rollback plan for the *code* (since DB cannot roll back).
+*   **G4 Implement:**
+    *   Lane A: Write migration.
+    *   Lane B/C: Implement worker and API.
+    *   *Check:* Local type check and lint only.
+*   **G5 Verify:**
+    *   Run Lane D (smoke tests) on the exact merged SHA of lanes A+B+C.
+    *   *Note:* Ignore staging load test false negatives due to missing worker nodes. Verify durability by simulating a worker crash mid-job and restarting.
+*   **G6 Review:**
+    *   **Security/Data:** Independent review of Lane A (migration) and Lane B (durability logic).
+    *   **Code:** Independent review of Lane C (API contract).
+    *   *Rule:* Builder never reviews their own lane.
+*   **G7 Integrate:** Merge all lanes into a single integration branch. Run the full 45-minute CI suite **once** on this specific SHA.
+
+#### 3. Review Strategy
+*   **Independence:** The Data Integrity team (owner) provides one reviewer. A second reviewer must come from outside the immediate implementation group (e.g., Platform Engineering) to verify the queue architecture.
+*   **Scope:** Reviewers receive the exact SHA and the G5 test receipts. They do not review narrative descriptions, only the diff and evidence.
+
+#### 4. Landing & Human Gates
+*   **Merge Train:**
+    1.  Land Lane A (DB) first. Verify schema application.
+    2.  Land Lanes B and C together (atomic feature toggle or simultaneous deploy).
+*   **Human Approval Required:**
+    *   **Deployment:** Dual approval from Jane Smith and the Shift Lead is mandatory before pushing to production.
+    *   **Migration:** Explicit sign-off on the irreversible DB script before G4 merge.
+    *   **Config:** If `global_config.yaml` changes are needed, the Change Request must be approved outside business hours to avoid lock conflicts.
+*   **Rollback Plan:**
+    *   Since the DB migration is irreversible, the rollback strategy is **code-only**: revert the API and Worker to the previous version. The new DB columns will remain unused but harmless.
+    *   If data corruption occurs, a full database restore from backup is the only recovery path.
+
+#### 5. Timeline & Risks
+*   **Deadline:** Live before next Tuesday.
+*   **Risk Mitigation:**
+    *   *CI Cost:* Strictly limit full regression runs to the final candidate SHA.
+    *   *Staging Mismatch:* Do not block on staging load tests; rely on unit tests and local durability simulations.
+    *   *Config Lock:* Schedule config changes for non-business hours if required.
+
+**Next Step:** Await confirmation of the persistence mechanism choice to finalize G1 Spec.

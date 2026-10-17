@@ -1,0 +1,45 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Ingestion
+
+**Objective:** Grant third-party vendor write access to `pending-review` prefix while maintaining internal auditor read restrictions, with a verified 5-minute rollback capability.
+
+#### Lanes & Serialization
+1.  **Lane A (Policy Drafting):** *Builder* drafts the specific IAM policy snippet isolating the `pending-review` prefix. Must explicitly deny access to other prefixes.
+    *   *Parallel:* Can run immediately.
+2.  **Lane B (Rollback Script):** *Builder* writes the atomic revert script/command using the known good policy version ID.
+    *   *Parallel:* Can run immediately alongside Lane A.
+3.  **Lane C (Simulation):** *QA* triggers the $45 environment simulation **only once** on the integrated change (Lane A + Lane B).
+    *   *Serialized:* Must wait for A and B to complete. Do not run on intermediate commits.
+4.  **Lane D (Manual Verification):** *Security Lead* manually verifies drift post-deployment (bypassing flaky Tuesday automated check).
+    *   *Serialized:* Post-deployment only.
+
+**Constraint:** Editing `global-audit-log` affects three clusters and Billing. Lane A must prove via diff that no unrelated lines in this file are touched. If the policy resides within this shared file, a second *Security* review specifically for the diff context is mandatory before Lane C.
+
+#### Gates & Checks
+*   **G1 (Spec):** Define exact Vendor ARN and encryption requirement. Confirm "Access Denied" root cause.
+*   **G2 (Plan):** Confirm serialization of Lane C to avoid multiple $45 charges. Define the "unexpected traffic pattern" threshold for rollback.
+*   **G3 (Design):** Policy must follow least-privilege. Explicitly list allowed actions (`PutObject`, `PutObjectAcl`) and required conditions (`aws:SecureTransport`, `s3:x-amz-server-side-encryption`).
+*   **G4 (Implement):** Commit policy change and rollback script. Base SHA pinned.
+*   **G5 (Verify):**
+    *   Run Lane C (Simulation). Expect: Vendor write success, Auditor read success, Billing logs untouched.
+    *   **Rollback Drill:** Execute Lane B in the simulated env. Verify restoration time < 5 mins.
+*   **G6 (Review):**
+    *   *Reviewer 1:* Jane Smith (Platform Reliability).
+    *   *Reviewer 2:* Security Lead (Independent of Builder). Focus: Scope creep in `global-audit-log`.
+    *   *Constraint:* Builder cannot review their own policy logic.
+
+#### Landing Strategy
+*   **Merge Train:** Changes merge only after G6 approval from both required humans.
+*   **Human Gate:** Deployment to production is a **Human Gate**. The agent prepares the deployment command but does not execute it.
+*   **Deployment Window:** Schedule outside the nightly bulk upload window to avoid race conditions during the switch.
+*   **Rollback Plan:**
+    1.  **Trigger:** Vendor test upload failure OR monitoring alert on unexpected traffic.
+    2.  **Action:** Execute pre-approved rollback script (Lane B) targeting the specific policy version ID prior to this change.
+    3.  **Verification:** Manual confirmation (Lane D) that vendor access is revoked and Billing logs are healthy.
+    4.  **Timebox:** Must complete within 5 minutes.
+
+#### Risks & Mitigations
+*   **Flaky Drift Check:** Tuesday automation is ignored. Manual verification (Lane D) is the source of truth.
+*   **Billing Impact:** If `global-audit-log` is modified, a syntax error breaks Billing. The simulation (Lane C) must assert Billing log integrity explicitly.
+*   **Cost:** Only one simulation run permitted. Local linting/validation must precede Lane C to prevent wasted spend.
+
+**Immediate Next Step:** Draft the policy snippet (Lane A) and rollback command (Lane B) for review. No simulation triggered until both are ready and human-approved for G5.

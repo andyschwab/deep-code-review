@@ -1,0 +1,48 @@
+### Delivery Plan: Hybrid Upload Migration
+
+**Strategy:** Implement a "Hybrid Storage Adapter" pattern. The backend will intercept file requests: new uploads go to Object Storage (signed URLs), while legacy paths in `/var/uploads` are served locally via a fallback mechanism. This ensures zero-downtime access for legacy files and email links without a bulk migration script.
+
+#### 1. Lanes & Parallelism
+
+*   **Lane A: Backend Storage Adapter (Builder)**
+    *   **Work:** Create a new service module implementing a unified `getFileUrl(path)` interface. Logic: Check if path exists in Object Storage; if not, verify existence in local `/var/uploads` and serve via local stream or generate a temporary internal signed route that bypasses the cloud client. Implement signed URL generation for *new* uploads only.
+    *   **Constraint:** Do not touch `shared-config.yaml`. Use environment variables for credentials.
+    *   **Parallelism:** Can run parallel to Lane B.
+
+*   **Lane B: Frontend Upload Flow (Builder)**
+    *   **Work:** Update the upload component to request a signed URL from the backend *before* initiating the PUT request. Change the final submission to point to the Object Storage endpoint using the provided token.
+    *   **Constraint:** Ensure existing public links (legacy paths) are untouched; this lane only affects the *creation* flow, not the *rendering* of existing links.
+    *   **Parallelism:** Runs parallel to Lane A. Dependent on Lane A's API contract definition (G3).
+
+*   **Lane C: Legacy Access Verification (QA)**
+    *   **Work:** Verify that requests for paths starting with `/var/uploads/` resolve correctly to local disk content without hitting the network. Confirm email campaign links (which point to old paths) still render images.
+    *   **Serialization:** Must wait for Lane A's initial build.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec:** Define the API contract for "Request Upload URL" and the exact path matching logic for the hybrid adapter. Pin base SHA.
+*   **G3 Design:** Document the fallback logic in an ADR. Explicitly state how the "flaky staging network check" is filtered (ignore storage errors if local fallback succeeds).
+*   **G4 Implement:**
+    *   Lane A & B commit to isolated worktrees.
+    *   **Check:** Unit tests for the adapter logic (mocking both cloud and local fs). No heavy integration tests in CI yet.
+*   **G5 Verify (Local/Staging):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Action:** Spin up local stack. Upload a new file (verify cloud storage). Request an old file (verify local disk). Simulate the flaky network error; ensure system degrades gracefully to local serving if configured, or fails open for legacy content.
+    *   **CI Strategy:** Run only unit/lint/type checks on shared runners to avoid 45m timeout. Run the heavy "full hybrid" integration test *once* on a dedicated runner or locally, reporting the receipt manually if CI is too costly/slow.
+*   **G6 Review:**
+    *   **Security Review:** Independent review of signed URL expiration times and scope.
+    *   **Code Review:** Senior dev (not Lane A/B author) reviews the fallback logic to ensure no race conditions between local/cloud checks.
+
+#### 3. Landing & Human Gates
+
+*   **Integration (G7):** Merge Lane A and B into a staging branch. Run the single heavy integration suite here.
+*   **Human Approval (G8):**
+    *   **Required:** Approval from two senior leads.
+    *   **Presentation:** "Hybrid Adapter Ready. Legacy files served locally; new files to cloud. No DB schema change. Rollback: Revert PR."
+    *   **Constraint:** Explicitly confirm `shared-config.yaml` was not modified.
+*   **Deployment:**
+    *   Deploy to production.
+    *   **Rollback:** Immediate revert of the merge commit. Since no DB schema marker was updated, this is safe.
+*   **Post-Deploy (G9):** Monitor logs for "storage failure" errors; filter out known flaky staging noise. Verify new uploads appear in Object Storage and legacy links remain live.
+
+**Risk Mitigation:** The "terabytes of legacy files" requirement is met by the code-level fallback, avoiding any data movement. The "irreversible DB schema" constraint is respected by keeping this purely an application-layer change.

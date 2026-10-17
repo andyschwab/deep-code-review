@@ -1,0 +1,76 @@
+### Delivery Plan: Daily LLM Spend Cap
+
+**G0/G1 Intake & Spec**
+*   **Scope:** Implement hard daily spend limits per department in the claims portal; disable UI and show tooltip on breach; allow senior lead override.
+*   **Constraints:** Live before new quarter. Zone-B deployment requires dual approval (Security Lead + Finance Ops). CI costs $15/run; minimize re-runs. `global_limits.json` changes trigger 12-min cluster restart and flaky health checks. Billing ledger close at midnight UTC makes revert irreversible post-close.
+*   **Non-Goals:** Changing role hierarchy definitions; altering billing ledger logic.
+*   **Appetite:** 3 days max.
+
+**G2 Plan: Work Graph & Lanes**
+*   **Lane 1 (Backend Logic):** Implement spend tracking, quota enforcement, and override logic.
+    *   *Worker:* Builder.
+    *   *Serialization:* Must complete before Lane 2 (UI) to define the API contract for the "disabled" state.
+    *   *Budget:* $40 token cap.
+*   **Lane 2 (Frontend UI):** Update claims portal to hide/disable button and render tooltip based on Lane 1's state.
+    *   *Worker:* Builder (different worktree).
+    *   *Parallel:* Can run once Lane 1's interface contract is defined (G3).
+*   **Lane 3 (Config & Ops):** Define department quotas in `global_limits.json`; prepare restart procedure.
+    *   *Worker:* Release Engineer.
+    *   *Serialization:* Must coordinate with Lane 1/2 merge to time the cluster restart.
+*   **Lane 4 (Security & Finance Review):** Independent audit of billing logic and override permissions.
+    *   *Worker:* Security Lead + Finance Ops (Human).
+    *   *Trigger:* G6 Review.
+
+**G3 Design**
+*   **ADR:** Define "Limit Reached" state propagation. Decide if override is time-bound or per-case.
+*   **Data:** Ensure spend counters are atomic and consistent across the 4-hour cache window.
+
+**G4 Implementation**
+*   **Worktrees:** Three isolated worktrees (Backend, Frontend, Config).
+*   **Discipline:** Tests written before logic (TDD) to avoid costly CI re-runs. Mock external intelligence API.
+*   **Check:** Local stack up; unit tests green.
+
+**G5 Verification**
+*   **Exact Revision:** The merged integration SHA (G7 candidate).
+*   **Checks:**
+    *   Functional: Simulate quota breach; verify button disabled and tooltip visible.
+    *   Override: Verify senior lead can bypass.
+    *   Performance: Ensure no latency added to file open.
+    *   **Critical:** Dry-run deployment against a production snapshot (no real billing).
+    *   **UI Evidence:** Headed-browser recording of the claims portal showing the tooltip.
+
+**G6 Review**
+*   **Reviewers:**
+    *   *Security:* Independent of Builder. Focus: Override escalation path, data privacy in logs.
+    *   *Finance:* Independent of Builder. Focus: Hard cap enforcement, ledger accuracy.
+    *   *Deep Code Review:* Automated scan for billing logic errors.
+*   **Verdict:** Blocker/Critical must be fixed. High requires named owner acceptance.
+
+**G7 Integration**
+*   **Merge Train:** Serialize Lane 1 and Lane 2. Merge into integration branch.
+*   **Re-run:** One final CI run ($15) on the exact integrated SHA.
+*   **Receipt:** Integration test suite green.
+
+**G8 Release (Human Gate)**
+*   **Approval Required:** Dual approval from Security Lead AND Finance Ops Manager (Zone-B rule).
+*   **Timing:** Deploy >24 hours before quarter-end to allow rollback before ledger close.
+*   **Action:** Merge to main; trigger cluster restart (12-min window).
+*   **Rollback Plan:**
+    1.  **Code Revert:** Immediate revert commit (if before ledger close).
+    2.  **Flag Off:** If feature-flagged, disable immediately.
+    3.  **Data Repair:** Manual ledger adjustment (only if post-midnight; irreversible otherwise).
+*   **Risk:** If deployed after midnight UTC, revert is impossible for that day's billing.
+
+**G9 Production Verify**
+*   **Check:** Monitor first 100 claims openings. Verify spend counter increments correctly. Confirm no unexpected API calls after limit.
+
+**G10 Learn**
+*   **Retro:** Did the 4-hour cache cause race conditions? Was the cluster restart smooth? Update runbook.
+
+**Human Decisions Required:**
+1.  Quota values per department (Lane 3).
+2.  G8 Dual Approval (Security + Finance).
+3.  Acceptance of any High-severity findings.
+
+**Failure Mode:**
+If CI fails, fix locally and re-verify before pushing. Do not guess. If cluster health check flakes, pause deployment and investigate; do not force.

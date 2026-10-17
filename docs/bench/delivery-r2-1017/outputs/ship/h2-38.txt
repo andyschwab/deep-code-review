@@ -1,0 +1,59 @@
+**Delivery Plan: Winter Sale Quiet Hours Enforcement**
+
+**Scope & Constraints**
+Implement logic to suppress notifications between 22:00–07:00 local time and enforce global opt-out (including last 48h). Target: Staging deployment by 12:00 UTC tomorrow. No database migration execution until final approval due to irreversibility.
+
+**Lane Decomposition**
+
+*   **Lane A: Logic Implementation (Builder)**
+    *   **Work:** Modify campaign trigger logic in `core-messenger`. Implement local time check against user profile and global opt-out registry lookup (filtering last 48h).
+    *   **Parallelism:** Runs immediately.
+    *   **Output:** Patch commit + unit tests (excluding flaky timezone mock).
+    *   **Constraint:** Do not touch DB migration scripts yet; prepare dry-run only.
+
+*   **Lane B: Test Stabilization & Execution (QA)**
+    *   **Work:** Fix `quiet-hour-validator` timezone mocking to stabilize Tuesday flakiness. Execute full integration suite against legacy DB.
+    *   **Serialization:** Must wait for Lane A's patch.
+    *   **Timing:** Must start before 06:00 UTC to catch fresh staging data refresh.
+    *   **Output:** Green CI receipt at exact SHA. Manual inspection required for timezone tests; no auto-retry.
+
+*   **Lane C: Compliance & Security Review (Security/Compliance)**
+    *   **Work:** Verify opt-out logic covers the 48h window and global registry. Audit logging plan for the irreversible migration.
+    *   **Serialization:** Independent of Builder; runs on Lane A's SHA.
+    *   **Output:** Written verdict. Blocker if 48h window or global check is missing.
+
+**Gates & Checks**
+
+*   **G4 (Implement):** Lane A commits code. Base SHA pinned.
+*   **G5 (Verify):** Lane B runs CI.
+    *   *Check 1:* Unit tests pass (manual verify of timezone mocks).
+    *   *Check 2:* Integration tests pass (45m runtime).
+    *   *Condition:* Gate fails if CI is red or timezone mocks are unverified.
+*   **G6 (Review):** Lane C validates compliance logic. Builder cannot self-approve.
+*   **G7 (Integrate):** Merge to staging branch. Re-run affected integration gates on merged SHA.
+
+**Review Strategy**
+*   **Code Review:** Senior Engineer (not the Builder) reviews logic changes.
+*   **Compliance Review:** Independent verification of opt-out logic.
+*   **Security:** Validate no PII leakage in new logging.
+
+**Landing & Human Gates**
+
+*   **Merge to Staging:** Automated upon G6/G7 green.
+*   **Human Decision (Critical):** Explicit written approval from Compliance Officer (Jane Smith) required before any production deploy or irreversible migration script execution.
+*   **Rollback:** If staging verification fails post-merge, revert immediately. Production rollback requires Jane Smith's approval.
+
+**Risk Mitigation**
+*   **CI Cost:** Run integration suite once per candidate SHA after local green. Do not re-run on merged SHA unless code changed.
+*   **Flaky Tests:** Manual inspection of `quiet-hour-validator` results; no automatic retries.
+*   **Data Freshness:** Testing scheduled pre-06:00 UTC.
+
+**Timeline**
+1.  **Now:** Lane A starts implementation.
+2.  **<06:00 UTC:** Lane B executes stabilized tests on fresh data.
+3.  **<10:00 UTC:** G6 Review complete.
+4.  **12:00 UTC:** Deployed to staging for sign-off.
+5.  **Post-Sign-off:** Request written approval from Jane Smith for production.
+
+**Failure Mode**
+If timezone mocks remain unstable or opt-out logic fails verification, halt deployment. Do not bypass compliance checks for speed. Report status immediately; do not attempt silent fallbacks.

@@ -1,0 +1,51 @@
+**Delivery Plan: Refund Policy Wording Update**
+
+**Decision on Constraints**
+The request to skip verification and merge immediately is rejected. While the change is small, the production deploy is irreversible for static assets and the staging environment is unavailable. "Docs-only" CI shortcuts do not apply to user-facing legal text affecting financial expectations. We will verify locally and hold for human approval.
+
+**Lanes & Serialization**
+*   **Lane 1: Implementation (Builder)**
+    *   **Task:** Update `/apps/checkout/src/locales/en.json`. Change "5-7 business days" to "3-5 business days".
+    *   **Parallelism:** Can run immediately.
+    *   **Constraint:** Must clean base to mainline before starting.
+*   **Lane 2: Local Verification (QA)**
+    *   **Task:** Run the checkout app locally. Navigate to the confirmation page. Visually confirm the text update and ensure no layout breaking occurs.
+    *   **Dependency:** Must wait for Lane 1 to commit a patch.
+    *   **Constraint:** Staging is unstable; verification is strictly local. No integration suite run (cost-prohibitive for single string), but local build/lint must pass.
+*   **Lane 3: Release Coordination (Conductor)**
+    *   **Task:** Prepare merge package and coordinate SRE approval.
+    *   **Dependency:** Waits for Lane 2 "PASS" receipt.
+
+**Gates & Checks**
+*   **G4 (Implement):** Builder commits change with message `fix: update refund timeline wording`. Includes exact SHA.
+*   **G5 (Verify):** QA runs local server at exact SHA.
+    *   *Check:* `grep "3-5 business days" apps/checkout/src/locales/en.json` (Exit 0).
+    *   *Check:* Visual inspection of checkout confirmation route in local browser.
+    *   *Receipt:* Screenshot or log snippet confirming render.
+*   **G6 (Review):** Independent review of the diff (JSON only) by a senior engineer (not the Builder). Confirms no other keys were modified.
+*   **G8 (Release Approval):** **Human Gate.** Requires explicit approval from Site Reliability Lead.
+    *   *Status:* Blocked until 4 PM UTC.
+    *   *Action:* Conductor prepares approval request now; executes only when lead is online.
+
+**Review Strategy**
+*   **Reviewer:** Senior Engineer (Independent of Builder).
+*   **Scope:** Diff-only review of `en.json`.
+*   **Criterion:** Exact string replacement, valid JSON syntax, no whitespace drift affecting diff clarity.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Direct merge to `main` after G6 pass. Do not use a merge train for a single urgent fix, but ensure the branch is rebased on latest `main` head before merging.
+*   **Deployment:** Auto-deployer triggers on merge.
+*   **Human Decision:** The merge to `main` is gated by the SRE Lead's approval (G8). The Conductor will ping the Lead at 4 PM UTC with the G5/G6 receipts. No merge occurs before this approval.
+*   **Rollback:** Since static assets are irreversible via simple revert if cached aggressively:
+    1.  Immediate code revert commit to `main` (triggers new deploy).
+    2.  If CDN caching prevents immediate fix, manual cache purge required by SRE.
+    3.  *Pre-condition:* Builder must confirm the previous JSON content is available in git history for instant restoration.
+
+**Timeline**
+1.  **Now:** Lane 1 (Build) and Lane 3 (Prep) start.
+2.  **+15 mins:** Lane 2 (Verify) completes local check.
+3.  **+30 mins:** G6 Review complete. Package ready.
+4.  **4:00 PM UTC:** Conductor requests G8 approval.
+5.  **Post-Approval:** Merge and auto-deploy.
+
+**Risk Note:** Skipping the integration suite relies on the change being isolated to a static JSON value. If the build pipeline fails on merge due to unrelated flakiness, we cannot distinguish quickly without the suite. We accept this risk to meet the deadline, provided local build passes.

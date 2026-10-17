@@ -1,0 +1,61 @@
+### Delivery Plan: Password Policy Enforcement with Legacy Grace Period
+
+**G0/G1 Intake & Spec**
+*   **Goal:** Enforce new password complexity rules immediately without locking out the 4% of non-compliant legacy users.
+*   **Scope:** Core authentication module (`core-services`).
+*   **Constraints:** No premature lockouts; log all forced resets; obscure validation logic in error messages; live before end-of-quarter review.
+*   **Non-Goals:** Migrating legacy data irreversibly before user interaction; changing mobile app binaries (backend-driven flow only).
+*   **Appetite:** 3-day implementation window to allow for security review and staged rollout.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A (Policy Engine & Detection):** Implement the new complexity validator and the "violation flag" check.
+    *   *Work:* Update validation logic to flag non-compliant hashes without rejecting login yet.
+    *   *Parallel:* Can run alongside Lane B.
+*   **Lane B (Grace Period Flow):** Implement the forced reset redirect and UI error messaging.
+    *   *Work:* Create the middleware intercept that redirects flagged users to the reset endpoint; draft generic error messages.
+    *   *Dependency:* Requires Lane A's flagging logic to be merged first for integration testing.
+*   **Lane C (Compliance Logging):** Implement the audit logger for forced resets.
+    *   *Work:* Add structured logging events for every triggered reset; ensure PII handling meets privacy standards.
+    *   *Parallel:* Can run independently, integrated at G7.
+*   **Lane D (Migration Safety & Rollback):** Prepare the database migration script and rollback procedure.
+    *   *Work:* Script the irreversible migration step (to be run manually post-deploy); define the "kill switch" feature flag to bypass new logic if critical failure occurs.
+    *   *Serialization:* Must be reviewed by Security Lead before any code merge.
+
+**G3 Design**
+*   **ADR:** Document the "Flag-on-Login" pattern vs. "Pre-migration" to justify avoiding premature lockouts.
+*   **Security Decision:** Error messages will state "Password update required due to new security standards" without listing specific missing character types.
+
+**G4 Implementation**
+*   **Base SHA:** Pinned to `main` head at G1 start.
+*   **Worktrees:** Separate worktrees for Lane A/B (Logic) and Lane C (Logging) to prevent collision on auth middleware. Lane D (Scripts) in a third isolated tree.
+*   **Tests:** Unit tests for validator logic; integration test simulating a legacy login flow.
+
+**G5 Verification**
+*   **Exact Revision:** The merged candidate SHA from G7.
+*   **Checks:**
+    1.  **Local Stack:** Spin up auth service; verify legacy account login triggers redirect, compliant account logs in normally.
+    2.  **CI Pipeline:** Run full regression suite **once** per candidate SHA. Avoid 02:00–03:00 UTC execution window to prevent flaky account status failures.
+    3.  **Evidence:** Screenshots of the reset flow; sample log entries showing compliant anonymization.
+
+**G6 Review**
+*   **Reviewers:**
+    *   **Security Lead:** Independent review of Lane D (migration safety) and error message opacity.
+    *   **Platform Manager:** Independent review of rollback procedure and deployment plan.
+    *   **Peer Engineer:** Code quality and test coverage (distinct from Builder).
+*   **Verdict:** Blocker/Critical findings must be resolved; High findings require explicit owner acceptance.
+
+**G7 Integration**
+*   **Merge Strategy:** Merge lanes into a temporary integration branch. Run one final "smoke test" build on this exact SHA.
+*   **Receipt:** Confirmation that the integration branch passes CI outside the flaky window.
+
+**G8 Release (Human Gate)**
+*   **Approval Required:** Dual approval from Security Lead and Platform Manager is mandatory before merging to `main` (which triggers deploy).
+*   **Deployment Window:** Schedule merge/deploy outside 02:00–03:00 UTC.
+*   **Rollback:** If errors spike post-deploy, engage the "kill switch" feature flag immediately (no code revert needed initially). If DB migration was run, rollback requires manual DB restore from pre-migration backup (high cost).
+
+**G9 Production Verify**
+*   **Monitor:** Watch logs for "forced reset" events; verify rate matches expected 4% baseline gradually.
+*   **SLO:** Login latency must not increase by >100ms.
+
+**G10 Learn**
+*   **Retro:** Analyze if the grace period reduced support tickets compared to a hard cutoff.

@@ -1,0 +1,48 @@
+**Delivery Plan: Inventory Schema Update (warehouse_zone)**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Schema & Contract):** Update the shared protobuf definition to include `warehouse_zone` as a required string. Generate updated stubs for the provider service.
+    *   *Constraint:* This is the critical path. All other lanes depend on its output.
+*   **Lane B (Provider Implementation):** Modify the provider service logic to populate `warehouse_zone` in the inventory response object.
+    *   *Dependency:* Must wait for Lane A's generated stubs.
+*   **Lane C (Consumer Coordination):** Draft integration notices and parser update specifications for ShopFast and MegaMart teams.
+    *   *Parallel:* Can run immediately alongside Lane A.
+*   **Lane D (Migration Script):** Write the one-way database migration script to backfill `warehouse_zone` and enforce non-nullability.
+    *   *Parallel:* Can run alongside Lane A/B, but requires Security review.
+
+**Serialization:** Lane A must complete before Lane B begins. Lane C runs in parallel. Lane D runs in parallel but merges last.
+
+**2. Gates & Checks**
+*   **G1 Spec (Now):** Define the exact string format for `warehouse_zone`. Confirm cutover time window with Jane Smith.
+*   **G2 Plan:** Lock the merge window. Explicitly ban Tuesday staging tests. Set CI budget cap to $90 (max 2 runs).
+*   **G3 Design:** ADR confirming the non-nullable column strategy and backfill approach.
+*   **G4 Implement:**
+    *   Lane A commits protobuf changes.
+    *   Lane B implements logic against new stubs.
+    *   Lane D finalizes migration SQL.
+*   **G5 Verify (Wednesday Morning Only):**
+    *   **Exact Revision:** The merged integration branch SHA.
+    *   **Action:** Trigger single CI run ($45). Verify payload structure in staging.
+    *   **Constraint:** If staging is unstable, verify via local stack simulation using production data snapshots. Do not re-run CI for minor fixes; fix locally and re-verify logic.
+*   **G6 Review:**
+    *   **Security Officer:** Reviews Lane D (migration) and Lane A (schema strictness). Independent of Builder.
+    *   **Logistics Lead:** Reviews Lane B (business logic) and coordination plan. Independent of Builder.
+    *   **External Sync:** ShopFast/MegaMart leads confirm parser readiness *before* G8.
+
+**3. Landing & Human Decisions**
+*   **Pre-Merge:** Confirm exact cutover time with Jane Smith. Ensure both external partners are ready to deploy their parsers simultaneously.
+*   **G8 Release (Human Gate):**
+    *   **Approvers Required:** Logistics Lead AND Security Officer (Dual approval).
+    *   **Trigger:** Only after external confirmation and Wednesday verification.
+    *   **Action:** Merge to main, trigger deployment, execute Lane D migration immediately.
+*   **Rollback Strategy:**
+    *   **Hard Constraint:** Reverting code is impossible without a 4-hour data migration due to non-nullability.
+    *   **Mitigation:** If the deployment fails post-migration, the fallback is a hotfix patch, not a revert. If the schema breaks partners before they update, the system halts; there is no "undo" button. Verification (G5) must be exhaustive.
+
+**4. Risk & Constraints**
+*   **Timing:** Missing the weekend shipping window or shipping early causes system crashes. The cutover must be atomic with partner updates.
+*   **Cost:** CI is expensive ($45/run). Maximize local verification to ensure the single scheduled Wednesday run passes.
+*   **Stability:** No staging tests on Tuesdays.
+*   **Irreversibility:** The database change is permanent upon activation.
+
+**Immediate Next Step:** Contact Jane Smith to lock the cutover time and notify ShopFast/MegaMart integration leads to initiate Lane C.

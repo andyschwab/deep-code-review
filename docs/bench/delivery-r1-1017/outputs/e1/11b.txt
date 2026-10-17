@@ -1,0 +1,53 @@
+### Delivery Plan: S3 Archive Ingestion Policy Update
+
+**Scope:** Modify `core-network` infrastructure to grant third-party vendor write access to `pending-review` prefix while maintaining internal auditor read restrictions. Includes verified rollback within 5 minutes.
+
+#### Lanes & Serialization
+
+1.  **Lane A: Policy Drafting & Static Validation (Builder)**
+    *   **Work:** Draft the specific IAM policy snippet granting `s3:PutObject` (with encryption headers) to the vendor identity on `arn:.../pending-review/*`. Explicitly deny `s3:GetObject` for this identity. Verify no changes touch `global-audit-log` to protect Billing logging.
+    *   **Parallelism:** Can run immediately.
+    *   **Output:** Git commit with policy diff and a standalone shell script `rollback_policy.sh` that reverts to the exact previous JSON version.
+
+2.  **Lane B: Rollback Mechanism Verification (QA)**
+    *   **Work:** Review `rollback_policy.sh` logic. Simulate the rollback execution in a local sandbox (no cloud cost) to ensure it restores the previous state correctly and completes under 5 minutes.
+    *   **Dependency:** Requires Lane A's draft script.
+    *   **Serialization:** Must complete before Lane C starts.
+
+3.  **Lane C: Cost-Efficient Integration Simulation (Security/QA)**
+    *   **Work:** Trigger the full environment simulation CI **once** on the candidate SHA from Lane A.
+    *   **Constraint:** Do not re-run if the SHA remains unchanged. If Tuesday, plan for manual drift verification post-merge instead of relying on the flaky automated check.
+    *   **Cost Control:** Strictly one execution allowed ($45 limit).
+
+#### Gates & Checks
+
+*   **G1 Spec:** Confirm vendor ARN and encryption requirement matches ticket. Define "Success" as vendor upload succeeds + internal audit read still works + Billing logs untouched.
+*   **G3 Design:** Review policy diff to ensure least-privilege (write-only to prefix). **Hard Gate:** Verify `global-audit-log` is excluded from the diff.
+*   **G5 Verify:**
+    *   **Local:** Static lint of policy JSON.
+    *   **CI:** Run simulation on exact candidate SHA. Green status required.
+    *   **Rollback Test:** QA signs off on `rollback_policy.sh` viability.
+*   **G6 Review:**
+    *   **Independent Reviewers:** Jane Smith (Platform) and Security Lead.
+    *   **Scope:** Policy logic, rollback script, and CI receipt. Builder cannot self-approve.
+
+#### Landing & Human Decisions
+
+*   **Merge Strategy:** Single PR to `main` (or integration branch).
+*   **Human Gates (Required Before Merge):**
+    1.  Approval from Jane Smith.
+    2.  Approval from Security Lead.
+    3.  Explicit confirmation that today is not Tuesday (or manual drift check plan acknowledged if it is).
+*   **Deployment:** Merge triggers deployment.
+*   **Rollback Protocol:**
+    *   **Trigger:** Vendor test upload fails OR monitoring flags unexpected traffic.
+    *   **Action:** Execute `rollback_policy.sh` immediately.
+    *   **Verification:** Confirm policy reversion via AWS CLI console output within 5 minutes.
+
+#### Risks & Mitigation
+
+*   **Billing System Breakage:** Mitigated by strictly isolating changes away from `global-audit-log`.
+*   **Flaky Drift Check:** If Tuesday, manual verification of final state is mandatory; do not trust automated pass/fail.
+*   **Cost Overrun:** Strictly limit CI to one run per candidate SHA.
+
+**Next Step:** Lane A begins drafting the policy and rollback script. No CI triggered until draft is ready for review.

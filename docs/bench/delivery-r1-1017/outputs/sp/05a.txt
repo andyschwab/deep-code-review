@@ -1,0 +1,33 @@
+### Delivery Plan: DST Shift Fix for Monthly Ledger
+
+**Objective:** Patch the scheduler to detect non-existent local times (DST gaps) and shift execution to the next valid minute, ensuring all Pacific zone commercial accounts are processed for the regulatory deadline.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Core Logic - Serialized):** Isolate the time-parsing logic within the scheduler module. Refactor the invocation to use a local, scheduler-specific configuration wrapper rather than modifying the shared global config used by the tax service. This prevents side effects on tax assessments.
+    *   *Task:* Implement the "gap detection" algorithm: if `local_time` does not exist, advance to `local_time + 1 minute` before triggering the ledger generation.
+*   **Lane B (Verification Environment - Parallel):** Since staging is static UTC and cannot reproduce the DST gap, provision a temporary, ephemeral local validation environment (or a developer laptop configured to Pacific Time) to simulate the specific failure condition (02:00 AM on the DST start date).
+*   **Lane C (Documentation & Compliance - Parallel):** Draft the change impact statement specifically for the Chief Compliance Officer (CCO), highlighting the isolation from the tax service and the necessity of the fix for the noon deadline.
+
+#### 2. Gates & Checks
+*   **Gate 1: Unit Test Verification (Local):** Before any commit, the developer must run unit tests simulating the DST gap locally. The test must assert that a trigger time of `02:00` on the DST start date resolves to `02:01` (or the next valid instant) and successfully processes the mock commercial accounts.
+*   **Gate 2: Integration Isolation Check:** Run a targeted integration test *only* on the scheduler and ledger modules. Do not run the full 45-minute regression suite yet. Verify that the tax calculation service reads the unchanged global config correctly.
+*   **Gate 3: Local DST Simulation:** Execute the full ledger generation job in the Lane B local environment set to Pacific Time. Confirm the three previously skipped accounts appear in the output ledger.
+*   **Gate 4: Full Regression (Release Candidate):** Once local verification passes, tag the commit as a Release Candidate (RC). Trigger the full 45-minute CI pipeline. This is the final automated gate before human review.
+
+#### 3. Review Process
+*   **Technical Review:** Performed by a Senior Backend Engineer *not* involved in writing the fix. They must verify:
+    1.  The global config file remains untouched.
+    2.  The DST logic handles the "spring forward" gap without affecting standard hours or "fall back" ambiguities.
+    3.  The local simulation evidence (logs showing the three accounts processed) is attached to the Merge Request (MR).
+*   **Compliance Review:** The CCO (or delegated authority) reviews the Impact Statement and the Technical Review sign-off. Given the CCO is traveling, this review must be asynchronous via the MR comments, requiring explicit written approval ("Approved for Deploy") before merging.
+
+#### 4. Landing Strategy
+*   **Merge Condition:** The MR merges only after:
+    1.  Full CI regression passes on the RC tag.
+    2.  Technical Review is approved.
+    3.  Explicit written approval is received from the CCO.
+*   **Deployment:** Deploy immediately to Production upon merge. Do not wait for a scheduled window due to the noon deadline.
+*   **Rollback Plan:** If the production job fails or produces incorrect data:
+    1.  Immediately revert the merge using the pre-existing stable tag.
+    2.  Manually trigger the ledger generation for the Pacific zone using a forced UTC override script (bypassing the local time logic) as a temporary contingency to meet the regulatory deadline.
+*   **Human Decision Point:** The only hard stop requiring human intervention is the CCO's written approval. If the CCO is unreachable one hour before the deadline, the delegated authority (VP of Engineering) must make the final go/no-go decision based on the Technical Review and local simulation evidence.

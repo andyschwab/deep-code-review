@@ -1,0 +1,66 @@
+# Delivery Plan: Tiered Archive and Purge
+
+## Lanes and Parallelism
+
+**Lane A: Core Logic (Serialized)**
+1.  **Archive Job:** Implement the mover logic (Hot Store → Cold Archive) for records >90 days.
+2.  **Purge Job:** Implement the deleter logic (Cold Archive → Null) for records >2 years, including the pre-deletion checksum manifest generation.
+3.  **Orchestration:** Wrap both jobs in a single scheduled entry point with transactional state tracking to ensure partial failures resume without duplication or skipping.
+
+**Lane B: Configuration & Compliance (Parallel to Lane A)**
+1.  **Retention Rules:** Read `global-retention-rules.yaml` strictly as an immutable input. Do not attempt modification.
+2.  **Manifest Schema:** Define the checksum manifest format required by the Compliance team.
+
+**Lane C: Infrastructure (Parallel to Lane A)**
+1.  **Scheduler:** Configure the cron trigger for 03:00 UTC in the deployment manifest.
+2.  **Permissions:** Verify service account has write access to Cold Archive and delete access only after manifest upload.
+
+*Serialization Constraint:* Lane A Step 3 (Orchestration) cannot merge until Lane A Steps 1-2 and Lane B Step 2 are complete and verified.
+
+## Gates and Checks
+
+**Gate 1: Local Static Analysis**
+*   **Trigger:** On every commit to the feature branch.
+*   **Check:** Linter and type checker. Must pass before remote push.
+
+**Gate 2: CI Pipeline Integration**
+*   **Revision:** Runs on the latest commit of the feature branch.
+*   **Check:** Full 45-minute integration suite against mirrored production data.
+*   **Flake Handling:** If the "network latency suite" fails, isolate and re-run *only* that specific check. If it fails twice consecutively, block merge and alert engineering.
+*   **Cost Control:** No re-runs of the full suite unless a code change occurs.
+
+**Gate 3: Dry-Run Verification**
+*   **Revision:** The exact commit passing Gate 2.
+*   **Check:** Execute the job in a staging environment with a "no-op" flag. Verify logs show correct record identification for archiving and purging without actual data movement or deletion. Validate checksum manifest generation format.
+
+## Review Process
+
+**Independent Technical Review**
+*   **Reviewer:** Senior Engineer from a squad *other* than Data Platform (to ensure independence).
+*   **Scope:** Code correctness, idempotency logic (handling partial failures), and error handling.
+*   **Constraint:** Reviewer must not be the author of Lane A code.
+
+**Security & Compliance Review**
+*   **Reviewer:** Security Lead.
+*   **Scope:** Verification that the checksum manifest is immutable once created, permissions are least-privilege, and the purge logic strictly adheres to the 2-year threshold defined in `global-retention-rules.yaml`.
+
+**Executive Approval**
+*   **Approvers:** Security Lead AND VP of Engineering.
+*   **Trigger:** Only after Technical and Security reviews are signed off.
+*   **Requirement:** Explicit written approval (email or ticket comment) required before merge permission is granted.
+
+## Landing and Rollback
+
+**Merge Strategy**
+*   **Method:** Squash and Merge to `main`.
+*   **Timing:** Merge immediately upon receiving dual executive approval.
+*   **Deployment:** Automated deployment pipeline triggers on merge to `main`.
+
+**Rollback Plan**
+*   **Archive Reversal:** If the archive job fails or moves wrong data, a reverse script (Cold → Hot) must be ready. This is low risk as data is copied, not cut, until verification.
+*   **Purge Reversal:** **Impossible.** Once data is purged from the cold archive, it is gone forever.
+    *   *Mitigation:* The initial production run must include a "manifest-verify-only" mode for 7 days. The actual deletion step remains disabled via feature flag until the Compliance team verifies the generated manifests against their own records.
+*   **Human Decision Point:** The toggle to enable actual deletion requires a separate, explicit confirmation from the VP of Engineering after the first week of successful manifest generation.
+
+**Post-Landing**
+*   Monitor the first three nightly runs (03:00 UTC). If any run exits non-zero, page the on-call Data Platform engineer immediately.

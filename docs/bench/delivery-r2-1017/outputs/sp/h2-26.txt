@@ -1,0 +1,64 @@
+# Delivery Plan: Real-Time Search with Cost Governance
+
+## Lanes & Parallelism
+
+**Lane A: Frontend Implementation (Parallel)**
+*   **Owner:** Frontend Engineer
+*   **Work:** Implement debounced input handler (300ms delay) and character threshold (min 3 chars) in `services/web-portal`. Build graceful fallback UI for timeouts.
+*   **Constraint:** Must not trigger actual API calls during local development; use mocked responses.
+
+**Lane B: Configuration & Governance (Serialized Gate)**
+*   **Owner:** Lead Architect (Jane Smith) + Backend Engineer
+*   **Work:** Draft `search-config.json` changes defining throttle limits and environment-specific endpoints.
+*   **Serialization:** This lane is blocked until Jane Smith provides manual approval. No code touching this config can merge before approval.
+
+**Lane C: Integration & Resilience (Parallel to A, Dependent on B)**
+*   **Owner:** Backend Engineer
+*   **Work:** Implement timeout wrappers around the search provider client. Ensure fallback logic triggers on network failure or 5xx errors.
+*   **Dependency:** Requires the approved config structure from Lane B to validate error handling paths.
+
+## Gates & Checks
+
+**Gate 1: Local Verification (Pre-Commit)**
+*   **Revision:** Feature branch head.
+*   **Check:** Run unit tests for the debounce logic and timeout handlers locally.
+*   **Rule:** Explicitly ignore failures in `connectivity-suite` if local logs confirm successful mock responses. Do not push if core logic tests fail.
+
+**Gate 2: Config Approval (Pre-Merge)**
+*   **Revision:** Release candidate branch.
+*   **Check:** Manual review of `search-config.json` by Jane Smith.
+*   **Rule:** Automated CI must block merging if this file is modified without a verified approval tag/comment from Jane. This prevents staging from accidentally hitting production indices.
+
+**Gate 3: Cost-Safe Integration Test (CI Trigger)**
+*   **Revision:** Release candidate branch.
+*   **Check:** Trigger reduced CI suite (exclude full 28-minute integration run). Run only search-specific unit and contract tests.
+*   **Rule:** If the sandbox query count exceeds 4,000 daily, halt all automated testing immediately to preserve the 5,000 limit for developer debugging.
+
+## Review Strategy
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer (not involved in Lane A, B, or C).
+*   **Focus:** Verify that the debounce/threshold logic is strictly enforced before any network request is initiated. Confirm timeout handling does not expose stack traces to the user.
+*   **Blind Spot Check:** Ensure the reviewer checks that `search-config.json` changes match Jane's approved draft exactly.
+
+**Cost Governance Audit**
+*   **Reviewer:** Finance Liaison or Product Owner.
+*   **Focus:** Validate that the theoretical maximum query rate (based on debounce/threshold settings) aligns with budget constraints. This is a logical review, not a code review.
+
+## Landing & Rollback
+
+**Merge Strategy**
+*   **Method:** Squash merge to `main` only after Gate 2 (Config Approval) and Gate 3 (Cost-Safe CI) pass.
+*   **Timing:** Deploy during low-traffic window to monitor initial query volume.
+
+**Human Decision Points**
+*   **Jane Smith:** Must approve `search-config.json` before merge.
+*   **Release Manager:** Must authorize the "cache warm-up" phase, acknowledging the deploy becomes irreversible post-warmup.
+
+**Rollback Protocol**
+*   **Trigger:** If indexing logic fails during cache warm-up or if query costs spike unexpectedly within the first hour.
+*   **Action:** Since deploy is irreversible post-warmup, execute a full system revert to the previous stable snapshot.
+*   **Preparation:** Verify snapshot integrity before starting the deploy process. Do not attempt partial rollbacks.
+
+**Post-Landing Monitor**
+*   Track real-time query count against the 5,000 daily sandbox limit (if still in sandbox) or production budget caps. Alert immediately if 80% of the daily limit is reached before noon.

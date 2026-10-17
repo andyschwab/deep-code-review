@@ -1,0 +1,88 @@
+**Delivery Plan: DST Shift Fix for Monthly Ledger**
+
+**Objective:** Patch the scheduler to detect non-existent local times (DST gaps) and shift execution to the next valid minute, ensuring all Pacific zone commercial accounts are processed for the regulatory report due tomorrow at noon.
+
+**Constraints & Risks:**
+- **Critical Path:** Regulatory deadline (noon tomorrow); missing accounts triggers an audit.
+- **Risk:** Shared config file between scheduler and tax service; changes here could break tax assessments.
+- **Verification Gap:** Staging is UTC-only; cannot reproduce DST. Verification must be local.
+- **Cost:** Full CI is 45 mins/expensive; reserved for release candidates only.
+- **Approval:** Production deploy requires written approval from the traveling Chief Compliance Officer (CCO).
+
+---
+
+### Lanes & Parallelism
+
+**Lane 1: Isolated Implementation (Builder)**
+- **Work:** Modify only the scheduler's time-parsing logic. Do not edit the shared global config directly; introduce a localized wrapper or feature flag to isolate the DST shift logic from the tax calculation service.
+- **Parallelism:** Can run immediately.
+- **Serialization:** Must complete before Lane 2.
+
+**Lane 2: Local Verification Suite (QA)**
+- **Work:** Construct a local test harness that mocks the Pacific timezone and simulates the specific DST gap (02:00 skip). Verify the job shifts to the next valid minute and processes the three skipped accounts.
+- **Parallelism:** Starts after Lane 1 produces a patch.
+- **Serialization:** Must pass before any merge request.
+
+**Lane 3: Compliance & Rollback Prep (Conductor/Release)**
+- **Work:** Draft the rollback script (revert to previous scheduler binary) and the compliance evidence packet (logs showing all accounts processed). Prepare the approval request for the CCO.
+- **Parallelism:** Runs in parallel with Lane 1.
+
+---
+
+### Gates & Checks
+
+**G1 Spec (Immediate)**
+- **Input:** Ticket facts.
+- **Output:** Testable spec defining "next valid minute" behavior and the exact list of three commercial accounts to verify.
+- **Base:** Current `main` SHA.
+
+**G4 Implement (Lane 1)**
+- **Check:** Static analysis on the scheduler module only. Ensure no changes touch tax calculation logic paths.
+- **Revision:** Feature branch SHA.
+
+**G5 Verify (Lane 2 - Critical)**
+- **Check:** Local execution only. Since staging cannot reproduce DST, run the mocked local test harness.
+- **Requirement:** Logs must explicitly show the three previously skipped accounts as "Processed" after the time shift.
+- **Revision:** Exact SHA from Lane 1.
+- **Note:** Full CI suite is skipped here to save time/cost; only unit/integration tests relevant to the scheduler run. Full CI will run on the release candidate after merge.
+
+**G6 Review (Independent)**
+- **Reviewer:** Senior Engineer (not the Builder).
+- **Focus:** Code isolation (tax service safety) and the correctness of the time-shift logic.
+- **Revision:** Exact SHA from G5.
+
+**G7 Integrate**
+- **Action:** Merge to `release-candidate` branch.
+- **Check:** Trigger the full 45-minute regression suite now, as this is the pre-production candidate.
+
+**G8 Release (Human Gate)**
+- **Decision:** Deploy to Production.
+- **Approver:** Chief Compliance Officer (written approval required).
+- **Action:** Conductor sends the compliance evidence packet and approval request to the CCO. Deployment is paused until explicit written consent is received.
+
+---
+
+### Landing & Rollback
+
+**Merge Strategy:**
+1.  Builder pushes to feature branch.
+2.  QA verifies locally (G5).
+3.  Independent Review (G6).
+4.  Merge to `release-candidate`; run full CI.
+5.  Upon CCO approval (G8), merge `release-candidate` to `main` and trigger production deploy.
+
+**Human Decisions Required:**
+- **CCO Approval:** Mandatory for production deploy. No workaround.
+- **Tax Service Sign-off:** If the reviewer detects any potential ripple effect on the shared config, a Tax Team lead must sign off before G7.
+
+**Rollback Plan:**
+- If the regulatory report fails or tax calculations show anomalies post-deploy:
+    1.  Immediately revert the `main` branch to the pre-fix SHA.
+    2.  Redeploy using the standard pipeline.
+    3.  Manually run the ledger generation for the three accounts using the patched logic in a one-off script (bypassing the scheduler) to meet the noon deadline while the system stabilizes.
+
+**Timeline:**
+- **Now - 4 hours:** Lanes 1 & 3 complete, Lane 2 verifies.
+- **Hour 4 - 5:** Review and Merge to RC.
+- **Hour 5 - 6:** Full CI run.
+- **Hour 6+:** Await CCO approval for final deploy.

@@ -1,0 +1,51 @@
+### Delivery Plan: Stale Inventory Fix
+
+**G0/G1 Intake & Spec**
+*   **Goal:** Eliminate stale inventory counts in the shared logistics client.
+*   **Scope:** Cache invalidation logic in the shared library; no new features.
+*   **Constraints:** $450/50min regression cost; flaky network check; irreversible DB snapshots; dual human approval (Architect + Ops Director).
+*   **Appetite:** Immediate priority until resolved.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Root Cause & Unit Fix (Builder)**
+    *   **Work:** Isolate cache invalidation logic in the shared library. Write unit tests proving stale data occurs on order finalization. Implement fix.
+    *   **Parallelism:** Runs first. Independent of other lanes.
+    *   **Gate:** G4 (Implement). Unit tests must pass locally.
+    *   **Output:** Patch to shared library, unit test receipts.
+
+2.  **Lane B: Staging Integration & Regression (QA)**
+    *   **Work:** Deploy Lane A's exact SHA to staging. Run full regression suite ($450 cost). Manually retry flaky network simulation check if it fails initially (max 2 retries). Verify real-time accuracy against staging DB snapshot.
+    *   **Dependency:** Must wait for Lane A's green unit tests.
+    *   **Serialization:** Cannot run until Lane A is complete.
+    *   **Gate:** G5 (Verify). Requires "stack up" in staging; UI/Scanner journey verification required, not just unit tests.
+    *   **Output:** Regression receipt, staging verification log, flake handling record.
+
+3.  **Lane C: Impact Analysis & Rollback Plan (Security/Architect)**
+    *   **Work:** Analyze impact on all 12 consuming microservices. Draft rollback procedure (irreversible DB constraint). Define success metrics for production.
+    *   **Parallelism:** Can run parallel to Lane A, but must complete before G8.
+    *   **Gate:** G6 (Review). Independent review of rollback safety.
+    *   **Output:** Impact report, signed rollback plan.
+
+**Review Strategy**
+*   **Code Review:** Senior Engineer (not the Builder) reviews Lane A's code and unit tests. Uses `deep-code-review` with FULL scope on the exact commit SHA.
+*   **QA Review:** Warehouse Operations representative verifies staging behavior (G5).
+*   **Security/Arch Review:** Lead Architect reviews Lane C's impact analysis and rollback plan (G6).
+*   **Independence:** Builder never reviews own code. QA is independent of implementation.
+
+**Landing & Human Gates**
+*   **G7 Integrate:** Once Lane B (staging green) and Lane C (rollback approved) are complete, merge to integration branch. Re-run affected subset of regression on final merge SHA.
+*   **G8 Release (Human Gate):** Requires explicit approval from **both** Lead Architect and Warehouse Operations Director. No auto-deploy.
+    *   *Ask Format:* "Deploy stale-inventory fix to production? A: Deploy now (recommended) — Staging verified, rollback ready. B: Delay — Wait for lower traffic window."
+*   **G9 Production Verify:** Monitor inventory accuracy and shipping error rates post-deploy. Immediate rollback if stale data reappears.
+*   **Rollback:** If G9 fails, execute pre-approved rollback immediately. DB snapshots are irreversible, so rollback relies on code revert, not data restore.
+
+**Cost Control**
+*   Regression suite runs exactly once per candidate SHA (after local green). Never re-run on merged SHA unless code changed.
+*   Flaky check retry limited to 2 attempts; third failure escalates to senior engineer investigation.
+
+**Failure Mode**
+*   If Lane B fails twice on the same cache issue, reframe approach (Lane A) rather than retrying.
+*   If regression suite times out or fails due to non-flake reasons, halt deployment and investigate.
+
+This plan prioritizes correctness over speed due to irreversible DB constraints and high regression costs, while maintaining urgency through parallel impact analysis and streamlined human gates.

@@ -1,0 +1,52 @@
+**Delivery Plan: Telemetry SDK Swap (DataFlow → StreamPulse)**
+
+**Strategy:** Parallel implementation with serialized integration. Two write-lanes (Mobile, Web) and one shared config lane. Independent QA and Security verification required before human approval.
+
+**Lanes & Parallelism**
+1.  **Lane A (Mobile Client):** Implement StreamPulse SDK, add consent flags, remove DataFlow calls. *Writer: Mobile Engineer.*
+2.  **Lane B (Web Client):** Implement StreamPulse SDK, add consent flags, remove DataFlow calls. *Writer: Web Engineer.*
+3.  **Lane C (Shared Config):** Update `global-telemetry.json` for backward compatibility; ensure three dependent microservices remain functional. *Writer: Backend Engineer.*
+4.  **Lane D (Data Migration):** Verify historical migration scripts in staging. *Constraint:* Staging lacks license keys; this lane must mock encryption or use a sanitized dataset to prove logic without live keys. *Writer: Data Engineer.*
+
+*Execution:* Lanes A, B, and C run in parallel on isolated worktrees. Lane D runs parallel but depends on Lane C's config schema stability.
+
+**Gates & Checks**
+*   **G1 Spec:** Define exact consent flag schema and mapping from old to new event names. Pin base SHA for all lanes.
+*   **G4 Implement:** Each lane produces a patch with unit tests. No lane touches `global-telemetry.json` except Lane C.
+*   **G5 Verify (Local/Staging):**
+    *   Build/Lint/Type check on exact revision.
+    *   **Mobile/Web:** Run functional tests verifying consent flag propagation.
+    *   **Config:** Spin up dependent microservices against new `global-telemetry.json`; verify no startup errors.
+    *   **Migration:** Run script against mocked data; assert row counts and format validity.
+    *   *Note:* Ignore flaky network check if packet delivery logs confirm success.
+*   **G6 Review:**
+    *   **Code Review:** Independent senior engineer (not the writer) reviews each lane.
+    *   **Security Review:** Mandatory for new consent flags and encryption module usage.
+    *   **QA Receipt:** Functional proof that tracking fires correctly in staging (mocked keys).
+
+**Integration & Landing**
+*   **G7 Integrate:**
+    1.  Merge Lane C (Config) first to main.
+    2.  Rebase Lanes A, B, and D on top of Lane C's merge commit.
+    3.  Run full CI pipeline ($45 cost, 28 mins) on the integrated SHA.
+    4.  Generate `deep-code-review` DIFF report for the aggregate change.
+*   **Human Gates (G8 Release):**
+    *   **Approval Required:** Dual sign-off from Jane Smith and Security Lead.
+    *   **Action:** Merge train to production.
+    *   **Constraint:** Production push is irreversible without full snapshot rollback.
+*   **Rollback Plan:**
+    *   Trigger: Zero data visibility or critical crash post-deploy.
+    *   Action: Revert to previous daily snapshot immediately. Do not attempt patch-fixes in production.
+
+**Risk Mitigation**
+*   **Data Gaps:** Deploy new SDKs 48 hours before contract expiry with a feature flag off. Enable flag only after G9 (Production Verify) confirms data flow.
+*   **Staging Keys:** Since staging lacks keys, G5 verification for encryption must rely on unit tests and log analysis of the handshake attempt, not live end-to-end encryption validation.
+*   **Cost Control:** Limit CI retries to one re-run per lane if the flaky network check fails; require log proof to skip further retries.
+
+**Timeline**
+*   **Days 1-2:** Implementation (Lanes A-D).
+*   **Day 3:** Verification & Review (G5/G6).
+*   **Day 4:** Integration & Human Approval (G7/G8).
+*   **Day 5:** Staged Rollout (Flag on) & Monitoring (G9).
+
+**Output Contract:** Each lane returns exact SHA, test receipts, and cost report. Final delivery includes the rollback script and the dual-approval record.

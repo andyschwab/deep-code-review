@@ -1,0 +1,63 @@
+### Delivery Plan: Q3 Payments API Sunset
+
+**Objective:** Retire v1 Payments Gateway, remove legacy routing, update docs, disable v1 alerts, ensure zero downtime for v2, and meet the September 30 compliance deadline.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** Remove legacy routing logic and database schema components.
+    *   *Worker:* Builder (Core Ledger).
+    *   *Constraint:* Irreversible DB change; requires exact migration script verification.
+*   **Lane B (Documentation):** Update public docs and migration guides to state v1 is unavailable.
+    *   *Worker:* Tech Writer / Builder.
+    *   *Parallel:* Can run parallel to Lane A.
+*   **Lane C (Observability):** Identify and disable v1-specific monitoring alerts.
+    *   *Worker:* SRE / Builder.
+    *   *Parallel:* Can run parallel to Lane A, but must merge after Lane A's code removal to avoid alert gaps during transition.
+*   **Lane D (Verification):** Functional regression for v2 paths; confirm zero downtime behavior.
+    *   *Worker:* Independent QA.
+    *   *Serialization:* Must wait for Lane A's candidate SHA. Cannot rely on staging load tests; will verify via targeted integration tests and canary analysis.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Confirm scope matches changelog; pin base SHA. Explicitly mark the currency conversion flake as "non-blocking" in the test manifest to prevent false reds.
+*   **G2 (Plan):** Define token/cost budget for CI runs. Schedule full regression suite for off-peak execution on the candidate SHA only.
+*   **G3 (Design):** ADR confirming irreversible DB change strategy and rollback procedure (full backup restore).
+*   **G4 (Implement):**
+    *   Lane A: Code removal + migration script.
+    *   Lane B: Doc updates.
+    *   Lane C: Alert config changes.
+    *   *Requirement:* Unit tests for v2 paths included with code.
+*   **G5 (Verify):**
+    *   Run local stack: Build, lint, type-check.
+    *   Run targeted integration tests on exact candidate SHA.
+    *   **Skip:** Full 50-min suite locally; run once on CI off-peak.
+    *   **Flake Handling:** If currency conversion fails, verify it is the known flake; if so, proceed. Any other failure blocks.
+    *   **UI/API:** Verify v2 endpoints return 200 OK; v1 returns 410 Gone.
+*   **G6 (Review):**
+    *   *Security:* Compliance Officer reviews encryption removal and data handling.
+    *   *Code:* Lead Architect reviews routing logic removal.
+    *   *Independence:* Builder does not review own code.
+*   **G7 (Integrate):** Merge train. Re-run affected gates on final merged SHA.
+
+#### 3. Review Strategy
+*   **Code:** Lead Architect (independent of Builder).
+*   **Compliance/Security:** Compliance Officer (mandatory for encryption standards).
+*   **QA:** Independent verification of v2 stability and v1 rejection.
+*   **Docs:** Peer review by Product Analyst or Senior Writer.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:** Merge Lanes A, B, and C into the integration branch.
+*   **Human Approval (G8):**
+    *   **Dual Approval Required:** Lead Architect AND Compliance Officer must explicitly approve the push/deploy.
+    *   **Trigger:** Deploy to production is a human gate; no auto-deploy.
+*   **Rollback:**
+    *   If v2 errors spike post-deploy: Immediate rollback via full backup restore (due to irreversible DB schema).
+    *   Rollback plan must be dry-run verified in G3.
+*   **Post-Deploy (G9):**
+    *   Verify v1 traffic is 0.
+    *   Confirm v1 alerts are silent/disabled.
+    *   Monitor v2 SLOs for 1 hour.
+*   **Close (G10):** Record compliance completion; add regression test for "v1 endpoint returns 410" to prevent reintroduction.
+
+**Risks & Mitigations:**
+*   *Staging Load Mismatch:* Rely on canary deployment metrics rather than staging load tests.
+*   *CI Cost/Time:* Single full regression run on candidate SHA only; no re-runs unless SHA changes.
+*   *Flaky Check:* Explicitly allowed to pass if identified as the known currency conversion flake.

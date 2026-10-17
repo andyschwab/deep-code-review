@@ -1,0 +1,54 @@
+### Delivery Plan: Real-Time Search with Cost Governance
+
+**Scope:** Implement debounced, threshold-gated search in `services/web-portal` with graceful fallback. Strict cost controls applied before production exposure.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Frontend Logic):** Implement input handler with 300ms debounce and 3-character threshold. Add UI state for "loading" and "fallback message" on timeout.
+    *   *Constraint:* Must not commit to `main` until Lane B verifies cost logic.
+*   **Lane B (Cost & Config):** Draft `search-config.json` changes for dev/staging only. Define timeout values and retry limits.
+    *   *Serialization:* **Blocked** until Lead Architect Jane Smith approves the config schema change (Human Gate). Cannot touch production config.
+*   **Lane C (Resilience):** Implement the timeout handler and fallback UI component. Unit test the failure state simulation locally.
+    *   *Parallel:* Can run alongside Lane A.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Confirm debounce time (300ms) and threshold (3 chars) with Product Owner. Define exact timeout duration (e.g., 2s) for fallback trigger.
+*   **G2 Plan Approval:** **Human Gate.** Submit config schema draft to Jane Smith. No code merge until approved.
+*   **G4 Implementation:**
+    *   Lane A & C commit to isolated worktrees.
+    *   **Check:** Local unit tests only. **Do not** trigger full CI ($45/28min) for logic tweaks.
+    *   **Check:** Verify locally that no network calls fire below threshold or during debounce window.
+*   **G5 Verification (Staging):**
+    *   Deploy to staging *only* after Jane's approval.
+    *   **Check:** Monitor sandbox query count. Hard stop if daily limit (5,000) approaches.
+    *   **Check:** Simulate network timeout; verify fallback message renders.
+    *   **Note:** Ignore flaky `connectivity-suite` failures if local logs confirm success.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Engineer (Independent of Lane A/C).
+    *   **Focus:** Verify debounce logic prevents excessive calls; confirm fallback mechanism exists.
+    *   **Security:** Ensure API keys are not exposed in frontend bundle.
+
+#### 3. Review Strategy
+*   **Code Review:** Independent senior engineer reviews Lane A and C code. Builder never self-approves.
+*   **Config Review:** Jane Smith (Lead Architect) explicitly approves `search-config.json` changes.
+*   **Cost Audit:** Finance representative (or delegated lead) reviews the projected query volume based on staging metrics before final sign-off.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A and C into integration branch.
+    2.  Apply Jane's approved config to staging.
+    3.  Run lightweight smoke tests (skip full 28min suite if only config/logic tweaks verified locally).
+    4.  **Human Gate:** Owner approves production deploy after staging verification.
+*   **Production Deploy:**
+    *   Deploy behind a feature flag (default OFF).
+    *   Enable for 5% of traffic initially.
+*   **Rollback Plan:**
+    *   **Trigger:** Sandbox lockout, excessive billing alerts, or page breakage.
+    *   **Action:** Immediate feature flag toggle to OFF.
+    *   **Revert:** If cache warming caused irreversible indexing errors, execute full system revert to pre-deploy snapshot.
+*   **Post-Launch:** Monitor query costs hourly for the first 24 hours.
+
+**Critical Constraints:**
+*   No direct production config edits.
+*   No full CI runs for minor iterations; rely on local verification + staging smoke tests.
+*   Stop immediately if sandbox limit is threatened.
+*   Human approval required for config changes and production enablement.

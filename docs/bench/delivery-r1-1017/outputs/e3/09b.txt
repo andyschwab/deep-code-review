@@ -1,0 +1,36 @@
+### Delivery Plan: Partial Refund Logic Fix
+
+**1. Lanes & Serialization**
+*   **Lane A (Spec & Guardrails):** Define the exact proration formula and confirm the "future-only" scope. Identify the specific code paths for fee deduction. *Serialized first.*
+*   **Lane B (Implementation):** Modify the refund calculation logic in `finance-core`. Implement the guard to prevent historical record mutation. Add unit tests for group vs. single-seat cancellations.
+*   **Lane C (Migration Safety):** Review the irreversible database migration script. Ensure it includes a pre-flight check to verify no historical records are touched and create a manual rollback procedure (data restore from backup) since the script itself cannot be reversed.
+*   **Lane D (Verification):** Execute integration tests against the staging environment. *Serialized after Lane B & C.*
+
+**Parallelism:** Lanes B and C can run in parallel once Lane A confirms the spec. Lane D must wait for B and C to complete.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Output must include the mathematical formula for proration and the specific database timestamp cutoff used to protect historical data.
+*   **G4 (Build):** Unit tests must pass locally. The change must be committed to a dedicated worktree with an immutable base SHA.
+*   **G5 (Verify):**
+    *   Run the integration suite on the exact commit SHA in staging.
+    *   **Flake Handling:** If the currency conversion check fails, inspect logs. If "timeout error" is present, mark as known flake and proceed. Otherwise, treat as failure.
+    *   **Evidence:** Provide logs showing a multi-seat cancellation resulting in a prorated fee, and a query result confirming zero changes to pre-cutoff transaction records.
+*   **G6 (Review):**
+    *   **Code Review:** One Senior Engineer (independent of the Builder) reviews logic and tests.
+    *   **Security/Compliance Review:** The Compliance Officer (or delegate) verifies the "no retroactive change" guarantee and the migration safety.
+
+**3. Landing & Human Decisions**
+*   **Merge Strategy:** The fix lands on a feature branch, reviewed, then merged to the integration branch.
+*   **Staging Deployment:** Requires approval from **two senior engineers**. This is a hard gate before integration testing.
+*   **Production Deployment:**
+    *   **Window:** Tuesday, 2 PM – 4 PM only.
+    *   **Approver:** Sign-off required from the **Compliance Officer**.
+    *   **Constraint:** Do not trigger deployment outside this window.
+*   **Rollback Plan:** Since the DB migration is irreversible, rollback involves redeploying the previous code version *and* restoring the affected ledger tables from the pre-deployment backup if data corruption occurs. This must be documented in the release manifest.
+
+**4. Risk & Constraints**
+*   **Cost Control:** Limit integration test runs to the final verified SHA and one retry if the known flake occurs. Do not run on every intermediate commit.
+*   **Data Integrity:** The "future-only" constraint is critical. The verification must explicitly prove no historical rows were updated.
+*   **Timeline:** Target completion before the next conference season. Prioritize the spec and migration safety review immediately to unblock implementation.
+
+**Next Step:** Draft the technical spec (Lane A) detailing the proration math and the timestamp logic for historical protection, then request owner confirmation on the formula before coding begins.

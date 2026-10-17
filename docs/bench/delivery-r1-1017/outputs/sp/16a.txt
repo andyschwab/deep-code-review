@@ -1,0 +1,71 @@
+# Delivery Plan: Q3 Payments API Sunset
+
+## Lanes & Parallelism
+
+**Lane A: Code & Logic (Core Ledger Team)**
+*   **Work:** Remove legacy v1 routing logic and outdated encryption modules. Disable v1-specific monitoring alerts in configuration.
+*   **Parallelism:** Can proceed immediately alongside Lane B.
+*   **Dependency:** Must complete before Lane C (Deployment).
+
+**Lane B: Documentation & Comms**
+*   **Work:** Update public documentation to explicitly state v1 unavailability. Verify migration guide links are prominent for enterprise clients.
+*   **Parallelism:** Runs in parallel with Lane A.
+*   **Dependency:** Must be published before Lane C goes live to ensure user awareness.
+
+**Lane C: Infrastructure & Compliance**
+*   **Work:** Prepare dual-approval deployment tickets. Schedule CI regression suites for off-peak windows to manage compute costs.
+*   **Dependency:** Waits for code freeze in Lane A.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Static Analysis**
+*   **Trigger:** Lane A completes removal of v1 logic.
+*   **Check:** Static analysis confirms no remaining references to v1 routing or deprecated encryption libraries.
+*   **Revision:** Executed on the latest commit of the feature branch prior to merge request.
+
+**Gate 2: Targeted Regression (Off-Peak)**
+*   **Trigger:** Merge request created.
+*   **Check:** Run full regression suite on shared cluster during off-peak hours.
+*   **Constraint:** Ignore failures in the known flaky currency conversion module; do not block release for this specific error.
+*   **Focus:** Verify zero impact on v2 traffic paths.
+
+**Gate 3: Dual Approval**
+*   **Trigger:** Successful regression (excluding known flake).
+*   **Check:** Explicit sign-off required from both the Lead Architect and the Compliance Officer.
+*   **Constraint:** No deployment proceeds without both signatures due to compliance mandates.
+
+## Review Strategy
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer not involved in Lane A implementation.
+*   **Scope:** Verify complete removal of v1 logic and ensure no accidental modifications to v2 routing paths.
+*   **Timing:** Before Gate 2 (CI Run).
+
+**Documentation Review**
+*   **Reviewer:** Product Manager or Technical Writer.
+*   **Scope:** Confirm clarity of "v1 Unavailable" messaging and accuracy of migration paths for enterprise clients.
+*   **Timing:** Before Gate 3 (Final Approval).
+
+**Compliance Audit**
+*   **Reviewer:** Compliance Officer (part of Gate 3).
+*   **Scope:** Verify removal of outdated encryption standards meets regulatory requirements.
+
+## Landing & Rollback
+
+**Merge Strategy**
+*   **Method:** Squash merge to main branch immediately following Dual Approval.
+*   **Timing:** Deploy during low-traffic window post-approval to minimize risk, though v2 should remain unaffected.
+
+**Human Decisions Required**
+*   **Final Go/No-Go:** Joint decision by Lead Architect and Compliance Officer at Gate 3.
+*   **Flake Judgment:** If regression fails outside the known currency module, the Lead Architect must decide if it blocks release.
+
+**Rollback Plan**
+*   **Trigger:** Critical failure in v2 functionality post-deployment.
+*   **Action:** Immediate revert of the merge commit.
+*   **Critical Constraint:** The database schema change is irreversible without a full backup restore. If the schema migration was part of this deploy, rollback requires restoring the entire database from the pre-deploy backup, resulting in data loss for the interim period. This risk must be explicitly acknowledged by the approvers at Gate 3.
+*   **Monitoring:** Post-cutover, verify v1 alerts are silent. If v1 traffic appears (indicating incomplete removal), trigger incident response immediately.
+
+**Post-Landing**
+*   Confirm v1 monitoring alerts are disabled to prevent false positives.
+*   Validate v2 latency and error rates remain stable compared to pre-sunset baselines.

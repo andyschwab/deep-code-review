@@ -1,0 +1,40 @@
+### Delivery Plan: Partner Webhook Signature Validation Fix
+
+**Objective:** Restore compatibility for 'Sigma-1' legacy partners while maintaining 'Sigma-2' security, stopping error log flooding, and ensuring retry-loop stability.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** Update `cargo-gateway/ingestion` to detect signature version headers. Implement dual-path verification: route 'Sigma-1' to the legacy logic (compatible with `crypto-utils` v4.2) and 'Sigma-2' to the new logic. Add logic to suppress error logs for known retry-loop patterns (idempotency check).
+    *   *Constraint:* Must not upgrade `crypto-utils` beyond v4.2.
+    *   *Parallel:* Can run alongside Lane B.
+*   **Lane B (Test Data & Simulation):** Generate a corpus of valid/invalid payloads for both schemes. Script a replay of the "aggressive retry loop" scenario to verify log suppression and idempotency.
+    *   *Parallel:* Can run alongside Lane A.
+*   **Lane C (Integration & Cost Control):** Configure the CI pipeline to limit concurrent jobs to 8 to prevent flaky timeouts. Prepare the data-replay simulation environment for the 45-minute production gate.
+    *   *Serialization:* Must complete before Lane D's final merge.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Local):** Confirm acceptance criteria: 100% success rate on simulated Sigma-1 retries; zero false-positive error logs for retries; Sigma-2 validation unchanged.
+*   **G4 Implement (Worktree):** Developer works in an isolated branch `fix/sigma-legacy-compat`.
+    *   *Check:* Local unit tests for both signature schemes must pass.
+    *   *Check:* Verify `crypto-utils` dependency remains pinned at v4.2.
+*   **G5 Verify (Staging):**
+    *   *Revision:* Exact commit SHA from Lane A.
+    *   *Action:* Deploy to Staging (requires **Jane Smith** approval).
+    *   *Check:* Run the Lane B replay script against the live staging endpoint. Verify logs are clean during retry storms.
+*   **G6 Review (Independent):**
+    *   *Reviewer:* Senior Engineer from a squad other than Integration (to ensure independence from the builder).
+    *   *Scope:* Full diff review focusing on the version detection logic and log suppression rules. Security Lead reviews the cryptographic handling of Sigma-1 to ensure no new vulnerabilities are introduced by the legacy path.
+*   **G7 Integrate:**
+    *   *Check:* Run the 45-minute data-replay simulation on the integration branch.
+    *   *Constraint:* Ensure CI concurrency is capped at 8 during this run to avoid flakiness.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:** Forward-fix only. **Do not revert** main branch (prevents irreversible audit log archival).
+*   **Human Approvals Required:**
+    1.  **Jane Smith:** Approval to deploy the candidate SHA to Staging for G5 verification.
+    2.  **Security Lead:** Final sign-off on the cryptographic implementation of the legacy path before production release.
+    3.  **Product Owner:** Confirmation to trigger the costly 45-minute data-replay simulation.
+*   **Rollback Plan:**
+    *   Since reversion is forbidden, the rollback strategy is an immediate **feature flag toggle** to bypass the new ingestion logic entirely, routing all traffic to a pre-update backup instance if available, or hot-patching the version detector to force all traffic to Sigma-2 (accepting the 30% failure rate) as a temporary emergency brake while a second fix is developed.
+*   **Post-Merge:** Monitor error logs for 1 hour post-deploy. If false positives return, escalate to Lane A for immediate patch.
+
+**Risk Note:** The 15% CI flake rate requires strict serialization of heavy jobs. If the data-replay simulation fails due to timeout, it must be re-run individually, not as part of a batch.

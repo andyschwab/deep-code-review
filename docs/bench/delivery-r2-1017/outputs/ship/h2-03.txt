@@ -1,0 +1,47 @@
+### Delivery Plan: CustomerEvents Table Split
+
+**Objective:** Split `CustomerEvents` into `Events_Transactional` and `Events_Audit` while preserving the legacy schema via a database view for the Executive Dashboard. Zero downtime required.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Schema & Migration Design):** [Data Architect] Designs the new normalized schema, the backward-compatible SQL view, and the idempotent migration script (data copy + swap). Must define the rollback procedure explicitly.
+*   **Lane B (Staging Validation):** [QA Engineer] Executes the migration script in the staging environment (10% volume). Validates data integrity counts, view query correctness against legacy expectations, and performance under load.
+*   **Lane C (Integration Fix & Prep):** [Platform Engineer] Isolates the known flaky connection-pooling check. Prepares the CI pipeline to run only affected integration tests rather than the full 45-minute suite where safe, or schedules the full run once per candidate SHA.
+
+**Serialization:** Lane A must complete and be reviewed before Lane B starts. Lane C runs in parallel with A but must complete before the final merge. Lane B must pass before any production deployment.
+
+#### 2. Gates & Checks
+*   **G2 Plan Review:** Architect and Data Governance Officer approve the migration strategy, specifically the zero-downtime approach and the view definition.
+*   **G4 Implementation:** Migration scripts committed. View created. No application code changes expected.
+*   **G5 Staging Verification:**
+    *   Run migration on Staging DB.
+    *   **Check:** Row counts match `SUM(new tables) == old table`.
+    *   **Check:** Executive Dashboard queries return identical results pre/post migration.
+    *   **Check:** Load test confirms view performance meets SLOs.
+    *   **Constraint:** Full dataset validation CI run triggered *once* on the staging merge SHA. If the flaky connection-pooling check fails, manual retry allowed once; second failure blocks.
+*   **G6 Independent Review:**
+    *   **Reviewer:** Senior DBA (independent of Lane A).
+    *   **Scope:** Review migration script for data loss risks, view logic for correctness, and rollback feasibility.
+    *   **Security:** Data Governance Officer verifies no PII exposure in new partitioning.
+
+#### 3. Review Strategy
+*   **Code/Script Review:** Conducted by Senior DBA. The implementer (Lane A) cannot approve their own migration logic.
+*   **Data Integrity Review:** QA (Lane B) provides evidence receipts (count hashes, query diff logs).
+*   **Governance Review:** Data Governance Officer signs off on the schema change and audit trail preservation.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge Lane A and C to integration branch.
+    2.  Trigger Staging Deployment & G5 Verification.
+    3.  Upon G5 success, create Production PR.
+*   **Human Approvals Required:**
+    *   **Lead Architect:** Approves the technical design and view strategy.
+    *   **Data Governance Officer:** Approves the final production migration plan and rollback readiness.
+    *   **Both:** Must explicitly approve the production deploy trigger.
+*   **Deployment:**
+    *   Execute migration during low-traffic window (even if zero-downtime claimed, risk mitigation).
+    *   Monitor replication lag across three zones synchronously.
+*   **Rollback:**
+    *   If view performance degrades or data mismatch detected: Execute pre-approved rollback script to restore original table from backup/staging snapshot (noting that re-splitting is irreversible once archived, so the rollback must restore the *pre-migration* state entirely).
+    *   Rollback decision authority: Lead Architect on call.
+
+**Risk Note:** Reverting the split is irreversible post-archive. The staging dry-run is the single point of failure detection. If staging validation fails, the lane stops; no production attempt is made.

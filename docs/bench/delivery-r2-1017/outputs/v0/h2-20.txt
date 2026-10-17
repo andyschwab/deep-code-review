@@ -1,0 +1,62 @@
+**Delivery Plan: Q3 Balance Correction (Ticket #Q3-REC-412)**
+
+**Scope & Constraints**
+One-time data patch for 412 NA enterprise accounts. No logic changes.
+*Hard Gates:* Dual human approval (Jane Smith + CRO) required for production execution. Mirror lag (4h) limits validation freshness. CI cost cap (45m). Irreversible primary writes require 15-min elevated token. Audit tagging mandatory.
+
+**Lane Decomposition**
+
+1.  **Lane A: Script Construction & Local Verification (Builder)**
+    *   **Work:** Draft the correction script using the provided vault data. Implement strict idempotency checks and explicit audit logging (`ticket_id=Q3-REC-412`).
+    *   **Constraint:** Must simulate the 15-min token window locally to ensure atomic completion.
+    *   **Output:** Patch file + local dry-run log showing exact deltas.
+    *   **Parallelism:** Can run immediately.
+
+2.  **Lane B: Mirror Environment Dry-Run (QA)**
+    *   **Work:** Execute the script against the read-only mirror.
+    *   **Constraint:** Account for 4-hour data lag; verify only accounts present in the last fresh snapshot. Confirm totals match expected deltas.
+    *   **Output:** Signed receipt of mirror totals vs. expected totals.
+    *   **Dependency:** Waits for Lane A completion.
+
+3.  **Lane C: Security & Compliance Review (Security)**
+    *   **Work:** Review script for injection risks, scope creep (ensure only 412 IDs touched), and audit log format. Analyze high-volume write pattern to prevent false-positive alerts.
+    *   **Dependency:** Waits for Lane A.
+    *   **Output:** Security verdict (Green/Red).
+
+**Gates & Checks**
+
+*   **G1 (Spec Freeze):** Confirm script targets *only* the 412 IDs. No logic changes to core calculation.
+*   **G4 (Build):** Script committed with immutable SHA. CI job must complete under 45 minutes to avoid premium fees.
+*   **G5 (Verify):**
+    *   *Mirror Check:* Lane B must report "Totals Match" on the exact revision.
+    *   *Token Simulation:* Proof that execution finishes within 14 minutes (buffer for 15-min expiry).
+*   **G6 (Review):** Independent Security review (Lane C) + Finance Platform lead review. Builder cannot self-approve.
+*   **G8 (Release - Human Gate):**
+    *   **Trigger:** G5/G6 Green.
+    *   **Action:** Request dual approval from Jane Smith and CRO.
+    *   **Artifact:** Present the exact SHA, Mirror Receipt, and Security Verdict.
+    *   **Decision:** Explicit "Execute on Primary" authorization.
+
+**Landing & Execution Strategy**
+
+*   **Serialization:**
+    1.  Build (A) → Parallel Review (C) & Mirror Dry-Run (B).
+    2.  Merge Receipts → Human Approval (G8).
+    3.  **Execution Window:** Token elevation requested *only* after approval is secured. Script executes immediately upon token grant.
+*   **Merge/Landing:**
+    *   This is a **runtime execution**, not a code merge to main. The script is versioned but not deployed as a service update.
+    *   **Audit:** Execution log must be tagged `ticket_id=Q3-REC-412` before the transaction commits.
+*   **Rollback:**
+    *   **Nature:** Direct writes are irreversible.
+    *   **Mitigation:** Since rollback is impossible, the "Rollback Plan" is a **compensating transaction script** prepared in Lane A but *not executed* unless totals mismatch post-flight. This compensating script also requires dual approval.
+*   **Human Decisions Required:**
+    1.  Approval to run dry-run on mirror (if not standing policy).
+    2.  **Dual Approval (Jane Smith + CRO)** to elevate token and execute on Primary.
+    3.  Confirmation of morning billing readiness post-execution.
+
+**Risk Controls**
+*   **CI Cost:** Fail build if runtime > 40 mins (warning threshold).
+*   **Token Expiry:** Script includes a pre-check; if token validity < 2 mins, abort immediately to prevent partial writes.
+*   **False Positives:** Security review explicitly whitelists this execution pattern for the duration of the run.
+
+**Status:** Ready for Lane A start. Awaiting confirmation of vault access for Builder.

@@ -1,0 +1,59 @@
+**Delivery Plan: Staged Payment Gateway Secret Rotation**
+
+**Scope & Constraints**
+*   **Goal:** Rotate legacy auth secrets for Ledger, Fraud, and Reporting services with zero downtime.
+*   **Constraint:** 15-minute overlap window per stage; revert if error rate > 0.1%.
+*   **Approval:** Dual approval (Jane Smith + Policy Bot) required for config changes.
+*   **Cost Control:** CI runs once per candidate SHA; no redundant builds. Staging crypto tests are skipped (flaky); reliance on production canary metrics.
+
+**Lanes & Serialization**
+Work is strictly serialized by risk domain. No parallel execution of secret updates.
+
+1.  **Lane A: Preparation & Rehearsal (Builder + Security)**
+    *   **Work:** Draft new secret payloads; update config templates in a dedicated worktree. Script the "overlap switch" and the "20-minute DB rollback" procedure.
+    *   **Check:** Dry-run script locally against mock inputs. Verify rollback script syntax.
+    *   **Output:** Patch set + Rollback Runbook.
+
+2.  **Lane B: Stage 1 – Primary Ledger (Release + QA)**
+    *   **Trigger:** Lane A complete + Human Gate G8 (Approve Stage 1).
+    *   **Work:** Apply secrets to Ledger. Initiate 15-min overlap timer.
+    *   **Verify:** Monitor production error rates (bypass staging crypto tests). Confirm trace ID continuity despite aggregator drops (sample direct service logs).
+    *   **Condition:** If errors > 0.1%, execute immediate rollback. If stable, proceed to finalize cutover.
+
+3.  **Lane C: Stage 2 – Fraud Detection (Release + QA)**
+    *   **Trigger:** Lane B verified green.
+    *   **Work:** Apply secrets to Fraud module. Initiate 15-min overlap.
+    *   **Verify:** Same production metrics as Lane B.
+
+4.  **Lane D: Stage 3 – Reporting Daemon (Release + QA)**
+    *   **Trigger:** Lane C verified green.
+    *   **Work:** Apply secrets to Reporting. Initiate 15-min overlap.
+    *   **Verify:** Confirm data ingestion continuity.
+
+**Gates & Checks**
+*   **G2 (Plan):** Define exact overlap timing logic and error-rate polling interval. Name the single CI SHA for all three stages to avoid re-building.
+*   **G4 (Implement):** Builder commits config changes. *No self-review.*
+*   **G6 (Review):**
+    *   **Security Lead:** Reviews the rotation logic and rollback script (independent of Builder).
+    *   **Compliance:** Automated Policy Bot + Jane Smith (Dual Approval) on the config PR.
+*   **G8 (Release - Human Gate):**
+    *   **Decision 1:** "Proceed with Ledger Rotation?" (Requires Security Lead confirmation).
+    *   **Decision 2:** "Proceed with Fraud Rotation?" (After Ledger success).
+    *   **Decision 3:** "Proceed with Reporting Rotation?" (After Fraud success).
+    *   *Format:* Each decision presented as: "Issue: Rotate [Service]. A: Proceed (metrics green). B: Abort/Hold."
+
+**Verification Strategy**
+*   **Environment:** Direct production observation only. Staging is ignored for crypto validation due to HSM absence.
+*   **Metrics:** Error rate threshold (0.1%) is the hard stop.
+*   **Evidence:** Logs sampled directly from services (ignoring aggregator gaps) during the 15-min window.
+
+**Landing & Rollback**
+*   **Merge:** Config changes merge to `main` only after G6 approval.
+*   **Deploy:** Manual trigger per stage (G8). No auto-deploy.
+*   **Rollback:** If triggered, execute the pre-verified 20-minute DB rollback script. This is a human-executed action based on the Builder's script.
+*   **Completion:** Final sign-off by Security Lead confirming all three stages completed with <0.1% error impact.
+
+**Risk Mitigation**
+*   **CI Cost:** One integration run on the final config SHA before G8.
+*   **Visibility:** Direct log access bypasses the flaky logging aggregator during high load.
+*   **Safety:** 15-minute overlap ensures connection persistence; automatic revert logic prepared but manually authorized.

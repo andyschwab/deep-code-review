@@ -1,0 +1,57 @@
+**Delivery Plan: Enforce Tenant Isolation in Shared Query Layer**
+
+**Scope & Constraints**
+Modify the central query handler to mandatorily inject tenant IDs into all read operations. Existing unit tests must pass without assertion changes (mock data compatibility required). Zero downtime deployment via gradual rollout. Audit logs must capture injected IDs. No direct database access; Senior Platform Engineer approval required for merge.
+
+**Lanes & Parallelism**
+
+*   **Lane 1: Core Logic Implementation (Builder)**
+    *   **Work:** Modify the central query handler to intercept read operations and inject the tenant identifier from the current context. Implement a "bypass-proof" mechanism ensuring downstream services cannot override this injection.
+    *   **Constraint:** Must maintain backward compatibility with existing mock data structures to satisfy unchanged unit test assertions.
+    *   **Parallelism:** Can run parallel to Lane 2, but must finish before Lane 3.
+
+*   **Lane 2: Audit & Compliance Verification (QA/Security)**
+    *   **Work:** Instrument audit logging to capture the injected tenant ID for every query. Define the log schema for compliance review.
+    *   **Parallelism:** Independent of Lane 1's internal logic, but requires Lane 1's output to verify end-to-end flow.
+
+*   **Lane 3: Gradual Rollout Strategy (Release/DevOps)**
+    *   **Work:** Design the feature flag or canary configuration to enable the new logic gradually across the twelve microservices. Define the "kill switch" for immediate reversion.
+    *   **Serialization:** Must wait for Lane 1 & 2 to prove functional correctness before finalizing the rollout script.
+
+**Gates & Checks**
+
+*   **G1 Spec Freeze:** Confirm exact mock data behavior to ensure unit tests remain green. Define the "mandatory injection" interface.
+*   **G4 Implementation (Local Worktree):**
+    *   **Check:** Run local unit tests (fast, no DB). Verify mock data assertions pass unchanged.
+    *   **Check:** Static analysis to prove no code path allows bypassing the injection.
+*   **G5 Verification (Staging/Exact SHA):**
+    *   **Check:** Deploy to a staging environment mirroring production read-only constraints.
+    *   **Check:** Verify audit logs contain correct tenant IDs for sample queries.
+    *   **Check:** Run integration tests. *Note:* Ignore network latency flaky failures if logs confirm success; do not re-run unless logs indicate actual failure.
+    *   **Cost Control:** Run the full 45-minute CI regression suite **once** on the candidate SHA only after local green. Do not re-run on merge unless the SHA changes.
+*   **G6 Review (Independent):**
+    *   **Reviewer:** Senior Platform Engineer (Security focus).
+    *   **Input:** Exact SHA from G5, audit log samples, proof of mandatory injection.
+    *   **Constraint:** Builder cannot self-approve. Review must happen on the immutable SHA, not a branch tip.
+
+**Landing & Human Gates**
+
+*   **Merge Strategy:**
+    1.  Builder opens PR with G5 evidence.
+    2.  **Human Gate:** Senior Platform Engineer performs manual security review and approves merge.
+    3.  Merge to integration branch (not directly to main if a train is used).
+    4.  Run final integration gate on the merged SHA.
+*   **Deployment:**
+    *   **Human Gate:** Senior Platform Engineer authorizes the gradual rollout start.
+    *   Execute rollout via Lane 3's feature flag mechanism. Monitor audit logs during the canary phase.
+*   **Rollback:**
+    *   **Critical:** Reverting requires a full database snapshot restore, which is irreversible for data written post-snapshot.
+    *   **Mitigation:** The "kill switch" in Lane 3 must disable the new logic instantly without a code revert if data leakage is detected. A full snapshot restore is the last resort only if the kill switch fails.
+
+**Risk Management**
+*   **Data Leakage:** If injection fails, the kill switch disables the feature; no partial data is exposed.
+*   **CI Cost:** Strictly limit full regression runs to one per candidate SHA.
+*   **Race Conditions:** Ensure no writes to the shared configuration file occur during business hours; lane execution respects this lock.
+
+**Completion Criteria**
+Audit logs show correct tenant IDs for 100% of sampled queries in staging; unit tests pass locally; Senior Engineer approves merge; gradual rollout initiated with monitoring active.

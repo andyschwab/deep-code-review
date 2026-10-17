@@ -1,0 +1,27 @@
+### Delivery Plan: Payment Gateway Flag Service Migration
+
+**Lanes & Parallelism**
+*   **Lane A (Core Logic):** Implement the dynamic flag fetching client, local caching strategy, and the dual-read logic (Flag Service priority, Env Var fallback). This lane owns the `Payment Gateway` service code.
+*   **Lane B (Infrastructure & Config):** Prepare the staging Flag Service configuration and define the default cache values. This lane operates in parallel with Lane A but must complete before integration testing.
+*   **Lane C (Validation):** Develop isolated unit tests for the fallback logic and timeout handling. This runs parallel to Lane A development but requires Lane A's interface to be frozen for integration.
+
+**Serialization Constraints**
+Lane A must complete the dual-read implementation before Lane C can execute full integration tests. Lane B's configuration must be applied to the shared staging environment only during an approved maintenance window due to the shared database cluster with QA.
+
+**Gates & Checks**
+*   **Gate 1 (Local Verification):** Before any push, Lane A must verify the service starts correctly with no network access, proving the local cache defaults function.
+*   **Gate 2 (CI Pipeline):** Run on commit `HEAD` of the feature branch. Due to the 22-minute cost and Friday flakiness, this gate must be triggered manually on weekdays. A passing run requires the flaky timeout check to pass twice consecutively to rule out load-induced false negatives.
+*   **Gate 3 (Staging Integration):** Deploy to staging only after Data Governance approves the maintenance window. Verification requires confirming that toggling 'express-checkout' in the Flag Service updates the gateway without a redeploy, while the legacy env var still functions if the service is unreachable.
+
+**Review Process**
+*   **Code Review:** Conducted by a Senior Engineer independent of Lane A. This reviewer must verify that the shared configuration library version remains unchanged and that no schema changes were introduced.
+*   **Compliance Review:** A separate review by the Compliance Officer focused strictly on the audit trail of flag changes and the integrity of the fallback mechanism. This occurs after CI passes but before the final merge request approval.
+
+**Landing Strategy**
+*   **Merge Condition:** The branch merges to `main` only after both Engineering Director and Compliance Officer sign off on the staging validation report.
+*   **Deployment:** The deployment is a standard release; no database migration is required. The system will run in "dual-read" mode immediately upon deploy.
+*   **Human Decision Point:** The final cutover (disabling legacy env vars) is explicitly out of scope for this ticket and scheduled for next month. This ticket lands only the capability and the backward-compatible bridge.
+*   **Rollback:** Since production deployments are irreversible without a full procedure, the rollback plan involves reverting the git commit and triggering the standard emergency redeploy pipeline. This requires immediate notification to the Engineering Director. If the Flag Service causes latency spikes, the fallback logic must be verified to engage automatically; if it does not, the rollback is mandatory.
+
+**Risk Mitigation**
+To avoid the Friday flaky check, all CI validations for this ticket must be completed by Thursday EOD. If the staging environment is blocked by QA usage, Lane B must wait; do not attempt to force a config change on the shared cluster without explicit coordination.

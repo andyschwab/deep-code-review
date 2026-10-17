@@ -1,0 +1,45 @@
+### Delivery Plan: BillingCycle → SubscriptionTerm Rename
+
+**Strategy:** Parallel discovery and renaming with serialized integration and strict human gating for compliance.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Discovery & Mapping) [Conductor]:** Scan the codebase to generate a definitive manifest of all 200+ files. Identify usage in the shared configuration file to ensure backward compatibility aliases are added. *Output: Rename Manifest.*
+*   **Lane B (Backend & API Refactor) [Builder 1]:** Execute renaming in backend logic and API contracts using the manifest. Isolated worktree.
+*   **Lane C (Docs & Logs Refactor) [Builder 2]:** Execute renaming in error messages, log outputs, and comments. Isolated worktree.
+*   **Lane D (Migration Script Prep) [Builder 3]:** Update migration scripts to reflect new naming in comments/identifiers only (no schema alteration). Prepare local dry-run validation script.
+*   **Serialization Point:** Lanes B, C, and D run in parallel. They must merge into a single integration branch only after Lane A confirms the manifest is complete and the shared config strategy is defined.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Freeze the "Rename Manifest" from Lane A. Pin base SHA before any edits.
+*   **G4 Implement:** Each builder commits to their isolated worktree. No direct edits to the release branch.
+*   **G5 Verify (Local):**
+    *   Run migration dry-runs locally against a production mirror copy (mandatory before any CI).
+    *   Build all services locally to catch immediate breakage.
+*   **G5 Verify (CI):** Trigger full regression suite on the integrated SHA.
+    *   *Mitigation:* If the known flaky network check fails, flag for admin retry immediately; do not treat as a code failure.
+*   **G6 Review:**
+    *   **Code Review:** Tech Lead reviews the integrated diff (independent of Builders).
+    *   **Compliance Review:** Compliance Officer verifies terminology alignment in user-facing strings and logs.
+
+#### 3. Review Independence
+*   Builders (B, C, D) do not review each other's code.
+*   The Tech Lead performs the technical audit.
+*   The Compliance Officer performs the domain audit.
+*   Both must approve independently before merge consideration.
+
+#### 4. Landing & Human Decisions
+*   **Integration:** Once G6 is green, create a single commit on the integration branch containing all changes.
+*   **Human Gate (Dual Approval):**
+    *   **Decision 1:** Tech Lead approves the technical integrity and backward compatibility of the shared config.
+    *   **Decision 2:** Compliance Officer approves the regulatory alignment.
+    *   *Constraint:* Neither approval is valid alone; both are required to merge.
+*   **Merge Strategy:** Cherry-pick the integrated commit onto the v4.2 release branch.
+*   **Rollback Plan:**
+    *   If post-merge issues arise, revert the specific cherry-pick commit immediately.
+    *   Since no data structure changed, no database rollback is needed.
+    *   Restore the previous shared config version if compatibility breaks in downstream microservices.
+
+**Risk Controls:**
+*   **CI Cost:** Local dry-runs and builds are mandatory to prevent wasting credits on broken CI runs.
+*   **Freeze Violation:** Work occurs entirely in feature worktrees; the release branch is touched only at the final cherry-pick.
+*   **Shared Config:** Explicit backward-compatibility aliases must be verified in Lane A before Lane B begins.

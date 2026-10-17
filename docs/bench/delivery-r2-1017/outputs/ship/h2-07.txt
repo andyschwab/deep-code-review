@@ -1,0 +1,50 @@
+**Delivery Plan: Prevent Duplicate Invoice Emails**
+
+**Lanes & Serialization**
+*   **Lane 1: Root Cause Analysis (Conductor/Product Analyst).** Analyze logs from last Tuesday's run to confirm the timeout-retry collision pattern. Define the exact idempotency key schema (e.g., `invoice_id + cycle_date`). *Parallel.*
+*   **Lane 2: Implementation (Builder).** Modify the billing service logic:
+    1.  Generate/check idempotency key before API call.
+    2.  Update DB status to "sending" *before* the API call, not after.
+    3.  Handle API timeouts without re-triggering send if status is "sending".
+    *Worktree:* Isolated branch `fix/duplicate-invoices`. *Parallel.*
+*   **Lane 3: Verification Data Prep (QA).** Extract last month's lower-env data snapshot. Script a simulation of the 01:55–02:05 UTC flaky window behavior. *Serial (depends on Lane 1 schema).*
+*   **Lane 4: Simulation & Regression (QA).** Run the fix against the snapshot using the quick-check suite. Verify zero duplicates under simulated timeout conditions. *Serial (depends on Lane 2 & 3).*
+
+**Gates & Checks**
+*   **G1 Spec:** Confirm idempotency key uniqueness constraints with DBA. Pin base SHA before coding.
+*   **G2 Plan:** Validate that the "sending" state prevents race conditions. Set lane budget caps.
+*   **G4 Implement:** Unit tests for the new state machine transitions. Code must include the idempotency check.
+*   **G5 Verify:**
+    *   **Local:** Builder runs unit tests.
+    *   **Lower Env:** QA runs the simulated batch against last month's data. **Success Criterion:** 0 duplicate emails sent; all legitimate retries succeed after the flaky window.
+    *   **Revision:** All checks run on the exact commit SHA from Lane 2.
+*   **G6 Review:**
+    *   **Code Review:** Senior Payments Engineer (independent of Builder).
+    *   **Security/Logic:** Finance Ops Manager verifies the idempotency logic prevents financial discrepancy.
+*   **G7 Integrate:** Merge to release candidate branch. Run full regression suite (cost accepted here as it is a release candidate).
+
+**Review Independence**
+*   The Builder (Lane 2) cannot approve their own code.
+*   QA (Lane 4) verification must be signed off by someone other than the Builder.
+*   Finance Ops approval is mandatory for logic changes affecting customer billing communications.
+
+**Landing & Human Gates**
+*   **Merge Strategy:** Merge to `release-candidate` first. Do not merge directly to `main`.
+*   **Human Decisions Required:**
+    1.  **Team Lead:** Approves the code merge to `release-candidate` after G6.
+    2.  **Finance Ops Manager:** Approves the deployment to Production after verifying G5 lower-env results.
+*   **Rollback Plan:**
+    *   **Pre-deploy:** Since "completed" batches cannot be auto-reverted, the rollback is a **feature flag toggle** or **config switch** to disable the new retry logic immediately if unexpected behavior occurs in production.
+    *   **Post-deploy:** If duplicates occur, manually pause the nightly cron job. Refund/communicate with affected customers via Support (no code rollback can un-send emails).
+    *   **Code Revert:** Revert the merge commit if the logic proves flawed, but this does not fix already-sent duplicates.
+
+**Execution Order**
+1.  Start Lane 1 & 2 immediately.
+2.  Once Lane 1 defines the key schema, start Lane 3.
+3.  Once Lane 2 commits and Lane 3 preps data, start Lane 4.
+4.  Upon Lane 4 success, trigger G6 Review.
+5.  Upon approval, request Human Gate 1 (Merge), then Human Gate 2 (Deploy).
+
+**Risk Mitigation**
+*   The flaky API window is the primary trigger; the fix must specifically handle timeouts during 01:55–02:05 UTC without duplicating work.
+*   Full CI ($150) is deferred until the release candidate stage to save costs, relying on the quick-check suite for initial lane validation.

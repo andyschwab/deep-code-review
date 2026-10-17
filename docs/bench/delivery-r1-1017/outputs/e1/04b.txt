@@ -1,0 +1,54 @@
+### Delivery Plan: Telemetry SDK Swap (DataFlow → StreamPulse)
+
+**Objective:** Replace DataFlow SDK with StreamPulse across mobile/web before Nov 30, ensuring zero data gaps and audit compliance.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Core Config & Backend):** Update `global-telemetry.json` to support dual-mode (legacy + new) or backward-compatible schema. Implement consent flag logic.
+    *   *Constraint:* Must maintain compatibility for the three other microservices.
+    *   *Parallel:* Yes, independent of client builds.
+*   **Lane B (Web Client):** Remove DataFlow imports, integrate StreamPulse SDK, map consent flags.
+*   **Lane C (Mobile Client):** Remove DataFlow imports, integrate StreamPulse SDK, map consent flags.
+    *   *Serialization:* Lanes B and C run in parallel but must wait for Lane A's config schema to be finalized (G3) before implementation (G4).
+*   **Lane D (Data Migration):** Adapt historical migration scripts for staging.
+    *   *Constraint:* Staging lacks license keys; scripts must be verified logically or in a local mock environment before staging promotion.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define exact consent flag schema and `global-telemetry.json` contract. Pin base SHA.
+*   **G3 Design:** ADR confirming backward compatibility strategy for the three dependent microservices.
+*   **G4 Implement:**
+    *   Code changes in isolated worktrees (one per lane).
+    *   Unit tests for consent logic and config parsing.
+*   **G5 Verify (Staging):**
+    *   **Revision:** Exact merged SHA of Lane A+B+C+D.
+    *   **Action:** Deploy to staging. Run migration scripts.
+    *   **Check:** Verify packet delivery logs (ignore known flaky network check if logs confirm delivery).
+    *   **Gap Analysis:** Run parallel traffic simulation to ensure no data loss during the transition week logic.
+*   **G6 Review:**
+    *   **Reviewer:** Independent Senior Engineer (not from Growth Engineering).
+    *   **Security:** Security Lead reviews consent flag implementation and encryption module usage.
+    *   **Scope:** Full diff against pinned base SHA.
+
+#### 3. Review Strategy
+*   **Code:** Independent review required for all lanes. Builder never reviews own code.
+*   **Security:** Mandatory sign-off on consent flags and encryption handling.
+*   **Compliance:** Verify Q4 audit trail requirements are met in the new SDK configuration.
+
+#### 4. Landing & Human Gates
+*   **Integration:** Merge Lanes A, B, C, D into a single integration branch. Run one final CI pipeline ($45 cost, 28 mins) on this exact SHA.
+*   **Human Approval (G8):**
+    *   **Required Approvers:** Jane Smith AND Security Lead (Dual approval mandatory).
+    *   **Decision Point:** Approval to push to production.
+*   **Deployment:**
+    *   **Method:** Irreversible push. No partial rollouts.
+    *   **Rollback:** If failure occurs, full rollback to previous daily snapshot is the only recovery path.
+*   **Post-Deploy (G9):**
+    *   Monitor live traffic logs immediately for packet delivery.
+    *   Confirm consent flags are firing correctly in production.
+
+#### 5. Risk Mitigation
+*   **Flaky Check:** Explicitly documented to ignore network layer flakiness if packet delivery logs are positive.
+*   **Staging Limits:** Migration scripts verified via dry-run/mock before staging due to missing license keys.
+*   **Cost Control:** Limit CI runs to one per candidate SHA; no retries unless code changes.
+*   **Deadline:** Hard stop Nov 30. Buffer built into G5/G6 for unexpected integration issues.
+
+**Next Step:** Await owner confirmation on the consent flag schema (G1) to begin Lane A work.

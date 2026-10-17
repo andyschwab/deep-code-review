@@ -1,0 +1,48 @@
+### Delivery Plan: Nightly Data Sync Schedule Adjustment
+
+**Objective:** Shift sync job from 02:00 UTC to 04:30 UTC to eliminate database lock contention with Finance ledger consolidation, verified in lower environments before production rollout.
+
+#### Lanes & Parallelism
+
+**Lane 1: Specification & Approval (Serial, Pre-Work)**
+*   **Actor:** Conductor + Product Analyst
+*   **Work:** Draft change request detailing the 04:30 UTC shift and impact analysis (later data availability for dashboards). Submit explicit approval request to Platform Lead and Finance Director via the change management portal.
+*   **Constraint:** Cannot proceed to code modification until both approvals are secured.
+
+**Lane 2: Implementation (Parallel to Lane 1's waiting period, blocked on approval for merge)**
+*   **Actor:** Builder
+*   **Work:** Modify `global-cron.yaml` in a dedicated worktree. Change cron expression from `0 2 * * *` to `30 4 * * *`. Add a comment referencing the ticket and collision avoidance logic.
+*   **Constraint:** Requires clean base SHA. No other writers in this worktree.
+
+**Lane 3: Lower Environment Verification (Serial, post-Implementation)**
+*   **Actor:** QA
+*   **Work:** Deploy change to staging. Trigger manual sync or wait for next scheduled run. Verify data completeness in reporting dashboards despite the later timestamp. Confirm no downstream breaks.
+*   **Constraint:** Staging uses scaled-down data; verification focuses on data integrity and dashboard rendering, not lock contention simulation.
+
+#### Gates & Checks
+
+*   **G0/G1 (Intake/Spec):** Completed via Lane 1. Output: Approved change request with pinned base SHA.
+*   **G2 (Plan):** This plan. Budget: 1 CI run per candidate SHA (45 mins).
+*   **G3 (Design):** Implicit in `global-cron.yaml` modification; no new interfaces.
+*   **G4 (Implement):** Builder commits patch. CI pipeline triggers automatically (45 min regression).
+*   **G5 (Verify):** QA validates staging behavior. Exit criteria: Dashboards render correctly with T+4:30 data.
+*   **G6 (Review):** Independent review by Security/Platform Engineer (not the Builder). Checks: Cron syntax, approval artifacts attached, CI green.
+*   **G7 (Integrate):** Merge to integration branch upon G6 pass.
+*   **G8 (Release):** Human-gated deployment during Tuesday/Thursday 06:00–08:00 UTC window.
+
+#### Review Strategy
+
+*   **Code Review:** Performed by a Platform Engineer independent of the Builder. Focus: Syntax correctness, comment clarity, adherence to ops-config standards.
+*   **Approval Verification:** Conductor verifies that Platform Lead and Finance Director approvals are attached to the PR before merge.
+*   **QA Sign-off:** QA provides explicit receipt of staging verification (dashboard screenshots or data checksums) before G6 completes.
+
+#### Landing & Rollback
+
+*   **Merge Strategy:** PR merges only after CI green, approvals present, and QA receipt attached. Merge triggers deployment pipeline but respects the Tuesday/Thursday 06:00–08:00 UTC window. If merged outside this window, deployment stalls automatically until the next slot.
+*   **Human Decision:** Final deployment approval required from Release Manager within the maintenance window.
+*   **Rollback Plan:** If dashboards fail or data integrity issues arise post-deploy:
+    1.  Revert `global-cron.yaml` to `0 2 * * *` immediately.
+    2.  Trigger emergency deployment (bypasses standard window if critical data loss detected).
+    3.  Notify Finance and Dashboard teams of temporary reversion.
+
+**Risk Note:** Staging cannot perfectly replicate production lock contention. Success relies on the logical separation of time windows (04:30 start vs. Finance's end time) rather than load testing. Monitoring of the first two production runs is mandatory.

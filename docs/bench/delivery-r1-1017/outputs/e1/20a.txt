@@ -1,0 +1,61 @@
+**Delivery Plan: Inventory Sync Conflict Resolution**
+
+**Scope & Constraints**
+Target: Mobile scanner app sync logic.
+Constraints: No DB schema changes (legacy coupling), no workflow blocking, 50+ concurrent syncs, irreversible deploy (high caution).
+Owner: Jordan Lee (Warehouse Mobility). Final Deploy Approval: Operations Director.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Conflict Detection Engine (Builder)**
+    *   **Work:** Implement vector clock or timestamp-based collision detection in the sync layer. Logic must flag "Local Edit vs. Server Edit" without altering the database schema.
+    *   **Parallel:** Can run independently of UI work.
+    *   **Output:** Headless service module with unit tests for collision scenarios.
+
+2.  **Lane B: Resolution UI Integration (Builder)**
+    *   **Work:** Build non-blocking prompt in the scanner interface. Displays conflict details (Local Value, Server Value, Last Modified) and offers "Keep Local," "Keep Server," or "Manual Merge."
+    *   **Dependency:** Must wait for Lane A's interface definition.
+    *   **Output:** UI component with mock-data integration tests.
+
+3.  **Lane C: Load & Stability Verification (QA)**
+    *   **Work:** Stress test the sync engine with 50+ simultaneous simulated agents. Verify memory stability on device emulators.
+    *   **Dependency:** Requires Lane A merged.
+    *   **Serialization:** Cannot start until Lane A passes unit tests.
+
+**Gates & Checks**
+
+*   **G1 Spec (Now):** Define acceptance criteria: "Conflict detected within 200ms of sync start," "UI prompt renders without freezing scanner," "Zero data loss in 50-agent simulation." Pin base SHA.
+*   **G2 Plan:** Confirm no DB schema changes. Define token budget for CI runs (limit to essential suites).
+*   **G3 Design:** ADR confirming the conflict algorithm (e.g., Last-Writer-Wins with User Override) and data flow.
+*   **G4 Implement:**
+    *   Lane A & B commit to isolated worktrees.
+    *   **Check:** Local unit tests only. No CI yet.
+*   **G5 Verify (Exact Revision):**
+    *   **Local Stack:** Run Lane C's load test on the merged candidate SHA.
+    *   **CI Trigger:** Run *only* the critical path suite (avoid full regression to save credits).
+    *   **Flake Handling:** If the network simulation module fails on a Tuesday, mark as "Known Flake" and proceed if other gates are green. Do not re-run unnecessarily.
+    *   **UI Proof:** Evidence of the prompt appearing on the exact route after a simulated conflict.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Engineer (independent of Builder).
+    *   **Focus:** Logic correctness, memory safety, and adherence to "no schema change" rule.
+    *   **Security:** Verify no PII leakage in conflict logs.
+*   **G7 Integrate:** Merge to `staging` branch. Run one final integration build.
+
+**Landing & Human Gates**
+
+*   **Merge Strategy:** Train land to `staging`. No direct to `main`.
+*   **Human Decision (G8 Release):**
+    *   **Approver:** Operations Director.
+    *   **Action:** Manual sign-off required before OTA propagation.
+    *   **Briefing:** Present "Before/After" sync logs and load test receipts. Explicitly state: "Deploy is irreversible."
+*   **Rollback:**
+    *   **Constraint:** Reverting is impossible once devices sync.
+    *   **Mitigation:** Feature flag the conflict resolver. If critical issues arise post-deploy, disable the feature remotely to revert to "overwrite" behavior (previous state) until a fix is ready.
+*   **Post-Deploy (G9):** Monitor sync error rates for 24 hours.
+
+**Risk Management**
+*   **Irreversibility:** The feature flag is mandatory. Without it, we cannot ship.
+*   **CI Cost:** Limit full regression to the final pre-deploy SHA only.
+*   **Data Integrity:** QA must verify that "Manual Merge" correctly calculates the final stock count.
+
+**Next Step:** Await confirmation of the base SHA and feature flag infrastructure status to begin G1 Spec.
