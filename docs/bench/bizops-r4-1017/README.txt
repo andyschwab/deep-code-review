@@ -18,3 +18,9 @@ What would be needed to ship a win: a SKILL.md that changes the output shape (an
 Caveats: generator, writer and judges are open models on one cluster (not the models users run); both arms are system-prompt only, without references; sampling is unseeded so a re-run differs (earlier rounds moved about 0.1); best-of-several on n=10 tune overfits; GLM and MiniMax lean to slot 1 (slot-1 rates in results/*.json), which is why only both-order agreement counts; the rival is a pricing skill answering questions outside its remit, so this measures answer-first helpfulness, not safety.
 
 Reproduce: python3 -I bench.py run business-ops ARM SPLIT (ARM v0, a, b, c or d; SPLIT tune or heldout); needs PCSS_KEY in the environment or the repo-root .env and prompts/rival_business-ops.txt (sha256 in SHA256-frozen.txt; the same file is committed under docs/bench/exec-1017/prompts). python3 -I mkvariants.py rebuilds the arm prompts from SKILL.md.
+
+Review notes (added after independent review):
+- This bench has no call ledger with timestamps, so the claim that the preregistration and addenda were frozen before held-out generation rests on the committed hashes and the prose, not on call order.
+- SHA256-frozen-addendum-1.txt hashes PREREGISTERED-ADDENDUM-1.md before its Selection section was appended; the hash of the final file is in SHA256-selection.txt.
+- "17 of 28 losses defer" comes from a keyword scan of the posbiz-r3 judge records; depending on the pattern used it ranges from 16 to 18. No script for it is committed.
+- Rival license: MIT, notice at ../growth-analytics-rubricfree-1016/LICENSE.rival.txt (same upstream repository and commit as the rival prompt used here).
