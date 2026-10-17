@@ -88,8 +88,17 @@ try:
     (new / "ledger.jsonl").write_text(led)
     assert errs(root, new) == []
     # b. late append: lines added to SHA256-frozen.txt after the prereg hash was logged
-    (new / "SHA256-frozen.txt").write_text(f"{'0' * 64}  PREREGISTERED.md\n{'1' * 64}  amended.txt\n")
+    appended = f"{'0' * 64}  PREREGISTERED.md\n{'1' * 64}  amended.txt\n"
+    (new / "SHA256-frozen.txt").write_text(appended)
+    assert any("not in any later ledger event" in e for e in errs(root, new))  # appended line is uncovered
+    cover = json.dumps({"event": "frozen", "files": {"amended.txt": "1" * 64}})
+    (new / "ledger.jsonl").write_text(led + cover + "\n")  # later event carries the line's hash
     assert errs(root, new) == []
+    (new / "ledger.jsonl").write_text(lines[0] + "\n" + cover + "\n" + lines[1] + "\n")
+    assert errs(root, new) == []  # any event after the prereg counts, in or after generation
+    (new / "ledger.jsonl").write_text(cover + "\n" + led)  # covering event before the prereg does not
+    assert any("not in any later" in e or "not earlier" in e for e in errs(root, new))
+    (new / "ledger.jsonl").write_text(led)
     (new / "SHA256-frozen.txt").write_text(f"{'1' * 64}  amended.txt\n{'0' * 64}  PREREGISTERED.md\n")  # first line changed
     assert any("no preregistered event" in e for e in errs(root, new))
     (new / "SHA256-frozen.txt").write_text(f"{'0' * 64}  PREREGISTERED.md\n")
@@ -112,6 +121,33 @@ try:
     (new / "ledger.jsonl").write_text(led + "{broken\n")
     assert any("comparable" in e for e in errs(root, new))
     (new / "ledger.jsonl").write_text(led)
+    assert errs(root, new) == []
+
+    # a. scenario files: results files are not scenario files; a prereg-named file is
+    (new / "per_scenario_results.json").write_text(json.dumps({"tune": 1}))
+    (new / "scenarios_notes.json").write_text("[]")
+    assert any("scenarios_notes.json is not" in e for e in errs(root, new))
+    (new / "scenarios_notes.json").unlink()
+    assert errs(root, new) == []
+    (new / "PREREGISTERED.md").write_text("Scenarios file: cases.json\nSee SHA256-frozen.txt.\n")
+    (new / "cases.json").write_text("{}")
+    assert any("cases.json is not" in e for e in errs(root, new))
+    (new / "cases.json").write_text(json.dumps([{"id": "tune-9", "prompt": W(30, "e")}, {"id": "held-9", "prompt": W(30, "f")}]))
+    assert errs(root, new) == []  # one file, split by id
+    (new / "cases.json").write_text(json.dumps([{"id": "x", "split": "tune", "prompt": W(30, "e")}, {"id": "x", "split": "held", "prompt": W(30, "f")}]))
+    es = errs(root, new)
+    assert any("both tune and held" in e for e in es) and any("cases.json repeats scenario id x" in e for e in es)
+    (new / "cases.json").write_text(json.dumps([{"id": "d1", "prompt": W(30, "e")}, {"id": "d1", "prompt": W(30, "f")}]))
+    assert any("repeats scenario id d1" in e for e in errs(root, new))
+    (new / "cases.json").unlink()
+    (new / "PREREGISTERED.md").write_text("See SHA256-frozen.txt.\n")
+    # d. held scenario copied from the bench's own tune set
+    (new / "scenarios_held.json").write_text(json.dumps([{"id": "h1", "prompt": W(30, "c")}]))
+    assert any("its own tune set" in e for e in errs(root, new))
+    (new / "overlap-allow.txt").write_text(W(30, "c") + "\n")
+    assert errs(root, new) == []
+    (new / "overlap-allow.txt").unlink()
+    (new / "scenarios_held.json").write_text(json.dumps([{"id": "h1", "prompt": W(30, "d")}]))
     assert errs(root, new) == []
 
     # c. prereg doc naming a missing hash file
