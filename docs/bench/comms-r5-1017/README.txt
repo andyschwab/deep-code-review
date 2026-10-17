@@ -21,3 +21,9 @@ Deviations
 Limits: one generator family, judges not Claude, scenarios written by a model, regex-level fabrication proxy, the skill is written for Claude. The held-out result is evidence for this host and judge set only. The round-4 diagnosis (../comms-r4-1017/DIAGNOSIS.md) remains a hypothesis: this round did not confirm that adding a decision-brief mode closes the gap on these judges.
 
 Reproduce: from the repo root, with PCSS_KEY in the environment, `cd docs/bench/comms-r5-1017 && python3 mk_arms.py` (refuses to overwrite), then `SPLIT=held python3 bench5.py report E2 --base V0` replays the cached verdicts offline.
+
+Review notes (independent review of PR #1644; headline numbers recomputed exactly from the judge files):
+- This round has no ledger.jsonl. The preregistration rests on SHA256-frozen.txt; the bench5.py change made before the held-out
+  run is recorded in SHA256-amend.txt. The "$0 spend, no Claude calls" statement rests on the lane's own account, not on a log.
+- PREREGISTERED.md describes the candidate as "V0 plus a section". Candidate E2 also rewrites two existing V0 sentences (the
+  exception clause). The edit was reverted, so this changes no shipped text.
