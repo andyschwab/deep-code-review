@@ -10,6 +10,7 @@ mutation of changed code that no test caught. Never installs anything. If no too
 prints COULD_NOT_CHECK with the install hint and exits 0. Exit 1 only with --strict and findings (SURVIVED or NOT_COVERED).
 A survivor matching a known equivalent-mutant shape (codec alias, falsy flag kwarg, tail `break`->`return`, a
 constant only ever raised, strip set gaining only X on lowercased data) prints LIKELY_EQUIVALENT instead and is never counted.
+This filter is a heuristic, tuned in-sample, unproven on fresh data; advisory.
 Side effects: the tools write their own caches (.mutmut-cache, .stryker-tmp, reports/mutation).
 """
 import argparse, ast, json, os, re, signal, subprocess, sys, tempfile, time
@@ -75,8 +76,10 @@ def parse_mutmut_show(text):
     return None
 
 
-FLAG_KW = ("last", "reverse", "flush", "exist_ok")  # stdlib kwargs that only test truthiness: False -> None changes nothing
+# stdlib callees whose kwarg only tests truthiness: False -> None changes nothing (anchored: other callees may test `is False`)
+FLAG_KW = {"last": ("popitem", "move_to_end"), "reverse": ("sort", "sorted", "merge"), "flush": ("print",), "exist_ok": ("makedirs", "mkdir")}
 STRIP_RE = re.compile(r"\.([lr]?strip)\((['\"])([^'\"]*)\2\)")
+ENC_RE = re.compile(r"(encoding\s*=\s*['\"])([^'\"]*)(['\"])")
 
 
 def _tail(par, node):
@@ -96,10 +99,11 @@ def equivalent(text, ln, old, new):
     """Reason string if the surviving mutant `old` -> `new` at source line `ln` of `text` is a known equivalent-mutant
     shape, else None. Static rules only, so an answer is a strong hint, not a proof: callers print it as LIKELY_EQUIVALENT."""
     old, new = old.strip(), new.strip()
-    if old != new and old.lower() == new.lower() and re.search(r"encoding\s*=", old):
+    fold = lambda s: ENC_RE.sub(lambda m: m[1] + m[2].lower() + m[3], s)  # only the encoding= literal is case-folded
+    if old != new and ENC_RE.search(old) and fold(old) == fold(new):
         return "codec names are case-insensitive"
-    for kw in FLAG_KW:
-        if f"{kw}=False" in old and old.replace(f"{kw}=False", f"{kw}=None") == new:
+    for kw, fns in FLAG_KW.items():
+        if re.search(rf"\b(?:{'|'.join(fns)})\([^()]*(?<![\w.]){kw}=False(?!\w)", old) and old.replace(f"{kw}=False", f"{kw}=None") == new:
             return f"`{kw}=None` is falsy like False"
     try:
         tree = ast.parse(text)

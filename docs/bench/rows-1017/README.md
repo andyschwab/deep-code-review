@@ -1,8 +1,13 @@
 # Rows closed on 2026-10-17: contribution, product-output-safety, mutation filter
 
-Bottom line: product-output-safety passes against a like-for-like rival; contribution still loses and stays a loss
-(the one allowed fix was tested on a fresh set, did worse, and was reverted); the mutation filter meets both
-preregistered bars on the existing held-out set, but it was tuned on that set, so the result is in-sample.
+Bottom line: product-output-safety passes against a like-for-like rival, but that rival was swapped in after the
+original rival, promptfoo, beat Perun in H1b (Perun lost, 0.150 and 0.250, `docs/perun-vs-rivals.md`); those losses
+stand. The exploratory promptfoo row below (0.925) differs from H1b in generator, judge and set (Qwen3.5-397B-A17B
+generator and DeepSeek/GLM judges on a new 20-scenario set, against a Sonnet generator, Opus judge and Opus-written
+10-scenario sets in H1b), so it does not overturn H1b. Contribution still loses and stays a loss (the one allowed fix
+was tested on a fresh set, did worse, and was reverted). The mutation filter meets both bars on the existing held-out
+set, but the bars were set by the author after reading that set, not frozen in advance, and the rules were tuned on it,
+so the result is in-sample, not preregistered, and the "Before" numbers are author-reported (see its section).
 
 ## Design
 
@@ -53,11 +58,15 @@ output; `python3 mutation_tally.py <dir>` computes the numbers below.
 | Vacuous cases with a demoted mutant | | 0 | |
 
 Five static rules, each with a near-miss test in `scripts/test_mutation_equivalent.py`: codec name case, falsy
-stdlib flag kwarg (`last`, `reverse`, `flush`, `exist_ok`), tail-of-function `break` to `return`, a constant that is only
+stdlib flag kwarg (`last`, `reverse`, `flush`, `exist_ok`, whole word, inside its own stdlib call only), tail-of-function `break` to `return`, a constant that is only
 ever raised, strip set gaining only `X` on lowercased data. A match prints `LIKELY_EQUIVALENT`, is never counted and
-never fails `--strict`.
+never fails `--strict`. The codec rule fires only when the sole change is the case of the `encoding=` literal.
 
 Limits: the five rules were written after reading this set's equivalent mutants, so the 2/20 is in-sample; a fresh
-set is the only fair test. The two residual cases (Bp13 DP-table padding and scaling, Bp20 a redundant modulo bound)
+set is the only fair test. The bars (at most 2/20, at least 16/20) were set by the author after reading the held-out
+set, so this row is not preregistered. The "Before" column (7/20, 18/20, 11) and "0 of 55 demoted" are author-reported and cannot be re-derived from the repo:
+the held-out set and the pre-filter run live outside it (`bench-local/`). The repo holds only the filtered raw output
+and the tally script. The filter is a heuristic, unproven on fresh data; advisory.
+The two residual cases (Bp13 DP-table padding and scaling, Bp20 a redundant modulo bound)
 need value reasoning the static rules do not do. The strip rule is a heuristic (no `X` in the function, `.lower()`
 present, no re-casing), so a match is a hint, not a proof, which is why it is a separate tier.

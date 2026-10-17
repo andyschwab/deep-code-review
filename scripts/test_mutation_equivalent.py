@@ -40,4 +40,15 @@ assert not eq(SLUG.replace("rstrip('-')", "rstrip('-') + 'X'"), 2, "slug = t.low
 assert not eq(SLUG, 2, "slug = t.lower().strip('-')", "slug = t.lower().strip('-', 1)")
 assert not eq(SLUG, 2, "slug = t.lower().strip('-')", "slug = t.lower().strip('XXYY-XX')")  # other chars added
 
+# anchoring: the codec rule only fires on the encoding= literal, the flag rule only on its stdlib call
+assert not eq("open('A.txt', encoding='utf-8')\n", 1, "open('A.txt', encoding='utf-8')", "open('a.txt', encoding='utf-8')")  # path changed
+assert not eq("x = 'A'  # encoding='utf-8'\n", 1, "x = 'A'  # encoding='utf-8'", "x = 'a'  # encoding='utf-8'")
+assert not eq("open(p, encoding=ENC)\n", 1, "open(p, encoding=ENC)", "open(p, encoding=enc)")  # not a literal
+assert not eq("foo(last=False)\n", 1, "foo(last=False)", "foo(last=None)")  # not a stdlib call
+assert not eq("d.popitem(flast=False)\n", 1, "d.popitem(flast=False)", "d.popitem(flast=None)")  # no word boundary
+assert not eq("f(my_reverse=False)\n", 1, "sorted(xs, my_reverse=False)", "sorted(xs, my_reverse=None)")
+assert not eq("f(x, last=False)\n", 1, "mylib.popitem2(x, last=False)", "mylib.popitem2(x, last=None)")
+assert eq("sorted(xs, reverse=False)\n", 1, "sorted(xs, reverse=False)", "sorted(xs, reverse=None)")
+assert eq("print(x, flush=False)\n", 1, "print(x, flush=False)", "print(x, flush=None)")
+
 print("test_mutation_equivalent: ok")
