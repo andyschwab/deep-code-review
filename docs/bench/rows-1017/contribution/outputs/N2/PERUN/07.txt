@@ -1,0 +1,54 @@
+To sanitize your commit history before pushing, use the following interactive rebase workflow. This approach rewrites the specific commits to remove internal identifiers and personal names while preserving your author metadata and the technical substance of the fix.
+
+First, identify the range of commits you need to edit. If the changes are in the last three commits, for example, run:
+
+```bash
+git rebase -i HEAD~3
+```
+
+An editor will open listing the commits. Change `pick` to `reword` (or `r`) for any commit message containing "INFRA-9921" or "Sarah Jenkins" that needs text modification. Save and close the file.
+
+For each commit marked `reword`, a new editor window will appear. Modify the commit message to remove the Jira ticket and the colleague's name. A sanitized message might look like:
+
+```text
+Fix race condition in LogFlow buffer flush logic
+
+Resolve a concurrency issue where simultaneous writes could cause data loss
+during buffer flushes. Improved locking mechanism ensures atomic operations.
+```
+
+Do not include the internal ticket or personal names here. Save and close each editor window as you proceed.
+
+Next, address the test function name `test_sarah_fix_for_INFRA_9921`. Since renaming a function changes the file content, you must amend the specific commit containing that change. If the rename is in the most recent commit, modify the filename in your code editor to something neutral like `test_buffer_flush_race_condition.py` (and update the function name inside the file to match). Then stage the change and amend the commit:
+
+```bash
+git add path/to/test_file.py
+git commit --amend --no-edit
+```
+
+If the rename is in an older commit within your rebase sequence, you will need to break the rebase at that point. During the `git rebase -i` process, change `pick` to `edit` (or `e`) for the specific commit. When the rebase pauses at that commit, rename the file and function in your editor, stage the changes with `git add`, and then run:
+
+```bash
+git commit --amend --no-edit
+git rebase --continue
+```
+
+Repeat `git rebase --continue` until the rebase finishes.
+
+Your author metadata (name and email) remains untouched by these operations because you are only rewriting the commit *message* and *content*, not the author identity. Since you have already signed the CLA with your real name, your Git configuration (`user.name` and `user.email`) correctly reflects your identity, and this process preserves it.
+
+Finally, verify the history is clean before pushing:
+
+```bash
+git log --oneline
+grep -i "INFRA-9921\|Sarah Jenkins" .
+```
+
+If the grep returns no results in your tracked files and the log shows clean messages, force-push to your remote branch (only if this branch has not been shared with others yet):
+
+```bash
+git push --force-with-lease
+```
+
+Note: Never rewrite history on shared branches that others may have pulled.
+Ensure your local CLA signature matches the `git config user.name` exactly.

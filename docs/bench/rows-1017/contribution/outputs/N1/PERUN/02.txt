@@ -1,0 +1,52 @@
+**Title:** Proposal: Add configurable retry mechanism for transient network failures
+
+**Body:**
+
+### Problem Statement
+External API integrations frequently fail due to transient network issues (e.g., DNS timeouts, temporary 503 Service Unavailable responses, or connection resets). Currently, the client fails immediately on the first error, forcing downstream consumers to implement their own retry logic. This leads to duplicated code across projects and inconsistent backoff strategies. A native, configurable retry mechanism would improve resilience and standardize error handling for all users.
+
+### Proposed Solution
+Introduce an optional `RetryConfig` structure to the client initialization, allowing users to enable and tune retry behavior without affecting existing implementations.
+
+**Key Features:**
+1.  **Configurable Attempts:** Set the maximum number of retry attempts (default: 0, preserving current behavior).
+2.  **Backoff Strategy:** Implement exponential backoff with jitter to prevent thundering herd problems.
+3.  **Retry Conditions:** Allow users to define which HTTP status codes (e.g., 429, 500-599) or error types trigger a retry.
+4.  **Timeout Integration:** Ensure retry delays respect the overall request timeout.
+
+**Usage Example (Proposed API):**
+```python
+# Current usage remains unchanged (no retries)
+client = HttpClient(base_url="...")
+
+# New usage with explicit configuration
+config = RetryConfig(
+    max_attempts=3,
+    backoff_factor=0.5,
+    retry_on_status=[429, 503, 504]
+)
+client = HttpClient(base_url="...", retry_config=config)
+```
+
+### Backward Compatibility
+This proposal guarantees 100% backward compatibility:
+*   **Default Behavior:** The retry mechanism is disabled by default (`max_attempts=0`). Existing code will continue to fail immediately on error, exactly as it does today.
+*   **Opt-In:** Users must explicitly instantiate and pass a `RetryConfig` to enable the feature.
+*   **No Signature Changes:** Existing method signatures remain valid; the new configuration is an optional parameter or builder pattern addition.
+
+### Anticipated Concerns & Mitigations
+*   **Latency Impact:** Critics may worry that retries increase latency for failing requests.
+    *   *Mitigation:* Since retries only occur on failure, successful requests incur zero overhead. The total time for a failing request increases, but this is preferable to immediate failure in transient scenarios. Users control the trade-off via `max_attempts`.
+*   **Complexity:** Adding retry logic increases the codebase surface area.
+    *   *Mitigation:* The logic is encapsulated within a dedicated middleware/interceptor layer, keeping the core client logic clean. We can rely on well-tested standard library primitives for timing and randomization.
+*   **Infinite Loops:** Misconfiguration could theoretically cause long hangs.
+    *   *Mitigation:* Hard caps on `max_attempts` and total elapsed time will be enforced internally, regardless of configuration.
+
+### Next Steps
+I have developed a prototype implementing this design and verified it against common transient failure scenarios. If the maintainers agree with this architectural approach, I will clean up the prototype and submit a Pull Request following the project's contribution guidelines.
+
+Looking forward to your feedback on this design.
+
+---
+*Note: Ensure you replace the Python example with syntax matching the actual language of the HTTP client if it differs.*
+*Remember to link to your prototype repository or gist in the comments if the maintainers request to see the implementation details.*

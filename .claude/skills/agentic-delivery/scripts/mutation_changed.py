@@ -8,6 +8,8 @@ mutation tool (mutmut 3.x for Python, verified against 3.8.0; Stryker for JS/TS,
 `SURVIVED <file>:<line>: <mutation>` for each surviving mutant on a changed line, i.e. a
 mutation of changed code that no test caught. Never installs anything. If no tool is found it
 prints COULD_NOT_CHECK with the install hint and exits 0. Exit 1 only with --strict and findings (SURVIVED or NOT_COVERED).
+A survivor matching a known equivalent-mutant shape (codec alias, falsy flag kwarg, tail `break`->`return`, a
+constant only ever raised, strip set gaining only X on lowercased data) prints LIKELY_EQUIVALENT instead and is never counted.
 Side effects: the tools write their own caches (.mutmut-cache, .stryker-tmp, reports/mutation).
 """
 import argparse, ast, json, os, re, signal, subprocess, sys, tempfile, time
@@ -70,6 +72,65 @@ def parse_mutmut_show(text):
             return off, old, f"{old} -> {ln[1:].strip()}"
         if not ln.startswith("+"):
             old_n += 1
+    return None
+
+
+FLAG_KW = ("last", "reverse", "flush", "exist_ok")  # stdlib kwargs that only test truthiness: False -> None changes nothing
+STRIP_RE = re.compile(r"\.([lr]?strip)\((['\"])([^'\"]*)\2\)")
+
+
+def _tail(par, node):
+    """True if nothing runs after `node` before its function returns (only If/With levels between)."""
+    while not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        p = par.get(node)
+        if not isinstance(p, (ast.If, ast.With, ast.AsyncWith, ast.FunctionDef, ast.AsyncFunctionDef)):
+            return False
+        body = next((b for b in (p.body, getattr(p, "orelse", [])) if node in b), None)
+        if not body or body[-1] is not node:
+            return False
+        node = p
+    return True
+
+
+def equivalent(text, ln, old, new):
+    """Reason string if the surviving mutant `old` -> `new` at source line `ln` of `text` is a known equivalent-mutant
+    shape, else None. Static rules only, so an answer is a strong hint, not a proof: callers print it as LIKELY_EQUIVALENT."""
+    old, new = old.strip(), new.strip()
+    if old != new and old.lower() == new.lower() and re.search(r"encoding\s*=", old):
+        return "codec names are case-insensitive"
+    for kw in FLAG_KW:
+        if f"{kw}=False" in old and old.replace(f"{kw}=False", f"{kw}=None") == new:
+            return f"`{kw}=None` is falsy like False"
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    par = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+    fn = min((n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.lineno <= ln <= n.end_lineno),
+             key=lambda n: n.end_lineno - n.lineno, default=None)
+    if old == "break" and new == "return":  # innermost loop is the last thing the function does
+        b = next((n for n in ast.walk(tree) if isinstance(n, ast.Break) and n.lineno == ln), None)
+        loop = b
+        while loop is not None and not isinstance(loop, (ast.For, ast.AsyncFor, ast.While)):
+            loop = par.get(loop)
+        if loop is not None and not loop.orelse and _tail(par, loop):
+            return "break at the tail of a function equals return"
+    m = re.fullmatch(r"(\w+) = None", old)
+    k = m and re.fullmatch(rf"{m[1]} = (.+)", new)
+    if k and fn:  # a constant that is only ever raised: raising any non-exception constant is the same TypeError
+        try:
+            ast.literal_eval(k[1])
+        except (ValueError, SyntaxError):
+            return None
+        raised = {id(r.exc) for r in ast.walk(fn) if isinstance(r, ast.Raise) and r.exc}
+        loads = [n for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id == m[1] and isinstance(n.ctx, ast.Load)]
+        if loads and all(id(n) in raised for n in loads):
+            return f"`{m[1]}` is only ever raised: any non-exception constant gives the same TypeError"
+    s = STRIP_RE.search(old)
+    if s and fn and "X" not in s[3] and new == STRIP_RE.sub(lambda m: f".{m[1]}({m[2]}XX{m[3]}XX{m[2]})", old):
+        body = "\n".join(text.splitlines()[fn.lineno - 1:fn.end_lineno])  # no X anywhere, lowercased, never re-cased
+        if "X" not in body and ".lower(" in body and not re.search(r"\.(upper|title|swapcase|capitalize)\(", body):
+            return "strip set gains only X, and the data is lowercased so X never occurs"
     return None
 
 
@@ -150,7 +211,8 @@ def check_python(files, changed, cwd, left, mm):
         if not (a <= ln <= b and src[ln - 1].strip() == old):  # decorator offset etc: find the line by text
             ln = next((i for i in range(a, b + 1) if src[i - 1].strip() == old), None)
         if ln in changed[f]:
-            found.append((f, ln, text, st))
+            why = st == "survived" and equivalent("\n".join(src), ln, old, text[len(old) + 4:])
+            found.append((f, ln, f"{text} ({why})" if why else text, "equivalent" if why else st))
         else:
             unrun = unrun or st == "not checked"
     return (found, to or unrun)
@@ -223,7 +285,11 @@ def main(argv=None, cwd=None):
                 print(f"PARTIAL: {lang} run incomplete (--max-seconds={a.max_seconds} hit, or mutants left unchecked); findings below are from mutants that finished")
     # NOT_COVERED = mutmut "no tests" or "not checked" (mutmut stops early when no test reaches a mutant): changed code no test executes
     out = {(f, ln, "SURVIVED" if st == "survived" else "NOT_COVERED", m if st == "survived" else "changed code no test executes")
-           for f, ln, m, st in survivors}
+           for f, ln, m, st in survivors if st != "equivalent"}
+    # LIKELY_EQUIVALENT: a survivor of a known equivalent-mutant shape (see equivalent()); shown, never counted, never fails --strict
+    for f, ln, m, st in sorted(survivors):
+        if st == "equivalent":
+            print(f"LIKELY_EQUIVALENT {f}:{ln}: {m}")
     for f, ln, k, m in sorted(out):
         print(f"{k} {f}:{ln}: {m}")
     if found and not out and not partial:
@@ -237,7 +303,8 @@ def selftest():
         "--version": (0, "mutmut, version 3.8.0", False),
         "run": (1, "", False),
         "results": (0, "    sut.x_add__mutmut_1: killed\n    sut.x_f__mutmut_1: survived\n    sut.x_f__mutmut_2: no tests\n"
-                       "    sut.x_g__mutmut_1: survived\n    sut.x_g__mutmut_2: not checked\n", False),
+                       "    sut.x_g__mutmut_1: survived\n    sut.x_g__mutmut_2: not checked\n    sut.x_h__mutmut_1: survived\n", False),
+        "show sut.x_h__mutmut_1": (0, "# n\n--- sut.py\n+++ sut.py\n@@ -1,3 +1,3 @@\n def h(d):\n-    d.popitem(last=False)\n+    d.popitem(last=None)\n", False),
         # real mutmut 3.8.0 `show` shape: header comment + diff relative to the function
         "show sut.x_f__mutmut_1": (0, "# sut.x_f__mutmut_1: survived\n--- sut.py\n+++ sut.py\n@@ -1,3 +1,3 @@\n def f():\n-    return True\n+    return False\n", False),
         "show sut.x_f__mutmut_2": (0, "# n\n--- sut.py\n+++ sut.py\n@@ -1,3 +1,3 @@\n def f():\n-    return True\n+    return None\n", False),
@@ -247,7 +314,7 @@ def selftest():
         if cmd[:3] == [sys.executable, "-m", "mutmut"]:
             k = " ".join(cmd[3:5]) if cmd[3] == "show" else ("--version" if "--version" in cmd else cmd[3])
             if k == "run":
-                assert cmd[4:] == ["*.x_f__mutmut_*"], cmd  # only the function holding changed lines
+                assert cmd[4:] == ["*.x_f__mutmut_*", "*.x_h__mutmut_*"], cmd  # only the function holding changed lines
             return mutmut_out[k]
         if cmd[0] == "npx":
             if "--version" in cmd:
@@ -271,7 +338,7 @@ def selftest():
         sh("git", "config", "user.email", "t@example.com"); sh("git", "config", "user.name", "t")
         open(f"{d}/sut.py", "w").write("def g():\n    x = 1\n"); sh("git", "add", "."); sh("git", "commit", "-qm", "a")
         sh("git", "checkout", "-qb", "f")
-        open(f"{d}/sut.py", "w").write("def g():\n    x = 1\n\ndef f():\n    return True\n")
+        open(f"{d}/sut.py", "w").write("def g():\n    x = 1\n\ndef f():\n    return True\n\ndef h(d):\n    d.popitem(last=False)\n")
         open(f"{d}/a.js", "w").write("a\nb\nc\n"); open(f"{d}/a.test.js", "w").write("t\n")
         sh("git", "add", "."); sh("git", "commit", "-qm", "b")
         import io, contextlib
@@ -285,6 +352,7 @@ def selftest():
         assert rc == 0 and o.count("SURVIVED") == 2, o
         assert "SURVIVED sut.py:5: return True -> return False" in o and "NOT_COVERED sut.py:5: changed code no test executes" in o and "SURVIVED a.js:3: EqualityOperator" in o, o
         assert "sut.py:2:" not in o and "a.js:99" not in o and "a.test.js" not in o, o
+        assert "LIKELY_EQUIVALENT sut.py:8: d.popitem(last=False) -> d.popitem(last=None) (" in o and "SURVIVED sut.py:8" not in o, o
         assert "PARTIAL" not in o and go(["--base", "main", "--strict"])[0] == 1
         # real mutmut 3.8 shape when no test reaches the mutants: run stops early, every mutant stays "not checked"
         keep = dict(mutmut_out)

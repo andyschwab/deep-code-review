@@ -1,0 +1,25 @@
+**PR Draft: Add missing validation to prevent cascade pod restarts**
+
+**Summary**
+This PR introduces a critical validation check in the Kubernetes operator to prevent a cascade of pod restarts under specific resource-state conditions. The missing validation allows an edge case where transient state mismatches trigger an unbounded restart loop, posing a stability risk to clusters managing stateful workloads.
+
+**The Problem**
+During field testing, a scenario was observed where the operator failed to validate a specific precondition before initiating a rolling update. Without this check, the operator misinterpreted a transient state as a permanent drift, triggering a recursive restart sequence. While the issue was contained before impacting production services, the root cause represents a structural gap in the operator's safety guarantees. The bug does not require malicious input; it can be triggered by normal operational timing variations in complex orchestration environments.
+
+**The Fix**
+This change adds a deterministic validation step prior to the restart decision logic. The new check ensures that the observed state divergence meets strict consistency criteria before any action is taken. If the criteria are not met, the operator now logs a warning and halts the restart sequence, allowing the system to self-heal or await manual inspection. This aligns the operator's behavior with the principle of "fail-safe defaults," ensuring that ambiguity never triggers destructive action.
+
+**Impact**
+*   **Stability:** Prevents unbounded restart loops that can exhaust cluster resources or cause service outages.
+*   **Safety:** Ensures that transient states (e.g., during node pressure or network flakiness) do not escalate into cascading failures.
+*   **Observability:** Adds clear logging for skipped actions, aiding debugging without exposing internal cluster topology.
+
+**Testing**
+The fix includes a new evaluation case that simulates the ambiguous state condition. The test verifies that the operator correctly identifies the invalid precondition and aborts the restart sequence. Existing tests continue to pass, confirming no regression in standard update paths.
+
+**Note on Disclosure**
+This contribution generalizes a lesson learned from private deployment scenarios. Specific trigger sequences and architectural details have been intentionally omitted to protect proprietary infrastructure logic, but the underlying defect class and fix are universally applicable to all users of this operator.
+
+---
+*Human reviewer required: Verify that no paraphrased architectural details remain in the description before merging.*
+*Ensure the added test case does not rely on hard-coded timing values that might leak environment specifics.*

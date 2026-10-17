@@ -1,0 +1,32 @@
+### Back-Porting Plan for Critical Race Condition Fix
+
+**1. Isolate the Logic Fix from Test Infrastructure**
+Create a clean commit containing *only* the source code changes required to fix the race condition. Ensure this commit contains zero modifications to test files, build configurations, or dependencies. This "logic-only" commit is your primary candidate for cherry-picking across all three branches (main + 2 release branches).
+
+**2. Strategy for the Main Branch**
+Apply the logic-only commit to `main`. Since you have already verified the fix here with your new test suite, ensure the PR description explicitly links the new tests to the specific race condition scenarios (high load, message duplication).
+
+**3. Strategy for Older Release Branches (The Compatibility Gap)**
+Do not attempt to port the new test suite to the old branches; the effort to mock the deprecated framework or upgrade the framework itself introduces high risk of flakiness and scope creep. Instead, adopt a **Verification Substitution** strategy:
+
+*   **Step A: Cherry-Pick the Logic.** Cherry-pick the logic-only commit onto the two older release branches. Resolve any minor context conflicts in the source code, but abort if the fix requires architectural changes present only in `main`.
+*   **Step B: Write Framework-Native Tests.** For each older branch, write a *new* test file using the existing deprecated framework syntax already present in that branch.
+    *   Do not replicate the full coverage of your new suite.
+    *   Write exactly one focused integration test that reproduces the specific race condition (e.g., a script that spins up consumers/producers at high load and asserts zero duplicates).
+    *   Keep this test simple and deterministic to avoid flakiness.
+*   **Step C: Alternative Verification Proposal.** If writing a test in the deprecated framework is too brittle or impossible without major refactoring, propose a **Manual Verification Protocol** to the maintainers in your PR description:
+    *   Provide a standalone script (Python/Bash) that runs outside the build system to stress-test the compiled binary of the old branch.
+    *   Include a "Reproduction Recipe" in the PR showing how to trigger the bug on the unpatched version and proving it disappears on the patched version using this script.
+    *   Explicitly state: *"Due to the deprecation of [Framework X] in these release lines, automated CI integration is risky. Validation is provided via the attached standalone stress script which confirms the race condition is resolved."*
+
+**4. Consistency and Evidence**
+In your PRs for the older branches, explicitly list the divergence:
+*   **Code Fix:** Identical logic to `main` (cherry-picked).
+*   **Test Strategy:** Adapted to local constraints (deprecated framework or standalone script).
+*   **Risk Mitigation:** Explain that avoiding the port of the complex new test suite prevents introducing CI instability to stable release branches.
+
+**5. Submission Sequence**
+Open the PR for `main` first. Once the logic is reviewed and approved, reference that PR number in the two back-port PRs. This signals to maintainers that the core logic is already vetted, allowing them to focus their review solely on your adaptation strategy for the older branches.
+
+*Note: If the deprecated framework lacks concurrency primitives needed to test the race, prioritize the standalone script approach; do not force a flaky unit test.*
+*Ensure your commit messages for the back-ports include "Back-port of #<main-pr-number>" to maintain traceability.*

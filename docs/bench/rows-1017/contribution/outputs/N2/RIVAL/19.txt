@@ -1,0 +1,27 @@
+## Risk Assessment: Log Ordering Change in Performance Optimization
+
+**Summary of Change**
+The proposed optimization replaces the internal sorting algorithm to significantly improve log aggregation throughput. While functionally correct, this change alters the sort stability: when two log entries share an identical timestamp, their relative order in the output is no longer guaranteed to match the input order. Consequently, the tool will no longer provide byte-for-byte reproducibility for inputs containing timestamp collisions.
+
+**Impact Analysis**
+This constitutes a **breaking change** under the project's current stability guarantee. The following downstream consumers are at risk:
+1.  **Deterministic Parsers:** Scripts relying on strict positional indexing of logs with identical timestamps will fail or return incorrect data.
+2.  **Regression Testing Suites:** Automated tests comparing current output against historical "golden files" will report false positives due to minor ordering shifts.
+3.  **Audit & Compliance Tools:** Systems requiring exact reproducibility of log streams for forensic reconstruction may reject the new output as tampered or inconsistent.
+
+**Mitigation Strategy**
+To balance performance gains with the contractual obligation of stability, the following mitigation is proposed:
+
+1.  **Introduce an Opt-In Flag:** Implement a CLI flag (e.g., `--legacy-sort` or `--stable-output`) that forces the use of the original, slower sorting algorithm.
+    *   **Default Behavior:** The new high-performance algorithm is enabled by default to benefit the majority of users who do not rely on sub-millisecond ordering.
+    *   **Legacy Mode:** When the flag is present, the tool reverts to the previous behavior, ensuring byte-for-byte reproducibility for affected downstream users.
+
+2.  **Deprecation Notice:** Clearly document in the release notes and CLI help text that strict sort stability is deprecated in the default path and will be removed in the next major version (v2.0). This provides a clear migration path for users to update their parsing logic to be timestamp-resolution agnostic.
+
+3.  **Verification Suite:** Add a specific test case verifying that the `--legacy-sort` flag produces output identical to the pre-optimization baseline, ensuring the mitigation itself does not regress.
+
+**Recommendation**
+Merge the optimization only if the opt-in flag is implemented and verified. This approach honors the existing stability guarantee for those who need it while allowing the ecosystem to benefit from the performance improvements immediately.
+
+*Note: Ensure the PR description explicitly states that the default behavior has changed to manage user expectations upon upgrade.*
+*Consider opening a tracking issue to discuss removing the legacy flag in the next major release cycle.*
