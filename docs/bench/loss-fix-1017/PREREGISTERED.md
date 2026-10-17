@@ -35,3 +35,7 @@ Win rate over the 20 scenarios with a bootstrap 95% CI (10,000 resamples, seed 1
 - The host is a non-Claude model: both skills were written and tuned against Claude. A pass here does not show the skill wins on Claude; a fail does not show it loses there. Only a Claude run on the original judge could show that, and none is possible while the quota is exhausted.
 - The judges are non-Claude models of two families that the original runs never used; the originals used a Claude judge. Rates are not comparable with H1d or H1e.
 - n=20 per skill, one set, sampling not seeded, no lint loop for communication-structure, references of product-discovery unavailable (no tools). The three-arm design does not isolate the effect of the earlier shipped communication-structure revision from the new edit; BASE shows the edit's marginal effect only.
+
+## Annotation (added after the results, 2026-10-17)
+
+The judging rule above (DeepSeek-V4-Flash both orders, GLM-5.2 decides disagreements) was replaced post hoc by both-orders scoring alone (amendment 4 in SHA256-amend.txt): a scenario counts as a win or loss only when both orders pick the same arm, otherwise 0.5. This was done after partial results were seen and after a slot-1 bias was found in the judges (DeepSeek-V4-Flash picked Response 1 in 0.581 of verdicts counting ties, 0.624 excluding ties). The keep rule itself (n=20, 95% CI lower bound above 0.5) is unchanged.
