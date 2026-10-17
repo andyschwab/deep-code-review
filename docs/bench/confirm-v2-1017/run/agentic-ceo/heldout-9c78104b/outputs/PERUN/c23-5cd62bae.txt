@@ -1,0 +1,21 @@
+**Decision:** Proceed with a **Parallel Run + Feature Flag** strategy, not a hard cutover. The single point of failure (irreversible deprecation) combined with a 72-hour window and zero-tolerance for format deviation creates an unacceptable risk of revenue loss. We will route 1% of live traffic to the new engine alongside the old one for 48 hours before the Monday freeze to validate real-world data without exposing partners to breakage.
+
+**Figures:** 3 days × 8 specialists = 24 specialist-days available. Current load 15,000 RPM requires a canary deployment capable of handling at least 150 RPM (1%) immediately, scaling to 1,500 RPM (10%) by Sunday night.
+
+**Testing Responsibilities:**
+*   **Backend Group (4 specialists):** Own **Contract Fidelity & Idempotency**. They must verify that every JSON field in the new response matches the legacy schema byte-for-byte for the top 50 booking scenarios. They are also responsible for ensuring that retry logic does not create duplicate bookings during the parallel run.
+*   **Frontend/Integration Group (4 specialists):** Own **End-to-End Checkout Flows**. They will simulate the exact partner integration scripts against the new endpoint in a staging environment that mirrors production data. Their metric is "zero UI errors" and "successful payment gateway handoff" for all five partners.
+
+**Contract Definitions for CTO Validation:**
+Before any code is merged, you must personally sign off on these three artifacts:
+1.  **The Golden Response Set:** A curated list of the 20 most complex booking responses (multi-leg, partial availability, fare rules) comparing Old vs. New JSON outputs side-by-side.
+2.  **The Rollback Trigger Matrix:** Specific error rate thresholds (e.g., >0.1% 5xx errors or >200ms latency spike) that automatically disable the new endpoint flags without human intervention.
+3.  **The Partner Acknowledgement Log:** Written confirmation from all five agencies that they have received the updated Swagger/OpenAPI specs and have completed their own sandbox testing against your staging environment.
+
+**First Concrete Step:**
+Immediately instruct the Backend Lead to spin up the **Parallel Environment** and configure the load balancer to mirror 0.1% of production traffic to the new engine in "shadow mode" (processing requests but discarding responses) to validate infrastructure stability without risking user data. This must be running by end-of-day today.
+
+**Halt Trigger:** If shadow mode reveals >5% discrepancy in response payload size or structure compared to the legacy engine, freeze all feature work and pivot 100% of the team to schema alignment.
+**Fallback Trigger:** If by Sunday 5 PM the parallel run shows any duplicate booking IDs or inventory desynchronization, revert to the legacy endpoint exclusively and negotiate a 2-week delay with partners.
+
+*Note: Do not deprecate the old endpoint until the parallel run has processed at least 10,000 successful live transactions with zero discrepancies. The "irreversible" nature of your switch demands empirical proof, not just unit test passes.*

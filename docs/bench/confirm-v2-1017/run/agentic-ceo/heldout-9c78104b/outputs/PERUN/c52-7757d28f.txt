@@ -1,0 +1,27 @@
+**Decision:** Proceed with a phased, gate-controlled deployment starting immediately; do not attempt a full "big bang" cutover. The single limiting factor is the inability to simulate full load, which mandates a live traffic-shadowing strategy rather than pure pre-deployment testing.
+
+**Figures:** 800M items/day peak; current error 3% (24M misrouted); target <0.5% (4M misrouted); required speed +40%.
+
+**Order of Operations for Testing Phase**
+1.  **Shadow Mode Deployment (Days 1–7):** Deploy the new algorithm to a isolated cluster that receives a real-time copy of live input data but produces no physical output. Compare its routing decisions against the legacy system's actual outcomes. This validates logic without risk.
+2.  **Canary Release (Days 8–14):** Route 0.1% of actual live traffic through the new system on one specific sorting machine. Monitor for loops or latency spikes in real-time.
+3.  **Regional Ramp (Days 15–25):** If the canary holds, expand to 5% of traffic across one regional distribution center.
+4.  **Full Cutover (Day 26+):** Only proceed if regional metrics meet all contingency thresholds.
+
+**Contingency Thresholds for Approval**
+Do not approve deployment to the next stage unless these strict gates are met:
+*   **Loop Detection:** Zero instances of infinite routing loops in shadow or canary data. Any loop detected triggers an immediate rollback.
+*   **Misroute Rate:** Must be ≤0.6% in shadow mode (providing a buffer for the 0.5% target) and ≤0.5% in canary mode.
+*   **Throughput Stability:** System must sustain 140% of current peak load in shadow processing without latency exceeding 200ms per item.
+*   **Manual Override Latency:** The team must demonstrate the ability to revert to the legacy algorithm on a live machine in under 3 minutes.
+
+**Immediate Build Requirements for Load Validation**
+Since the test environment cannot simulate full load, the team must immediately build:
+1.  **Traffic Replay Harness:** A tool to capture live input streams and replay them at 2x speed into the shadow cluster to stress-test the new logic against real-world data patterns.
+2.  **Circuit Breaker Module:** Hard-coded logic embedded in the deployment pipeline that automatically kills the new process and reverts to the legacy binary if CPU usage spikes >90% or if a package is processed more than 3 times by the same node.
+3.  **Physical Divert Mechanism:** A manual override switch at the distribution center level that physically bypasses the new software logic, forcing all packages through the old sorting path instantly.
+
+**Halt Trigger:** If shadow mode reveals a misroute rate >0.7% or any looping behavior, halt all deployment activities immediately.
+**Fallback Trigger:** If canary release causes a processing delay >5 minutes for any batch, revert 100% of traffic to the legacy system within 3 minutes.
+
+*Note: The 10-engineer team should split: 6 on building the replay harness and circuit breakers, 4 on analyzing shadow data. Do not write new sorting logic until the safety harness is complete.*
