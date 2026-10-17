@@ -1,0 +1,49 @@
+### Strategy: Isolate the Logic Fix via Interactive Rebase
+
+You must rewrite your branch history to create a new commit containing **only** the three logic files, leaving the formatting changes in a separate commit (or discarding them entirely). Since you have already shared the branch, you will need to force-push, but you must do so safely to avoid overwriting any potential upstream activity (though unlikely on a personal fork).
+
+**Step 1: Create a Safety Backup**
+Before touching history, create a backup branch pointing to your current state. If anything goes wrong, you can return here.
+```bash
+git switch -c backup-messy-branch
+git switch <your-original-branch-name>
+```
+
+**Step 2: Identify the Logic Commits**
+Run `git log --stat` to see which commits contain the changes to the three specific logic files. Note the commit hashes where the logic fix was introduced. If the logic fix and formatting are mixed in the *same* commit, proceed to Step 3. If they are already in separate commits, skip to Step 4.
+
+**Step 3: Separate Mixed Changes (If necessary)**
+If the logic and formatting are in the same commit, you must split them:
+1. Start an interactive rebase from the commit before your changes: `git rebase -i <commit-hash>^`.
+2. Change `pick` to `edit` for the commit containing the mix.
+3. When the rebase pauses, reset the index to unstage everything: `git reset HEAD^`.
+4. Add **only** the three logic files: `git add path/to/file1 path/to/file2 path/to/file3`.
+5. Commit just the logic: `git commit -m "fix(DataStream): correct aggregated metrics calculation"`.
+6. Stash the remaining formatting changes: `git stash push -m "wip: auto-formatting noise"`.
+7. Continue the rebase: `git rebase --continue`.
+8. If there are subsequent commits, apply the stash carefully or create a new commit for formatting: `git stash pop`, then `git add -A` and `git commit -m "chore: apply auto-formatting"`.
+
+**Step 4: Squash and Clean**
+Ensure your history now looks like this:
+- Commit A: `fix(DataStream): ...` (Only the 3 logic files)
+- Commit B: `chore: ...` (The 40-file formatting noise)
+
+If you decide the formatting noise is too risky to submit at all (given Ravi's history), you can simply drop Commit B during the rebase by changing `pick` to `drop` in the interactive list.
+
+**Step 5: Verify the Diff**
+Before pushing, verify the logic-only commit is clean:
+```bash
+git show <commit-hash-of-fix> --stat
+# Ensure only the 3 files appear here.
+```
+
+**Step 6: Safe Force-Push**
+Since you shared this branch, use `--force-with-lease` instead of `--force`. This ensures you don't overwrite changes if your manager or someone else accidentally pushed to your fork in the meantime.
+```bash
+git push origin <your-branch-name> --force-with-lease
+```
+
+**Step 7: Communication**
+Immediately inform your manager that you updated the branch to comply with project standards, providing the new commit hash for the logic fix.
+
+**Note:** Do not attempt to submit the formatting changes in the same PR; if Ravi closes PRs for mixed concerns, open a separate, purely cosmetic PR only after the logic fix is merged, or drop the formatting entirely if the project enforces strict "no noise" rules.

@@ -1,0 +1,35 @@
+### Diagnosis Plan for Remote CI Failure
+
+Since you cannot reproduce the issue locally, your strategy must treat the CI logs as your primary source of truth. The goal is to isolate the environmental delta between your local setup (macOS/Linux) and the failing runner (Windows Server 2019).
+
+**Step 1: Extract the Exact Signal**
+Do not look at the summary; open the raw log for the "build" or "compile" step on the Windows runner.
+*   Identify the specific compiler (e.g., MSVC `cl.exe` vs. MinGW `g++`) and version.
+*   Copy the **full** error message, including the file path, line number, and the specific error code (e.g., `C2065`, `LNK2019`).
+*   Note the directory structure in the error path. Windows paths often use backslashes (`\`) and drive letters (`C:\`), which can break tools expecting POSIX paths if the build script isn't agnostic.
+
+**Step 2: Hypothesize Common Windows Deltas**
+Based on the error type, form a hypothesis before contacting anyone:
+*   **Path Separators:** If the error is "file not found" during compilation, the build script might be concatenating paths with `/` instead of using CMake's or the build system's native path handling.
+*   **Line Endings:** If the error is a syntax error near a valid token, check if the repository has `.gitattributes` enforcing `LF`. If your local editor saved files with `CRLF` and the script is sensitive, it might cause parsing failures.
+*   **Missing Dependencies:** Windows runners often lack system libraries present on Linux/macOS. If the error is a linker error (`LNK2019`), a specific Windows library (e.g., `ws2_32.lib` for sockets) might be missing from the CMakeLists.txt or build configuration.
+*   **Compiler Extensions:** If you used a GCC-specific extension in your C++ code, MSVC will reject it. The error will point to the specific non-standard syntax.
+
+**Step 3: Leverage Repository Tools Remotely**
+*   Check the repository's `workflow` files (usually in `.github/workflows` or `.circleci`). Look specifically at the Windows job definition. Does it install extra dependencies that your local setup already has?
+*   Look for a `Dockerfile` or setup script used in CI. Even if you can't run it, reading it reveals the exact environment state.
+
+**Step 4: Draft the Targeted Inquiry**
+Once you have the error code and a hypothesis, contact the maintainers.
+
+### Questions to Ask Maintainers
+
+Frame your request to show you have done the legwork and are specifically asking for *environmental context*, not a code fix.
+
+1.  "The Windows Server 2019 runner is failing with **[Insert Exact Error Code]** at **[Line Number]**. My local builds on macOS/Linux pass cleanly. Does the Windows CI environment use a different compiler version or flags that might enforce stricter standards regarding **[Specific Feature, e.g., path handling or specific headers]**?"
+2.  "I noticed the error involves **[File/Dependency]**. Is there a known Windows-specific dependency or library link flag required in the build configuration that might be missing from my PR's scope?"
+3.  "Could you confirm if the Windows runner enforces specific line-ending conventions (`CRLF` vs `LF`) that might be causing the parser to fail on this file?"
+4.  "If I push a commit with verbose logging enabled in the build script to output the exact compiler command line, would that be acceptable to help diagnose the flag discrepancy?"
+
+**Note:** Always paste the specific error log snippet in your message; never make them click through to find it.
+**Note:** If the error is a missing library, propose the specific Windows library you suspect is needed rather than asking "what is missing?"
