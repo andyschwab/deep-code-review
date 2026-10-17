@@ -1,0 +1,52 @@
+**Delivery Plan: Fraud Detection Model v4.2 Upgrade**
+
+**Strategy**
+This is a high-risk, irreversible infrastructure change with a known flaky gate. We will not "swap immediately." We will execute a gated, parallel-prep sequence where the activation switch remains off until all independent verifications pass. The "immediate" need is addressed by parallelizing preparation, not by skipping checks.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Artifact & Config Prep (Builder)**
+    *   **Work:** Update `global-rules.yaml` to point to v4.2 artifact in the secure registry. *Constraint:* Must run outside business hours or via explicit compliance lock acquisition.
+    *   **Parallelism:** Can run parallel to Lane B, but must serialize before Lane C (Integration).
+    *   **Output:** Commit SHA `X` containing the config change.
+
+2.  **Lane B: Rollback & Safety Verification (Security/Ops)**
+    *   **Work:** Verify the "full cluster restore" script exists, is tested in a sandbox, and is documented. Validate that the "irreversible" claim is mitigated by this script.
+    *   **Parallelism:** Runs fully parallel to Lane A.
+    *   **Output:** Signed receipt confirming rollback readiness. No code change.
+
+3.  **Lane C: Accuracy Gate Stress-Test (QA)**
+    *   **Work:** Run the accuracy gate against v4.2 on the holdout dataset.
+    *   **Critical Constraint:** The gate flakes at >200ms latency. This lane must run in a controlled network environment or include a retry mechanism that distinguishes latency failures from accuracy failures.
+    *   **Threshold:** Precision > 98.5%.
+    *   **Output:** Test receipt at SHA `X` (using the config from Lane A) showing pass/fail status and latency metrics.
+
+**Gates & Checks**
+
+*   **G1 Spec (Now):** Confirm holdout dataset version matches last Tuesday's incident data. Define "abort automatically" logic: if precision < 98.5% OR latency > 200ms (unresolved), the pipeline fails.
+*   **G4 Implement:** Lane A commits the config change. Lane B documents rollback. Lane C executes the test suite.
+*   **G5 Verify (The Hard Gate):**
+    *   **Condition:** Lane C must report **PASS** with precision > 98.5% on the exact revision `X`.
+    *   **Flake Mitigation:** If the gate fails due to latency, it must be re-triggered in a low-latency context. Three consecutive latency failures block deployment.
+    *   **Rollback Check:** Lane B's receipt must be attached.
+*   **G6 Review:**
+    *   **Reviewer 1 (Lead Data Scientist):** Reviews Lane C's accuracy receipts and dataset validity. Independent of the Builder.
+    *   **Reviewer 2 (On-Call Security Officer):** Reviews Lane B's rollback readiness and Lane A's config diff. Independent of the Builder.
+
+**Landing & Human Decisions**
+
+*   **Merge Strategy:** The config change (Lane A) is merged to the integration branch only after G5 and G6 are green.
+*   **Human Approval (Dual Gate):**
+    *   The Lead Data Scientist must explicitly approve the accuracy receipt.
+    *   The On-Call Security Officer must explicitly approve the rollback readiness.
+    *   **No automated merge.** Both humans must sign off on the specific commit SHA.
+*   **Activation:** The merge updates the config, but the "switch" remains off until a final manual "Go" signal is given post-merge, verifying the cluster is stable.
+*   **Rollback:** If production metrics degrade within 15 minutes of activation, the On-Call Security Officer executes the verified cluster restore script immediately.
+
+**Risk Controls**
+*   **Irreversibility:** Treated as a hard failure mode. The deployment is blocked until Lane B proves the restore script works.
+*   **Flaky Gate:** The CI pipeline will be configured to fail *closed* on ambiguity. A "timeout" or "network error" is treated as a failure, not a pass.
+*   **Cost:** Only one full regression run (Lane C) is authorized. If it fails due to flakiness, the environment is fixed before retrying to avoid wasting the $45/run budget.
+
+**Summary of Flow**
+Prep (A/B) → Test (C) → Human Review (Dual) → Merge → Manual Activate → Monitor → (Auto-Rollback if needed).

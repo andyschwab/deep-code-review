@@ -1,0 +1,48 @@
+**Delivery Plan: Inventory Sync Worker**
+
+**Lanes & Parallelism**
+*   **Lane A (Core Logic):** Implement the worker loop, message consumption, and state machine (attempt counting). *Writer: Senior Backend Engineer.*
+*   **Lane B (Rate Limiter):** Implement the token bucket algorithm (40 req/min), header parsing, and exponential backoff logic. *Writer: Senior Backend Engineer (Serialized after Lane A's interface definition).*
+*   **Lane C (Dead Letter & Logging):** Implement DLQ movement after 3 failures and ensure full payload logging (bypassing 2KB truncation via chunking or external reference). *Writer: Senior Backend Engineer (Parallel with Lane B).*
+*   **Lane D (Sandbox Harness):** Build a local mock of the VendorAPI that strictly enforces the 40/min limit and simulates the 24h lockout to validate backoff without hitting the real sandbox. *Writer: QA Engineer (Parallel with Lane A).*
+
+**Serialization Constraints**
+Lanes B and C depend on the message interface defined in Lane A. Lane D must be ready before Lane B can be verified. The shared configuration file update (if needed for new queue names) is a distinct, serialized micro-task requiring dual approval before Lane A merges.
+
+**Gates & Checks**
+*   **G1 Spec:** Define the exact token bucket math and DLQ schema. Pin base SHA.
+*   **G2 Plan:** Confirm no changes to the guarded shared config are possible without Lead Ops/Security pre-approval. If changes are needed, halt until approved.
+*   **G3 Design:** ADR detailing how logging bypasses the 2KB limit and how the lockout scenario is simulated locally.
+*   **G4 Implement:** Code committed to isolated worktrees. Unit tests included.
+*   **G5 Verify (Critical):**
+    *   Run Lane D's mock against Lane B's implementation.
+    *   **Test Case:** Force 41 requests in <60s; assert 429 handling and backoff initiation.
+    *   **Test Case:** Force 3 failures; assert DLQ move and no retry.
+    *   **Test Case:** Verify full payload visibility in logs for a >2KB message.
+    *   *Constraint:* Verification runs on the exact integration SHA. CI is not used for iterative testing due to the 35min/4-run cap; local verification is the gate.
+*   **G6 Review:**
+    *   **Code Review:** Independent Senior Engineer (not the writer).
+    *   **Security Review:** Security Lead (focus on credential handling and lockout prevention).
+    *   **Ops Review:** Lead Ops (if config changed).
+
+**Review Independence**
+The writer (Backend Engineer) cannot approve their own code. QA verifies the behavior against the mock, not the writer's assertion. Security validates the rate-limit safety independently of the implementation logic.
+
+**Landing Strategy**
+1.  **Integration:** Merge Lanes A, B, C into a staging branch. Run one CI pipeline (consuming 1 of 4 daily slots) to verify build integrity.
+2.  **Human Decision (G8):**
+    *   **Approver:** David Chen (Senior Platform Engineer).
+    *   **Action:** Deploy to Production Cluster.
+    *   **Pre-condition:** Signed receipt from G5 proving the lockout scenario was successfully handled locally.
+3.  **Rollback:**
+    *   Automated: If the worker crashes on startup, the orchestrator must revert to the previous stable image immediately.
+    *   Manual: If rate limits are breached in production, David Chen must manually scale the worker to zero and engage the VendorAPI support channel to prevent the 24h lockout.
+
+**Timeline**
+*   **Day 1:** Lanes A, C, D complete. Config approval requested if needed.
+*   **Day 2:** Lane B complete. Local verification (G5) passed.
+*   **Day 3:** Code Review (G6) and CI run.
+*   **Day 4 (Friday):** Human approval and deployment by David Chen before the reconciliation cycle begins.
+
+**Risk Mitigation**
+The CI cap means we cannot rely on CI for debugging. All concurrency and rate-limit testing must be proven in the local mock (Lane D) before the single CI run is triggered. If the mock is insufficient, the deployment is blocked.

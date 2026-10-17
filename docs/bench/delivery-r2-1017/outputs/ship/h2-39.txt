@@ -1,0 +1,85 @@
+**Delivery Plan: Archive Legacy Billing Gateway**
+
+**Constraints & Risks**
+*   **Irreversible Data Loss:** Deleting the shard destroys audit logs if export fails.
+*   **Flaky Health Checks:** High-load flaps cause false rollbacks; verification must rely on row counts, not just endpoint status.
+*   **Costly CI:** 45-minute regression suite; run only once per candidate SHA after local green.
+*   **Human Gates:** Production deploy requires dual approval (Platform Lead + Finance Compliance).
+
+---
+
+### Lanes & Serialization
+
+**Lane 1: Data Freeze & Export (Serialized First)**
+*   **Actor:** Builder (Data Specialist)
+*   **Work:** Execute script to freeze write operations on Legacy Gateway. Trigger full export to cold storage. Capture `source_row_count` and `dest_row_count`.
+*   **Output:** Export log with matching counts; confirmation of write-lock.
+*   **Dependency:** None. Must complete before Lane 2.
+
+**Lane 2: Traffic Redirection & Status Update (Parallel Prep, Serialized Exec)**
+*   **Actor:** Builder (Network/Config)
+*   **Work:**
+    1.  Draft service mesh config to redirect traffic to Payment Hub.
+    2.  Draft status page update for maintenance window.
+    3.  Prepare "Kill Switch" script to revert mesh config instantly.
+*   **Output:** Config diffs, status page PR, revert script.
+*   **Dependency:** Can prepare in parallel, but execution waits for Lane 1 verification.
+
+**Lane 3: Independent Verification (QA)**
+*   **Actor:** QA (Independent)
+*   **Work:**
+    1.  Verify export integrity: Re-run count comparison on cold storage vs. frozen DB.
+    2.  Validate status page visibility.
+    3.  Simulate traffic redirect in staging using the exact config diff.
+*   **Output:** Signed verification receipt confirming zero data loss and successful redirect simulation.
+
+---
+
+### Gates & Checks
+
+*   **G1 Spec (Now):** Define exact row-count matching criteria (must be 100% match). Pin base SHA for all configs.
+*   **G4 Implement:**
+    *   Lane 1 commits export scripts/logs.
+    *   Lane 2 commits mesh config and status page.
+    *   **Check:** Local lint/type check only. Do not trigger full CI yet.
+*   **G5 Verify (Critical):**
+    *   **Trigger:** After Lane 1 completes export.
+    *   **Action:** QA runs row-count verification on the *exact* exported dataset.
+    *   **Condition:** `source_count == dest_count`. If mismatch, halt immediately.
+    *   **CI Strategy:** Run the 45-minute regression suite *once* on the merged integration SHA of Lane 1 & 2 *after* local green and QA sign-off on logic. Skip if SHA hasn't changed.
+*   **G6 Review:**
+    *   **Reviewer:** Security Lead (for data export integrity) + Senior Engineer (independent of Builder).
+    *   **Focus:** Audit log preservation, revert script validity, flaky health-check mitigation (ignore health flap during cutover if row counts hold).
+
+---
+
+### Landing & Human Decisions
+
+**Integration (G7)**
+*   Merge Lane 1 (Export) and Lane 2 (Config) into a release branch.
+*   Generate integration receipt.
+
+**Human Approval Gate (G8 - Production)**
+*   **Required Approvers:** Platform Lead AND Finance Compliance Officer.
+*   **Action:** Present the "Go/No-Go" packet containing:
+    1.  QA's row-count verification receipt.
+    2.  Revert script location.
+    3.  Status page draft.
+*   **Decision:** Explicit approval to execute the mesh redirect and database deletion.
+
+**Execution Sequence (Post-Approval)**
+1.  Update Status Page (visible to support).
+2.  Freeze Writes (if not already persistent).
+3.  Final Export Verification (QA confirms counts one last time).
+4.  Switch Service Mesh to Payment Hub.
+5.  Monitor for 15 minutes (ignoring health flaps, watching actual transaction success).
+6.  **Delete Legacy Database Shard** (Only after steps 1-5 succeed).
+
+**Rollback Plan**
+*   **Trigger:** Row count mismatch OR critical payment failure in new hub.
+*   **Action:** Execute "Kill Switch" script to revert mesh config to Legacy Gateway.
+*   **Constraint:** If the DB is already deleted, rollback is impossible for new data; this is why deletion is the *final* step.
+
+**Post-Event (G10)**
+*   Confirm audit logs are accessible in cold storage.
+*   Retrospective on export duration and flaky health check impact.

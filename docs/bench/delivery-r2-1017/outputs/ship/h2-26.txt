@@ -1,0 +1,64 @@
+### Delivery Plan: Real-Time Search with Cost Governance
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Instant search results with strict cost controls.
+*   **Constraints:** Debounce + char threshold mandatory; graceful timeout fallback; no staging-to-prod index leaks; respect 5k daily sandbox limit.
+*   **Non-Goals:** Re-architecting the search provider; fixing flaky network tests unless they block local verification.
+*   **Appetite:** 3 days max to hit pre-holiday window.
+*   **Spec:** Acceptance requires <300ms perceived latency on typing stop, zero API calls for queries <3 chars or <400ms apart, and verified fallback UI on timeout. Base SHA pinned at intake.
+
+**G2 Plan: Work Lanes**
+*   **Lane A (Frontend Logic):** Implement debounce (400ms) and min-length (3 chars) wrapper around the search input. Add timeout handling (2s) to render fallback message.
+    *   *Worker:* Builder.
+    *   *Parallel:* Yes.
+*   **Lane B (Configuration & Security):** Update `search-config.json` for environment-specific endpoints and rate limits. Prepare the change package for Lead Architect Jane Smith's manual approval.
+    *   *Worker:* Security/Config Owner.
+    *   *Parallel:* Yes (code-wise), but **Serialized** for merge (requires Jane's sign-off before G7).
+*   **Lane C (Cost Verification):** Write a unit test simulating rapid keystrokes to assert API call count matches debounce logic. Mock the external provider to avoid hitting the 5k sandbox limit during CI.
+    *   *Worker:* QA.
+    *   *Parallel:* Yes, depends on Lane A's interface.
+
+**G3 Design**
+*   No new ADRs needed; existing patterns for async fetching apply.
+*   **Risk:** Irreversible cache warm-up. Mitigation: Feature flag the new search behavior, defaulting to "off" until G8.
+
+**G4 Implementation**
+*   **Lane A:** Modify `services/web-portal` components. Tests included with code.
+*   **Lane B:** Draft config diff. Do not commit to shared branch without approval artifact.
+*   **Lane C:** Add mock-based integration test in `connectivity-suite` (ignoring known flaky network checks if logs confirm local success).
+*   **Base SHA:** Immutable hash recorded at G1.
+
+**G5 Verification (Exact Revision)**
+*   **Local Stack:** Bring up `services/web-portal` locally.
+*   **Checks:**
+    1.  Type rapidly: Verify network tab shows throttled requests.
+    2.  Type 1-2 chars: Verify zero requests.
+    3.  Simulate timeout: Verify fallback message renders.
+    4.  Run unit tests: Green.
+    5.  Run targeted integration (mocked): Green.
+*   **CI Strategy:** Trigger full 28-min suite only once on the candidate SHA after local green. Do not re-run on minor doc tweaks.
+
+**G6 Review**
+*   **Reviewer:** Independent Senior Engineer (not the Builder).
+*   **Scope:** Full diff against pinned base SHA.
+*   **Focus:** Cost governance logic (debounce/threshold) correctness; timeout UX; config isolation.
+*   **Security:** Verify no prod indices referenced in staging config.
+
+**G7 Integration**
+*   **Merge Strategy:** Merge Lane A and C immediately upon green review.
+*   **Serialization:** Lane B (config) merges only after Jane Smith's written approval is attached to the PR.
+*   **Integration Receipt:** One aggregate build on the merged SHA.
+
+**G8 Release (Human Gate)**
+*   **Decision:** Owner/Lead approves flipping the feature flag to "on" in production.
+*   **Rollback:** If indexing logic fails or costs spike, revert the feature flag immediately (code remains, behavior disables). Full system revert required only if cache corruption occurs.
+
+**G9 Production Verify**
+*   Monitor query volume vs. user sessions for 1 hour post-launch.
+*   Verify error rates on fallback messages.
+
+**G10 Learn**
+*   Record actual cost savings from debounce vs. projections.
+*   Update runbook if sandbox limits are hit during future dev cycles.
+
+**Failure Mode:** If the sandbox locks (5k limit), Lane C switches to pure mocking; no further real calls allowed until reset. If Jane Smith is unavailable, Lane B stalls, but A and C can merge behind the feature flag (disabled).

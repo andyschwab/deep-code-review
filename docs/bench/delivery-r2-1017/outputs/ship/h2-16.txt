@@ -1,0 +1,64 @@
+**Delivery Plan: Core Billing Module Strict Type Checking**
+
+**Objective:** Enable strict type checking in `services/billing-core` by next Friday, resolving or documenting 3,000 violations without breaking the build or causing downtime.
+
+### Lanes & Parallelism
+
+**Lane 1: Analysis & Suppression Strategy (Serial Pre-requisite)**
+*   **Actor:** Product Analyst + Builder
+*   **Work:** Scan `services/billing-core` to categorize the 3,000 violations. Identify "legacy payment gateway wrappers" requiring exemption versus fixable logic errors. Draft the suppression list with justification for every entry.
+*   **Output:** `suppression-plan.md` and a patch containing only `// @ts-ignore` comments with context, zero logic changes.
+*   **Constraint:** Must complete before Lane 2 starts to establish the baseline.
+
+**Lane 2: Incremental Remediation (Parallelizable Batches)**
+*   **Actor:** Builder (multiple sub-tasks)
+*   **Work:** Fix non-risky violations in isolated worktrees. Batch fixes by file directory to minimize merge conflicts.
+*   **Constraint:** No changes to the shared validation library. Each batch must compile independently against the current base.
+
+**Lane 3: Pipeline Optimization (Parallel to Lane 2)**
+*   **Actor:** Builder + QA
+*   **Work:** Configure CI to run strict type checks only on changed files or affected paths to reduce the 18-minute overhead. Implement a cache strategy for the validation step.
+*   **Goal:** Ensure total CI time remains under the 25-minute timeout.
+
+**Lane 4: Flaky Test Stabilization (Serial with Lane 2)**
+*   **Actor:** QA
+*   **Work:** Isolate the "flaky network test suite." Create a retry mechanism or mock layer specifically triggered when type definitions change, preventing false negatives during the transition.
+
+### Gates & Checks
+
+*   **G1 Spec (Complete):** Plan approved. Base SHA pinned.
+*   **G2 Plan (Tuesday Meeting):** Review `suppression-plan.md` with stakeholder. **Human Decision:** Acceptance of specific exemptions for legacy wrappers.
+*   **G4 Implement:**
+    *   *Check:* Local build green with strict mode enabled.
+    *   *Revision:* Each batch verified at its own commit SHA.
+*   **G5 Verify:**
+    *   *Check:* CI pipeline green (including optimized type check < 25 mins).
+    *   *Check:* Flaky test suite passes (with retry logic if needed).
+    *   *Revision:* Exact merge candidate SHA.
+*   **G6 Review:**
+    *   *Reviewer:* Senior Engineer (independent of Payments Squad if possible, otherwise distinct from Builder).
+    *   *Focus:* Verify suppression justifications match the Tuesday agreement. Ensure no shared library drift.
+
+### Landing & Rollback
+
+**Merge Strategy:**
+1.  **Integration:** Land Lane 1 (suppressions) first to establish a green baseline with strict mode on but errors silenced.
+2.  **Trickle Feed:** Merge Lane 2 batches daily as they pass G5/G6.
+3.  **Final Switch:** Once violations are resolved or documented, the configuration flag is effectively "on."
+
+**Human Gates:**
+*   **Tuesday:** Approval of suppression list (G2).
+*   **Wednesday (Deployment Window):** Final merge to main and production deploy requires **Jane Smith's sign-off**.
+*   **Constraint:** Do not merge until Wednesday to align with the deployment window.
+
+**Rollback Plan:**
+*   **Risk:** Reverting triggers an irreversible audit log alert.
+*   **Mitigation:** Because revert is costly/visible, the "switch" is implemented as a configuration merge. If critical failure occurs post-deploy:
+    1.  Do *not* revert the commit immediately.
+    2.  Apply a hotfix commit that temporarily relaxes the specific strict rule causing the crash, preserving the audit trail of the original attempt.
+    3.  Investigate root cause in the next cycle.
+    4.  Only revert if the system is completely unusable, accepting the audit alert as a necessary compliance event.
+
+**Cost Control:**
+*   CI runs limited to one per candidate SHA after local green.
+*   Pipeline optimization (Lane 3) mandatory before full integration to avoid exceeding budget/timeouts.

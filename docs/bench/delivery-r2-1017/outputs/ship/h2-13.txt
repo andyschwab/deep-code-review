@@ -1,0 +1,69 @@
+### Delivery Plan: Legacy Billing Coverage Boost
+
+**Scope & Constraints**
+*   **Goal:** Raise automated test coverage for the legacy billing module to ≥80%, focusing on currency conversion edge cases and historical tax rates.
+*   **Constraint:** No refactoring of underlying logic. No changes to the shared currency utility signature (breaks nightly sync).
+*   **Environment:** `acme-fin-core` monorepo. CI timeout: 45 mins.
+*   **Approval:** Dual approval required (Security Lead + Finance Director) for merge to `prod-fin`.
+
+---
+
+#### 1. Lanes (Work Decomposition)
+
+**Lane A: Discovery & Spec (Serial, Pre-flight)**
+*   **Actor:** Product Analyst / Conductor
+*   **Work:** Map the "black box" billing module inputs/outputs without modifying code. Identify specific currency conversion edge cases (rounding, zero-values, exotic pairs) and historical tax rate scenarios. Define the "Do Not Touch" boundary for the shared currency utility.
+*   **Output:** A testable spec listing exact scenarios and the immutable interface contract for the utility file.
+*   **Dependency:** None. Must complete before Lane B.
+
+**Lane B: Test Implementation (Parallelizable internally, Serial to A)**
+*   **Actor:** Builder (Implementer)
+*   **Work:** Write unit and integration tests in a dedicated isolated worktree. Focus strictly on wrapping existing logic. Ensure tests are deterministic (mock network calls to avoid flaky builds). Keep suite execution under 10 minutes to protect CI budget.
+*   **Constraint:** Strictly no changes to the shared currency utility signature.
+*   **Output:** Patch containing new test files; coverage report showing ≥80% on the target module.
+
+**Lane C: Independent Verification (Serial to B)**
+*   **Actor:** QA (Independent)
+*   **Work:** Run the new test suite against the exact SHA from Lane B. Verify coverage metrics. Execute a "regression sanity" check on the 12 dependent services using the unchanged utility signature.
+*   **Output:** Verification receipt confirming coverage ≥80% and zero side-effects on dependent services.
+
+**Lane D: Security & Compliance Review (Serial to C)**
+*   **Actor:** Security Lead & Finance Director (Human Gates)
+*   **Work:** Review the test logic for financial accuracy (Finance) and data handling/privacy (Security). Verify no unauthorized logic changes occurred.
+*   **Output:** Dual approval signatures.
+
+---
+
+#### 2. Gates & Checks
+
+*   **G1 (Spec Freeze):** Review the edge-case list and utility interface contract. *Check:* Does the spec explicitly forbid utility signature changes?
+*   **G4 (Implementation):** Builder commits tests. *Check:* Local run passes; suite time < 10 mins; no network calls.
+*   **G5 (Verification):** QA runs tests on the **exact commit SHA** from G4. *Check:* Coverage ≥80%; no flaky failures; dependent services unaffected.
+*   **G6 (Review):** Independent review of the diff. *Check:* Finance Director confirms calculation logic safety; Security Lead confirms no data exposure.
+*   **G8 (Release):** Merge to `prod-fin`. *Check:* Dual human approval present.
+
+---
+
+#### 3. Review Strategy
+
+*   **Code Review:** Performed by a senior engineer **not** involved in Lane B. Focus: Test quality, mocking strategy, and ensuring no logic leaks into tests.
+*   **Domain Review:**
+    *   **Finance Director:** Validates that the test cases correctly reflect historical tax rules and currency math.
+    *   **Security Lead:** Validates that test data does not expose PII and that the module remains secure.
+*   **Independence:** The Builder cannot approve their own tests. QA must run on a clean checkout, not the Builder's local environment.
+
+---
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:**
+    1.  Rebase Lane B onto the latest `main` (or target branch) to ensure no drift.
+    2.  Run the full lean test suite one final time on the integration SHA.
+    3.  Submit PR with evidence: Coverage report, timing metrics, and dual-approval tickets linked.
+    4.  **Human Gate:** Merge is blocked until both Security Lead and Finance Director explicitly approve.
+*   **Rollback Plan:**
+    *   Since no logic was changed, rollback is simply reverting the test commit.
+    *   **Risk:** Low. The only risk is if the tests themselves introduce a runtime dependency error (unlikely if mocks are used).
+    *   **Action:** If production behavior changes (unexpectedly), revert the merge immediately. The "safety net" should not become the hazard.
+
+**Immediate Next Step:** Execute Lane A (Discovery) to define the exact edge cases before writing a single line of test code.

@@ -1,0 +1,34 @@
+### Delivery Plan: SMS Trigger Update (24h → 48h)
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Configuration & Logic):** Modify the reminder trigger interval from 24 to 48 hours. Implement the "future bookings only" logic gate to ensure existing 24-hour notifications are not duplicated or altered. Verify cancellation notification logic remains untouched.
+*   **Lane B (Test Environment Prep):** Provision the lower environment mirror. Manually patch the known flaky timezone check script to bypass daylight savings false positives during this specific run.
+*   **Lane C (Compliance Prep):** Draft the deployment justification document required for the Chief Medical Officer (CMO) and VP of Engineering.
+
+*Parallel Execution:* Lanes A, B, and C begin immediately. Lane A cannot merge until Lane B confirms the test pass. Lane C must be complete before the final merge request.
+
+#### 2. Gates & Checks
+*   **Gate 1: Code Freeze on Shared Config:** All edits to the shared message template configuration must occur outside business hours to prevent lock conflicts with Marketing/Clinical Ops.
+*   **Gate 2: Lower Environment Verification:**
+    *   **Revision:** Deploy Lane A's output to the lower environment mirror.
+    *   **Check:** Run the full synthetic data replay (approx. 55 mins).
+    *   **Specific Validation:** Manually inspect the timezone conversion log lines to confirm no false positives from the known flaky check.
+    *   **Logic Proof:** Verify via database query that appointments booked *before* deployment retain the 24-hour trigger, while those booked *after* utilize the 48-hour trigger. Confirm cancellation triggers remain unchanged.
+*   **Gate 3: Compliance Sign-off:** Submit the passing test results and the drafted justification (Lane C) to the CMO and VP of Engineering. Deployment is blocked until both provide explicit written approval.
+
+#### 3. Review Strategy
+*   **Primary Reviewer:** A senior engineer from the Patient Engagement team *not* authoring the code. They must verify the "future bookings only" logic implementation against the ticket requirements.
+*   **Independent Validation:** The QA lead must independently verify the synthetic data replay logs, specifically signing off on the manual timezone log inspection.
+*   **Stakeholder Review:** Clinical Operations must review the change in the lower environment to confirm the message content and timing appear correct in a patient-facing simulation.
+
+#### 4. Landing & Rollback
+*   **Merge Condition:** Merge to the release branch only after Gate 2 (Test Pass) and Gate 3 (Dual Executive Approval) are satisfied.
+*   **Deployment Window:** Schedule deployment during a low-traffic window (e.g., late evening) to minimize impact if issues arise, and to ensure the shared config file is unlocked.
+*   **Human Decision Point:** The final "Go/No-Go" button press requires the VP of Engineering's presence or delegated authority due to the production database sensitivity.
+*   **Rollback Plan:**
+    *   **Trigger:** If duplicate messages are detected or cancellation notifications fail post-deployment.
+    *   **Action:** Immediate reversion to the previous container image in all three regional clusters.
+    *   **Communication:** Automated alert to Patient Engagement team and Clinical Operations.
+    *   **Data Remediation:** If duplicates occurred, a script must be ready to flag affected patient records for manual apology outreach by the support team.
+
+This plan ensures strict adherence to healthcare compliance, mitigates the risk of duplicate patient communication, and accounts for known infrastructure fragilities.

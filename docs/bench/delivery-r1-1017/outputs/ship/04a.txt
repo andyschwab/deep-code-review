@@ -1,0 +1,59 @@
+### Delivery Plan: Sunset Analytics SDK Replacement
+
+**Objective:** Replace DataPulse SDK with MetricFlow, ensuring zero data loss (>4h gap) and schema parity by EOD Nov 14.
+
+#### 1. Lanes & Parallelism
+*Work is split into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is serialized after both.*
+
+*   **Lane A: Schema & Compliance (Serialized Gate)**
+    *   **Owner:** Senior Engineer + Compliance Officer.
+    *   **Work:** Audit `data-schema.json` against legacy event definitions. Draft mapping spec for MetricFlow.
+    *   **Constraint:** Requires dual sign-off before any code change. This is the critical path blocker.
+    *   **Output:** Approved schema diff and mapping document.
+
+*   **Lane B: Implementation & Unit Verification**
+    *   **Owner:** Builder (Senior Engineer).
+    *   **Work:** Isolate worktree. Swap SDK imports. Implement MetricFlow initialization and event dispatchers using Lane A's mapping. Write unit tests for event payload structure.
+    *   **Constraint:** Must not touch `data-schema.json` until Lane A approves.
+    *   **Output:** Green unit tests, local build success, patch ready for review.
+
+*   **Lane C: Integration & Staging Validation**
+    *   **Owner:** QA (Independent).
+    *   **Work:** Deploy Lane B's artifact to Staging. Synthesize traffic to mimic load (compensating for lack of real traffic). Verify data ingestion in MetricFlow dashboard.
+    *   **Constraint:** Waits for Lane B's build. Ignores Tuesday `audit-log` flakes (manual verification only).
+    *   **Output:** Staging verification receipt, data continuity proof.
+
+#### 2. Gates & Checks
+*Cost control: GPU instances ($45/run) are reserved strictly for Lane C integration. Lane B runs only local/unit checks.*
+
+*   **G1 (Spec):** Freeze event schema mapping. **Check:** Compliance Officer signature on `data-schema.json` diff.
+*   **G4 (Build):** Lane B completes implementation. **Check:** Local unit tests green. No GPU CI triggered yet.
+*   **G5 (Verify):** Lane C validates Staging. **Check:**
+    *   MetricFlow receives 100% of test events with correct schema.
+    *   Simulated load test passes without timeout.
+    *   **Exception:** If today is Tuesday, `audit-log` failure requires manual log inspection, not auto-retry.
+*   **G6 (Review):** Independent Senior Engineer (not the Builder) reviews the full diff. **Check:** Security scan for new vendor keys; logic review of fallback mechanisms.
+
+#### 3. Review Strategy
+*   **Code Review:** Conducted by a Senior Engineer who did not write Lane B. Focus: Error handling during switchover, retry logic, and schema fidelity.
+*   **Compliance Review:** Compliance Officer verifies `data-schema.json` changes match the approved mapping exactly.
+*   **Security Review:** Verify MetricFlow API keys are scoped correctly and no PII is leaked in new logs.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Lane A commits schema approval.
+    2.  Lane B rebases on Lane A, lands PR to `main` (protected branch).
+    3.  **Human Gate:** Senior Engineer with production merge key manually approves the merge after G6 sign-off.
+*   **Deployment:**
+    *   Deploy to Production during low-traffic window.
+    *   **Dual-Write Window:** Enable MetricFlow alongside DataPulse for 2 hours to verify parallel data flow before cutting DataPulse.
+*   **Rollback Plan:**
+    *   **Trigger:** Data loss detected >15 mins or schema mismatch.
+    *   **Action:** Immediate revert of the merge commit.
+    *   **Constraint:** Full DB restore takes 6 hours; therefore, code-level revert is the *only* viable immediate recovery. Do not attempt DB restore unless data corruption is confirmed irreversible.
+*   **Final Sign-off:** Confirmation of data continuity receipt by EOD Nov 14.
+
+**Risk Mitigation:**
+*   **Cost:** CI runs limited to one final integration suite on the exact merge SHA.
+*   **Deadline:** If Lane A (Compliance) blocks past Nov 13, escalate immediately to Platform Guild lead; technical work cannot proceed without schema lock.
+*   **Flakiness:** Tuesday `audit-log` failures are bypassed via manual check to prevent pipeline stalls.

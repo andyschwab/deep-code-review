@@ -1,0 +1,61 @@
+# Delivery Plan: Hybrid Upload Migration
+
+## Lanes & Parallelism
+
+**Lane A: Backend Core (Serialized before Lane B)**
+*   **Owner:** Backend Engineer
+*   **Work:** Implement the "Hybrid Storage Provider" interface. Logic must check `/var/uploads` first; if the file exists, serve it locally (legacy). If not, generate a short-lived signed URL for the new object store (modern).
+*   **Constraint:** Must not modify `shared-config.yaml`. Configuration for the new provider must be injected via environment variables or a new, non-locked config file.
+
+**Lane B: Frontend Flow (Parallel to Lane A)**
+*   **Owner:** Frontend Engineer
+*   **Work:** Update the upload component to request a signed URL from the backend, then perform a direct `PUT` to the object store.
+*   **Dependency:** Requires the backend API endpoint for URL generation (defined in Lane A) to be mocked initially, then integrated once Lane A is ready.
+
+**Lane C: Legacy Link Preservation (Parallel to Lane A & B)**
+*   **Owner:** DevOps / Backend Engineer
+*   **Work:** Configure the web server (Nginx/Apache) or CDN layer to intercept requests matching old public link patterns. If the file exists in `/var/uploads`, serve it directly with original caching headers. This ensures email campaigns remain functional without database changes.
+
+## Gates & Checks
+
+**Gate 1: Design Review (Pre-Code)**
+*   **Reviewer:** Senior Lead (not the implementers)
+*   **Check:** Verify the "Hybrid Provider" logic guarantees zero downtime for legacy files. Confirm no changes are planned for `shared-config.yaml`.
+*   **Revision:** Branch `feature/hybrid-storage-design`.
+
+**Gate 2: Unit & Integration Lite (CI)**
+*   **Runner:** Shared CI Runners
+*   **Check:** Run unit tests for the storage provider and frontend components.
+*   **Constraint:** **NO** heavy end-to-end integration tests involving actual object store uploads. These will timeout (45m limit) and waste credits. Mock the object store interaction in CI.
+*   **Revision:** Commit hash on `feature/hybrid-storage-impl`.
+
+**Gate 3: Staging Verification (Manual + Automated)**
+*   **Environment:** Staging
+*   **Check:** Deploy to staging. Verify legacy file access and new upload flow.
+*   **Known Issue:** Ignore "storage failure" logs if connectivity is confirmed (known flaky network check).
+*   **Revision:** Release candidate tag `rc/upload-migration-v1`.
+
+## Review Strategy
+
+*   **Code Review:** Two-person review required. One reviewer must be from the opposite lane (e.g., Frontend reviews Backend core logic) to ensure interface contracts are clear.
+*   **Independence:** Reviewers must not be the authors of the code they approve.
+*   **Focus:** Specifically audit the fallback logic for legacy files and the security of the signed URL generation (expiration times, scope).
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge Lane C (Legacy Links) first. This is low-risk and secures existing public links immediately.
+2.  Merge Lane A (Backend) and Lane B (Frontend) together in a single coordinated merge to avoid a state where the frontend expects signed URLs but the backend doesn't provide them.
+
+**Human Decisions Required:**
+*   **Production Approval:** Two senior leads must approve the deployment.
+*   **Database Marker:** Confirm no database schema marker update is triggered by this change. If the deployment pipeline attempts to update one, **ABORT** immediately.
+
+**Rollback Plan:**
+*   **Trigger:** If legacy files become inaccessible or new uploads fail consistently in production.
+*   **Action:** Revert the merge commit. Since the code defaults to local disk if the new provider fails (or if the hybrid logic is bypassed), reverting restores the original monolithic behavior instantly.
+*   **Constraint:** Because production deploys are irreversible once the DB marker updates, verify *before* merging that this change is purely application-layer. If a DB marker was inadvertently included, the rollback requires a manual database restore from backup (high severity).
+
+**Post-Landing:**
+*   Monitor disk space growth rate (should plateau) and object store write metrics.
+*   Schedule a future task to physically migrate `/var/uploads` to the object store once the hybrid layer is proven stable, but do not include this in the current delivery.

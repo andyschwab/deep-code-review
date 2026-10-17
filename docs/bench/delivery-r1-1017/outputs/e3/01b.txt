@@ -1,0 +1,65 @@
+### Delivery Plan: Ledger Schema Migration
+
+**Constraints & Strategy**
+The month-end freeze and irreversible backfill threshold (>10%) dictate a serialized, high-caution approach. We cannot parallelize the migration script approval with code implementation due to the external dependency on the Data Governance repo. The 45-minute CI window and 6-build daily cap require a "build once, promote strictly" strategy. False positives in staging reconciliation must be triaged before any production attempt.
+
+#### Lanes & Serialization
+
+1.  **Lane A: Migration Script Approval (Serialized First)**
+    *   **Actor:** Conductor (Human Liaison).
+    *   **Work:** Submit change request to Data Governance repo. Secure Chief Data Officer (CDO) manual approval.
+    *   **Dependency:** None, but blocks all other lanes.
+    *   **Output:** Approved migration script SHA and deployment window confirmation.
+
+2.  **Lane B: Dual-Write Implementation (Parallel to Lane A prep, waits for A finish)**
+    *   **Actor:** Builder.
+    *   **Work:** Implement dual-write logic in the Payments Core service. Ensure atomicity: if the new columnar write fails, the transaction fails entirely.
+    *   **Constraint:** Code must feature-flag the dual-write to allow instant disablement without redeploy.
+    *   **Output:** Patch ready for review, pinned to the base SHA of Lane A's approved script.
+
+3.  **Lane C: Backfill & Audit Automation (Parallel to Lane B)**
+    *   **Actor:** Builder + QA.
+    *   **Work:** Script the historical backfill job trigger. Implement the "latency spike" detector that auto-reverts read traffic to legacy if thresholds are breached.
+    *   **Output:** Runbook and automation scripts for backfill and rollback.
+
+4.  **Lane D: Staging Reconciliation Triage (Parallel to Lane B/C)**
+    *   **Actor:** QA.
+    *   **Work:** Run reconciliation checks on sanitized staging data. Explicitly identify and document expected false positives to prevent gate flakiness during the critical window.
+    *   **Output:** Verified list of "known noise" vs. genuine data integrity failures.
+
+#### Gates & Checks
+
+*   **G1 Spec:** Define exact latency threshold for rollback (e.g., p99 > 200ms). Confirm CDO approval path.
+*   **G3 Design:** Review dual-write atomicity and rollback switch mechanism. **Security** verifies no PII exposure in new columnar format.
+*   **G4 Implement:** Code complete. Feature flags default to "off" for new schema writes.
+*   **G5 Verify (Staging):**
+    *   Run full CI pipeline (45 mins).
+    *   Execute backfill on <10% of staging data.
+    *   **QA Gate:** Reconciliation passes excluding documented "known noise."
+    *   **Chaos Test:** Simulate latency spike; verify automatic reversion to legacy reads.
+*   **G6 Review:**
+    *   **Independent Reviewer:** Senior Engineer (not the Builder).
+    *   **Security Review:** AppSec lead verifies cryptographic validation steps remain intact.
+    *   **Data Review:** CDO or delegate confirms migration script matches approved version.
+
+#### Landing & Rollback
+
+**Merge Strategy:**
+1.  **Integration (G7):** Merge Lane B and C into the integration branch only after Lane A (CDO approval) is physically confirmed.
+2.  **Human Gate (G8):**
+    *   **Decision:** Finance Team Lead + CDO.
+    *   **Trigger:** Post-month-end freeze lift.
+    *   **Action:** Approve deployment to Region 1 (Canary).
+3.  **Deployment Train:**
+    *   Deploy to Region 1. Enable dual-write. Monitor latency.
+    *   If stable for 1 hour, trigger backfill job. **Hard Stop:** Monitor backfill progress. If >10% reached, no further deploys until audit passes.
+    *   Upon 100% backfill and **Data Integrity Audit Pass**, switch read traffic to new schema.
+    *   Roll out to Regions 2 and 3.
+
+**Rollback Plan:**
+*   **Scenario A (Pre-10% Backfill):** Instant feature-flag flip to disable dual-write and revert reads to legacy. Safe to redeploy legacy code if needed.
+*   **Scenario B (Post-10% Backfill):** **IRREVERSIBLE.** Reads must stay on new schema. If latency spikes, scale compute resources; do not revert schema. Fallback is manual data repair, not code rollback.
+
+**Risk Mitigation:**
+*   **CI Cap:** Only one build submitted per region rollout to preserve the 6-build daily limit.
+*   **Flakiness:** QA explicitly signs off on reconciliation logs, ignoring pre-approved false positives.

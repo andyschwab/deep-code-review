@@ -1,0 +1,54 @@
+### Delivery Plan: Stabilize Orbit-9 Checkout Flow Tests
+
+**Objective:** Eliminate the 40% flakiness in the Orbit-9 checkout E2E suite without removing the mandatory global network check, restoring the deployment gate's reliability.
+
+#### 1. Lanes & Parallelism
+Work is divided into three lanes. Lanes A and B run in parallel; Lane C is serialized after both complete.
+
+*   **Lane A (Investigation & Reproduction):**
+    *   **Owner:** SDET Lead.
+    *   **Work:** Analyze CI logs to isolate failure patterns relative to the midnight UTC data refresh. Attempt to reproduce the race condition locally by simulating network latency against the read-only snapshot.
+    *   **Constraint:** Cannot modify the `global-setup` module yet.
+*   **Lane B (Stakeholder Alignment):**
+    *   **Owner:** Tech Lead.
+    *   **Work:** Coordinate with the QA Ownership Team to review the `global-setup` constraints. Define acceptable mitigation strategies (e.g., explicit retries, wait-for-condition logic) that satisfy audit rules without removing the check.
+    *   **Output:** Written agreement on the specific test logic changes allowed.
+*   **Lane C (Implementation & Validation):**
+    *   **Owner:** SDET Lead + Payments Squad Dev.
+    *   **Work:** Implement the agreed-upon stability fixes (e.g., robust polling, deterministic data seeding wrappers). This lane starts only after Lane A identifies the root cause and Lane B secures QA approval.
+
+#### 2. Gates & Checks
+All work branches off revision `main@HEAD` (the current failing state).
+
+*   **Gate 1: Root Cause Confirmation (Pre-Code):**
+    *   **Trigger:** Completion of Lane A.
+    *   **Check:** A documented report linking specific failure timestamps to the `global-setup` network check behavior.
+    *   **Pass Criteria:** Must demonstrate that the flakiness is a timing/data-state issue, not a fundamental logic error in the checkout flow.
+*   **Gate 2: Design Sign-off (Pre-Merge):**
+    *   **Trigger:** Completion of Lane B and Draft PR from Lane C.
+    *   **Check:** QA Ownership Team review of the proposed code diff.
+    *   **Pass Criteria:** Explicit written confirmation that the changes comply with global configuration rules and audit requirements.
+*   **Gate 3: Stability Verification (CI):**
+    *   **Trigger:** PR push.
+    *   **Check:** The full suite must run successfully on the paid cloud cluster.
+    *   **Pass Criteria:** Zero failures in the Orbit-9 suite across 5 consecutive manual re-runs (simulating the 40% failure rate elimination). Cost impact: ~$60 for verification runs.
+
+#### 3. Review Process
+*   **Code Review:** Performed by a Senior Engineer from a *different* product team (one of the other five sharing the engine) to ensure no regression in shared components.
+*   **QA Review:** Independent review by the QA Ownership Team specifically for the test logic changes. They have veto power over any change touching the test runner configuration.
+*   **Compliance Review:** Required only if the fix alters how transaction data is logged or validated.
+
+#### 4. Landing Strategy
+*   **Merge Window:** Merges to `main` are restricted to 02:00–04:00 UTC to maximize distance from the midnight data refresh, reducing immediate flakiness risk during integration.
+*   **Human Decision Point:**
+    *   **Approver:** Jane Smith (Compliance Officer).
+    *   **Trigger:** Before merging to `main` and deploying to Staging.
+    *   **Requirement:** Explicit written approval citing the QA sign-off and stability verification results. No automated merge is permitted.
+*   **Rollback Plan:**
+    *   If the post-merge CI run fails or flakiness returns (>5% failure rate in the first 24 hours):
+        1.  Immediately revert the merge commit using `git revert`.
+        2.  Notify the Payments Squad and Compliance Officer.
+        3.  Revert does not require new Compliance approval as it restores the previous compliant state, but requires notification.
+    *   **Data Safety:** Since test data is read-only and seeded from a snapshot, no data cleanup is required upon rollback.
+
+**Risk Mitigation:** The irreversibility of test runner config changes in production means the fix must be wrapped in a feature flag or conditional logic that defaults to the legacy behavior if the new stability logic encounters an unexpected state, ensuring the pipeline never hard-fails due to the fix itself.

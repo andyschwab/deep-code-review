@@ -1,0 +1,50 @@
+### Delivery Plan: Undo for Bulk Archive
+
+**Objective:** Implement a 15-minute reversible snapshot mechanism for Bulk Archive actions to prevent data loss, ensuring zero latency impact on the primary archive flow.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data Architecture):** Design the temporary snapshot schema and retention policy.
+    *   *Work:* Define a `archive_snapshots` table (or equivalent key-value store) storing the pre-archive state and expiration timestamp. Ensure write-path is asynchronous/non-blocking relative to the main archive commit.
+    *   *Constraint:* Must not lock shared config files during business hours.
+    *   *Parallel:* Can run immediately.
+*   **Lane B (Backend Implementation):** Implement the snapshot creation and revert logic.
+    *   *Work:* Hook into the Bulk Archive service to trigger the snapshot. Build the "Revert" endpoint that restores records from the snapshot and logs the reversal. Implement the 15-minute TTL check.
+    *   *Dependency:* Requires Lane A's schema definition.
+*   **Lane C (Frontend/UI):** Build the undo notification and action button.
+    *   *Work:* Add a post-action toast/banner in the Ops Console showing "Archive Reverted" or "Undo Available (MM:SS)" with a countdown. Button disables automatically at expiry.
+    *   *Dependency:* Requires Lane B's API contract.
+*   **Lane D (QA & Safety):** Verify recovery speed and data integrity.
+    *   *Work:* Simulate the 300-record scenario. Measure time-to-revert. Verify audit log appends correctly (no deletions). Confirm the flaky notification check is bypassed if logs show success.
+    *   *Dependency:* Requires Lane B and C completion.
+
+**Serialization:** A → B → C. D runs parallel to C once B is ready for testing.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Confirm snapshot storage mechanism (DB vs. Cache) and exact TTL enforcement strategy. Pin base SHA.
+*   **G3 Design:** Architectural Decision Record (ADR) for the snapshot table, confirming non-blocking writes and 15-minute cleanup job (cron or lazy deletion).
+*   **G4 Implementation:**
+    *   Unit tests for TTL logic and revert idempotency.
+    *   Code must pass lint/type checks locally before push.
+*   **G5 Verification (Exact Revision):**
+    *   **Local Stack:** Spin up Ops Console locally. Run bulk archive on 300 dummy records.
+    *   **Performance:** Assert archive latency increase < 50ms.
+    *   **Functional:** Execute revert at minute 14 (success) and minute 16 (failure/expired).
+    *   **Audit:** Verify audit log contains original archive + revert entry; no deletions.
+    *   **CI Strategy:** Run full integration suite **once** on the candidate SHA. Do not re-run on merge unless SHA changes. Ignore flaky notification check if backend logs confirm dispatch.
+*   **G6 Review:**
+    *   **Security:** Independent review of the revert endpoint authorization (only authorized users).
+    *   **Code:** Senior Engineer review (not the implementer). Focus on race conditions between expiry and revert.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Land Lane A, B, C into a feature branch.
+    2.  Run G5/G6 on the integrated SHA.
+    3.  Create PR to `main`.
+*   **Human Gates (Required):**
+    *   **Approval:** Both Team Lead and Head of Customer Success must approve the PR merge (per repo policy).
+    *   **Deploy:** Deployment to production requires explicit human authorization; it is not auto-deployed.
+*   **Rollback Plan:**
+    *   If the snapshot mechanism causes DB load or latency spikes: Revert the PR immediately. The system returns to the previous state (no undo), which is safer than a degraded primary archive.
+    *   Data recovery remains dependent on the 03:00 UTC backup until this fix is live.
+
+**Risk Mitigation:** The snapshot table will include an index on `expiration_time` to ensure the cleanup job does not scan the whole table, preventing performance degradation over time.

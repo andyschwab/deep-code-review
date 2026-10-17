@@ -1,0 +1,72 @@
+**Delivery Plan: Cap Daily LLM Spend for Claim Summaries**
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Enforce hard daily spend caps per department; disable UI on limit hit; allow senior lead override.
+*   **Constraints:** Zone-B dual approval (Security + Finance); $15/CI run cost; 12-min cluster restart on config change; irreversible ledger post-midnight UTC; flaky health check on restart.
+*   **Appetite:** Live before new quarter.
+*   **Spec:** Acceptance criteria include: (1) Button disabled + tooltip visible when cap hit; (2) API call blocked server-side; (3) Senior lead override bypasses block; (4) Config change triggers restart without failing flaky health check (mitigation required); (5) Zero API calls after cap reached.
+
+**G2 Plan: Work Graph & Lanes**
+*   **Lane 1 (Backend Logic):** Implement server-side spend tracker and enforcement middleware.
+    *   *Writer:* Builder A.
+    *   *Parallel:* Yes.
+    *   *Budget:* $40 token cap.
+*   **Lane 2 (UI/UX):** Implement button state logic, tooltip, and override interaction.
+    *   *Writer:* Builder B.
+    *   *Parallel:* Yes (depends only on API contract).
+    *   *Budget:* $20 token cap.
+*   **Lane 3 (Config & Ops):** Update `global_limits.json` schema and define restart mitigation strategy for the flaky health check.
+    *   *Writer:* Ops Engineer (Human).
+    *   *Serialized:* Must complete before G5 integration to verify restart behavior.
+*   **Lane 4 (Security & Finance Policy):** Define role hierarchy mapping for "senior lead" and set initial department quotas.
+    *   *Writer:* Product Analyst + Security Lead.
+    *   *Serialized:* Must complete before G3 Design sign-off.
+
+**G3 Design**
+*   **ADR:** Decision on how to bypass the flaky health check during the mandatory 12-minute restart (e.g., temporary monitoring silence window).
+*   **Contract:** API returns `423 Locked` with `reason: spend_limit` when capped; UI polls status every 60s.
+
+**G4 Implement**
+*   **Work Packets:**
+    *   Backend: Unit tests for spend counting and override logic.
+    *   Frontend: Component tests for disabled state and tooltip.
+    *   Config: Dry-run script for `global_limits.json` validation.
+*   **Base SHA:** Pinned to current main before lane start.
+
+**G5 Verify (Exact Revision)**
+*   **Environment:** Isolated Zone-B staging cluster (requires full restart simulation).
+*   **Checks:**
+    *   Build/Lint/Type: Green.
+    *   Unit/Integration: Green.
+    *   **Critical:** Simulate cap hit → verify API block → verify UI tooltip → verify override success.
+    *   **Critical:** Trigger config change → verify cluster restart completes → verify flaky health check does not block pipeline (via mitigation).
+*   **Evidence:** Screen recording of UI flow; logs showing blocked API calls; restart duration metrics.
+
+**G6 Review**
+*   **Independence:**
+    *   Code Review: Senior Engineer (not Builder A/B).
+    *   Security Review: Security Lead (verify no bypass for non-leads).
+    *   Finance Review: Finance Ops Manager (verify ledger safety).
+*   **Verdict:** Blocker/Critical findings must be fixed; High findings require owner acceptance.
+
+**G7 Integrate**
+*   **Merge Train:** Single commit integrating all lanes.
+*   **Re-verification:** Run full pipeline once on final SHA ($15 cost). Do not re-run unless red.
+
+**G8 Release (Human Gate)**
+*   **Approval Required:** Dual approval from Security Lead AND Finance Ops Manager (Zone-B policy).
+*   **Timing:** Must deploy before midnight UTC to avoid irreversible ledger closure issues. Deploy during low-traffic window to absorb 12-min restart.
+*   **Rollback:** Impossible after midnight UTC. Pre-deploy backup of ledger state required. If deployment fails pre-midnight, revert immediately; post-midnight failure requires manual ledger correction (outside scope).
+
+**G9 Production Verify**
+*   **Check:** Monitor first 24h spend; verify no unexpected spikes; confirm tooltip visibility in prod.
+
+**G10 Learn**
+*   **Retro:** Analyze if the flaky health check mitigation holds; update runbook for future config changes.
+
+**Risks & Mitigations**
+*   **Flaky Health Check:** Explicitly mark the restart window as "expected downtime" in monitoring to prevent false alarms.
+*   **Irreversible Ledger:** Enforce strict "deploy before 23:00 UTC" rule.
+*   **Cost:** Limit CI runs to exactly one successful integration run; fix locally before pushing.
+
+**Next Step:** Confirm senior lead role mapping with Product Owner to finalize G1 Spec.

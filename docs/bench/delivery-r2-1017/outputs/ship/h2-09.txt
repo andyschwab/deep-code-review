@@ -1,0 +1,54 @@
+**Delivery Plan: ApexPay to NexusStream Migration with Dual-Listener Support**
+
+**Objective:** Enable the new NexusStream webhook endpoint while maintaining the legacy listener for 400 stranded retries over the next six hours, ensuring zero duplication and financial reconciliation stability.
+
+### Lanes & Serialization
+
+**Lane 1: Configuration & Routing (Builder)**
+*   **Work:** Modify `gateway-routes.json` to add the new NexusStream URL as a parallel route for fresh traffic, ensuring the legacy URL remains active for specific retry headers/payloads. Implement logic to route based on transaction timestamp or retry-count headers to prevent duplication.
+*   **Constraint:** Must not break the refund service. Changes are additive; no deletion of legacy routes yet.
+*   **Parallelism:** Can run parallel to Lane 2 (Test Harness) but must finish before Lane 3 (Integration).
+
+**Lane 2: Replay Test Harness (QA)**
+*   **Work:** Build a local simulation script to replay the 400 known failed transaction payloads against the modified code. Verify that legacy-path logic processes them exactly once and new-path logic ignores them (or handles them idempotently).
+*   **Dependency:** Requires code from Lane 1 to be committed to a feature branch for testing.
+
+**Lane 3: Security & Audit Prep (Security/Compliance)**
+*   **Work:** Draft the explicit written approval request for the CSO and Lead Auditor. Document the irreversibility risk and the rollback plan (snapshot restore). Prepare the "kill switch" feature flag to disable the new route instantly if anomalies occur.
+*   **Parallelism:** Runs independently in parallel with Lanes 1 and 2.
+
+**Serialization Point:** Lane 1 and Lane 2 must merge and pass verification before Lane 4 (Deployment) begins. Lane 3's approval must be secured before Lane 4 executes.
+
+### Gates & Checks
+
+*   **G2 Plan (Now):** This plan defines the acyclic graph. Budget set: 3 CI runs max ($135 cap).
+*   **G4 Implement:** Code committed to a dedicated worktree. `gateway-routes.json` validation script run locally to ensure refund service paths are untouched.
+*   **G5 Verify (Exact Revision):**
+    *   **Local:** Run the replay harness (Lane 2) against the build. Success = 400/400 processed, 0 duplicates, 0 new-path errors.
+    *   **CI:** Trigger pipeline on the feature branch. *Mitigation for flaky DB migration:* If the DB check fails, inspect logs; if it matches the known 15% false-positive pattern, manually re-trigger once. Do not merge on a red gate.
+    *   **Cost Gate:** If the first CI run fails due to code error, fix and re-run. If it fails due to infrastructure/flake, re-run once. A third failure halts delivery for human diagnosis to avoid the 1-hour lockout.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Ledger Engineer (independent of Builder).
+    *   **Scope:** Full diff of `gateway-routes.json` and routing logic. Specific focus: idempotency keys for the 400 retries.
+    *   **Security:** Security Engineer verifies the new endpoint's TLS config and auth headers.
+
+### Landing & Human Decisions
+
+**Merge Strategy:**
+1.  **Pre-Merge:** Secure written approval from CSO and Lead Auditor (Lane 3 output).
+2.  **Integration:** Merge to the release branch. Trigger the 22-minute CI pipeline one final time on the merge commit.
+3.  **Deployment (Human Gate):**
+    *   **Decision:** The Lead Auditor must explicitly authorize the production push after reviewing the G5 receipts (replay success) and G6 approvals.
+    *   **Action:** Deploy behind a feature flag. Enable the new NexusStream route at 50% traffic initially, monitoring for 15 minutes.
+    *   **Rollback:** If financial discrepancies appear, immediately disable the new route via flag. If corruption occurs, execute full rollback to the previous daily snapshot (irreversible switch caveat).
+
+**Post-Deployment Monitoring:**
+*   Monitor the legacy queue depth. Once the count hits zero (expected <6 hours), the owner will confirm.
+*   **Future Work:** A separate ticket will handle the removal of the legacy listener code after owner confirmation.
+
+**Risk Mitigation:**
+*   **Duplication:** Prevented by strict header-based routing logic verified in Lane 2.
+*   **CI Lockout:** Managed by limiting retries to one manual re-trigger for known flakes.
+*   **Refund Service Breakage:** Prevented by local validation of `gateway-routes.json` before CI.
+
+**Status:** Ready for G2 approval to commence Lane 1 and Lane 3.

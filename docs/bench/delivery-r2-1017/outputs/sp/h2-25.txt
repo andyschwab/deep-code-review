@@ -1,0 +1,29 @@
+### Delivery Plan: Nightly Data Sync Schedule Adjustment
+
+#### 1. Lanes (Work Distribution & Parallelism)
+*   **Lane A (Configuration - Serialized):** Single engineer updates `global-cron.yaml` in the `ops-config` repository. This lane is strictly serialized; no other changes to this file can occur simultaneously.
+*   **Lane B (Approval - Parallel):** While Lane A prepares the change request, the engineer initiates the approval workflow in the change management portal. This requires concurrent sign-off from the **Platform Lead** and **Finance Director**. This lane runs parallel to local preparation but must complete before the merge gate.
+*   **Lane C (Verification - Serialized after Merge):** Once merged to the staging branch, the automated CI pipeline triggers. Due to the 45-minute runtime, this is a blocking serialized step. Manual verification of downstream reporting dashboards occurs only after CI success.
+
+#### 2. Gates and Checks
+*   **Gate 1: Pre-Commit Validation:** Engineer verifies the cron syntax (`0 4:30 * * *`) locally against the schema before committing.
+*   **Gate 2: Approval Lock:** The Pull Request (PR) cannot be merged until both required approvals (Platform Lead, Finance Director) are recorded in the change management portal.
+*   **Gate 3: CI Regression:** The PR must pass the full 45-minute regression suite on the **staging** branch. Failure here blocks promotion to production.
+*   **Gate 4: Deployment Window Check:** The merge to the production branch is technically gated by time. If the merge attempt occurs outside **Tuesday/Thursday 06:00–08:00 UTC**, the deployment automation will stall. The merge action must be timed to land within this window.
+*   **Check: Dashboard Integrity:** Post-deployment to staging, a manual check confirms reporting dashboards populate correctly with the delayed data availability. This specifically addresses the risk of broken morning metrics.
+
+#### 3. Review Strategy
+*   **Code Review:** An independent Senior Platform Engineer (not the author) reviews the `global-cron.yaml` diff. They verify the specific timestamp change and ensure no accidental modifications to adjacent job definitions.
+*   **Process Review:** The Change Management System acts as the procedural reviewer, enforcing the dual-signature requirement.
+*   **Independence:** The code reviewer must be distinct from the approvers (Platform Lead/Finance Director) to ensure separation of technical validation and business authorization.
+
+#### 4. Landing Strategy
+*   **Merge Target:** The change merges first to the `staging` branch to trigger the slow CI pipeline and allow dashboard verification.
+*   **Production Promotion:** Upon successful staging verification, the change is queued for the `main` branch. The actual merge to `main` must be executed manually by the engineer strictly within the **Tuesday/Thursday 06:00–08:00 UTC** window.
+*   **Human Decision Point:** If the staging dashboard check reveals missing metrics, the engineer must halt promotion and consult the Finance Director on whether to proceed or revert, regardless of the schedule pressure.
+*   **Rollback Plan:** If production deployment causes immediate lock contention or data failure:
+    1.  Revert the `global-cron.yaml` commit immediately via a hotfix PR.
+    2.  Bypass the standard 45-minute CI if the platform allows "emergency revert" flags; otherwise, trigger the fast-track revert pipeline.
+    3.  Notify the Finance Team immediately that the original 02:00 UTC schedule is temporarily restored to prevent data loss while a new time slot is negotiated.
+
+This plan prioritizes the dual-approval bottleneck and the rigid deployment window, ensuring the schedule shift occurs without violating governance or causing unverified dashboard failures.

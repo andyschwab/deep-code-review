@@ -1,0 +1,46 @@
+**Delivery Plan: Legacy Feature Flag Audit & Removal**
+
+**Strategy**
+Execute in two distinct phases to separate high-risk analysis from irreversible modification. Phase 1 (Audit) produces a verified removal manifest; Phase 2 (Removal) executes code changes and config updates strictly according to that manifest.
+
+**Lanes & Parallelism**
+*   **Lane A: Static Analysis (Builder)**
+    *   **Work:** Scan codebase for flag definitions, usage sites, and commit history. Identify flags untouched >12 months or hardcoded to `true`/`false`.
+    *   **Parallel:** Yes. Runs immediately on local worktree.
+*   **Lane B: Traffic Verification (QA)**
+    *   **Work:** Query production/telemetry logs for the candidate list from Lane A. Confirm zero traffic hits for "dead" flags over the last 90 days. Cross-reference with enterprise client contracts to ensure no silent dependencies.
+    *   **Parallel:** Yes, but depends on Lane A's candidate list.
+*   **Lane C: Fraud Service Impact Study (Security)**
+    *   **Work:** Analyze the shared immutable config file structure. Simulate (in a sandbox) the exact byte-level changes required to remove flags without breaking the fraud detection parser. Define the "safe edit" window to avoid the 15-minute outage risk.
+    *   **Serialized:** Must complete before Lane D starts.
+*   **Lane D: Implementation (Builder)**
+    *   **Work:** Remove dead code paths gated by verified flags. Update the config file using the "safe edit" pattern from Lane C.
+    *   **Serialized:** Waits for Lane B (traffic proof) and Lane C (safety pattern).
+*   **Lane E: Staged Integration (QA)**
+    *   **Work:** Deploy Lane D's artifact to the staged environment. Run full payment suite. **Explicitly skip** the known flaky latency check unless it fails consistently; if it fails once, mark as flake and proceed if other gates pass.
+    *   **Serialized:** Waits for Lane D.
+
+**Gates & Checks**
+*   **G1 Spec:** Define "stale" (e.g., 0 requests in 90 days, no enterprise dependency). Pin base SHA before audit starts.
+*   **G3 Design (Critical):** Produce the "Removal Manifest" listing every flag to be cut, evidence of zero traffic, and the exact config diff. **Human Approval Required** from Core Payments Team (Jane Smith) before any code deletion.
+*   **G5 Verify:**
+    *   **Local:** Unit tests for removed logic.
+    *   **Staged:** Full integration run on the exact commit SHA. Fraud scoring service must report healthy status post-config-change.
+    *   **Constraint:** CI runs once per candidate SHA. Do not re-run on merge unless SHA changes.
+*   **G6 Review:**
+    *   **Code:** Senior Engineer #1 (Independent of Builder).
+    *   **Safety/Fraud:** Senior Engineer #2 (Independent of Builder).
+    *   **Scope:** Verify no active logic was removed and config syntax remains valid for the fraud service.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Single PR containing code cleanup and config update.
+*   **Human Decision:** Merge requires explicit approval from two senior engineers (per repo policy). No auto-merge.
+*   **Deployment:** Deploy to Staged first. Upon verification, deploy to Production during a low-traffic maintenance window to minimize blast radius if the 15-minute fraud outage window is triggered by an unforeseen edge case.
+*   **Rollback:**
+    *   **Code:** Immediate revert of the PR.
+    *   **Config:** Revert the immutable config file to the previous known-good version. Note: If the fraud service is already in the 15-minute outage state, rollback restores correctness but does not instantly restore service; the team must wait for the service to self-heal or restart.
+
+**Risk Mitigation**
+*   **Flaky Check:** The latency monitoring failure is documented. A single failure does not block G5; repeated failures trigger a manual triage.
+*   **Immutable Config:** Lane C ensures the edit is atomic and syntactically safe. The "safe edit" pattern is the primary control against the 15-minute outage.
+*   **Enterprise Clients:** Lane B's contract cross-check ensures no client-specific flags are removed based solely on low global traffic.

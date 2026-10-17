@@ -1,0 +1,44 @@
+### Delivery Plan: Inventory Sync Conflict Resolution
+
+**Objective:** Implement last-write-wins detection with a manual merge prompt for offline inventory updates, ensuring stability under 50 concurrent syncs without schema changes.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Conflict Logic - Serial):** Implement the detection engine. Since the database schema is shared and immutable without a coordinated migration, this lane must strictly operate on the existing data layer. It will detect version mismatches between local and server states.
+    *   *Constraint:* Must not modify the database schema.
+    *   *Dependency:* None, but blocks Lane B's integration.
+*   **Lane B (UI Integration - Parallel):** Build the non-blocking prompt within the existing scanner interface. This allows the agent to choose "Local," "Server," or "Merge" when a conflict is flagged by Lane A.
+    *   *Parallelism:* Can develop against a mock conflict service while Lane A builds the real detector.
+*   **Lane C (Stress Verification - Parallel):** Develop a local simulation script to spawn 50+ concurrent sync threads against a local test server. This runs independently of the UI work.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Conductor):** Define the exact "Merge" logic (e.g., sum quantities vs. keep max) and confirm with Jordan Lee that no schema changes are permitted. Pin base SHA.
+*   **G2 Plan (Conductor):** Finalize the acyclic graph. Set a strict token budget for Lane C's stress testing to avoid CI credit exhaustion.
+*   **G3 Design (Architect):** Produce an ADR confirming the "no schema change" constraint and the specific conflict resolution algorithm.
+*   **G4 Implement (Builder):**
+    *   Lane A & B commit to feature branches with unit tests.
+    *   Lane C commits the stress test script.
+    *   *Check:* Local build and type check on every commit.
+*   **G5 Verify (QA):**
+    *   **Local Stack:** Run Lane C's stress test locally first to prove stability (50 simultaneous attempts) without burning CI credits.
+    *   **CI Run:** Trigger the full regression suite *once* on the candidate SHA.
+    *   **Flake Handling:** If the network simulation module fails on a Tuesday morning, re-run immediately once. If it fails again, mark as flake and proceed if other gates are green (per known flake profile).
+    *   **UI Check:** Manual verification of the prompt flow on a physical or emulated scanner device. Unit tests alone are insufficient for this workflow change.
+*   **G6 Review (Independent):**
+    *   **Code Review:** Senior Engineer (not the Builder) reviews Lane A and B.
+    *   **Security/Privacy:** Verify no PII is exposed in conflict logs.
+    *   **QA Sign-off:** Confirm stress test receipts and UI journey pass.
+
+#### 3. Landing & Human Decisions
+*   **G7 Integrate:** Merge Lanes A and B into the integration branch. Re-run the affected subset of tests on the final merged SHA.
+*   **G8 Release (Human Gate):**
+    *   **Decision Required:** The Operations Director must manually sign off.
+    *   **Action:** Submit the release manifest and rollback plan (which is "impossible" per repo facts, making this sign-off critical).
+    *   **Deployment:** Initiate the 4-hour over-the-air propagation window.
+*   **G9 Production Verify:** Monitor the first wave of device syncs. Since reverting is irreversible, have a "kill switch" feature flag ready to disable the new logic remotely if catastrophic discrepancies appear.
+
+#### 4. Risk & Rollback
+*   **Critical Risk:** Irreversible deploy. If the binary bricks the sync logic, devices may require physical recall.
+*   **Mitigation:** The G8 human gate is absolute. No deployment occurs without the Director's explicit written approval of the stress test results.
+*   **Rollback:** Technical rollback is impossible. The contingency is a "logic disable" via server-side configuration if the app supports it, or a halted rollout to remaining devices.
+
+**Summary:** Two parallel development lanes (Logic, UI) feeding into a rigorous local stress test to save CI credits. One critical human gate (Operations Director) due to irreversible deployment constraints. No schema changes allowed.

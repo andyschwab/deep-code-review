@@ -1,0 +1,70 @@
+**Delivery Plan: DE/FR/JP Localization**
+
+**G0 Intake & G1 Spec**
+*   **Scope:** Consolidate hardcoded strings (logic/templates) to central resources; configure CMS for locale-specific content; enable auto-formatting (date/currency).
+*   **Non-Goals:** Dynamic user-generated content translation; backend API response localization (unless specified).
+*   **Constraints:** CMS updates require Regional Marketing Lead approval (Tuesdays only); Staging DB is shared/irreversible (requires nightly backup restore for resets); Pipeline limit 45m.
+*   **Appetite:** Time-boxed to 3 sprints; beta flip contingent on Tuesday approval window.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane A (Extraction & Refactor):** *Builder* scans logic/templates, moves strings to resource files, updates template engine. Runs in isolated worktree.
+    *   *Parallel:* Yes.
+    *   *Check:* Custom pre-commit hook (must pass locally before push).
+*   **Lane B (Formatting Logic):** *Builder* implements date/currency adapters per locale.
+    *   *Parallel:* Yes (depends on Lane A's resource structure only).
+*   **Lane C (CMS Configuration):** *Product Analyst* prepares locale-specific content bundles; *Conductor* coordinates with Regional Marketing Lead for Tuesday review/approval.
+    *   *Serialization:* Must complete approval *before* G5 integration on staging.
+*   **Lane D (QA & Visual Verification):** *QA* verifies all screens in DE/FR/JP; checks for mixed-language rendering.
+    *   *Serialization:* Runs after Lane A+B merge and Lane C approval. Requires fresh staging DB snapshot.
+
+**G3 Design**
+*   **ADR:** Define key naming convention and fallback strategy (English default).
+*   **Data Decision:** Staging DB restore procedure documented; no direct writes to shared staging DB without snapshot.
+
+**G4 Implement**
+*   **Work Packets:**
+    1.  Resource file generation (Lane A).
+    2.  Template refactoring (Lane A).
+    3.  Format adapters (Lane B).
+    *   *Base SHA:* Pinned to current `main` head.
+    *   *Check:* Pre-commit hook runs locally; CI runs on PR (optimized to run only affected suites to stay under 45m).
+
+**G5 Verify (Exact Revision)**
+*   **Revision:** Merge commit of Lane A+B on staging branch.
+*   **Pre-condition:** Restore staging DB from nightly backup (to ensure clean state).
+*   **Checks:**
+    1.  Build/Lint/Type (Green).
+    2.  Pre-commit hook validation (Green).
+    3.  **Visual Journey:** Headed browser tests on exact routes for DE, FR, JP. Verify no mixed languages.
+    4.  **CMS Check:** Verify CMS serves approved content (post-Tuesday approval).
+*   **Failure Mode:** If DB corruption occurs, restore from snapshot immediately.
+
+**G6 Review**
+*   **Reviewer:** Independent Senior Engineer (not Builder).
+*   **Scope:** Full diff against base SHA; verify no hardcoded strings remain; check security of new resource files.
+*   **Security:** Verify no PII leakage in translation logs; ensure CMS permissions are least-privilege.
+
+**G7 Integrate**
+*   **Action:** Merge to `main` (or release branch).
+*   **Check:** Run full integration suite once on final SHA.
+
+**G8 Release (Human Gate)**
+*   **Decision:** Owner approves beta flip.
+*   **Constraint:** Flip must align with CMS content availability (post-Tuesday).
+*   **Rollback:** Revert merge commit; restore staging/prod DB from pre-deploy snapshot if data corruption detected.
+
+**G9 Production Verify**
+*   **Check:** Monitor error logs for missing keys; verify date/currency rendering in live beta.
+
+**G10 Learn**
+*   **Retro:** Document CMS approval latency impact; evaluate DB isolation for future staging tests.
+
+**Human Gates Required:**
+1.  **CMS Approval:** Regional Marketing Lead (Tuesday only).
+2.  **Deploy/Beta Flip:** Owner approval after G7.
+3.  **DB Restore Authorization:** Required before G5 if staging needs reset.
+
+**Risk Mitigation:**
+*   **Pipeline Timeout:** Split integration suites; run smoke tests first.
+*   **DB Contamination:** Mandatory snapshot restore before G5; no ad-hoc data swaps.
+*   **Mixed Language:** Automated visual regression tests mandated in G5.

@@ -1,0 +1,52 @@
+**Delivery Plan: Auto-Updates with Staged Verification**
+
+**Risk Assessment & Constraints**
+The request to "merge automatically" upon smoke test success conflicts with the irreversible nature of billing data migrations and the requirement for explicit staging approval. We will implement a **staged merge strategy**: automated merging to a protected integration branch upon smoke success, but human-gated promotion to staging/production. The flaky currency check will be isolated to prevent false negatives blocking the pipeline.
+
+**Lanes & Parallelism**
+
+1.  **Lane A: Pipeline Orchestration (Builder)**
+    *   **Work:** Modify CI configuration to split the test suite.
+        *   Stage 1: Critical smoke tests (billing calculation sanity, dependency load).
+        *   Stage 2: Full regression suite (triggered asynchronously if Stage 1 passes).
+    *   **Constraint:** Must handle the flaky currency conversion check by marking it as "non-blocking" for the merge decision but reporting it separately for triage.
+    *   **Parallelism:** Can run concurrently with Lane B once the spec is agreed.
+
+2.  **Lane B: Alerting & Observability (Builder)**
+    *   **Work:** Configure alerting rules. If the background full suite fails, an immediate notification must be sent to the on-call engineer with a link to the specific logs and the dependency version involved.
+    *   **Serialization:** Must be verified after Lane A's config is merged to ensure the trigger hook exists.
+
+3.  **Lane C: Safety Guardrails (Security/QA)**
+    *   **Work:** Implement a "pre-merge" check that blocks any update containing a database migration script from the automatic path. These must force a manual review regardless of test results, adhering to the "irreversible migration" constraint.
+    *   **Serialization:** Depends on the final CI logic from Lane A to know where to inject the migration check.
+
+**Gates & Checks**
+
+*   **G1 Spec (Now):** Define the exact list of "critical smoke tests." This list must be signed off by the Ledger Team lead.
+*   **G4 Implementation:**
+    *   **Revision:** All work happens on isolated worktrees branching from the current `main` SHA.
+    *   **Check:** Local dry-run of the new pipeline logic to ensure the background job actually triggers.
+*   **G5 Verification (Exact Revision):**
+    *   **Smoke Test:** Must pass on the candidate SHA.
+    *   **Flake Handling:** Verify that the currency flake does not block the merge if unrelated.
+    *   **Background Job:** Manually trigger a full run on a test dependency bump to confirm the alert fires on failure.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Ledger Engineer (independent of the Builder).
+    *   **Focus:** Verify that *no* path allows a migration script to auto-merge. Confirm the alert payload contains actionable data.
+
+**Landing Strategy**
+
+1.  **Merge Train:**
+    *   Updates passing smoke tests + migration checks auto-merge to a `staging-candidate` branch.
+    *   **Human Gate 1:** Jane Smith must explicitly approve the deployment of `staging-candidate` to the Staging Environment. This satisfies the ownership rule.
+    *   **Human Gate 2:** Production deployment remains locked to the Tuesday maintenance window, requiring a separate release approval.
+
+2.  **Rollback Plan:**
+    *   Since data migrations are irreversible, the rollback procedure is **not** a simple revert.
+    *   **Action:** If the background full suite fails post-merge, the system must flag the specific version as "tainted."
+    *   **Mitigation:** Future merges are blocked until a forward-fix is applied. If the failure impacts staging, a manual data restoration from the pre-deployment backup (verified before the Tuesday window) is required. This limitation must be documented in the PR description.
+
+3.  **Conflict Mitigation:**
+    *   The `global-rules.json` file will be locked during the CI run. If a conflict is detected during the auto-merge attempt, the lane aborts and notifies the three owning teams to resolve manually before retrying.
+
+**Immediate Next Step:** Draft the list of "critical smoke tests" for Ledger Team approval. Without this defined scope, the pipeline cannot be safely configured.

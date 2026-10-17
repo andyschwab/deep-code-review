@@ -1,0 +1,55 @@
+**Delivery Plan: Monorepo Build Caching Update**
+
+**Objective:** Implement dependency-graph-aware caching to skip unaffected microservices, reducing build time from 40m to <5m for docs-only changes, while preserving audit logs and preventing stale deployments.
+
+### 1. Lanes & Parallelism
+*Work is isolated in separate worktrees. One writer per worktree.*
+
+*   **Lane A (Analysis & Spec) [Serial Start]:**
+    *   **Actor:** Product Analyst + Conductor.
+    *   **Work:** Map the current dependency graph of the 50 microservices. Define the "affected set" algorithm. Draft the compliance audit log schema (ensuring cached steps are logged as "skipped-valid").
+    *   **Output:** Testable spec with acceptance criteria: "Docs change triggers 0 compiles," "Core lib change triggers only dependents," "Audit log entry exists for every job ID."
+*   **Lane B (Implementation) [Parallel after G1]:**
+    *   **Actor:** Builder.
+    *   **Work:** Modify the shared build script to inject the graph validation logic. Implement the cache-key generation based on file hashes + dependency lockfiles. Add explicit logging hooks for skipped steps.
+    *   **Constraint:** Must not alter the retry logic for the known flaky network check yet (scope creep risk).
+*   **Lane C (Security & Compliance Review) [Parallel after G1]:**
+    *   **Actor:** Security Lead (Human) + Agent Security Hat.
+    *   **Work:** Tabletop the caching logic for "false negative" risks (stale code deployment). Verify audit log format against compliance requirements.
+*   **Lane D (Validation & Stress Test) [Parallel after G4]:**
+    *   **Actor:** QA.
+    *   **Work:** Run three scenarios on the exact revision: (1) Docs-only change, (2) Single service change, (3) Core library change. Verify build times and audit log completeness. Simulate the flaky network check to ensure caching doesn't suppress necessary retries.
+
+### 2. Gates & Checks
+*Every gate requires an exact SHA. No gate passes on "local green" alone.*
+
+*   **G0/G1 (Intake/Spec):** Conductor validates the "affected set" algorithm against the 50-service graph. **Hard Gate:** Chief Architect must sign off on the graph logic before coding starts.
+*   **G2 (Plan):** Define token/cost budget for Lane D's stress tests (avoiding exhaustive $45 runs).
+*   **G3 (Design):** ADR documenting the cache-key strategy and lock-file handling on the shared network volume.
+*   **G4 (Implement):** Builder commits to a dedicated branch. Unit tests for the graph parser included.
+*   **G5 (Verify):**
+    *   **Environment:** Private cluster staging (not production).
+    *   **Check:** Run Lane D's scenarios. **Hard Condition:** Audit logs must show "SKIPPED" entries with valid hashes. Build time for docs-only must be <2m.
+    *   **Flake Check:** If the flaky network check fails, verify the cache didn't incorrectly serve a stale binary.
+*   **G6 (Review):**
+    *   **Independent Review:** Security Lead (human) reviews the cache invalidation logic. A second senior engineer (not the Builder) reviews the script changes.
+    *   **Tool:** `deep-code-review` with `FULL` scope on the build script.
+*   **G7 (Integrate):** Merge to integration branch. Re-run one full build on the merged SHA to confirm no integration drift.
+
+### 3. Landing & Human Decisions
+*   **Merge Strategy:** Merge Train. The build script change is a singleton; it must land alone to isolate rollback if the cache corrupts.
+*   **Human Gates (Required):**
+    1.  **Chief Architect:** Written sign-off on the dependency graph logic (G1) and final merge approval (G7).
+    2.  **Security Lead:** Approval of the audit log format and "false negative" mitigation (G6).
+    3.  **Release Owner:** Authorization to deploy to production (G8). *Note: Deployment is irreversible without DB rollback; this requires a scheduled maintenance window.*
+*   **Rollback Plan:**
+    *   **Trigger:** Any evidence of stale code deployment or audit log gaps.
+    *   **Action:** Revert the merge immediately. Since the build cache is on a shared volume, a cache purge command must be run manually before reverting to prevent poisoned cache reuse.
+    *   **Contingency:** If stale code reached staging, trigger the scheduled maintenance window for a full database rollback (pre-approved path only).
+
+### 4. Risks & Mitigation
+*   **Shared Volume Lock:** The implementation must handle write-lock timeouts gracefully, failing closed rather than skipping a build.
+*   **Budget Exhaustion:** Lane D stress tests are capped at 5 runs; further optimization requires owner approval.
+*   **Flaky Network:** Caching logic must not interfere with the existing 3-retry mechanism for network checks.
+
+**Next Step:** Conductor to draft the dependency graph spec (Lane A) for Architect review.

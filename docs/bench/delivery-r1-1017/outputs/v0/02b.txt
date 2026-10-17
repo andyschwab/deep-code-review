@@ -1,0 +1,47 @@
+### Delivery Plan: Legacy Webhook Signature Support
+
+**Objective:** Re-enable legacy signature validation alongside the new standard to restore partner data flow, without degrading performance or compromising security.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** Builder implements dual-scheme detection in the validation middleware.
+    *   *Constraint:* Must read-only access the legacy vault via the deployment service account pattern; no direct secret rotation.
+    *   *Parallelism:* Runs parallel to Lane B.
+*   **Lane B (Performance Baseline):** QA establishes performance benchmarks for the current "new standard" only path to prove no regression.
+    *   *Parallelism:* Runs parallel to Lane A.
+*   **Lane C (Security Design):** Security Architect drafts the threat model for re-enabling deprecated crypto, specifically addressing replay attacks and downgrade risks.
+    *   *Serialization:* Must complete before Lane A finalizes code.
+*   **Lane D (CI Optimization):** DevOps Engineer isolates the `latency-check` flake and creates a bypass rule for weekend merges, documenting the manual re-run procedure.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Define exact algorithm detection logic (header inspection vs. payload structure). Pin base SHA.
+*   **G3 (Design Approval):** Security Architect (sole available senior) approves Lane C's threat model. *Human Gate.*
+*   **G4 (Build):** Lane A commits code. Unit tests must cover both schemes.
+    *   *Check:* Static analysis for crypto misuse.
+*   **G5 (Verify):**
+    *   *Functional:* Replay recorded legacy payloads against the new middleware.
+    *   *Performance:* Compare Lane B's baseline against the dual-scheme build. Latency increase must be <5ms p99.
+    *   *CI Strategy:* Run full integration suite on a dedicated feature branch to avoid polluting the main queue. If `latency-check` fails on a weekend, trigger manual re-run before proceeding.
+*   **G6 (Review):**
+    *   *Code Review:* Senior Engineer (independent of Builder) reviews logic.
+    *   *Security Review:* The available Senior Architect approves the implementation against the G3 threat model. *Human Gate (Blocked if architect unavailable; no fallback).*
+
+#### 3. Review Independence
+*   **Builder** cannot review their own code or security implications.
+*   **Security Architect** who designed the original sunset (if different) or the available Senior Architect must verify the re-enablement. They must not be the same person who wrote the middleware code.
+*   **QA** verifies functional correctness independent of the Builder's test results.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Land Lane D (CI fix) first to stabilize the pipeline.
+    2.  Land Lane A (Feature) only after G6 approval from both Code and Security reviewers.
+    3.  Use a merge train if other PRs are pending to serialize the heavy integration tests.
+*   **Human Decisions Required:**
+    *   Approval of the Security Threat Model (G3).
+    *   Final Security Sign-off on the PR (G6).
+    *   Authorization to deploy to Production (G8), given the sensitivity of crypto changes.
+*   **Rollback Plan:**
+    *   *Trigger:* Increase in false-positive rate limits or latency spike >10ms post-deploy.
+    *   *Action:* Immediate revert of the merge commit. Do not attempt to "fix forward" in production due to the critical nature of shipment data.
+    *   *Preparation:* Pre-draft the revert PR during G4 so it is ready to merge instantly if G9 (Production Verify) fails.
+
+**Risk Note:** The 45-minute CI window and rate-limited sandboxes mean feedback loops are slow. Lane A must rely on high-fidelity local mocking before pushing to CI to avoid exhausting carrier sandbox quotas.

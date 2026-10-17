@@ -1,0 +1,32 @@
+**Decision: Do not deploy an unvalidated automated script to the live production environment within 72 hours.** The risk of a single false positive ($200,000 loss) outweighs the benefit of speed when the current error rate (5%) and the timeline prevent statistically significant validation. A "big bang" activation is rejected. Instead, execute a **Parallel Shadow Run** where the script processes live data but triggers no physical actions, allowing you to compare its output against your manual logs before any destruction occurs.
+
+**Figures:**
+*   **Risk Exposure:** 1 false positive = $200,000 immediate loss.
+*   **Current Baseline:** 5% error rate on 10,000 records = ~500 existing manual errors already present.
+*   **Validation Requirement:** To trust the script with $200k/batch decisions, you need zero false positives in a sample size large enough to prove reliability (statistically requiring >10,000 clean test cases), which cannot be generated and verified in <72 hours alongside build time.
+
+### Step-by-Step Emergency Approach
+
+**Phase 1: Build & Shadow Mode (Hours 0–48)**
+1.  **Develop the Script:** Automation developers build the validation logic using historical data only.
+2.  **Shadow Deployment:** Deploy the script to read live production logs but **disable all write/delete/flag actions**. It must output a "proposed decision log" only.
+3.  **Parallel Comparison:** Run the script alongside your manual team. Compare the script's "proposed flags" against the manual team's findings.
+
+**Phase 2: Threshold Calibration (Hours 48–60)**
+1.  **Analyze Discrepancies:** Identify every instance where the script flagged a batch the humans passed (potential false positive) and vice versa.
+2.  **Set Validation Thresholds:** You must approve the following specific thresholds before any automation is enabled:
+    *   **Confidence Score Cutoff:** Only auto-flag batches where the script's anomaly score exceeds the 99.9th percentile of your historical *clean* data.
+    *   **Human-in-the-Loop Gate:** Any score below the 99.9th percentile but above the baseline must route to a QA engineer for manual review, not automatic destruction.
+    *   **Fail-Safe Default:** If the script encounters an unreadable record or system latency >2 seconds, it must default to "Manual Review," not "Destroy."
+
+**Phase 3: Targeted QA Testing (Hours 60–72)**
+The QA team must execute these scenarios in order:
+1.  **The "Clean" Stress Test:** Run the script against 1,000 known-valid historical batches. **Acceptance Criteria:** Zero flags. If even one valid batch is flagged, the threshold is too aggressive.
+2.  **The "Known Bad" Injection:** Inject 50 records with confirmed, documented errors. **Acceptance Criteria:** 100% detection rate.
+3.  **The Boundary Case:** Run records with minor, non-critical deviations (e.g., timestamp drifts within tolerance). **Acceptance Criteria:** These must NOT be flagged as contaminated.
+
+### The Very First Action
+**Freeze the definition of "Contaminated."** Before writing a single line of code, you and the Lead QA Engineer must sign off on a rigid, binary logic table defining exactly which data points constitute a "destroy" event versus a "review" event. Ambiguity in this definition is the primary cause of false positives. If the logic cannot be expressed as a strict boolean rule, it cannot be automated for this inspection.
+
+**Note:** This approach ensures that even if the script is flawed, no money is lost during the 72-hour window because no batches are actually destroyed by the software.
+**Note:** The government inspection will view a "Shadow Mode" validation plan as more robust than a rushed, unproven automated kill-switch.

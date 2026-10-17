@@ -1,0 +1,49 @@
+### Delivery Plan: Enable 2FA for Support Admin Console
+
+**Strategy:** Parallel implementation of core auth and UI, serialized integration due to shared state risks, and a phased human-gated rollout to prevent incident response interruption.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Core Auth - Security Hat):** Implement TOTP generation/validation and backup recovery key logic in the central identity module.
+    *   *Constraint:* High risk; requires strict unit test coverage before integration.
+*   **Lane B (UI/UX - Builder Hat):** Build enrollment flows, error messaging, and grace period toggles in the ops-portal frontend.
+    *   *Parallel:* Can run simultaneously with Lane A against a mocked auth interface.
+*   **Lane C (Integration & Migration - Conductor Hat):** Wire A and B, write the database migration script, and handle audit log race-condition mitigation.
+    *   *Serialization:* Must wait for A and B to pass local verification. This lane owns the "point of no return" migration.
+*   **Lane D (Verification - QA Hat):** Execute manual verification on Staging (bypassing flaky SMS tests) and validate recovery paths.
+    *   *Serialization:* Runs only after Lane C produces a deployable candidate on Staging.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Define acceptance criteria: "Admin cannot login without 2FA unless in grace period," "Recovery key restores access," "Zero downtime during deploy." Pin base SHA.
+*   **G2 Plan:** Set per-lane budget caps. Lane C must define the rollback procedure explicitly (4-hour DB restore window).
+*   **G3 Design:** ADR required for the audit log write strategy to mitigate the known race condition (e.g., async buffering or retry logic).
+*   **G4 Implement:**
+    *   Lane A/B: Unit tests + lint. Run locally first.
+    *   Lane C: Integration tests on a isolated branch.
+    *   *CI Rule:* Trigger full CI pipeline ($12/45m) only once per candidate SHA after local green. Do not re-run on merge unless SHA changes.
+*   **G5 Verify (Staging):**
+    *   Deploy candidate to Staging.
+    *   **Manual Check:** QA verifies TOTP flow, recovery key usage, and grace period enforcement.
+    *   **Skip:** Automated SMS notification tests (known flaky due to missing gateway); rely on manual log inspection.
+*   **G6 Review:**
+    *   **Security Review:** Independent Security Officer reviews Lane A code and the migration script.
+    *   **Code Review:** Senior Reliability Engineer reviews Lane B/C.
+    *   *Rule:* Builder (Lane B) cannot review their own code.
+*   **G7 Integrate:** Merge to release branch. Run final integration smoke test on the exact merged SHA.
+
+#### 3. Landing & Human Gates
+*   **Merge Strategy:** Use a merge train to serialize the final integration.
+*   **Human Approval (G8 Release):**
+    *   **Required:** Dual approval from Shift Lead and Security Officer via the change board.
+    *   **Timing:** Schedule deployment outside peak incident hours.
+    *   **Action:** Enable feature flag for "Grace Period" initially. Monitor for 24 hours.
+*   **Rollback Plan:**
+    *   If critical failure occurs: Disable feature flag immediately (soft rollback).
+    *   If data corruption occurs: Execute full database rollback (4-hour window). This decision requires explicit owner authorization.
+*   **Post-Deploy (G9):** Monitor audit logs for race condition spikes. Verify successful 2FA enrollments.
+
+#### 4. Risk Mitigation
+*   **Downtime:** Feature flagged rollout ensures login flow remains functional for non-enrolled users during the grace period.
+*   **Lockout:** Backup recovery keys generated and forced upon enrollment; documented emergency bypass procedure for Shift Leads.
+*   **Cost:** CI runs minimized by strict local pre-checks; no redundant builds on intermediate commits.
+
+**Next Step:** Confirm Shift Lead and Security Officer availability for the G8 approval window before starting Lane A.

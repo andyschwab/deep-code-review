@@ -1,0 +1,41 @@
+### Delivery Plan: ApexPay to NexusStream Migration with Dual-Listener Support
+
+**Objective:** Route fresh traffic to NexusStream while draining 400 legacy retries without duplication or data loss.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Configuration & Routing):** Update `gateway-routes.json` to enable dual-listener mode. Implement logic to route new transactions to NexusStream while directing retry-queue signatures to the legacy handler. *Writer: Builder.*
+*   **Lane B (Legacy Drain Logic):** Implement idempotency checks specifically for the 400 stranded transactions to prevent double-processing if retries overlap with manual reconciliation. *Writer: Builder (Serialized after Lane A design).*
+*   **Lane C (Security & Audit Prep):** Draft the change request for the CSO and Lead Auditor, including the rollback plan and evidence of idempotency testing. *Writer: Security Analyst.*
+*   **Lane D (Verification Harness):** Create a sandbox simulation replaying the 400 failed payloads against the new dual-listener logic. *Writer: QA.*
+
+**Serialization:** Lane A design must finalize before Lane B coding begins to ensure routing keys match. Lane C runs in parallel. Lane D waits for Lane B's code freeze.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define exact JSON schema changes and the "retry signature" used to distinguish stranded events. Pin base SHA.
+*   **G3 Design:** ADR confirming irreversible switch constraints and the specific mechanism for draining the queue.
+*   **G4 Implementation:** Code changes in a dedicated worktree. Unit tests for routing logic and idempotency.
+*   **G5 Verification:**
+    *   Run Lane D's simulation in an isolated sandbox.
+    *   **Constraint:** Must pass 3 consecutive CI runs to mitigate the 15% flaky DB migration check.
+    *   **Evidence:** Logs showing 400 simulated retries processed exactly once; fresh traffic routed to NexusStream.
+*   **G6 Review:**
+    *   **Code Review:** Senior Engineer (independent of Builder).
+    *   **Security Review:** Security Analyst verifies no exposure of legacy credentials in new config.
+*   **G7 Integration:** Merge to integration branch. Re-run full 22-minute pipeline on the exact merge SHA.
+
+#### 3. Review Strategy
+*   **Builder** implements Lanes A and B.
+*   **Senior Engineer** reviews code logic, focusing on the `gateway-routes.json` impact on the refund service.
+*   **Security Analyst** reviews the audit trail and credential handling.
+*   **QA** validates the simulation receipts.
+*   *No self-reviews allowed.*
+
+#### 4. Landing & Human Gates
+*   **Pre-Landing:** Security Analyst submits the G6 package to the internal ticketing system.
+*   **Human Gate (Critical):** Explicit written approval required from **Chief Security Officer** and **Lead Auditor**. No deployment occurs without both signatures.
+*   **Deployment:** Once approved, trigger the production deploy. Monitor the 22-minute pipeline.
+*   **Post-Deploy Verification:** Finance team confirms end-of-day reconciliation stability. Monitor legacy listener logs for the 6-hour drain window.
+*   **Rollback:** If duplication occurs or fresh traffic fails, immediately revert to the previous daily snapshot. This is the only recovery path.
+*   **Final Closure:** Legacy listener deactivation is **blocked** until the requester confirms the retry queue is empty. A follow-up ticket will be created for this cleanup.
+
+**Risk Mitigation:** The 15% flaky check is addressed by requiring three consecutive green builds. The irreversible nature of the switch mandates a "verify before merge" stance on the simulation results. The shared config file requires extra scrutiny during the code review to protect the refund service.

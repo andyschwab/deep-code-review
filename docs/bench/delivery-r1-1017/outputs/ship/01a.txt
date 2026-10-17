@@ -1,0 +1,95 @@
+**Delivery Plan: Zero-Downtime Product Catalog Reindex**
+
+**Objective**
+Replace the locking nightly build with a blue-green alias swap mechanism to eliminate checkout timeouts and enable instant rollback, strictly controlling compute costs.
+
+**Constraints & Boundaries**
+- **Cost Cap:** $0 production spend until staging validation passes. Max 1 production attempt per ticket.
+- **Time Window:** Production execution restricted to 02:00–04:00 UTC.
+- **Approval:** Jane Smith (on-call lead) must approve the final switch.
+- **Data Integrity:** 2TB snapshot scan (45m) required in CI; cannot be skipped for schema changes.
+- **Concurrency:** `global-aliases.json` is a shared critical resource; edits must be serialized.
+
+---
+
+### Lanes & Parallelism
+
+**Lane 1: Staging Dry-Run & Cost Verification (Builder)**
+- **Work:** Implement the blue-green builder script in the staging cluster. Execute a full reindex against a staging snapshot.
+- **Parallelism:** Can run immediately (independent of production config).
+- **Serialization:** Must complete and prove cost < $450 before Lane 2 touches production config.
+- **Output:** Staging index ID, exact compute cost receipt, latency metrics during build.
+
+**Lane 2: Atomic Swap Logic & Rollback Script (Builder)**
+- **Work:** Develop the alias switching logic that updates `global-aliases.json` atomically. Include a dedicated rollback script that reverts the alias to the previous stable ID instantly.
+- **Serialization:** Code review must pass before Lane 3 integration.
+- **Safety:** Logic must verify the new index exists and is healthy *before* attempting the swap.
+
+**Lane 3: Monitoring & False-Positive Mitigation (QA/Observability)**
+- **Work:** Adjust health check thresholds to account for the 12-second read-replica lag during the switch window. Define "anomaly" criteria for automatic rollback triggers (error rate spikes, latency > threshold).
+- **Serialization:** Depends on Lane 2's swap mechanism definition.
+
+---
+
+### Gates & Checks
+
+**G1 Spec (Now)**
+- Define acceptance: Checkout latency remains baseline during reindex; rollback completes in <10 seconds.
+- Pin base SHA for all lanes.
+
+**G2 Plan Review (Conductor)**
+- Verify cost cap strategy. Confirm Jane Smith's approval workflow is explicit in the runbook.
+- **Budget Check:** Explicitly cap staging compute spend; block if unlimited.
+
+**G3 Design (Architect)**
+- Review atomic update strategy for `global-aliases.json` to prevent recommendation engine breaks.
+- Confirm read-replica lag handling in health checks.
+
+**G4 Implementation (Builder)**
+- Code committed to isolated worktrees.
+- Unit tests for swap logic and rollback paths.
+
+**G5 Verification (QA)**
+- **Staging:** Run full reindex. Verify cost receipt. Simulate failure mid-build; ensure no alias switch occurs.
+- **Latency Test:** Trigger alias swap in staging; measure checkout latency. Must show no spikes.
+- **Rollback Drill:** Force an error post-swap; verify automatic or one-command rollback restores previous index.
+
+**G6 Independent Review (Security & Senior Eng)**
+- Reviewer distinct from Builder.
+- Focus: Atomicity of JSON update, rollback reliability, and cost containment.
+- Apply severity rubric: Any risk of data corruption or unbounded cost is a Blocker.
+
+**G7 Integration**
+- Merge to integration branch. Run the 45-minute CI data-integrity scan on the exact merged SHA.
+- Generate release manifest with rollback instructions.
+
+---
+
+### Landing & Human Gates
+
+**Pre-Flight (01:30 UTC)**
+- Conductor confirms staging dry-run success and cost receipt.
+- Runbook prepared with exact commands for Jane Smith.
+
+**Human Gate: Approval (02:00–04:00 UTC)**
+- **Request to Jane Smith:**
+  - *Issue:* Execute production index swap.
+  - *A: Proceed with swap* (Recommended) — Staging dry-run passed, cost verified, rollback tested.
+  - *B: Abort* — Unforeseen staging anomaly or higher priority incident.
+
+**Execution**
+1.  Deploy artifacts to us-east-1.
+2.  Trigger background reindex (no traffic impact).
+3.  **Human Decision:** Jane approves alias switch once reindex reports complete.
+4.  Execute atomic swap.
+5.  Monitor for 15 minutes. If anomalies detected, execute rollback immediately.
+
+**Rollback Strategy**
+- Automated trigger on defined error thresholds.
+- Manual one-command fallback available to on-call.
+- No code redeploy required for rollback; only alias reversion.
+
+**Post-Event (G10)**
+- Log actual compute cost vs. estimate.
+- If successful, update nightly cron to use new mechanism.
+- If failed, capture logs for retrospective; do not retry without root cause fix.

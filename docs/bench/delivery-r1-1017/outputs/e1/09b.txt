@@ -1,0 +1,49 @@
+### Delivery Plan: Partial Refund Logic Fix
+
+**Objective:** Prorate processing fees for partial seat cancellations in group reservations. Apply only to future cancellations; preserve historical data.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Migration Design):** Define the proration formula and draft the irreversible migration script. **Owner:** Product Analyst + Lead Engineer. **Output:** Signed spec + migration SQL.
+*   **Lane B (Logic Implementation):** Update the billing service calculation engine. **Owner:** Builder. **Dependency:** Waits for Lane A spec approval. **Worktree:** Isolated `feat/prorate-refunds`.
+*   **Lane C (Verification Suite):** Build a targeted test harness for group cancellation scenarios. **Owner:** QA. **Dependency:** Waits for Lane B code freeze. **Constraint:** Run integration suite exactly once per candidate SHA. Ignore currency conversion flake if logs show timeout errors.
+*   **Lane D (Compliance Audit):** Verify non-retroactivity on historical records. **Owner:** Security/Compliance. **Dependency:** Runs against Lane B's staging deployment.
+
+**Serialization:** Lane A → Lane B → Lane C & D (Parallel). Lane C costs $12/run; trigger only after local unit tests pass and only on unique candidate SHAs.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Owner approves proration logic and confirms migration irreversibility strategy.
+*   **G3 (Design):** Migration script reviewed for data safety; formula validated against corporate bulk-booking examples.
+*   **G4 (Implement):** Builder commits code with unit tests. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Local:** Unit tests green.
+    *   **Staging:** Deploy to staging. Run integration suite ($12) **once** on the exact staging SHA. Confirm fee proration on new cancellations. Confirm historical records remain untouched.
+    *   **Flake Handling:** If currency conversion check fails, inspect logs. If "timeout error" present, mark as known flake and proceed.
+*   **G6 (Review):**
+    *   **Code:** Senior Engineer (independent of Builder) reviews logic.
+    *   **Security:** Compliance Officer verifies audit trail integrity.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected tests only if SHA changed.
+
+#### 3. Review Strategy
+*   **Builder:** Implements logic. Cannot approve own code.
+*   **QA:** Independent verification of calculation accuracy and flake identification.
+*   **Security/Compliance:** Independent audit of historical data preservation.
+*   **Deep Code Review:** Applied to all code changes and migration scripts before G6.
+
+#### 4. Landing & Human Gates
+*   **Merge Train:** Once G6 passes, prepare PR.
+*   **Staging Deploy:** Requires approval from **two senior engineers**.
+*   **Production Deploy:**
+    *   **Window:** Tuesday, 2 PM – 4 PM only.
+    *   **Approver:** Compliance Officer sign-off mandatory.
+    *   **Action:** Deploy migration (irreversible) then service.
+*   **Rollback Plan:**
+    *   **Service:** Revert code deployment immediately if calculation errors detected.
+    *   **Data:** Migration is irreversible. Rollback involves a manual corrective script (to be drafted in Lane A) to adjust future transactions if the migration causes unintended side effects. No automatic data rollback.
+
+#### 5. Risks & Constraints
+*   **Irreversible Migration:** High risk. Must be verified on a staging clone of production data before Tuesday window.
+*   **Cost:** Integration tests limited to one run per candidate. Local verification must be thorough to avoid re-runs.
+*   **Timing:** Missed Tuesday window delays release by one week.
+*   **Flake:** Currency conversion check ignored only on specific timeout logs; other failures block release.
+
+**Next Step:** Owner to approve G1 Spec (proration formula + migration strategy) to unlock Lane B.

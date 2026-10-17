@@ -1,0 +1,72 @@
+**Delivery Plan: Fraud Detection Model v4.2 Upgrade**
+
+**Objective:** Swap inference engine to v4.2 behind an API gate, ensuring >98.5% precision on holdout data before activation, with verified rollback capability.
+
+**Constraints & Risks:**
+- **Cost:** CI runs are $45/50 mins; minimize re-runs.
+- **Flakiness:** Accuracy gate flakes on >200ms latency; requires manual re-trigger logic, not blind retries.
+- **Irreversibility:** Registry update is permanent without cluster restore; rollback script must be dry-run verified.
+- **Locks:** `global-rules.yaml` locked during business hours; config changes must occur off-hours.
+- **Approval:** Dual approval (Lead Data Scientist + On-Call Security Officer) required for deploy.
+
+---
+
+### **Lanes & Serialization**
+
+**Lane 1: Rollback & Safety Verification (Serial, First)**
+- **Owner:** Security Officer (Human) + QA Agent.
+- **Work:** Audit existing rollback script against current cluster state. Execute a dry-run in a staging clone of 'SecureZone'.
+- **Output:** Signed receipt confirming rollback restores v4.1 state within RTO.
+- **Gate:** Must pass before Lane 2 starts.
+
+**Lane 2: Model Validation & Accuracy Gate (Parallel Prep, Serial Execution)**
+- **Owner:** Lead Data Scientist (Human) + Builder Agent.
+- **Work:**
+  1. Pull v4.2 artifact from secure registry.
+  2. Run inference on holdout dataset.
+  3. **Critical Check:** Monitor network latency during the run. If latency >200ms, abort and flag for manual re-trigger (do not auto-retry to save CI costs).
+  4. Verify precision score ≥ 98.5%.
+- **Output:** Validation receipt with exact precision score, latency logs, and holdout subset hash.
+- **Gate:** Must pass before Lane 3 starts.
+
+**Lane 3: Configuration & Deployment Package (Parallel Prep)**
+- **Owner:** Builder Agent.
+- **Work:** Prepare the config diff for `global-rules.yaml` pointing to v4.2. Package the deployment manifest requiring dual approval.
+- **Constraint:** Schedule final apply for off-hours to bypass `global-rules.yaml` lock.
+- **Output:** Ready-to-apply manifest and deployment command script.
+
+---
+
+### **Gates & Checks**
+
+- **G0/G1 (Spec):** Confirmed above. Appetite: One CI run if latency permits; otherwise manual re-trigger.
+- **G2 (Plan):** This plan. No lane starts without rollback verification (Lane 1).
+- **G3 (Design):** Implicit in the "irreversible" constraint; rollback is the only recovery.
+- **G4 (Implement):** Builder prepares manifest; Data Scientist runs validation.
+- **G5 (Verify):**
+  - **Revision:** Exact SHA of the validation commit.
+  - **Check:** Precision ≥ 98.5% AND latency < 200ms log entry.
+  - **UI/Behavioral:** Dry-run of rollback script (Lane 1) must show success.
+- **G6 (Review):**
+  - **Reviewer:** Independent Security Engineer (not the Builder).
+  - **Scope:** Verify validation receipt matches holdout criteria; confirm rollback dry-run logs.
+- **G7 (Integrate):** Merge deployment manifest to release branch.
+- **G8 (Release - Human Gate):**
+  - **Approvers:** Lead Data Scientist AND On-Call Security Officer.
+  - **Trigger:** Off-hours window open, `global-rules.yaml` unlocked.
+  - **Action:** Apply config change to central registry.
+
+---
+
+### **Landing & Rollback**
+
+- **Merge Strategy:** Direct commit to release branch after G6 approval. No merge train needed for single-hotfix.
+- **Human Decision:** Dual approval explicitly required at G8. No auto-deploy.
+- **Rollback Trigger:**
+  1. Automatic abort if precision < 98.5% during Lane 2.
+  2. Manual invocation of verified rollback script if post-deploy anomalies occur.
+- **Post-Deploy:** Monitor false-positive rate for 1 hour. If spike detected, execute rollback immediately.
+
+**Cost Control:** Only one full CI regression run permitted. Flaky network failures trigger a "hold for manual re-execution" state rather than an automatic expensive retry.
+
+**Final Note:** This plan treats the registry update as a point-of-no-return. Rollback verification is the primary gate; model accuracy is the secondary gate. Both must be green before human approval is requested.

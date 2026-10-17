@@ -1,0 +1,75 @@
+**Delivery Plan: Monorepo Build Cache Migration**
+
+**Objective:** Replace timestamp-based caching with content-addressable storage to reduce build time by ≥20% without breaking artifact signing or causing regional cache invalidation storms.
+
+**Constraints & Risks:**
+- **Cost:** CI runs on expensive hardware ($5/min); full build = 90 mins.
+- **Dependency:** `core-utils` is pinned by hash; changes require Chief Architect approval.
+- **Flakiness:** Staging network checks false-fail under load.
+- **Irreversibility:** Production deploys lock at 04:00 UTC; only two engineers hold signing keys.
+- **Scope:** 30 regional microservices must not invalidate caches simultaneously.
+
+---
+
+### Lanes & Serialization
+
+**Lane 1: Specification & Baseline (Serial, Pre-work)**
+- **Owner:** Product Analyst + Conductor.
+- **Work:** Define "20% reduction" metric baseline using current logs. Draft the content-addressable algorithm spec ensuring partial failure isolation (per-region invalidation).
+- **Output:** Testable spec with explicit acceptance criteria: "Build time < 72 mins," "Zero signing workflow breaks," "No global cache purge on single service failure."
+- **Gate:** G1 Spec approval. No code touched.
+
+**Lane 2: Core Implementation (Parallelizable after G1)**
+- **Owner:** Builder (Implementer).
+- **Work:** Implement content-addressable logic in a dedicated worktree. Ensure `core-utils` hash pinning remains untouched. Inject graceful degradation: if the new store fails, fallback to local timestamp cache for that specific region only.
+- **Constraint:** Do not modify `core-utils` source. If the build tool interface requires a `core-utils` change, stop and flag for G2 Plan revision.
+- **Output:** Patch set, unit tests for cache key generation, mock tests for partial failure scenarios.
+
+**Lane 3: Signing Workflow Preservation (Parallel to Lane 2)**
+- **Owner:** Security + QA (Independent of Builder).
+- **Work:** Audit the proposed change against the existing artifact signing flow. Verify that the new cache keys do not alter the binary input to the signing process.
+- **Output:** Security verdict confirming signing integrity; test plan for the two key-holders to verify signatures on a staging build.
+
+**Lane 4: Performance Verification (Dependent on Lane 2 Merge to Integration Branch)**
+- **Owner:** QA.
+- **Work:** Run the integrated change on a representative subset (3 regions) first, then all 30. Measure compute time.
+- **Mitigation:** Retry flaky network checks automatically; do not treat staging network false-fails as build failures.
+- **Output:** Performance receipt showing ≥20% reduction. If <20%, lane fails; no merge.
+
+---
+
+### Gates & Checks
+
+- **G0/G1 (Intake/Spec):** Conductor validates appetite (time-boxed experiment) and scope. **Evil Twin** attacks the "graceful failure" claim before implementation starts.
+- **G2 (Plan):** Explicitly confirm `core-utils` is not modified. If it is, route to Chief Architect for written approval *before* G4. Set per-lane token budget for performance runs (cap expensive CI minutes).
+- **G3 (Design):** ADR documenting the content-addressable hashing algorithm and the fallback mechanism.
+- **G4 (Implement):** Builder commits code. Unit tests must pass locally.
+- **G5 (Verify):**
+    - **Exact Revision:** The integration branch SHA.
+    - **Check:** Build 30 services. Assert no global invalidation. Assert signing workflow completes successfully (mocked or dry-run with test keys).
+    - **Performance:** Must show ≥20% reduction. **Hard condition:** If the build stack never fully starts or times out, status is `UNVERIFIED`.
+- **G6 (Review):**
+    - **Reviewer:** Senior Engineer (independent of Builder) + Security.
+    - **Focus:** Code correctness, signing safety, and the "partial failure" logic.
+    - **Severity:** Any risk to signing workflow is a Blocker.
+
+---
+
+### Landing & Human Decisions
+
+**Integration (G7):**
+- Merge to a release candidate branch. Run one final aggregate build on the exact merged SHA to confirm no integration drift.
+
+**Human Gates (G8 - Release):**
+- **Decision 1:** Chief Architect approval (if `core-utils` interface touched, otherwise skipped).
+- **Decision 2:** One of the two key-holders must physically/digitally attest that the signing workflow test passed.
+- **Decision 3:** Owner approval to deploy before 04:00 UTC cutoff.
+
+**Rollback Strategy:**
+- Since deploys are irreversible post-04:00 UTC, the rollout must complete and verify *before* this window.
+- If verification fails post-merge but pre-deploy: Revert the integration branch immediately.
+- If failure detected post-deploy (unlikely due to G5/G6): Cannot rollback binary; must patch forward with a hotfix restoring timestamp logic, triggered by a feature flag if implemented, or emergency manual intervention.
+
+**Success Criteria:**
+- Merge occurs only when G5 proves ≥20% time reduction and G6 confirms zero signing risk.
+- Work item closes at G7 (integrated); G8 (deploy) is a separate, owner-gated action.

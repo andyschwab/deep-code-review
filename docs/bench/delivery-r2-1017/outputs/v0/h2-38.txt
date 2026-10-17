@@ -1,0 +1,56 @@
+### Delivery Plan: Quiet Hours Enforcement (Winter Sale)
+
+**Objective:** Enforce 22:00–07:00 local suppression and global opt-out checks for the Winter Sale campaign. Deploy to staging by 12:00 UTC tomorrow.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Logic Implementation):**
+    *   **Worker:** Builder.
+    *   **Task:** Update campaign trigger logic to check user profile timezone (suppress 22:00–07:00 local) and query the global opt-out registry (exclude users opted out in last 48h).
+    *   **Constraint:** Work in isolated worktree `wt-logic`. Do not touch database migration scripts yet.
+*   **Lane B (Test Stabilization):**
+    *   **Worker:** QA + Builder (Pair).
+    *   **Task:** Fix `quiet-hour-validator` flakiness regarding Tuesday timezone mocking. Create a deterministic test case for the 48h opt-out window.
+    *   **Constraint:** Must complete before Lane C starts. Work in isolated worktree `wt-test`.
+*   **Lane C (Integration & Dry-Run):**
+    *   **Worker:** Conductor.
+    *   **Task:** Merge A and B. Run full CI. Execute database migration script in **dry-run mode only** against a local snapshot to verify irreversibility safety.
+    *   **Serialization:** Must wait for A and B to pass unit tests locally.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Confirm acceptance criteria: "No message queued if local time ∈ [22:00, 07:00] OR opt-out timestamp > (now - 48h)."
+*   **G4 (Implementation):**
+    *   **Revision:** Immutable SHA from Lane A.
+    *   **Check:** Unit tests green in `wt-logic`.
+*   **G5 (Verification):**
+    *   **Revision:** Exact SHA merging A and B.
+    *   **Check:** Run CI pipeline **once** before 06:00 UTC to align with staging data refresh.
+    *   **Critical:** If `quiet-hour-validator` fails, **do not retry**. Manual inspection required to distinguish timezone mock error from logic failure.
+    *   **Evidence:** Logs showing suppressed jobs for test users in quiet hours and recently opted-out users.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Focus:** Timezone calculation logic and opt-out query performance. Verify no regression on non-campaign notifications.
+
+#### 3. Landing & Human Gates
+*   **Merge Strategy:**
+    1.  Rebase Lane A and B onto latest `main`.
+    2.  Run integration suite on the merged SHA.
+    3.  Create PR targeting `staging` branch.
+*   **Human Approval (G8):**
+    *   **Approver:** Jane Smith (Compliance Officer).
+    *   **Requirement:** Explicit written approval required before merging to `staging` or executing the irreversible migration script in production.
+    *   **Action:** Present PR link, test receipts (G5), and dry-run migration log to Jane.
+*   **Deployment:**
+    *   Deploy to Staging immediately upon Jane's approval.
+    *   **Rollback:** If staging verification fails, revert the merge commit. The database migration is irreversible; if it was accidentally run, a data restoration from the pre-06:00 UTC backup is required (coordinate with DevOps).
+
+#### 4. Risk Mitigation
+*   **CI Cost:** Only one full CI run permitted before 06:00 UTC. Local verification must be exhaustive to prevent wasted credits.
+*   **Flaky Test:** The Tuesday timezone issue is a known blocker. If the test fails, pause the train. Do not auto-merge.
+*   **Compliance:** The 48h opt-out window is a hard legal constraint. Verification must include edge cases (e.g., user opted out at 23:59:59 two days ago).
+
+**Timeline:**
+*   **Now – 05:00 UTC:** Lanes A and B complete work.
+*   **05:00 – 06:00 UTC:** Lane C runs CI (must finish before data refresh).
+*   **06:00 – 08:00 UTC:** Manual inspection of flaky test results; G6 Review.
+*   **08:00 – 09:00 UTC:** Secure Jane Smith's approval.
+*   **09:00 – 12:00 UTC:** Deploy to Staging and verify.

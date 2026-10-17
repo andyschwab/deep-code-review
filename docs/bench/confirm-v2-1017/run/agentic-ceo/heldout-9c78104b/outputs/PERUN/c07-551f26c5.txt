@@ -1,0 +1,42 @@
+**Decision:** Execute a "Shadow-Write Cutover" strategy, not a direct migration. This is the only approach that guarantees zero user lockout within a four-hour window for one million users. The critical constraint is not the migration speed, but the verification of the credential mapping before the switch.
+
+**Figures:**
+*   **Users:** 1,000,000 active accounts.
+*   **Window:** 4 hours (Saturday night).
+*   **Throughput Required:** 250,000 users/hour or ~70 writes/second sustained *plus* verification latency.
+*   **Risk:** 100% data loss if mapping fails; 0% tolerance for lockout.
+
+**Sequence of Steps (Planning to Verification):**
+
+1.  **Architecture Freeze & Dry Run (Now – Friday):**
+    *   Stand up the new provider in parallel.
+    *   Implement a "dual-write" shim in your application layer: writes go to both old and new providers; reads come from the old provider.
+    *   **Action:** Run a full-scale dry run of the migration script on a 1:1 production data clone (anonymized) to measure exact throughput and failure rates.
+2.  **The "Shadow" Migration (Saturday, 00:00 – 03:00):**
+    *   Do not move users yet. Migrate the *encrypted blobs* to the new provider in the background while the old system remains live.
+    *   Verify hash integrity of a random 5% sample immediately.
+3.  **The Switch (Saturday, 03:00 – 03:30):**
+    *   Flip the read-path configuration. The application now authenticates against the new provider using the pre-migrated data.
+    *   Keep the old provider on standby as a read-replica fallback for 30 minutes.
+4.  **Verification & Rollback Plan (Saturday, 03:30 – 04:00):**
+    *   Monitor authentication success rates and latency.
+    *   **Trigger:** If error rate > 0.1% or latency > 200ms, instantly revert the read-config to the old provider. No data is lost because the old system was never written to exclusively.
+
+**Decision Rights: You vs. The Team**
+
+*   **You Must Decide (The Owner):**
+    *   **The Rollback Threshold:** Define the exact error rate or latency spike that triggers an immediate revert. (Recommendation: >0.1% auth failure).
+    *   **Communication Protocol:** Authorize the exact wording of the status page update if a rollback occurs (to prevent panic).
+    *   **Go/No-Go Gate:** Based on the dry-run metrics, give the final "Execute" command on Saturday morning.
+*   **The Team Executes:**
+    *   Writing the dual-write shim and migration scripts.
+    *   Performing the dry run and optimizing batch sizes.
+    *   Monitoring dashboards during the window.
+    *   Executing the config flip and rollback scripts.
+
+**First Concrete Action (Do This Now):**
+
+**Initiate the "Dry Run" on a production data clone immediately.** Do not write a single line of migration code for the real database until you have measured the exact time it takes to migrate and verify 100,000 records in a staging environment that mirrors production hardware. If the dry run shows the migration + verification exceeds 2.5 hours (leaving 1.5 hours for buffer/rollback), you must pause and architect a sharded migration approach before proceeding.
+
+*Note: The four-hour window is insufficient for a "migrate-then-switch" model; the data must be moved before the window opens, leaving the window solely for the configuration flip and verification.*
+*If the dry run fails to meet the 2.5-hour target, the October 15th launch date is at risk and requires immediate stakeholder notification.*

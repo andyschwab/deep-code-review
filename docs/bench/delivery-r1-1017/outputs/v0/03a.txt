@@ -1,0 +1,51 @@
+### Delivery Plan: Enforce Tenant Isolation
+
+**Strategy:** Zero-downtime gradual rollout via feature flag. The change modifies the central query handler to inject tenant IDs unconditionally when the flag is active. Existing unit tests will pass because the flag defaults to "off" in the test environment, preserving current mock behavior without assertion changes.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** One writer in an isolated worktree.
+    *   **Task:** Modify the central query handler to inject the tenant ID. Wrap the logic in a feature flag (`ENFORCE_TENANT_ISOLATION`) defaulting to `false`. Ensure audit logs capture the injected ID.
+    *   **Constraint:** Must not alter existing unit test assertions.
+    *   **Parallelism:** Can run parallel to Lane B.
+*   **Lane B (Test Harness & Validation):** One writer in a separate isolated worktree.
+    *   **Task:** Create a new integration test suite that spins up a minimal DB container, enables the flag, and verifies cross-tenant queries are blocked and audit logs are populated.
+    *   **Constraint:** Do not run the full 45-minute regression suite locally; rely on the targeted integration tests and the existing unit suite.
+    *   **Parallelism:** Runs parallel to Lane A.
+*   **Lane C (Deployment Scripting):** Serialized after Lane A & B merge.
+    *   **Task:** Draft the gradual rollout plan (canary % increments) and the irreversible database snapshot restore procedure.
+    *   **Serialization:** Must wait for code acceptance to define exact config keys.
+
+#### 2. Gates & Checks
+*   **G2 (Plan Approval):** Human review of the feature flag strategy and rollout schedule.
+*   **G4 (Build):** Run unit tests (fast) and the new targeted integration tests (Lane B).
+    *   **Revision:** Exact SHA from Lane A/B worktrees.
+    *   **Flake Handling:** If the network latency check fails, verify logs for success before marking red.
+*   **G5 (Verify):**
+    *   **Environment:** Staging environment with the flag enabled for 10% of traffic.
+    *   **Check:** Confirm audit logs show injected IDs and no cross-tenant data leaks occur.
+    *   **Revision:** The exact SHA deployed to staging.
+*   **G6 (Security Review):** **Mandatory.**
+    *   **Reviewer:** Senior Platform Engineer (independent of Implementer).
+    *   **Scope:** Code diff + Staging audit logs.
+    *   **Condition:** Must explicitly approve the "mandatory and non-bypassable" nature of the injection logic.
+
+#### 3. Review Protocol
+*   **Code Review:** Performed by a Senior Platform Engineer who did not write Lane A or B.
+*   **Security Review:** Distinct from code review; focuses solely on the isolation guarantee and audit completeness.
+*   **Independence:** The Builder cannot approve their own merge request. The Security reviewer must verify the staging logs personally.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A and B into the integration branch after G6 approval.
+    2.  **Human Decision:** Senior Platform Engineer approves the merge request.
+    3.  Deploy to Production with the flag **OFF**.
+*   **Gradual Rollout:**
+    1.  Enable flag for 5% of traffic; monitor audit logs and error rates.
+    2.  Increase to 50%, then 100% over 24 hours.
+*   **Rollback Plan:**
+    *   **Code Level:** Toggle the feature flag to `OFF` immediately (instant mitigation).
+    *   **Data Level:** If data corruption occurred while the flag was ON, execute the full database snapshot restore.
+    *   **Warning:** Restore is irreversible for data written after the snapshot. This step requires explicit owner authorization.
+*   **Completion:** Ticket closes only after 100% rollout and verified audit log compliance.
+
+**Risk Note:** The shared configuration file is locked during business hours. Configuration changes for the flag must be scheduled outside these hours or coordinated to avoid race conditions.

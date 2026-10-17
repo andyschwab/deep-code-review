@@ -1,0 +1,60 @@
+### Delivery Plan: Sunset Analytics SDK Replacement
+
+**Objective:** Replace DataPulse SDK with MetricFlow, ensuring zero data loss (>4h gap) and schema parity before Nov 15.
+**Deadline:** Validation complete by EOD Nov 14.
+**Constraints:** High CI cost ($45/run), shared `data-schema.json` (dual sign-off), irreversible prod deploy (6h restore), flaky Tuesday audit-log.
+
+#### 1. Lanes & Parallelism
+
+*   **Lane A: Schema & Compliance (Serial Pre-requisite)**
+    *   **Owner:** Senior Engineer (Backend) + Compliance Officer.
+    *   **Work:** Update `data-schema.json` to map legacy DataPulse events to MetricFlow format.
+    *   **Constraint:** Must be completed and signed off *before* any implementation lane starts. This is the critical path bottleneck.
+    *   **Output:** Approved `data-schema.json` commit.
+
+*   **Lane B: Implementation (Parallel after Lane A)**
+    *   **Owner:** Senior Engineer (Builder).
+    *   **Work:** Remove DataPulse SDK, install MetricFlow, wire events using the approved schema. Implement dual-write or buffer logic if needed to bridge the 4-hour gap during cutover.
+    *   **Isolation:** Dedicated worktree; read-only access to `data-schema.json` from Lane A's commit.
+
+*   **Lane C: Verification & Load Simulation (Parallel after Lane A)**
+    *   **Owner:** QA Engineer (Independent).
+    *   **Work:** Since staging lacks real traffic, script a replay of historical event logs against the new implementation. Validate schema parity exactly.
+    *   **Constraint:** Ignore automated `audit-log` failures on Tuesdays; perform manual log verification for those runs.
+
+#### 2. Gates & Checks
+
+*   **G0/G1 (Spec & Plan):** Confirm event schema mapping matches legacy definitions exactly. Define the 4-hour cutover window procedure.
+*   **G2 (Design):** Architecture review of the cutover mechanism to guarantee no data blackout.
+*   **G3 (Schema Sign-off):** **Human Gate.** Backend Lead and Compliance Officer must approve the `data-schema.json` change. No code merges until this is done.
+*   **G4 (Implement):** Builder commits code in isolated worktree. Unit tests run locally first to save CI costs.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA from Lane B.
+    *   **Checks:** Run CI *only* on affected paths (analytics module + schema). Skip full GPU suite unless core logic changes.
+    *   **Validation:** QA confirms replayed logs match legacy output 1:1. Manual check of audit logs if running on a Tuesday.
+*   **G6 (Review):** Independent Senior Engineer (not the Builder) reviews the diff and QA receipts. Security check for data egress in new SDK.
+
+#### 3. Review Strategy
+
+*   **Code Review:** Conducted by a Senior Engineer independent of the Builder. Focus on error handling during the switch and schema fidelity.
+*   **Compliance Review:** Explicit sign-off on `data-schema.json` by the Compliance Officer (non-negotiable).
+*   **QA Review:** QA owns the "green" status on verification receipts, not the Builder.
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:**
+    1.  Merge Lane A (Schema) to main.
+    2.  Rebase Lane B on top of Lane A.
+    3.  **Human Gate:** Only a Senior Engineer with production merge keys can merge to main.
+*   **Deployment:**
+    *   Deploy to production during a low-traffic window prior to Nov 14 EOD.
+    *   **Irreversibility Warning:** Since prod deploys are irreversible without a 6-hour DB restore, the cutover must be validated in a production-like dry-run (using replayed traffic) before the final switch.
+*   **Rollback Plan:**
+    *   If data loss is detected post-deploy: Immediately revert the feature flag or configuration pointing to MetricFlow.
+    *   If code revert is required: Initiate the 6-hour database restore procedure immediately. This is a last resort; prefer configuration rollback.
+*   **Final Validation:** Monitor live event ingestion for 1 hour post-deploy. Confirm zero gaps >4 hours.
+
+**Risk Mitigation:**
+*   **CI Cost:** Restrict CI to `analytics/` and `schema/` paths. Do not run full GPU suite unless absolutely necessary.
+*   **Flaky Tests:** Manual verification of audit logs on Tuesdays; do not block on automated reds for this specific check.
+*   **Deadline:** If Lane A (Schema) slips, the entire timeline collapses. Prioritize compliance sign-off immediately.

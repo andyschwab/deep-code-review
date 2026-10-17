@@ -1,0 +1,55 @@
+**Delivery Plan: Zero-Downtime Product Catalog Reindex**
+
+**Goal:** Implement blue-green index swapping to eliminate lock contention, ensure atomic alias switching, and enable sub-second rollback without live traffic interruption.
+
+### Lanes & Parallelism
+
+**Lane 1: Index Builder (Builder)**
+*   **Work:** Implement isolated index generation writing to a temporary target (e.g., `products_v2_YYYYMMDD`) instead of the live alias. Integrate a "dry-run" mode that validates schema against a sampled dataset without full compute.
+*   **Constraint:** Must not touch `global-aliases.json`.
+*   **Parallel:** Runs independently of Lane 2.
+
+**Lane 2: Alias Switcher & Rollback (Builder)**
+*   **Work:** Create an atomic switching script/command that updates `global-aliases.json` to point to the new index only after validation. Implement an immediate rollback trigger that reverts the alias to the previous stable version if error rates spike.
+*   **Constraint:** Must handle concurrent reads/writes to `global-aliases.json` safely (optimistic locking or transactional update).
+*   **Serialization:** Must wait for Lane 1 to produce a valid index artifact before execution logic is finalized.
+
+**Lane 3: Validation & Load Simulation (QA)**
+*   **Work:** Build a staging harness that simulates the 2TB snapshot scan on a smaller subset to verify data integrity without the 45-minute CI penalty. Verify that read-replica lag (up to 12s) does not trigger false-positive health failures during the switch.
+*   **Parallel:** Runs against Lane 1's output in a staging environment.
+
+### Gates & Checks
+
+*   **G2 Plan:** Confirm budget cap. **Hard Gate:** No lane proceeds without a defined token/compute spend limit. Full reindex attempts are blocked without prior dry-run success.
+*   **G3 Design:** Architecture Decision Record (ADR) defining the atomic swap mechanism and the specific rollback trigger condition (e.g., error log threshold).
+*   **G4 Implement:**
+    *   Lane 1 & 2 code committed to isolated worktrees.
+    *   Unit tests for the alias switch logic (mocking `global-aliases.json`).
+*   **G5 Verify (Staging):**
+    *   **Exact Revision:** The specific commit SHA from G4.
+    *   **Action:** Run dry-run index build. Execute atomic switch in staging. Simulate 12s replica lag to ensure health checks remain green.
+    *   **Pass Criteria:** Zero downtime observed; switch completes in <2s; rollback restores previous index in <5s.
+*   **G6 Review:**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Focus:** Safety of `global-aliases.json` modification; correctness of rollback logic; cost controls on compute.
+*   **G7 Integrate:** Merge to integration branch. Re-run affected integration tests on the merged SHA.
+
+### Landing & Human Decisions
+
+*   **Human Approval (G8):**
+    *   **Approver:** Jane Smith (On-call Lead).
+    *   **Window:** Explicit approval required between 02:00 – 04:00 UTC.
+    *   **Action:** Deployment to `us-east-1` cluster.
+*   **Execution Strategy:**
+    1.  Deploy new builder/switcher binaries.
+    2.  Trigger dry-run index build.
+    3.  Upon success, await 02:00 UTC window.
+    4.  Execute atomic alias switch.
+    5.  Monitor error logs for 15 minutes.
+*   **Rollback:** If anomalies appear, execute the automated rollback command immediately. No human approval needed for rollback (pre-authorized by this plan).
+*   **Post-Deploy (G9):** Verify search latency and checkout flow stability. Confirm no stale data served to mobile users.
+
+### Risk Mitigation
+*   **Cost:** Dry-run mandatory before any full compute job.
+*   **Collision:** Serialization gate on `global-aliases.json` edits to prevent recommendation engine breakage.
+*   **False Positives:** Health check logic adjusted to tolerate 15s replica lag during switch events.

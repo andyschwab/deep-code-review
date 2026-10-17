@@ -1,0 +1,49 @@
+### Delivery Plan: PolicyViewer Keyboard Trap Fix
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Restore keyboard exit (Escape key) and screen reader flow in `PolicyViewer` without altering visuals or breaking `focus-lock` consumers.
+*   **Constraints:** Do not modify `focus-lock` signature. Local verification mandatory before CI. Manual a11y testing on staging is the gate (CI a11y is flaky).
+*   **Appetite:** 3 days max to mitigate regulatory risk.
+*   **Scope:** `nexus-ui` library, specifically `PolicyViewer` interaction logic.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane 1: Analysis & Contract (Serial, First)**
+    *   **Actor:** Product Analyst + Builder.
+    *   **Work:** Inspect `PolicyViewer` focus management. Define the exact DOM sequence for "Enter Modal" → "Trap Focus" → "Escape Exit" → "Restore Focus." Confirm `focus-lock` usage points to ensure no signature changes.
+    *   **Output:** ADR detailing the focus restoration strategy and a test script for local manual verification.
+*   **Lane 2: Implementation (Parallel after Lane 1 Contract)**
+    *   **Actor:** Builder (isolated worktree).
+    *   **Work:** Refactor `PolicyViewer` event listeners and focus return logic. Ensure Escape key propagates correctly to close the modal.
+    *   **Constraint:** Zero changes to CSS or animation timings.
+    *   **Output:** Patch commit with unit tests for event propagation.
+*   **Lane 3: Independent QA (Parallel after Lane 2 Local Green)**
+    *   **Actor:** QA (Accessibility Specialist).
+    *   **Work:** Execute manual test suite on staging using the standard assistive technology suite (screen readers, keyboard-only nav). Verify the "40 screens" context by spot-checking high-traffic portals.
+    *   **Output:** Signed receipt confirming "Escape exits modal" and "Focus returns to trigger."
+
+**G3–G5: Checks & Verification**
+*   **Local Check (Builder):** Run lint, type-check, and unit tests. **Must pass** before any push.
+*   **Integration Check (CI):** Trigger pipeline on the exact PR SHA.
+    *   *Note:* Ignore automated a11y failures on mobile viewports (known flake). Treat CI red only if build/unit tests fail.
+*   **Staging Verification (QA):** Deploy to staging (requires human approval). QA performs the **mandatory** manual a11y verification. Unit tests alone are insufficient for this gate.
+
+**G6 Review**
+*   **Reviewer:** Senior Engineer (Independent of Builder).
+*   **Scope:** Diff review focusing on focus-management logic and `focus-lock` integration.
+*   **Security Lens:** Verify no new event listener leaks or DOM exposure.
+
+**G7 Integrate & G8 Release**
+*   **Merge Strategy:** Squash merge to `main` upon G6 approval and QA receipt.
+*   **Human Gates (Required Before Merge/Deploy):**
+    1.  **Product Owner:** Approves scope completion (regulatory compliance sign-off).
+    2.  **Security Lead:** Approves production deploy (mandatory for `nexus-ui` changes).
+*   **Deployment:** Staged rollout. Monitor error logs for focus-related exceptions.
+*   **Rollback:** Immediate revert of the merge commit if staging verification fails post-deploy or if critical regression is reported in the 12 dependent components.
+
+**Cost Control**
+*   CI runs limited to one per candidate SHA (after local green). No re-runs unless SHA changes.
+*   Lane budgets capped; if analysis exceeds 4 hours, escalate to Architect for pattern review.
+
+**Failure Mode**
+*   If `focus-lock` signature inadvertently changes: Block immediately, revert patch, re-analyze.
+*   If manual a11y fails: Do not merge. Refactor required.

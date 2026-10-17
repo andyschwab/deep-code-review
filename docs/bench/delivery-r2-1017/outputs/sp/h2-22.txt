@@ -1,0 +1,37 @@
+### Delivery Plan: Redesign Checkout Launch
+
+**1. Lanes & Parallelism**
+*   **Lane A (Frontend & Mobile):** Implement the new checkout layout. Focus strictly on rendering logic; do not touch tax calculations (frozen `currency-utils`).
+    *   *Parallel:* Lane B.
+*   **Lane B (Experiment Config & Analytics):** Configure the A/B framework for 10% traffic split. Implement the 2% revenue drop guardrail (4-hour window). Verify analytics events for both Control and Variant.
+    *   *Parallel:* Lane A.
+*   **Lane C (Infrastructure & Monitoring):** Prepare the monitoring dashboard widgets for conversion and revenue-per-session. Draft the confirmation email template.
+    *   *Parallel:* Lanes A & B.
+
+**2. Serialization & Gates**
+*   **Gate 1: Code Freeze & Local Verification.** Once Lanes A and B merge feature branches, a local build verifies mobile responsiveness and event firing syntax. No CI run yet.
+*   **Gate 2: CI Pipeline (Single Trigger).** Trigger one full CI run ($45, 55 mins) on the combined release candidate.
+    *   *Constraint:* If the end-to-end payment verification fails, manually re-run *only* that job. Do not restart the full pipeline.
+    *   *Hard Stop:* If tax logic changes are detected in the diff, abort immediately.
+*   **Gate 3: Finance Sign-off.** Upon CI success, the build artifact is presented to the Finance Director. Deployment to `payments-prod` is blocked without manual written approval.
+
+**3. Review Strategy**
+*   **Code Review:** A senior engineer from the Transaction Team (not the author) reviews Lanes A and B. Focus: Mobile CSS isolation and guardrail logic correctness.
+*   **Independent Logic Audit:** A Data Engineer (independent of the Transaction Team) reviews the guardrail configuration and analytics event definitions to ensure the 2% threshold and 4-hour window are mathematically correct before deployment.
+*   **Visual QA:** Product Designer verifies mobile rendering on a staging environment using the specific build hash from Gate 2.
+
+**4. Landing & Rollback**
+*   **Deployment Window:** Thursday afternoon (to allow monitoring before Friday peak).
+*   **Execution:**
+    1.  Apply database migration (20 mins) *before* code deploy.
+    2.  Deploy to `payments-prod` post-Finance sign-off.
+    3.  Enable experiment at 0% traffic, verify events, ramp to 10%.
+*   **Automated Safety:** The guardrail actively monitors revenue. If revenue drops >2% in any 4-hour window, the experiment auto-kills (reverts to 100% Control).
+*   **Manual Rollback:** If the auto-guardrail fails or critical mobile bugs appear:
+    1.  Disable experiment via feature flag (instant).
+    2.  If code revert is required, initiate database rollback (20 mins downtime).
+*   **Confirmation:** Once traffic hits 10% and dashboard data flows, send the confirmation email to the product team.
+
+**Human Decisions Required:**
+1.  **Finance Director:** Mandatory sign-off on the specific build hash before deployment.
+2.  **On-Call Lead:** Authorization to proceed with manual DB rollback if the automated guardrail fails to trigger during a critical incident.

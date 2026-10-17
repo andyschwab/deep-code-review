@@ -1,0 +1,53 @@
+**Delivery Plan: Schema Evolution for Legacy Mobile Compatibility**
+
+**Objective:** Make `verifiedBadge` optional (default `null`) in the backend to prevent crashes for legacy mobile clients, while ensuring new clients receive the value when present. Deploy before Tuesday morning marketing push.
+
+### Lanes & Parallelism
+
+**Lane 1: Schema & Model Update (Builder)**
+*   **Work:** Modify the `UserProfile` definition in the `schema-registry` to make `verifiedBadge` optional with a default of `null`. Update the serialization logic to omit the field for legacy responses if a version header is detected, or include it for new clients.
+*   **Constraint:** Must acquire the `schema-registry` lock outside business hours or during a pre-arranged window.
+*   **Parallelism:** Can run in parallel with Lane 2 (Test Prep) but must serialize before Lane 3 (Integration).
+
+**Lane 2: Compatibility Test Suite (QA)**
+*   **Work:** Create/Update tests simulating: (a) Legacy client request (no `verifiedBadge` sent/expected), (b) New client request (field present), (c) Mixed traffic load.
+*   **Constraint:** Tests must run against the exact revision produced by Lane 1.
+*   **Parallelism:** Runs in parallel with Lane 1 development; executes sequentially after Lane 1 commits.
+
+**Lane 3: Migration Safety & Rollback Prep (Security/Release)**
+*   **Work:** Verify the change requires *no* destructive database migration (since making a field optional with a default is typically non-destructive). Confirm the "no rollback without full restore" risk is mitigated by the non-destructive nature of the code change. Prepare the manual rollback script (revert commit + redeploy) in case of logic failure, acknowledging the 4-hour restore penalty only applies if data corruption occurs.
+*   **Parallelism:** Runs in parallel with Lane 1.
+
+### Gates & Checks
+
+*   **G1 Spec (Now):** Confirm `verifiedBadge` default is `null` and logic handles missing field gracefully. Pin base SHA.
+*   **G2 Plan (Now):** This plan. Budget: 2 CI runs max ($90 total) to avoid flaky retry costs.
+*   **G4 Implement:** Builder commits to a dedicated worktree. **Check:** Local unit tests pass.
+*   **G5 Verify:**
+    *   Run CI pipeline **once** on the candidate SHA.
+    *   **Critical:** If network flake occurs on retry #2, abort and manually inspect logs; do not trigger automatic third retry to save cost/time.
+    *   **Validation:** Simulated legacy client launch must succeed (no crash). New client must receive `verifiedBadge`.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Platform Engineer (independent of Builder).
+    *   **Focus:** Backward compatibility logic and default value safety.
+*   **G7 Integrate:** Merge to release branch. Re-run affected subset of CI if policy demands, otherwise trust G5 on exact SHA.
+
+### Review Strategy
+
+*   **Code Review:** Independent Senior Engineer reviews the diff. They must verify that the change is purely additive/optional and does not alter existing data structures for new clients.
+*   **QA Sign-off:** QA lead confirms the simulated legacy client test passes.
+*   **Security:** Brief review to ensure defaulting to `null` does not expose unauthorized data paths (unlikely, but must be stated).
+
+### Landing & Human Gates
+
+*   **Merge Window:** Tuesday maintenance window (per policy).
+*   **Human Approval Required:**
+    1.  **Jane Smith:** Explicit approval required for production deploy.
+    2.  **Decision Point:** Confirm the CI green status despite potential network flakiness (manual override if flake detected).
+*   **Deployment:** Manual trigger during Tuesday window.
+*   **Rollback Plan:**
+    *   **Scenario A (Logic Fail):** Revert the merge commit and redeploy previous stable SHA.
+    *   **Scenario B (Data Corruption):** Initiate full restore from nightly snapshot (4-hour downtime). *Mitigation:* Lane 3 must confirm zero data migration is occurring to make this scenario highly improbable.
+*   **Post-Deploy:** Monitor legacy load balancer logs for crash rates immediately upon traffic shift.
+
+**Risk Note:** The inability to canary on the legacy load balancer means this is a "big bang" release for old clients. Precision in G5 testing is critical.

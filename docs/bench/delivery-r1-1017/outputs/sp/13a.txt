@@ -1,0 +1,55 @@
+### Delivery Plan: AcmeHealth APAC Launch
+
+#### 1. Lanes & Parallelism
+Work is split into two parallel lanes with a single serialization point.
+
+*   **Lane A (Infrastructure):** Provisions the isolated APAC cloud environment in `acme-cloud-apac`.
+    *   *Owner:* Infra Engineer.
+    *   *Constraint:* Must complete before Lane B begins configuration to ensure endpoints exist.
+*   **Lane B (Preparation):** Drafts application config changes in `patient-portal-core` and prepares Data Flow Diagrams (DFDs).
+    *   *Owner:* App Engineer & Compliance Lead.
+    *   *Constraint:* Configuration cannot be finalized or committed until Lane A provides the exact endpoint URLs and cluster IDs.
+*   **Serialization Point:** Lane B's final configuration commit waits on Lane A's successful provisioning.
+*   **Parallel Activity:** Legal review of DFDs runs concurrently with Lane A's execution.
+
+#### 2. Gates & Checks
+All checks run on specific, immutable revisions. No changes are merged without passing these gates.
+
+*   **Gate 1: Design Sign-off (Pre-Code)**
+    *   *Trigger:* Submission of DFDs showing zero cross-border data paths.
+    *   *Approver:* Local Legal Team.
+    *   *Condition:* Mandatory written approval before any infrastructure code is applied.
+*   **Gate 2: Infrastructure Provisioning (Lane A)**
+    *   *Revision:* Latest `main` of `acme-cloud-apac` + feature branch.
+    *   *Check:* Manual dry-run review of Terraform/CloudFormation plan to verify encryption keys and region locks.
+    *   *Execution:* Apply to production.
+    *   *Critical Note:* Irreversible. Requires peer review of the *plan output* before execution.
+*   **Gate 3: Configuration Integration (Lane B)**
+    *   *Revision:* `patient-portal-core` feature branch rebased on latest `main`.
+    *   *Check:* Static analysis to ensure no US vault IDs are referenced in APAC config blocks.
+    *   *CI Run:* Trigger `data-residency-check`. If it fails due to latency (>200ms), one manual re-trigger is permitted. If it fails twice, halt for network investigation.
+*   **Gate 4: Dual Approval (Deployment)**
+    *   *Trigger:* Successful CI on both repos.
+    *   *Approvers:* Regional Director AND Chief Compliance Officer.
+    *   *Condition:* Both must approve the specific release candidate tag.
+
+#### 3. Review Strategy
+Reviews are independent to prevent conflict of interest.
+
+*   **Infrastructure Review:** Performed by a Senior Cloud Architect *not* on the implementation team. Focus: Encryption standards, region hard-coding, and backup job exclusion rules.
+*   **Application Review:** Performed by a Backend Lead from a different region (e.g., EMEA). Focus: Routing logic ensures traffic stays local; no fallback to US endpoints.
+*   **Compliance Review:** Performed exclusively by Legal/Compliance. Focus: Verification that the deployed architecture matches the approved DFDs.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Lane A merges to `main` only after Gate 2 passes.
+    2.  Lane B merges to `main` only after Gate 3 passes and Legal confirms the live environment matches the DFD.
+    3.  Deployment script runs automatically post-merge only after Gate 4 (Dual Approval) is recorded.
+*   **Human Decisions Required:**
+    *   Legal sign-off on DFDs.
+    *   Approval of the Infrastructure "Apply Plan" (due to irreversibility).
+    *   Dual production deployment authorization.
+*   **Rollback Plan:**
+    *   *Application:* Immediate revert of `patient-portal-core` to the previous stable tag; traffic rerouted to legacy system if available, or service halt.
+    *   *Infrastructure:* **No automated rollback.** Due to irreversible database creation, a "destroy" requires a new high-priority ticket. In the event of a critical compliance failure, the cluster is isolated (network ACLs set to deny all) immediately while the destruction ticket is processed.
+*   **Timing:** Shared config files are frozen during business hours; all merges and deployments must be scheduled for the maintenance window (02:00–04:00 local APAC time) to avoid lock conflicts.

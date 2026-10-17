@@ -1,0 +1,53 @@
+### Delivery Plan: Restrict Legacy Billing API Access
+
+**G0/G1 Intake & Spec**
+*   **Scope:** Modify authentication logic for `LedgerSync` endpoint; restrict to `Finance-Admins` group only.
+*   **Constraints:** Zero downtime during fiscal close (next Tuesday); must not break nightly batch reconciliation; audit logging required.
+*   **Non-Goals:** Refactoring other legacy billing modules; changing the caching mechanism itself.
+*   **Appetite:** 4-hour time-box for implementation and verification before the freeze window.
+
+**G2 Plan: Lanes & Serialization**
+*   **Lane 1 (Security Architect):** Analyze `global_access_matrix.json` structure and define the exact rule syntax for `Finance-Admins`. Determine if the nightly batch process uses a service account that needs explicit allow-listing alongside the group rule. *Output: ADR with rule snippet and service account ID.*
+*   **Lane 2 (Builder):** Implement the logic change in the auth middleware to enforce the new rule. Inject audit logging for 403 responses. *Dependency:* Waits for Lane 1's ADR. *Worktree:* Isolated `feat/ledger-sync-restrict`.
+*   **Lane 3 (QA - Independent):** Verify the nightly batch reconciliation logic against the proposed rule. Create a mock test environment simulating the batch service account. *Parallel to Lane 2.*
+*   **Lane 4 (Security Reviewer):** Independent review of the code diff and the `global_access_matrix.json` change. Verify no escalation paths exist for Engineering Leads. *Dependency:* Waits for Lane 2 completion.
+
+**G3 Design**
+*   **Decision:** The `global_access_matrix.json` change requires a manual cache purge (20 mins). This must be scheduled strictly outside the nightly batch window and the fiscal close freeze.
+*   **Contract:** The builder commits the code change and the JSON update in a single atomic commit to ensure consistency.
+
+**G4 Implementation**
+*   **Builder** commits to `feat/ledger-sync-restrict`.
+*   **Checks:** Unit tests (local), lint, type check.
+*   **Cost Control:** No full CI regression run yet; rely on targeted unit/integration tests to avoid the $120/flaky-network tax prematurely.
+
+**G5 Verification (Exact Revision)**
+*   **Revision:** The exact SHA of the Builder's commit.
+*   **Action:**
+    1.  **QA** runs the batch reconciliation simulation against the staged change.
+    2.  **Security** attempts access with a standard corporate account (expect 403) and a Finance-Admin account (expect 200).
+    3.  **Audit Check:** Verify logs capture the 403 events.
+*   **Gate Condition:** If the flaky network check triggers in stage three, retry once with logs cited. If it fails again, escalate to Conductor to decouple the network check from this specific auth verification.
+
+**G6 Review**
+*   **Reviewers:** Security Reviewer (Lane 4) + Platform Reliability Lead (for cache impact).
+*   **Independence:** Neither reviewer is the Builder.
+*   **Criteria:** Code matches ADR; 403 is strict; batch account is preserved; audit logs present.
+
+**G7 Integration**
+*   **Merge Strategy:** Merge to `main` only after G6 approval.
+*   **CI Trigger:** Run full regression suite (45 mins, $120).
+*   **Contingency:** If the flaky check fails, analyze logs. If unrelated to auth, document and proceed with human waiver if risk is low; if related, fix and re-run.
+
+**G8 Release (Human Gate)**
+*   **Approvers:** Chief Financial Officer AND Head of Security (Dual approval required via governance portal).
+*   **Timing:** Scheduled deployment must occur >4 hours before the nightly batch and >24 hours before the fiscal close freeze.
+*   **Action:** Deploy change. Trigger manual cache purge (20 mins) immediately post-deploy.
+*   **Rollback:** If 403s appear for valid Finance users or batch fails, revert commit and trigger cache purge immediately. Rollback plan must be pre-approved in the governance ticket.
+
+**G9 Production Verify**
+*   **Verification:** Monitor audit logs for 1 hour post-deploy. Confirm nightly batch success.
+*   **Receipt:** Screenshot of successful batch run + log excerpt showing blocked non-finance attempt.
+
+**G10 Learn**
+*   **Retrospective:** Document why the endpoint was open initially. Add a regression test to the security scan suite to prevent recurrence.

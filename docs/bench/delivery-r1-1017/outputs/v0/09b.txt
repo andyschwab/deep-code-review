@@ -1,0 +1,43 @@
+### Delivery Plan: Partial Refund Logic Fix
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Contract):** Define the exact proration formula and edge cases (e.g., rounding, minimum fees). Output: A testable spec with "Done-when" criteria. *Serialized first.*
+*   **Lane B (Implementation):** Update the billing calculation logic in `finance-core`. Must include unit tests for the new proration logic. Runs in an isolated worktree.
+*   **Lane C (Migration Safety):** Review the irreversible database migration script. Verify it targets only future transactions and includes a dry-run mode. *Serialized with Lane B before merge.*
+*   **Lane D (Verification):** Execute integration tests against the exact revised SHA. Skip re-runs unless code changes; ignore known currency conversion flake if logs match timeout pattern.
+
+**Parallel Execution:** Lanes B and C run in parallel after Lane A approves the spec. Lane D waits for B and C to complete.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Owner validates the proration formula and confirms "future-only" scope.
+*   **G2 (Plan):** Confirm token budget for integration tests ($12/run limit). Pin base SHA.
+*   **G4 (Build):** Unit tests must pass locally. Code must not touch historical record paths.
+*   **G5 (Verify):** Run integration suite on the exact candidate SHA in staging. Evidence required: Green status on bank sandbox checks, specific logs confirming no historical data mutation.
+*   **G6 (Review):**
+    *   *Code Review:* Senior Engineer (independent of Builder) reviews logic and tests.
+    *   *Security/Compliance:* Compliance Officer reviews the migration script and "future-only" guarantee.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected integration tests once on the final merged SHA.
+
+**3. Review Independence**
+*   The Builder (Lane B) cannot approve their own code.
+*   The Compliance Officer (Gate G6) must be distinct from the migration author.
+*   Integration test results (Lane D) are validated by a Senior Engineer not involved in the implementation.
+
+**4. Landing & Human Decisions**
+*   **Merge Train:** Once G7 passes, the PR enters the merge queue.
+*   **Staging Deploy:** Requires approval from **two senior engineers**. This is a hard gate before production consideration.
+*   **Production Deploy:**
+    *   **Window:** Tuesday, 2 PM – 4 PM only.
+    *   **Approver:** Compliance Officer sign-off is mandatory.
+    *   **Action:** Deploy the verified SHA.
+*   **Rollback Plan:**
+    *   Since the DB migration is irreversible, rollback involves deploying a code patch that neutralizes the new logic (feature flag off or logic revert) rather than reverting the DB.
+    *   If refund calculations error post-deploy, immediately switch to the previous calculation path via configuration.
+    *   Verification receipt (G9) must confirm correct refund amounts on a live test cancellation within 1 hour of deploy.
+
+**5. Risk Controls**
+*   **Cost:** Limit integration runs to strictly necessary executions (max 2 attempts before manual triage).
+*   **Data Safety:** Explicit assertion in code review that no `UPDATE` statements target past transaction IDs.
+*   **Flake Handling:** Document specific timeout logs in the test report to justify ignoring the currency conversion failure.
+
+**Next Step:** Await owner confirmation on the proration formula (G1) before spawning implementation lanes.

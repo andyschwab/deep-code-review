@@ -1,0 +1,66 @@
+### Delivery Plan: Emergency Bulk Status Reversion
+
+**Strategy:** Isolate the reversion logic into a read-only, idempotent script executed against a pinned database snapshot first, then a canary region. We will not deploy a new UI or API endpoint to save time; this is a one-off operational script with a dry-run mode.
+
+#### 1. Lanes & Parallelism
+
+*   **Lane A: Spec & Safety Contract (Conductor + Product Analyst)**
+    *   **Work:** Define the exact CSV schema, the "Hold" + "Today" validation logic, and the batch size limit (≤500 rows/sec). Define the rollback procedure (inverse CSV generation).
+    *   **Constraint:** Must complete before Lane B starts coding.
+    *   **Output:** `spec_reversion.md` and `rollback_plan.md`.
+
+*   **Lane B: Implementation (Builder)**
+    *   **Work:** Write a CLI script `scripts/bulk_revert_hold.py`.
+        *   Input: CSV of tracking IDs.
+        *   Logic: Verify status == 'Hold' AND status_date == today.
+        *   Throttling: Enforce ≤500 rows/sec sleep logic.
+        *   Audit Workaround: Split transactions into batches of 900 to avoid the 1,000-entry audit drop threshold. Log success/failure locally if the audit service fails.
+        *   Modes: `--dry-run` (report only) and `--execute`.
+    *   **Parallelism:** Can run concurrently with Lane C once Spec is frozen.
+
+*   **Lane C: Test Data & Simulation (QA)**
+    *   **Work:** Generate a synthetic dataset of 5,000 records (mixed statuses, dates) in a local ephemeral DB. Create a "poisoned" CSV containing IDs that should *not* change (wrong status, wrong date, non-existent).
+    *   **Parallelism:** Independent of Lane B; prepares data for Lane D.
+
+*   **Lane D: Verification (QA + Security)**
+    *   **Work:**
+        1.  Run Lane B's script in `--dry-run` against Lane C's data. Assert zero changes reported for "poison" IDs.
+        2.  Run `--execute` on a local clone. Verify final DB state matches expected "In-Transit" for valid IDs only.
+        3.  Verify throttling logs show correct delays.
+        4.  Security: Confirm no SQL injection vectors in CSV parsing; confirm script cannot modify records outside the provided list.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec Freeze:** Conductor approves `spec_reversion.md`. **Base SHA:** Current `main` head.
+*   **G4 Implementation Complete:** Builder commits script. **Check:** Linter and type-checker only (fast). No full CI yet.
+*   **G5 Local Verification:** QA runs the script against the local synthetic DB.
+    *   **Exact Revision:** The commit SHA from G4.
+    *   **Pass Condition:** 100% of "poison" IDs untouched; 100% of valid IDs reverted; no audit logs dropped (local verification).
+*   **G6 Independent Review:**
+    *   **Reviewer:** Senior Engineer (not the Builder).
+    *   **Scope:** Code review of `bulk_revert_hold.py` + QA's test receipt.
+    *   **Focus:** Throttling logic, batch splitting for audit safety, and the "Hold"+ "Today" predicate.
+*   **G7 Integration:** Merge to a release branch `hotfix/bulk-revert`.
+    *   **Check:** Run the *critical path* subset of the CI pipeline (estimated 15 mins) targeting only the affected modules. Do not run the full 45-minute suite yet to save time/cost; rely on G5 local proof.
+
+#### 3. Landing & Human Decisions
+
+*   **Human Gate (G8 Release):**
+    *   **Approver:** Chief Operations Officer (COO).
+    *   **Action:** COO must physically present the token to authorize the deploy of `hotfix/bulk-revert` to Production.
+    *   **Input to COO:** Provide the `--dry-run` output report showing exactly how many records *will* change, and the rollback script.
+
+*   **Execution Plan:**
+    1.  Deploy script to a jumpbox in the primary region.
+    2.  Run `--dry-run` in Production (read-only) to confirm counts match expectations.
+    3.  Upon COO approval, run `--execute`.
+    4.  Monitor the audit service; if it drops logs, the script's local fallback log is the source of truth.
+
+*   **Rollback:**
+    *   If errors occur mid-batch, the script stops automatically.
+    *   To revert: Run the generated `rollback.csv` (captured during execution) through the same script with a target status of 'Hold'.
+    *   **Constraint:** Do not attempt to revert the revert manually; use the tool.
+
+*   **Post-Incident (G10):**
+    *   Once stable, run the full 45-minute regression suite on the merged SHA during the next off-peak window to ensure no latent side effects.
+    *   Retrospective: Address the root cause of the accidental "Hold" application and the flaky audit service.

@@ -1,0 +1,29 @@
+### Delivery Plan: Staged Payment Gateway Secret Rotation
+
+**1. Lanes & Parallelism**
+*   **Lane A (Preparation - Sequential):** Update configuration manifests for the Primary Ledger, Fraud Detection, and Reporting Daemon. These changes must be committed sequentially to the `feature/secret-rotation` branch to ensure the dual-approval policy bot and Jane Smith can audit the exact order of operations. No parallel work is permitted here due to the shared configuration lock.
+*   **Lane B (Validation - Parallel):** While awaiting human approval, prepare the rollback scripts and the monitoring dashboard queries for the 0.1% error threshold. This can run in parallel with the approval process.
+*   **Lane C (Execution - Strictly Serialized):** The actual deployment must follow the mandated order: Primary Ledger → Fraud Detection → Reporting Daemon. Each stage must complete fully (including the 15-minute overlap window and health validation) before the next begins.
+
+**2. Gates & Checks**
+*   **Gate 1 (Code Freeze):** Triggered on commit `HEAD` of `feature/secret-rotation`. Requires dual approval (Jane Smith + Policy Bot). No merge to `main` without both.
+*   **Gate 2 (Pre-Deploy Check):** Run a targeted unit test suite only (avoiding the full 50-minute integration suite) on the staging branch. Acknowledge that crypto tests may be flaky; rely on static analysis for cryptographic logic.
+*   **Gate 3 (Stage 1 Validation):** Deploy to Primary Ledger. Start 15-minute timer. Monitor error rates. If errors > 0.1% OR if the 15-minute window closes without stability confirmation, trigger immediate rollback.
+*   **Gate 4 (Stage 2 & 3 Validation):** Repeat the 15-minute overlap and error rate check for Fraud Detection, then Reporting Daemon. Proceed only if the previous stage is stable.
+
+**3. Review Strategy**
+*   **Code Review:** Independent review by a senior engineer not involved in writing the config changes. They must verify the 15-minute overlap logic and the rollback triggers in the deployment scripts.
+*   **Security Review:** Mandatory sign-off by the Security Lead *before* the final merge to production. This is a hard gate; no deployment occurs without their explicit confirmation.
+*   **Operational Review:** Real-time monitoring during the 15-minute windows is conducted by the On-Call SRE, who has the authority to call the rollback independently if metrics spike.
+
+**4. Landing & Rollback**
+*   **Merge Strategy:** Once approved, merge `feature/secret-rotation` into `main`. This triggers the production pipeline.
+*   **Human Decision Point:** The Security Lead must confirm readiness before the merge button is pressed. Additionally, the On-Call SRE must give a "Go" signal after each 15-minute overlap window before proceeding to the next service.
+*   **Rollback Protocol:** If error rates exceed 0.1% at any stage:
+    1.  Immediately halt the pipeline.
+    2.  Execute the manual database rollback script (estimated 20 minutes).
+    3.  Revert the git commit to the pre-rotation state.
+    4.  Notify stakeholders of the incident.
+*   **Completion:** The ticket is closed only after the Security Lead confirms all three services are running on new secrets with no anomalies observed during the final overlap window.
+
+**Risk Mitigation:** To avoid expensive CI costs, rely on the staging environment for basic syntax checks, accepting the crypto test flakiness, and prioritize the real-time error rate monitoring in production as the ultimate truth source. The irreversible nature of production deploys mandates that the rollback script is tested and ready before any merge occurs.

@@ -1,0 +1,57 @@
+**Delivery Plan: Fraud Detection Model v4.2 Upgrade**
+
+**Objective:** Swap inference artifact to v4.2 behind an API gate, enforcing a >98.5% precision threshold before activation, with verified rollback capability.
+
+### 1. Lanes & Serialization
+
+*   **Lane A: Rollback & Safety Prep (Builder)**
+    *   **Work:** Draft and dry-run the cluster restore script in a staging environment. Verify the "irreversible" constraint is mitigated by this script.
+    *   **Serialization:** Must complete **before** Lane C.
+    *   **Parallel:** Can run parallel to Lane B.
+
+*   **Lane B: Configuration & Gate Logic (Builder)**
+    *   **Work:** Update `global-rules.yaml` to point to v4.2 artifact. Implement the hard abort logic: if precision < 98.5%, deployment fails automatically. Address the known network latency flake by adding a retry mechanism (max 2 retries) specifically for the accuracy gate check.
+    *   **Serialization:** Must wait for `global-rules.yaml` lock window (outside business hours) or obtain explicit compliance lock release.
+    *   **Parallel:** Runs parallel to Lane A.
+
+*   **Lane C: Validation & Accuracy Gate (QA)**
+    *   **Work:** Trigger the GPU regression suite against the v4.2 candidate. Monitor the precision score on the holdout dataset.
+    *   **Serialization:** Must wait for Lane B's config change to be committed to the integration branch.
+    *   **Constraint:** Due to $45/run cost and 50m duration, this runs **once** per candidate SHA. No re-runs unless the SHA changes or a verified infrastructure flake occurs.
+
+### 2. Gates & Checks
+
+*   **G2 Plan (Now):** Owner approves this plan, specifically the retry logic for the flaky gate and the rollback strategy.
+*   **G3 Design:** Verify the abort logic code path ensures no partial activation occurs if the score check fails.
+*   **G4 Implement:**
+    *   Commit config and logic changes to a dedicated worktree.
+    *   Base SHA: Pinned to current production head.
+*   **G5 Verify (Staging):**
+    *   **Exact Revision:** The merged integration SHA.
+    *   **Check:** Run Lane C's regression suite.
+    *   **Pass Condition:** Precision > 98.5% **AND** rollback script dry-run success.
+    *   **Flake Handling:** If the gate fails due to latency (>200ms), auto-retry once. If it fails again, halt for human triage (do not auto-retry indefinitely).
+*   **G6 Review:**
+    *   **Reviewer:** Independent Security Officer (not the Builder).
+    *   **Scope:** Verify the abort logic, the artifact signature, and the rollback proof.
+    *   **Lens:** Security & Data Integrity.
+
+### 3. Landing & Human Decisions
+
+*   **Integration (G7):** Merge to the `SecureZone` release branch only after G5 and G6 are green.
+*   **Human Gate (G8 - Deployment):**
+    *   **Required Approvals:** Dual sign-off from Lead Data Scientist AND On-Call Security Officer.
+    *   **Timing:** Must occur outside business hours if `global-rules.yaml` locking prevents automated merging during the day.
+    *   **Action:** Humans trigger the final promotion to production. The system automatically enforces the 98.5% check at runtime; humans verify the *process* was followed.
+*   **Rollback:**
+    *   If precision < 98.5% post-deploy (despite gates) or immediate anomalies detected: Execute the pre-verified cluster restore script immediately.
+    *   This is a **human-decided** action based on automated alerts; the script itself is automated.
+
+### 4. Risk & Constraints
+
+*   **Cost Control:** Only one full regression run per candidate. Local linting/type-checking must pass before triggering the $45 CI job.
+*   **Irreversibility:** The "irreversible" nature of the registry update makes the pre-deployment rollback dry-run (Lane A) a critical blocker. No deployment without this receipt.
+*   **Flakiness:** The network latency flake is mitigated by the retry logic, but persistent failure requires a human to verify network conditions before forcing a re-run.
+
+**Summary of Flow:**
+Prep Rollback (A) + Update Config (B) → Merge → Run Expensive Gate (C) → Independent Security Review → Dual Human Approval → Deploy → Auto-Monitor (Abort if <98.5%).

@@ -1,0 +1,32 @@
+### Delivery Plan: Session Store Migration
+
+**Lanes & Parallelism**
+*   **Lane A (Core Logic):** Develop the dual-write adapter within `AuthModule`. This includes the legacy-to-managed format translator and the lazy-migration trigger on session access.
+*   **Lane B (Infrastructure):** Provision the managed service instance and configure network allow-lists for the monolith.
+*   **Lane C (Observability):** Implement metrics for dual-write latency, fallback activation counts, and migration progress.
+*   **Parallel Execution:** Lanes A, B, and C run simultaneously. Lane A cannot merge until Lane B confirms the target endpoint is reachable in the staging environment.
+
+**Gates & Checks**
+*   **Gate 1 (Code Freeze):** All changes locked to revision `feat/session-migration-base`. No other merges to `main` allowed during the integration window.
+*   **Gate 2 (CI Verification):** Run the full 45-minute integration suite on `feat/session-migration-base`.
+    *   *Constraint:* If the "network latency" check fails, a human must manually verify logs before proceeding. Do not auto-retry.
+    *   *Success Criteria:* Zero data loss in simulation; fallback triggers correctly under artificial timeout conditions.
+*   **Gate 3 (Dry Run):** Deploy to a canary group (1% of traffic) in production. Verify zero user logouts and successful lazy migration of active sessions.
+
+**Review Strategy**
+*   **Primary Review:** Platform Security Team Lead reviews the dual-write logic and data translator code. They must confirm no session data is truncated during format conversion.
+*   **Independent Compliance Review:** The Compliance Officer reviews the data flow diagram and storage location configuration to ensure data sovereignty rules are met. This review happens *after* the technical review but *before* deployment approval.
+*   **Separation:** The code author cannot approve their own merge. The Compliance Officer must be distinct from the Platform Security Lead.
+
+**Landing Strategy**
+*   **Phase 1 (Dual-Write Active):** Merge to `main` and deploy. The system writes to both stores but reads from the legacy store. Existing sessions remain untouched; new sessions exist in both.
+*   **Phase 2 (Lazy Migration):** Enable the read-path migration. As users interact, their sessions are copied to the new format in the managed service. Reads switch to the managed service if the session exists there; otherwise, fallback to legacy.
+*   **Phase 3 (Fallback Verification):** Monitor for 24 hours. If the managed service times out, the system must instantly revert to legacy without user impact.
+*   **Phase 4 (Cutover):** Once 99.9% of sessions are migrated (verified via metrics), switch reads exclusively to the managed service. Disable writes to the legacy store.
+*   **Human Decision Point:** The Lead Architect and Compliance Officer must jointly approve the transition from Phase 3 to Phase 4.
+*   **Rollback Protocol:** If critical errors occur in Phases 1–3, revert the deployment immediately. The legacy store remains the source of truth until Phase 4 completes. If Phase 4 fails, re-enable legacy writes and force a read-switch back; this may cause minor session inconsistencies but preserves login state.
+
+**Critical Constraints**
+*   Do not initiate production database snapshots until Phase 4 is complete; the action is irreversible.
+*   Business hours deployment is forbidden. All phases involving traffic shifts must occur during the designated maintenance window.
+*   The flaky network latency test requires manual log inspection; automated retries are prohibited to save CI credits and prevent false positives.
