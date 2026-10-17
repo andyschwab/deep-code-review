@@ -19,3 +19,11 @@ Deviations, stated plainly:
 - Rival text is fetched at run time and recorded by hash only (the positioning rival is CC BY-NC-SA, not vendored).
 Limits: one generator family wrote the scenarios and all answers; judges are models; scenarios are fictional. PASS means "beats this
 rival on this synthetic distribution under this judge", not a claim about real users.
+Review notes (independent review of PR #1643; all numbers recomputed exactly from the judge files):
+- SHA256-prereg.txt records confirm.py at f3cf42…; the committed confirm.py hashes to 442b92… because of the patch described above.
+  There is no timestamped ledger, so "patched before any answer existed" rests on this README, not on a machine record.
+- scripts/test_confirm_v2.py checks results.json for internal consistency; it does not recompute from the judge files. The
+  independent recompute from judge files is what verifies the headline numbers. The frozen-hash test covers the held-out and
+  seed files only.
+- Rival fixtures name the upstream default branch, not a commit; the recorded SHA-256 of the fetched text is the only pin.
+- Judge files store the verdict only; the judge's written reasoning was not kept.
