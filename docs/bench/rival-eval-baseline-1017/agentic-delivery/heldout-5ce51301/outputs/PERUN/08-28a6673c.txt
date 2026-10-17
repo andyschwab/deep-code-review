@@ -1,0 +1,57 @@
+**Delivery Plan: Inventory Search Cache with Strict Invalidations**
+
+**G0/G1: Scope & Specification**
+*   **Goal:** Reduce `src/db_queries.sql` product search latency from ~8s to <200ms via caching.
+*   **Critical Constraint:** Cache invalidation must occur within 50ms of any write in `src/inventory_writer.py`. Stale data is unacceptable (per Jane's incident report).
+*   **Test Requirement:** Fix the flaky test in `tests/test_cache_layer.py` to deterministically fail if invalidation lags >50ms; do not disable it.
+*   **Tech Stack:** TypeScript. Verification command: `npm run verify-db`.
+
+**G2: Work Graph & Budgets**
+*   **Lane 1 (Builder):** Implement Redis/in-memory cache layer around the search query. Inject invalidation hooks directly into `src/inventory_writer.py` transaction commits.
+    *   *Budget:* 2 hours implementation.
+*   **Lane 2 (QA - Independent):** Rewrite `tests/test_cache_layer.py`. Replace timing-dependent sleeps with high-resolution timestamps to assert invalidation latency <50ms. Simulate concurrent writes/reads to race-condition test the lock.
+    *   *Budget:* 1.5 hours.
+*   **Lane 3 (Security/Review):** Audit the invalidation path for missed write scenarios (e.g., bulk imports, rollback scenarios).
+    *   *Budget:* 45 mins.
+
+**G3: Design Decisions (ADR)**
+*   **Strategy:** Write-through invalidation. The `inventory_writer` must synchronously trigger cache deletion before acknowledging the write success.
+*   **Fallback:** If cache service is unreachable, bypass cache and query DB directly (degraded performance, correct data).
+
+**G4: Implementation Steps**
+1.  Wrap the specific SQL query in a cache-getter function.
+2.  Modify `src/inventory_writer.py` to call `cache.delete(pattern)` inside the same transaction block or immediately post-commit for all stock-modifying functions.
+3.  Refactor `tests/test_cache_layer.py`:
+    *   Remove `setTimeout` flakiness.
+    *   Implement a loop that writes, records `T_start`, polls cache until miss, records `T_end`, and asserts `T_end - T_start < 50ms`.
+    *   Fail build if assertion fails 3 consecutive times.
+
+**G5: Verification Criteria**
+*   **Performance:** Search response <200ms with 50k+ items (simulated load).
+*   **Correctness:** `npm run verify-db` passes 100% of the time. The specific invalidation test must pass 20/20 runs in CI.
+*   **Safety:** Manual verification that a stock update reflects immediately in the search UI.
+
+**G6: Review & Handback**
+*   **Builder:** Submits PR with code + new test logic.
+*   **QA:** Re-runs the flaky test suite locally and in CI. Confirms no race conditions.
+*   **Security:** Confirms no write path in `inventory_writer.py` bypasses the invalidation hook.
+
+**G7: Integration**
+*   Merge to integration branch. Run full `npm run verify-db` suite on the merged SHA.
+
+**G8: Release (Human Gate)**
+*   **Approval Required:** Jane (Lead Operator) must approve the deployment plan due to previous shipping error.
+*   **Action:** Deploy behind a feature flag initially, then enable globally.
+
+**G9: Production Monitoring**
+*   **Metrics:** Track `cache_hit_rate` and `cache_invalidation_latency` histograms.
+*   **Alerts:** Page on-call if `cache_invalidation_latency` p99 exceeds 40ms (buffer before 50ms breach) or `cache_hit_rate` drops below 80% unexpectedly.
+*   **Dashboard:** Add panel showing "Stale Read Risk" (count of reads occurring <100ms after a write without invalidation confirmation).
+
+**G10: Learning**
+*   Post-mortem template ready if the shipping error pattern re-emerges. Add regression test case based on Jane's specific incident scenario to `tests/test_cache_layer.py`.
+
+**Timeline:** Plan complete now. Implementation targets merge by EOD today for weekend traffic.
+
+*Note: This plan assumes Redis or similar low-latency store is available in the environment. If not, Lane 1 must include provisioning.*
+*Note: Human approval (G8) is mandatory before enabling the cache in production.*

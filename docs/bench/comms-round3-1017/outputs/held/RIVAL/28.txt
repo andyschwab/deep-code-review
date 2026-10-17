@@ -1,0 +1,9 @@
+Add idempotency keys to the refund endpoint to prevent duplicate processing when clients retry requests. The implementation adds a new `idempotency_keys` table with a unique constraint, a middleware layer to intercept and cache responses, and updates to the refund handler and API documentation.
+
+All automated tests pass: 24 unit tests for the middleware, 8 new integration tests for the refund flow, and 6 existing regression tests. Manual verification confirms that sending duplicate requests with the same key returns the cached response immediately without re-processing the refund.
+
+One edge case remains untested: two concurrent requests carrying the same idempotency key arriving within the same millisecond. The current design relies on the database unique constraint to reject the second insert. I have not yet written a test that reliably reproduces this race condition in our CI environment.
+
+Amara, please review whether the database constraint provides sufficient safety for production or if we need to add a distributed lock to serialize these requests explicitly. If the constraint is enough, this is ready to merge.
+
+Note: The race condition test is non-deterministic locally; I can add a stress-test script if you prefer we validate the DB behavior under load before merging.

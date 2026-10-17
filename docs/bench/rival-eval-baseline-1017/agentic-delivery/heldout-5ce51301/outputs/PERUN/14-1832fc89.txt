@@ -1,0 +1,59 @@
+**Delivery Plan: Secure Payment Logging Implementation**
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Implement detailed logging in `src/payment_gateway.rb` for debugging failures while guaranteeing zero PII leakage (credit cards, names).
+*   **Constraints:** No PII in logs under any circumstance (prod or test). Tests must explicitly verify sanitization using fake PII payloads. Security lead (Tom) requires manual review of log format before merge. Deadline: Thursday 2 PM.
+*   **Non-Goals:** Changing payment logic, altering database schemas, or modifying non-payment logging.
+
+**G2 Plan & G3 Design**
+*   **Sanitization Strategy:** Update `src/logger_util.rb` to include a `SensitiveDataFilter` module. This filter will apply regex-based masking *before* any message reaches the log output.
+    *   *Credit Cards:* Mask all but last 4 digits (e.g., `****-****-****-1234`).
+    *   *Names:* Replace with `[REDACTED]`.
+    *   *Implementation:* The filter runs as a middleware step in the logger, ensuring no raw PII ever hits the disk or stdout.
+*   **Logging Points (`src/payment_gateway.rb`):**
+    1.  *Entry:* Log transaction ID and timestamp (No customer data).
+    2.  *Validation:* Log validation result (Pass/Fail) and error code only.
+    3.  *External Call:* Log "Calling Provider X" with masked amount; do not log the full payload object.
+    4.  *Response:* Log status code and transaction ID; mask response body if it echoes PII.
+    5.  *Exit:* Log final status and duration.
+*   **Work Graph:**
+    *   Lane A: Implement `SensitiveDataFilter` in `src/logger_util.rb`.
+    *   Lane B: Instrument `src/payment_gateway.rb` with new logging calls.
+    *   Lane C: Write RSpec tests injecting fake PII to assert mask presence.
+
+**G4 Implementation Steps**
+1.  **Modify `src/logger_util.rb`:** Add regex patterns for CC (Luhn-compatible or generic 13-19 digit) and common name fields. Ensure the filter raises an exception or strips data if a match is found before formatting.
+2.  **Update `src/payment_gateway.rb`:** Insert log statements at the five defined points. Pass only sanitized primitives to the logger, never full hashes/objects containing PII.
+3.  **Test Suite (`bundle exec rspec`):**
+    *   Create a specific context `logging security`.
+    *   Inject a payload: `{ cc: "4111111111111111", name: "John Doe", amount: 100 }`.
+    *   Assert: Output contains `****1111` and `[REDACTED]`.
+    *   Assert: Output does *not* contain "4111" (full) or "John".
+    *   Fail the build if any PII pattern is detected in the captured log output.
+
+**G5 Verification (Local Stack)**
+1.  Run `bundle exec rspec` locally. Ensure 100% pass rate, specifically the new security specs.
+2.  Execute a manual script to generate a log file with a test transaction containing fake PII.
+3.  Inspect the raw log file to visually confirm masking.
+
+**G6 Review & G7 Integration**
+1.  Open PR with `deep-code-review` set to `FULL`.
+2.  **Mandatory Gate:** Tag Tom (Security Lead) for manual review of the *log output sample* attached to the PR description.
+3.  Merge only after Tom's explicit approval and green CI.
+
+**G8 Release & G9 Production Verify**
+1.  Deploy behind a feature flag if available, or during low-traffic window.
+2.  Monitor logs for the first 100 transactions to confirm format correctness and absence of unexpected PII patterns.
+
+**G10 Learn**
+*   Document the regex patterns used in the team wiki to prevent future PII logging in other modules.
+
+**Human Gates Required:**
+*   **Tom's Approval:** Manual sign-off on log format (G6).
+*   **Merge/Deploy:** Owner approval to push to production (G8).
+
+**Risks:**
+*   Regex false negatives (missing a PII format). *Mitigation:* Use strict allow-listing for logged fields rather than block-listing sensitive ones where possible.
+*   Performance overhead. *Mitigation:* Benchmark regex cost against 5000 daily txns (negligible expected).
+
+Note: This plan assumes `src/logger_util.rb` is the single entry point for all application logging. If direct `puts` or other loggers exist, they must be audited separately.

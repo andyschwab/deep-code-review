@@ -1,0 +1,43 @@
+### 1. Critical Logic Regression: Duplicate Stack Traces in Merged Errors
+**File:** `lib/core/Axios.js`
+**Location:** Hunk `+58` to `+64` (inside the `else if (stack)` block)
+
+**Why it is wrong:**
+The original code correctly stripped the top two lines of the temporary dummy stack (`dummy.stack.replace(/^.+\n.+\n/, '')`) before checking for duplicates and appending. This ensured that only the unique caller frames were added to the existing error stack.
+
+The new implementation calculates `stackWithoutTwoTopLines` but **fails to use it** in the append operation.
+1. It checks for duplication using `stackWithoutTwoTopLines` (Line +63).
+2. However, if the check passes, it appends the **full** `stack` variable (Line +64), which still contains the top two lines (the `Error: ...` message and the first frame).
+
+Since `err.stack` already contains its own message and first frame, appending the full `stack` results in:
+- Duplicate error messages.
+- Duplicate top frames.
+- Corrupted stack traces that break symbolicators and log parsers.
+
+**Fix:**
+Change line +64 to append the stripped variable:
+```javascript
+// Current (Wrong)
+err.stack += '\n' + stack;
+
+// Fixed
+err.stack += '\n' + stackWithoutTwoTopLines;
+```
+
+### 2. High Severity: Behavioral Deviation in Edge Case (Single Line Stack)
+**File:** `lib/core/Axios.js`
+**Location:** Hunk `+56` to `+59`
+
+**Why it is wrong:**
+The logic for handling stacks with fewer than two newlines has changed silently, potentially hiding context.
+- **Original:** If `stack` had only one line, `replace(/^.+\n.+\n/, '')` would fail to match and return the original string. The code would append that single line.
+- **New:** If `stack` has only one line (or no newline), `secondNewlineIndex` becomes `-1`. The ternary operator sets `stackWithoutTwoTopLines` to an empty string `''`.
+- **Result:** The duplication check `!String(err.stack).endsWith('')` is always `true` (everything ends with an empty string). The code proceeds to append the full `stack`.
+
+While this specific path appends the full stack (similar to original behavior for single lines), the intermediate variable `stackWithoutTwoTopLines` being empty causes the duplication check to lose its effectiveness for short stacks. If `err.stack` already ended with that specific single line, the original code would have prevented duplication; the new code forces duplication because it checks against an empty string.
+
+**Fix:**
+Ensure the duplication check uses the actual content intended for comparison, or handle the short-stack case explicitly to preserve the original "check-then-append" logic accurately. However, fixing Defect #1 is the priority, as this edge case is rare in standard V8 environments where stacks are multi-line.
+
+### Summary
+The patch attempts to remove a Regex dependency but introduces a **critical bug** where merged error stacks become corrupted with duplicate headers. The variable `stackWithoutTwoTopLines` is calculated but ignored during the concatenation step. Revert this patch or apply the fix in Defect #1 immediately.

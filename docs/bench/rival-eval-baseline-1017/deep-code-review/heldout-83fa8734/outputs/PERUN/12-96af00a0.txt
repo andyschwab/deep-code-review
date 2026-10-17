@@ -1,0 +1,79 @@
+### 1. Critical: Prototype Pollution via `__proto__` or `constructor`
+**File:** `lib/helpers/formDataToJSON.js`
+**Line:** 38–40 (`target[name] = value;`) and 46 (`target[name] = [];`)
+
+**Why it is wrong:**
+The `buildPath` function recursively traverses the path provided by the user (e.g., `__proto__[polluted]` or `constructor[prototype][polluted]`) and directly assigns properties to the `target` object (which starts as a plain `{}`) without checking if the property name is a dangerous prototype accessor.
+An attacker can submit a form field named `__proto__` or `constructor`.
+- If named `__proto__`: Line 38 executes `target['__proto__'] = value`, directly modifying the prototype of `obj` and all objects in the runtime.
+- If named `constructor`: Line 46 sets `target['constructor'] = []`. While this overwrites the constructor property, subsequent logic or nested paths like `constructor.prototype.foo` could lead to pollution depending on how `utils.isObject` behaves with arrays vs functions.
+This is a classic Prototype Pollution vulnerability allowing Remote Code Execution (RCE) or Denial of Service (DoS) in Node.js environments.
+
+**Fix:**
+Validate the `name` at the start of `buildPath`. Reject or sanitize keys that match `__proto__`, `constructor`, or `prototype`.
+```javascript
+if (name === '__proto__' || name === 'constructor' || name === 'prototype') {
+  return; // Or throw an error
+}
+```
+Additionally, use `Object.create(null)` for the `obj` initialization to create a null-prototype object, preventing inheritance-based pollution, though explicit key validation is still required for nested assignments.
+
+### 2. High: Logic Error in Array Handling Causes Data Loss
+**File:** `lib/helpers/formDataToJSON.js`
+**Line:** 36–40
+
+**Why it is wrong:**
+The logic attempts to handle duplicate keys (common in `multipart/form-data` for arrays) by converting an existing value into an array:
+```javascript
+if (utils.hasOwnProperty(target, name)) {
+  target[name] = [target[name], value];
+} else {
+  target[name] = value;
+}
+```
+If a user submits three values for the same key (e.g., `tags=1`, `tags=2`, `tags=3`):
+1. First pass: `target.tags = '1'`
+2. Second pass: `target.tags = ['1', '2']`
+3. Third pass: `utils.hasOwnProperty` is true. The code executes `target[name] = [target[name], value]`.
+   Result: `target.tags = [['1', '2'], '3']`.
+The result is a nested array `[[1, 2], 3]` instead of a flat array `[1, 2, 3]`. This breaks downstream consumers expecting a standard list of values.
+
+**Fix:**
+Check if the existing value is already an array before wrapping:
+```javascript
+if (utils.hasOwnProperty(target, name)) {
+  if (!utils.isArray(target[name])) {
+    target[name] = [target[name]];
+  }
+  target[name].push(value);
+} else {
+  target[name] = value;
+}
+```
+
+### 3. Medium: Incorrect Return Value Logic for Numeric Keys
+**File:** `lib/helpers/formDataToJSON.js`
+**Line:** 42 (`return !isNumericKey;`) and 54 (`return !isNumericKey;`)
+
+**Why it is wrong:**
+The function returns a boolean indicating whether the key was *not* numeric. This return value is used at line 51 to decide whether to convert an array back to an object:
+```javascript
+if (result && utils.isArray(target[name])) {
+  target[name] = arrayToObject(target[name]);
+}
+```
+If the path contains numeric indices (e.g., `items[0][name]`), `isNumericKey` is true, so the function returns `false`. This prevents the `arrayToObject` conversion.
+However, `arrayToObject` simply copies array indices to object keys (e.g., `{'0': val}`). If the intent of `formDataToJSON` is to produce structured objects from bracket notation, silently skipping the conversion based on this flag may leave dense arrays as arrays when the parent context expected an object map, or vice versa. The logic `!isNumericKey` implies "only convert to object if the key wasn't a number," but in recursive structures, mixed keys often require consistent object representation to avoid sparse array issues or unexpected type shifts.
+
+**Fix:**
+Clarify the intended data shape. If the goal is to always produce objects for bracketed paths, remove the `result` check or invert the logic to ensure consistent typing. If `items[0]` should remain an array index, ensure the consumer handles arrays, but currently, the toggle creates inconsistent types for similar paths.
+
+### 4. Low: Inefficient `arrayToObject` Implementation
+**File:** `lib/helpers/formDataToJSON.js`
+**Line:** 16–25
+
+**Why it is wrong:**
+The `arrayToObject` function iterates over `Object.keys(arr)`. For a standard dense array, this is redundant; a simple spread or assignment loop is faster. More critically, if `arr` contains non-integer keys (which can happen if previous steps polluted it or if `formData` entries have weird spacing), `Object.keys` preserves them, but the resulting object loses the "array" nature without a clear benefit unless specifically trying to sparse-map. It adds cognitive load without clear value over `Object.assign({}, arr)`.
+
+**Fix:**
+Replace with `Object.assign({}, arr)` or remove if the array-to-object conversion strategy is re-evaluated per item 3.

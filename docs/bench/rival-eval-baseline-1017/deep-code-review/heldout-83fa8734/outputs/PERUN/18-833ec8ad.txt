@@ -1,0 +1,59 @@
+### 1. Critical Logic Regression: Double Spacing in Error Messages
+**File:** `src/click/exceptions.py`
+**Hunk:** `MissingParameter.format_message` (Lines 144–172)
+
+**Why it is wrong:**
+The patch introduces a logic error in constructing the error message suffix.
+1.  **Double Periods:** The original code conditionally added a space before the message only if a message existed: `".{' ' if msg else ''}{msg or ''}"`. The new code unconditionally adds a period after the parameter hint: `return f"{missing}{param_hint}.{msg}"`. Since `msg` is pre-formatted in lines 148–153 to *include* its own leading punctuation (e.g., `msg += f". {msg_extra}"`), this results in double periods (e.g., `"Missing option. . Extra info"`).
+2.  **Incorrect Spacing:** The new code forces a space before `msg` via `msg = f" {msg}" if msg else ""` (line 155). When combined with the hardcoded period before it, this creates malformed strings like `"Missing option.  message"` (double space) or `"Missing option. "` (trailing space) if msg is empty but the logic flows incorrectly.
+
+**Fix:**
+Revert the string construction to respect the conditional presence of `msg` and handle punctuation correctly:
+```python
+# Remove line 155: msg = f" {msg}" if msg else ""
+# Replace lines 169-172 with:
+if msg:
+    return f"{missing}{param_hint}. {msg}"
+return f"{missing}{param_hint}."
+```
+
+### 2. High Severity: Broken Pluralization Logic (i18n)
+**File:** `src/click/exceptions.py`
+**Hunk:** `NoSuchOption.format_message` (Lines 193–201)
+
+**Why it is wrong:**
+The use of `ngettext` is implemented incorrectly, breaking the pluralization feature for all languages.
+`ngettext` selects the singular or plural translation string based on the integer argument `len(self.possibilities)`. However, the patch passes the *same* formatted string (`possibility_str`, which is a comma-separated list) to *both* the `{possibility}` and `{possibilities}` placeholders.
+- If there is 1 possibility: It selects the singular string "Did you mean {possibility}?" but fills it with the comma-separated list (correct value, wrong variable name semantics).
+- If there are >1 possibilities: It selects the plural string "(Possible options: {possibilities})" and fills it with the comma-separated list.
+While this might appear to work for English, it breaks the translation contract. Translators expect distinct variables for singular vs. plural contexts. More critically, if the translation logic relies on the *structure* of the placeholder (e.g., some languages require different word orders or grammatical cases for singular vs. plural objects), passing the same list to both breaks the grammar. The code should pass the single item to the singular placeholder and the list to the plural one.
+
+**Fix:**
+Differentiate the inputs passed to the format string based on the count, or pass both distinct values and let the translation string decide which to use (though `ngettext` usually selects the whole string). The current implementation forces the same comma-separated list into the singular slot "Did you mean..." which reads poorly if the logic ever leaks a list there, but the primary failure is semantic.
+Correct approach:
+```python
+possibilities = sorted(self.possibilities)
+if len(possibilities) == 1:
+    suggest = _("Did you mean {possibility}?").format(possibility=possibilities[0])
+else:
+    suggest = _("(Possible options: {possibilities})").format(possibilities=", ".join(possibilities))
+return f"{self.message} {suggest}"
+```
+*Note: `ngettext` is unnecessary here because the entire sentence structure changes, not just a word.*
+
+### 3. Medium Severity: Loss of Context in `UsageError`
+**File:** `src/click/exceptions.py`
+**Hunk:** `UsageError.show` (Lines 58–66)
+
+**Why it is wrong:**
+The patch removes the explicit newline handling between the usage string and the hint.
+Original: `_{usage}\n{hint}` ensured a newline even if `hint` was empty (though `hint` was empty string originally, the structure implied separation).
+New: `f"{self.ctx.get_usage()}\n{hint}"`.
+If `hint` is empty (no help option), this prints a trailing newline unnecessarily. While minor, it alters the exact output buffer. More importantly, the original code wrapped the *entire* block (usage + hint) in a translation call `_{usage}\n{hint}`, allowing translators to reorder the usage and hint based on locale (some languages put instructions before the command). The new code hardcodes the order and the newline in Python, making it untranslatable as a unit.
+
+**Fix:**
+Restore the translation wrapper for the composite string:
+```python
+echo(_("{usage}\n{hint}").format(usage=self.ctx.get_usage(), hint=hint), file=file, color=color)
+```
+(Ensure `hint` includes its own trailing newline if present, as the original logic did with `\n` inside the format string or `hint` construction).
