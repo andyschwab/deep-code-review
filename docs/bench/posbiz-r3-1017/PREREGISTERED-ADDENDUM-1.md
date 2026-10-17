@@ -1,0 +1,6 @@
+# Addendum 1 (before any held-out scenario was written)
+
+1. `bench.py check` was changed to skip a split whose scenario file does not exist yet (one line; no change to generation, judging or scoring). Hash of the as-run file: SHA256-amend.txt.
+2. Tune results (n=10, selection only; results/*-tune.json), win rate v0 / a / b / c: positioning 0.50 / 0.80 / 0.55 / 0.60; business-ops 0.55 / 0.45 / 0.50 / 0.60.
+3. Selection by the preregistered rule (highest tune win rate): positioning a, business-ops c. Both are run on the held-out set against v0 once. The tune-results hashes are in SHA256-selection.txt.
+4. `bench.py write` was changed twice before the held-out scenarios were accepted, both for writer-output failures and neither depending on any result: the retry count per batch went from 6 to 12, and a fallback parser was added for a writer that returns "NN" header lines followed by prose instead of JSON (the same fallback as the contrib-safety driver). The business-ops held-out writer failed on its last batch in two attempts before this; the failed attempts' scenarios were discarded unread and redrawn in full. The positioning held-out set was drawn once. The final bench.py hash is in SHA256-amend.txt; scenario-file hashes are in SHA256-selection.txt.

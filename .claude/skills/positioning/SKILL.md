@@ -59,6 +59,15 @@ clear" — that reads as researched and becomes a decision the user pays for.
   professional; any factual claim in a message → the user's own proof. Never
   conclude these in the model.
 
+## Deliver the call, not a menu
+When the user asks you to choose a segment, a message or a recommendation, **commit**: one
+segment, one lead message, and one line on why, using the user's own numbers. Give a
+ready-to-use statement and headline, and answer each named alternative in turn (what the
+buyer gives up by leaving it, and the line that wins against it). Say "hypothesis" once, in
+one line, not as a hedge on every sentence. Keep caveats to the riskiest assumption and the
+test that would prove it wrong. Raise trademark, legal or market-size routing only when the
+user asks or the draft makes that kind of claim.
+
 ## The method (on the user's own inputs)
 
 ### 1. Value Proposition Canvas
@@ -146,6 +155,9 @@ installed (BLUF / plain structure otherwise).
 - A product-plus-audience request with no research gets a committed full draft
   statement, each non-supplied element tagged `[ASSUMED]`, no invented vendor,
   number or quote (`committed-draft-with-assumed-tags`).
+- A request to choose a segment or message gets one committed call, a ready-to-use
+  statement and headline, and an answer to each named alternative, with no unrequested
+  trademark, legal or market-size routing (`commits-to-one-call-and-answers-each-alternative`).
 - "Is this name/domain clear?" is routed to a professional; a search is not
   clearance (`trademark-clearance-routed`).
 - `evals/evals.json` plants these cases.
