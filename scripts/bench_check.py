@@ -31,6 +31,13 @@ directory (matches everything beneath it). Document why in PREREGISTERED.md.
 Old benches lack ledgers, so only dirs named on the command line are checked; --changed
 names the docs/bench dirs absent from BASE (default origin/main), so CI gates only new
 benches; a missing BASE is an error.
+
+Trust limits (this catches accidents, not a lane forging records): hashes are compared as
+strings, so a frozen line rewritten to a hash that some later ledger event also contains
+passes, and committed file bytes are not re-hashed against SHA256-frozen.txt. A single
+scenario file with no tune/held file name, "split" field or tune/held id is treated as
+unsplit, so no tune/held check runs on it. Edits to a bench dir that already exists on
+BASE are not gated.
 """
 import argparse, hashlib, json, re, subprocess, sys
 from datetime import datetime, timezone
