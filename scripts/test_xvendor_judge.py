@@ -67,5 +67,48 @@ ok(xv.wr({"01": [1.0, 1.0], "02": [0.0, 1.0]})["splits"] == 1, "wr counts order 
 ok(xv.wr({str(i): [0.0, 0.0] for i in range(10)})["verdict"] == "LOSS", "wr labels a CI wholly below 0.5 a LOSS")
 ok(xv.wr({str(i): [1.0, 1.0] for i in range(10)})["verdict"] == "PASS", "wr labels a CI wholly above 0.5 a PASS")
 
+# H1e new vs rival: the original is 4 complete scenarios (0.875, "not a result") plus a 5th judged in one order only
+per = {}
+for i in xv.items():
+    if i["bench"] == "H1e idea-critic v2" and i["x"] == "NEW" and i["y"] == "RIVAL" and i["orig"] is not None:
+        per.setdefault(i["id"], []).append(i["orig"] if i["f"] == i["x"] else 1 - i["orig"])
+ok(len(per) == 5 and sorted(len(v) for v in per.values()) == [1, 2, 2, 2, 2], "H1e NEW/RIVAL: 5 scenarios carry an original verdict, 9 judgments, one in a single order")
+ok(xv.wr({k: v for k, v in per.items() if len(v) == 2})["win"] == 0.875, "H1e NEW/RIVAL: the 4 complete scenarios give the documented 0.875")
+ok(xv.wr(per)["win"] == 0.9 and xv.wr(per)["ci"] == [0.7, 1.0], "H1e NEW/RIVAL: all 9 committed verdicts give 0.9 [0.7, 1.0]")
+
+# tiebreak median
+ok(xv.tb_score(1.0, 0.0, 0.5) == 0.5 and xv.tb_score(1.0, 0.0, 0.0) == 0.0 and xv.tb_score(0.0, 1.0, 1.0) == 1.0, "tb_score is the median of original, Qwen and GLM")
+ok(xv.tb_score(0.5, 1.0, 0.0) == 0.5, "tb_score: a split original is the median when Qwen and GLM disagree")
+
+# verdicts_for mode tb on a synthetic finding set (cache entries are removed afterwards; nothing is written to disk)
+K = "rev|T|A|c1"
+V = lambda v: {"verdict": v}
+rec = {"verdicts": {"0": V("real"), "1": V("not_a_bug"), "2": V("real"), "3": V("real")}}
+xv.CACHE[xv.QWEN].d[K] = {"verdicts": {"0": V("real"), "1": V("gt_same"), "2": V("not_a_bug"), "3": V("not_a_bug")}}
+xv.CACHE[xv.GLM].d[K] = {"verdicts": {"0": V("not_a_bug"), "1": V("real"), "2": V("not_a_bug")}}  # no GLM verdict for finding 3
+try:
+    tb = xv.verdicts_for("T", "A", "c1", rec, "tb")
+    ok(tb["0"] == V("real"), "tb: Qwen and original agree -> GLM is ignored")
+    ok(tb["1"] == V("real"), "tb: three different classes -> the median class (real)")
+    ok(tb["2"] == V("not_a_bug"), "tb: GLM sides with Qwen against the original -> Qwen's class")
+    ok(tb["3"] == V("not_a_bug"), "tb: no GLM verdict for a disagreement -> Qwen's verdict kept")
+    ok(xv.verdicts_for("T", "A", "c1", rec, "orig") is rec["verdicts"] and xv.verdicts_for("T", "A", "c1", rec, "qwen")["1"] == V("gt_same"), "verdicts_for orig and qwen modes return the unmodified sets")
+finally:
+    xv.CACHE[xv.QWEN].d.pop(K); xv.CACHE[xv.GLM].d.pop(K)
+
+# position counts in results.json agree with the cached verdicts, and GLM's share is reported
+import json  # noqa: E402
+R = json.load(open(Path(xv.D) / "results.json"))
+tot = R["position_total"]
+ok(all(sum(1 for i in xv.items() if (xv.CACHE[xv.QWEN].d.get(i["key"]) or {}).get("verdict") == s) == tot["qwen"][s] for s in ("1", "2", "tie")), "position_total.qwen equals a recount from verdicts-qwen.jsonl")
+ok(all(sum(1 for i in xv.items() if (xv.CACHE[xv.GLM].d.get(i["key"]) or {}).get("verdict") == s) == tot["glm"][s] for s in ("1", "2", "tie")), "position_total.glm equals a recount from verdicts-glm52.jsonl")
+ok(tot["glm"] == {"1": 75, "2": 27, "tie": 0}, "GLM picked the first slot in 75 of 102 verdicts (the figure quoted in the doc)")
+ok(all(sum(b[w][s] for b in R["position"].values() if w in b) == tot[w][s] for w in tot for s in ("1", "2", "tie")), "per-bench position counts sum to position_total")
+
+# the tiebreak mix is reported per row
+row = next(p for p in R["pairwise"] if p["row"] == "H1e idea-critic v2" and p["y"] == "RIVAL")
+ok(row["scenarios_with_original"] == 5 and row["tiebreak_qwen_only_scenarios"] == 5, "H1e NEW/RIVAL tiebreak: 5 scenarios use the median, 5 are Qwen alone")
+ok(all(p["tiebreak_qwen_only_scenarios"] == 0 for p in R["pairwise"] if p is not row), "every other row has an original verdict on all scenarios")
+
 print(f"Tests: {total - len(fails)}/{total}")
 sys.exit(1 if fails else 0)

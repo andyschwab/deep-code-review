@@ -5,7 +5,7 @@ Re-judges the committed raw outputs under docs/bench/ with Qwen3.5-397B-A17B (PC
 with the original judge prompt. Pairwise benches: every original (first, second) order is re-judged; the arm
 labels are hidden (Response 1/2 only) and job order is shuffled with a fixed seed. Review benches (H7, H7b): the
 per-finding verifier of scripts/bench_corpus.VERIFY is re-run with the patch inlined (no tools). Where Qwen and
-the original judge disagree, GLM-5.2 re-judges the same item and the median of the three is the tiebreak result.
+the original judge disagree, GLM-5.2 re-judges the same item and the median of the three is the tiebreak result. Judgments with no original verdict (e.g. 5 of 10 scenarios of H1e new vs rival) keep Qwen's score alone, so a tiebreak column mixes medians and Qwen-only scores.
 Raw verdicts go to verdicts-qwen.jsonl / verdicts-glm52.jsonl (append-only cache, rerun resumes); report writes results.json.
 Key: env PCSS_KEY, else PCSS_KEY= in the nearest .env above this file. Never printed. Spend: $0 (no claude -p call).
 """
@@ -195,6 +195,11 @@ def boot(vals, n=10000, seed=1):
     return round(bs[int(0.025 * n)], 3), round(bs[int(0.975 * n) - 1], 3)
 
 
+def tb_score(s_o, s_q, s_g):
+    """Tiebreak score for one judgment: median of original, Qwen and GLM-5.2 (all as the Perun-side arm's score)."""
+    return statistics.median([s_o, s_q, s_g])
+
+
 def wr(per):
     """per = {scenario: [scores]} -> win rate [CI], verdict, splits. Same rule as the original benches (PASS needs CI lower bound > 0.5)."""
     v = [statistics.mean(s) for s in per.values()]
@@ -255,11 +260,13 @@ def report():
     res = dict(judge=QWEN, tiebreak=GLM, pairwise=[], review=[])
     its = items()
     # which slot each judge picked, per bench: a value far from the order-neutral 0.5 first-slot share flags position bias
-    res["position"] = {}
+    res["position"], res["position_total"] = {}, {}
     for it in its:
-        for who, v in (("original", it["orig"] is not None and {1.0: "1", 0.0: "2", 0.5: "tie"}[it["orig"]]), ("qwen", (CACHE[QWEN].d.get(it["key"]) or {}).get("verdict"))):
+        for who, v in (("original", it["orig"] is not None and {1.0: "1", 0.0: "2", 0.5: "tie"}[it["orig"]]), ("qwen", (CACHE[QWEN].d.get(it["key"]) or {}).get("verdict")),
+                       ("glm", (CACHE[GLM].d.get(it["key"]) or {}).get("verdict"))):  # glm: only the tiebreak items (where Qwen differed)
             if v:
-                c = res["position"].setdefault(it["bench"], {}).setdefault(who, {"1": 0, "2": 0, "tie": 0}); c[v] += 1
+                for c in (res["position"].setdefault(it["bench"], {}).setdefault(who, {"1": 0, "2": 0, "tie": 0}), res["position_total"].setdefault(who, {"1": 0, "2": 0, "tie": 0})):
+                    c[v] += 1
     for name, _, _, jd, _, pairs in PW:
         for x, y in pairs:
             sel = [i for i in its if i["bench"] == name and i["x"] == x and i["y"] == y]
@@ -277,12 +284,14 @@ def report():
                     orig.setdefault(i["id"], []).append(s_o); qm.setdefault(i["id"], []).append(s_q)
                     if s_o != s_q:
                         dis += 1; g = CACHE[GLM].d.get(i["key"])
-                        if g: s_t = statistics.median([s_o, s_q, sx(i, g["verdict"])])
+                        if g: s_t = tb_score(s_o, s_q, sx(i, g["verdict"]))
                         else: glm_fail += 1
+                # no original verdict (H1e new vs rival: 5 of 10 scenarios) -> s_t stays Qwen alone: the tiebreak column is a mix of medians and Qwen-only scores
                 tb.setdefault(i["id"], []).append(s_t)
             res["pairwise"].append(dict(row=name, x=x, y=y, judge_dir=jd, items=len(sel), missing_qwen=miss, disagreements=dis, glm_missing=glm_fail,
                                         original=wr(orig) if orig else None, qwen=wr(qw) if qw else None,
-                                        qwen_on_original_items=wr(qm) if qm else None, tiebreak=wr(tb) if tb else None))
+                                        qwen_on_original_items=wr(qm) if qm else None, tiebreak=wr(tb) if tb else None,
+                                        scenarios_with_original=len(orig), tiebreak_qwen_only_scenarios=len(set(tb) - set(orig))))
     for name, (s1, a1), (s2, a2), only in COMPARE:
         rows = {m: [] for m in ("orig", "qwen", "tb")}; drop = []
         A = dict(recs(s1, a1)); T = dict(recs(s2, a2))
