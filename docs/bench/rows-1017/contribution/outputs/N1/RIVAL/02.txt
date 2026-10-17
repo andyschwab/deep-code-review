@@ -1,0 +1,51 @@
+## Title: Proposal: Add configurable retry mechanism for transient network failures
+
+### Summary
+External API integrations in Northwind Logistics frequently fail due to transient network issues (timeouts, 503 errors). We propose adding a built-in, configurable retry mechanism with exponential backoff to the HTTP client to improve resilience without requiring wrapper code in every consumer.
+
+### Problem Statement
+Currently, when the HTTP client encounters a transient error, it fails immediately. Consumers must implement their own retry logic, leading to:
+1. **Inconsistent behavior** across the codebase (some services retry, others don't).
+2. **Code duplication** of retry loops and backoff calculations.
+3. **Difficulty tuning** global timeout policies.
+
+### Proposed Solution
+Introduce a `RetryConfig` option to the client constructor that enables automatic retries for specific status codes and network errors.
+
+**Key Features:**
+*   **Configurable Attempts:** Default to 3 retries; allow users to set max attempts.
+*   **Exponential Backoff:** Implement `delay = base * 2^attempt` with jitter to prevent thundering herds.
+*   **Selective Retrying:** Only retry on idempotent methods (GET, PUT, DELETE) and specific status codes (500, 502, 503, 504) or connection resets.
+*   **Opt-in:** The feature is disabled by default to ensure zero impact on existing implementations.
+
+**Example Usage:**
+```typescript
+const client = new HttpClient({
+  retry: {
+    maxAttempts: 3,
+    baseDelayMs: 100,
+    statuses: [503, 504]
+  }
+});
+```
+
+### Backward Compatibility
+This change is **100% backward compatible**:
+*   The default behavior remains "no retry" if the config is omitted.
+*   No existing function signatures are changed; the new option is additive.
+*   Internal middleware architecture allows this logic to be injected without altering the core request/response flow.
+
+### Anticipated Concerns & Mitigations
+*   **Q: Does this risk overwhelming downstream services?**
+    *   A: We mitigate this via exponential backoff with random jitter, ensuring retries are spread out over time.
+*   **Q: Will this break non-idempotent POST requests?**
+    *   A: The default configuration will explicitly exclude POST from retries unless the user explicitly opts in and acknowledges the risk.
+*   **Q: How does this affect timeout settings?**
+    *   A: Retries apply per attempt. The total operation time may increase, but individual request timeouts remain enforced.
+
+### Next Steps
+If the maintainers agree with this direction, I am prepared to submit a PR implementing this feature with full test coverage, including unit tests for the backoff algorithm and integration tests simulating flaky networks.
+
+---
+*Note: Ensure you replace the TypeScript example with the specific language syntax of the target project before posting.*
+*Remember to monitor the issue for maintainer feedback on the default retry count before starting your final implementation.*

@@ -1,0 +1,59 @@
+### Delivery Plan: Restrict Legacy Billing API to Finance Role
+
+**Objective:** Update authorization logic to restrict the legacy billing adjustment endpoint to the 'Senior Finance Auditor' role only, ensuring compliance before Monday's audit while maintaining audit team access and logging integrity.
+
+#### Lanes & Parallelism
+
+1.  **Lane A: Policy & Logic Update (Builder)**
+    *   **Work:** Modify the shared JSON policy file to restrict the specific endpoint path to 'Senior Finance Auditor'. Ensure 'Support' role is explicitly denied. Verify logging schema remains untouched.
+    *   **Parallelism:** Runs independently but must complete before Lane C.
+    *   **Constraint:** One writer per worktree.
+
+2.  **Lane B: Test Harness & Mocking (QA)**
+    *   **Work:** Create a localized test script mocking the 'Senior Finance Auditor' claim (since Staging lacks real data). Script must verify: (1) Finance role succeeds, (2) Support role fails with 403, (3) Audit team exceptions (if configured via separate allowlist) function, (4) Log output matches existing schema exactly.
+    *   **Parallelism:** Can run in parallel with Lane A development, but executes against Lane A's output.
+
+3.  **Lane C: Integration & Cost-Controlled Verification (Conductor/QA)**
+    *   **Work:** Merge A and B into a candidate SHA. Run the full data integrity check **once** on this exact SHA.
+    *   **Serialization:** Must wait for A and B to be green locally.
+    *   **Cost Control:** Limit to one run. If red, fix locally and re-verify cheap unit tests before attempting a second expensive run (max 2 runs total).
+
+#### Gates & Checks
+
+*   **G1 Spec (Now):** Acceptance criteria defined: Finance=Allow, Support=Deny, Logs=Unchanged. Base SHA pinned.
+*   **G4 Implement:** Builder commits policy change + unit tests in isolated worktree.
+*   **G5 Verify (Local/Staging):**
+    *   Run Lane B's mock harness against the candidate build.
+    *   **Check:** Confirm 403 for Support, 200 for Finance.
+    *   **Check:** Diff log output against baseline to ensure zero schema drift.
+    *   **Revision:** All checks run on the exact candidate SHA.
+*   **G6 Review (Independent):**
+    *   **Security Review:** Independent verification of the JSON policy diff. Must confirm no wildcard allowances remain for Support.
+    *   **Compliance Review:** Verify audit team access path is preserved.
+    *   **Constraint:** Reviewers cannot be the Builder.
+*   **G7 Integrate:** Merge to integration branch. Re-run affected unit tests on the merge SHA.
+
+#### Landing & Human Gates
+
+*   **Merge Strategy:** Merge to `main` only after G6 approval.
+*   **Human Approvals (G8 Release):**
+    *   **Required:** Dual approval from Lead Architect AND Compliance Officer.
+    *   **Trigger:** Deployment to production.
+    *   **Timing:** Execute immediately upon approval to maximize propagation time before Monday.
+*   **Propagation Wait:** Acknowledge 10-minute edge cache delay. Verification of "live" status must occur 15 minutes post-deploy.
+*   **Rollback Plan:**
+    *   **Trigger:** If audit team loses access or critical support tickets break.
+    *   **Action:** Revert the merge commit.
+    *   **Limitation:** Due to caching, rollback also incurs ~10-minute propagation delay.
+    *   **Data Safety:** No data migration involved; safe to revert code only.
+
+#### Risk & Mitigation
+
+*   **Risk:** Staging environment mismatch (no real Finance roles).
+    *   **Mitigation:** Lane B's mock harness is the primary evidence; manual smoke test in Production (by Finance user) required post-deploy before full traffic shift.
+*   **Risk:** Cost overrun ($45/run).
+    *   **Mitigation:** Strict limit of 2 full pipeline runs. Local validation is mandatory before triggering CI.
+*   **Risk:** Cache staleness during audit.
+    *   **Mitigation:** Deploy early; document the 10-minute window in the release notes for auditors.
+
+**Next Step:** Await Conductor dispatch to start Lane A and B in parallel worktrees.

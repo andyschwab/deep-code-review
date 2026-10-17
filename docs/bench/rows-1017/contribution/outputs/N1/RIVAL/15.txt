@@ -1,0 +1,54 @@
+You **must not** push directly to `main`, even with a bot token. Doing so would violate the project's governance, break the audit trail, and likely trigger security alerts that could revoke your access entirely. The fastest compliant path is a **"Hotfix PR" workflow** designed for speed without bypassing controls.
+
+### Rapid Compliant Hotfix Workflow
+
+1.  **Create an Isolated Hotfix Branch Immediately**
+    Do not work on your local `main`. Fetch upstream and create a branch specifically for this incident:
+    ```bash
+    git fetch origin
+    git switch -c hotfix/fix-logging-format origin/main
+    ```
+    *Why:* This ensures your PR diff is clean and based on the exact current state of `main`.
+
+2.  **Implement the Minimal Fix Only**
+    Apply **only** the code changes required to fix the logging format.
+    *   **Do not** refactor surrounding code.
+    *   **Do not** update dependencies.
+    *   **Do not** reformat files you didn't touch.
+    *   *Goal:* A diff so small (ideally <20 lines) that a human can verify it in seconds.
+
+3.  **Commit with Emergency Context**
+    Use a clear commit message that signals urgency and scope:
+    ```text
+    fix(logging): correct JSON schema to unblock analytics pipeline
+
+    Urgent hotfix for production incident [Ticket-ID].
+    Restores compatibility with downstream analytics consumer.
+    No other behavior changes.
+    ```
+
+4.  **Push and Open the PR with "Emergency" Signals**
+    Push the branch and create the PR using the CLI to save time:
+    ```bash
+    git push origin hotfix/fix-logging-format
+    gh pr create --title "HOTFIX: Restore analytics pipeline compatibility" \
+      --body "## Urgent Production Incident\n\n**Impact:** Downstream analytics pipeline is failing due to malformed logs.\n**Fix:** Corrects the JSON schema in `logger.go`.\n**Risk:** Low. Change is isolated to log serialization.\n\n@on-call-maintainer-handle please review immediately." \
+      --label "priority:critical" \
+      --assignee "@me"
+    ```
+    *Note:* Replace `@on-call-maintainer-handle` with the actual username of the on-call engineer found in your `OWNERS` file or Slack rotation.
+
+5.  **Trigger Immediate Human Review**
+    Once the PR URL is generated:
+    *   **Tag the On-Call Maintainer:** Comment on the PR tagging the specific on-call person required by governance.
+    *   **Notify via Secondary Channel:** Immediately paste the PR link in your team's emergency Slack/Teams channel and ping the maintainer there. Say: *"Hotfix PR opened for logging incident. Requires approval to merge. Link: [URL]"*.
+    *   **Stay Online:** Do not step away. Be ready to answer questions or push a fixup commit instantly if they find an issue.
+
+6.  **Merge Upon Approval**
+    Once the maintainer approves:
+    *   If you have "auto-merge" enabled, click the button immediately.
+    *   If not, ask the maintainer to merge, or if your bot token has merge permissions (but not push), use the CLI: `gh pr merge <url> --merge`.
+
+**Key Constraint:** The "one human approval" rule is your speed bump, not a blocker. By making the change tiny and communicating aggressively outside the repo, you minimize the time the approver needs to spend, effectively making the process near-instant while keeping the audit trail intact.
+
+*Note: If the CI pipeline takes longer than the fix itself, do not wait for it to finish if the maintainer explicitly waives it for this emergency; their approval overrides the green check for the merge action in most configurations.*

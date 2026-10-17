@@ -1,0 +1,36 @@
+**Delivery Plan: Helios CI Matrix Optimization**
+
+**Lanes & Parallelism**
+*   **Lane A (Pipeline Refactor):** One writer refactors the CI configuration to insert a lightweight "sanity gate" (lint + build) before the heavy regional matrix. This lane owns the logic that skips the 45-minute run if sanity fails.
+*   **Lane B (Flake Mitigation):** One writer isolates the Asia-Pacific network check, wrapping it in a bounded retry mechanism with explicit failure logging to prevent manual retry bottlenecks.
+*   **Lane C (Conflict Prevention):** One writer implements a pre-merge serialization script for the shared configuration file to prevent collisions during the six-PR backlog land.
+*   **Serialization Constraint:** Lane A and Lane B must complete and merge individually before Lane C runs, as Lane C's script depends on the final structure of the modified CI and retry logic. Database migration scripts remain strictly serialized; no parallel testing of migration states is permitted.
+
+**Gates & Checks**
+*   **G2 Plan (Budget Lock):** Before implementation, the plan must explicitly name a per-lane token/dollar cap. No lane proceeds without a hard budget limit enforced by the CI provider; "unlimited" is blocked.
+*   **G4 Implement:** Changes are committed to isolated worktrees. Lane A includes the new sanity check script; Lane B includes the retry wrapper.
+*   **G5 Verify (Exact Revision):**
+    *   **Sanity Gate:** Run on the exact commit SHA. Must pass locally in <5 minutes.
+    *   **Heavy Matrix:** Triggered *only* if Sanity passes. Run once on the frozen SHA.
+    *   **Flake Test:** Lane B must demonstrate the retry logic absorbs the APAC network failure without triggering a full job restart.
+    *   **Cost Check:** Verify no job exceeds the 30-minute threshold to avoid double rates.
+*   **G6 Review:** Independent QA verifies the "skip" logic works (i.e., a bad lint actually stops the heavy suite). Security reviews the retry logic to ensure it doesn't mask genuine outages. Reviewers cannot be the implementers.
+
+**Review Strategy**
+*   **Independence:** The Builder (Lane A/B/C) never reviews their own code.
+*   **Scope:** Review focuses on the "skip" condition correctness and the retry bounds.
+*   **Evidence:** Reviewers inspect the exact SHA where the heavy suite was successfully skipped for a failing lint case.
+
+**Landing & Human Gates**
+*   **Merge Train:** The six PRs will land as a train. Lane C's serialization script runs as a pre-commit hook to manage the shared config file.
+*   **Human Approval (CRO):** The Chief Risk Officer must approve the merge into the integration branch between 14:00–16:00 UTC. This is a hard gate; no merges outside this window.
+*   **Deploy vs. Merge:** Merging is not deploying. The CRO's approval covers the merge; a separate explicit command is required for production deployment.
+*   **Rollback:**
+    *   **Code:** Reverting the merge is the rollback for logic errors.
+    *   **Data:** Since database migrations are irreversible, the rollback plan is a "fix-forward" patch prepared in advance. If a migration fails, the system remains in the pre-migration state until the patch is applied and approved. No automatic rollback of data changes.
+*   **Flake Protocol:** If the APAC check fails after the retry bound, the job fails closed. A human must authorize a re-run; no infinite loops.
+
+**Risk & Cost Control**
+*   **Budget:** If any lane approaches its cost cap, it terminates immediately.
+*   **Deadline:** Work stops if the CRO window is missed; no overtime runs.
+*   **Audit:** All skip events and retry logs are preserved for the quarterly audit trail.

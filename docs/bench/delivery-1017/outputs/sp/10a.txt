@@ -1,0 +1,58 @@
+### Delivery Plan: Sequence Six Dependent PRs (#101–#106)
+
+**Objective:** Merge six strictly ordered PRs to update the inventory lockfile and documentation without corrupting the master ledger or triggering irreversible external publication errors.
+
+#### 1. Lanes and Serialization
+*   **Primary Lane (Serialized):** The merge sequence is strictly linear. No parallel execution is permitted.
+    *   Order: #101 → #102 → #103 → #104 → #105 → #106.
+    *   Constraint: PR $N+1$ cannot be queued until PR $N$ is fully merged, CI-passed, and verified in Staging.
+*   **Support Lane (Parallel):** While the Primary Lane is blocked on CI or verification, the Logistics Team will prepare the manual retry protocol for the known flaky check (see Gates).
+
+#### 2. Gates and Checks
+All checks run on the specific commit hash resulting from each merge.
+
+*   **Gate A: Pre-Merge Authorization**
+    *   **Who:** Senior Ops Engineer.
+    *   **When:** Before merging *each* individual PR.
+    *   **Check:** Verify PR number matches the next expected sequence. Confirm no other merges occurred on `main` since the last successful step.
+*   **Gate B: CI Pipeline (45 min)**
+    *   **Who:** Automated CI.
+    *   **When:** Immediately post-merge of each PR.
+    *   **Flaky Check Protocol:** If the "network simulation" stage fails on the 3rd merge (or any subsequent merge):
+        1.  Halt immediately. Do not retry automatically.
+        2.  Alert Lead Logistics Manager (LLM).
+        3.  LLM performs manual retry of the specific job.
+        4.  If it fails a second time, treat as a genuine block; rollback immediately.
+*   **Gate C: Staging Verification**
+    *   **Who:** Logistics Team + Automated Smoke Test.
+    *   **When:** After CI passes, before proceeding to the next PR.
+    *   **Check:** Compare warehouse sensor counts against the Staging dashboard. Ensure lockfile integrity.
+*   **Gate D: Publication Lock**
+    *   **Who:** System/Release Manager.
+    *   **Constraint:** External partner portal publication is **disabled** for PRs #101–#105. It is enabled only for PR #106.
+
+#### 3. Review Strategy
+*   **Code Review:** Completed prior to this plan (PRs are open).
+*   **Process Review (Independent):**
+    *   **Reviewer:** A Senior Ops Engineer *not* performing the merges.
+    *   **Timing:** Real-time monitoring during the low-traffic window.
+    *   **Duty:** Verify the sequence order and confirm Gate A authorization for every step. They hold the "Stop" authority if the sequence drifts.
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:** Standard Merge (No Squash). Preserve individual generation steps for audit trails.
+*   **Final Verification (Post-#106):**
+    1.  Confirm CI pass for #106.
+    2.  Enable external publication pipeline.
+    3.  Verify dashboard reflects new stock counts.
+    4.  Logistics Team signs off on sensor/dashboard match.
+*   **Rollback Protocol:**
+    *   **Trigger:** Corruption detected, double-failure of flaky check, or mismatch in Staging.
+    *   **Action:** Revert the specific failing PR immediately. Do not attempt to "fix forward" in the sequence.
+    *   **Scope:** If corruption reaches the master ledger, revert the entire batch (#101–#106) as a unit to restore the previous known good state.
+*   **Human Decision Points:**
+    *   Authorization to proceed past a flaky check failure (requires LLM).
+    *   Authorization to enable external publication (requires Senior Ops + Logistics Lead).
+    *   Decision to abort the sequence entirely if >2 retries fail.
+
+**Execution Window:** Tomorrow morning (Low Traffic).
+**Completion Signal:** Written confirmation from Logistics Team that dashboard counts match physical sensors and external portal is updated.

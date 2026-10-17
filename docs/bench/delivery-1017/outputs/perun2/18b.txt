@@ -1,0 +1,39 @@
+### Delivery Plan: User Dashboard Responsiveness
+
+**Lanes & Parallelism**
+Three lanes launch immediately under a single Conductor.
+1.  **Spec & Design (Product Analyst + UX):** Define "smooth" and "professional" via measurable acceptance criteria (e.g., <100ms input latency, zero overlap on iPhone SE to iPad Pro). Produce a testable spec identifying specific breakpoints and rotation behaviors. This lane blocks implementation until the spec is signed off (G1).
+2.  **Implementation (Builder):** Refactor CSS/Grid logic in an isolated worktree. No changes to the shared configuration file or database. Focus strictly on layout containers and asset loading optimization.
+3.  **Cost & Risk Analysis (Security + QA):** Analyze the $45/device-farm cost. Define a "smoke test" subset to run locally before triggering the full CI, preventing queue blockage. Verify no financial data exposure changes in the layout shift.
+
+*Serialization:* Implementation (Lane 2) cannot start until Spec (Lane 1) defines the target breakpoints. Security analysis (Lane 3) runs parallel to Spec but must complete before the final merge request.
+
+**Gates & Checks**
+*   **G1 (Spec):** Owner approves the definition of "responsive" and the list of supported devices.
+*   **G4 (Implement):** Builder commits code with unit tests for layout logic. Base SHA is pinned.
+*   **G5 (Verify):**
+    *   *Local:* Builder runs the defined "smoke test" subset on local emulators to verify rotation and overlap fixes.
+    *   *CI:* Trigger the full device farm simulation **once** on the exact final SHA. If it fails, analyze logs; one re-run allowed only for confirmed infrastructure flake (staging reset timing).
+    *   *Visual:* Headed-browser evidence required for the dashboard route on mobile viewports. Unit tests alone are insufficient.
+*   **G6 (Review):**
+    *   *Code:* Independent Senior Frontend Engineer (not the Builder) reviews the diff.
+    *   *Security:* Compliance Officer verifies no unintended data visibility changes due to layout shifts.
+    *   *Architecture:* Lead Architect confirms no degradation in load performance.
+
+**Review Independence**
+The Builder never reviews their own code. The Security and Architecture approvals are independent of the implementation lane. The QA verification relies on the exact SHA produced by the Builder, not a narrative description.
+
+**Landing & Human Decisions**
+*   **Merge:** Once G6 is green, the Conductor prepares the merge to the integration branch.
+*   **Human Approval (G8):** Due to financial data visibility, **both** the Lead Architect and the Compliance Officer must explicitly approve the deployment. This is a hard gate; no auto-merge to production.
+*   **Deploy Window:** Deployment occurs outside of the Tuesday 03:00 UTC staging reset window to avoid integration test corruption.
+*   **Rollback:**
+    *   *Code:* Revert the merge commit.
+    *   *Data/Config:* No database changes were made; no config file changes were made. Rollback is purely code reversion.
+    *   *Trigger:* If post-deploy monitoring shows increased latency or layout errors on production devices, the Conductor triggers the rollback immediately upon owner confirmation.
+
+**Cost Control**
+The CI run is capped at one execution per SHA. Local verification is mandatory to prevent wasting the $45/device-farm budget on preventable errors. If the CI queue is blocked (>3 hours), the lane pauses; no silent retries.
+
+**Outcome**
+A verified, responsive dashboard that passes the device farm simulation, approved by required dual-signatories, with a clear path to revert if production behavior deviates from the staging proof.

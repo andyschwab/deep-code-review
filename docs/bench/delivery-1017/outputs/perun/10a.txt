@@ -1,0 +1,45 @@
+### Delivery Plan: Sequence Six Dependent PRs (#101–#106)
+
+**Objective:** Merge six ordered PRs to update the inventory lockfile and documentation without corrupting the master ledger.
+
+#### 1. Lanes & Serialization
+*   **Serialization Constraint:** Strict sequential execution. PR #102 cannot start until #101 is fully merged and verified. Parallel lanes are **forbidden** for the merge action itself to prevent ledger corruption.
+*   **Preparation Lane (Parallel):** While awaiting the low-traffic window, a **Builder** will pre-validate the local sequence of all six PRs in an isolated worktree against the current `main` to ensure no hidden conflicts exist before the live run.
+*   **Execution Lane (Serialized):** A single **Conductor** operator will execute the merge train during the designated low-traffic window.
+*   **Verification Lane:** A **QA** engineer will verify the dashboard stock counts after *each* individual merge, not just at the end.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Confirm the "low-traffic window" timestamp with Logistics. Verify the "no squash" requirement is configured in the merge tool.
+*   **G4 (Implement/Merge):**
+    *   **Actor:** Senior Ops Engineer (Human).
+    *   **Action:** Merge PR #N to `main`.
+    *   **Constraint:** Do not squash. Preserve commit history.
+*   **G5 (Verify):**
+    *   **Trigger:** Immediately after PR #N merges.
+    *   **Check 1:** CI Pipeline (45 min). Watch for the known flaky network simulation check.
+    *   **Flake Protocol:** If the network check fails on the 3rd merge (or any), a **Lead Logistics Manager** must manually retry the check immediately. Do not proceed to PR #N+1 until CI is green.
+    *   **Check 2:** Dashboard Verification. QA confirms stock counts reflect PR #N changes on the Staging environment, then Production.
+*   **G6 (Review):** Independent **Security/Logs** review of the audit trail after every two merges to ensure generation steps are preserved correctly.
+
+#### 3. Review & Independence
+*   **Builder vs. Approver:** The person preparing the sequence (Builder) cannot be the Senior Ops Engineer approving the merge.
+*   **QA Independence:** The QA engineer verifying the dashboard must not be the same person who triggered the merge.
+*   **Audit:** The Conductor will log the exact SHA of each merged commit and the timestamp of the dashboard verification.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:** Merge commits only (no squashing).
+*   **Human Gates:**
+    1.  **Start Authorization:** Senior Ops Engineer must explicitly approve the start of the sequence at the beginning of the window.
+    2.  **Flake Intervention:** Lead Logistics Manager must authorize and perform the retry if the network simulation fails.
+    3.  **Final Sign-off:** Logistics Team Lead must confirm the final dashboard state matches warehouse sensors before closing the ticket.
+*   **Rollback Plan:**
+    *   Since publishing to the external partner portal is irreversible, if corruption is detected *before* publication, revert the specific merged PRs immediately using `git revert` (preserving history).
+    *   If corruption is detected *after* publication, execute a full system rollback to the pre-#101 snapshot and notify partners manually.
+
+#### 5. Execution Rhythm
+1.  **T-Minus 30m:** Conductor confirms window open; Senior Ops Engineer on standby.
+2.  **Step N:** Merge PR #N → Wait for CI (handle flake if needed) → QA Verify Dashboard → Log Success.
+3.  **Repeat:** Proceed to N+1 only after Step N is fully green.
+4.  **Completion:** After #106, Conductor issues final confirmation: "Sequence live, dashboard accurate."
+
+**Cost Control:** Total estimated compute cost is $72 (6 runs × $12). Any failure requiring a full re-run doubles this; strict adherence to the flake protocol is mandatory to avoid waste.

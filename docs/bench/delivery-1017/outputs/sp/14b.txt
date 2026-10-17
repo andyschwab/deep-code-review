@@ -1,0 +1,74 @@
+# Delivery Plan: Winter Inventory Sync Staged Rollout
+
+## Lanes & Parallelism
+
+**Lane A: Core Application (Mobile)**
+*   **Work:** Implement offline caching fix and changelog update.
+*   **Owner:** Mobile Engineering Team.
+*   **Parallelism:** Can proceed immediately.
+
+**Lane B: Shared Encryption Module**
+*   **Work:** Verify compatibility of the new sync logic with the shared encryption module used by warehouse tablets.
+*   **Owner:** Security Lead (on leave until Tuesday).
+*   **Constraint:** **Serialized.** No code touching the shared module can merge until Tuesday. If the fix requires changes here, Lane A must wait or implement a temporary abstraction layer that avoids modifying the shared module directly.
+
+**Lane C: Infrastructure & Pipeline**
+*   **Work:** Configure staged rollout parameters (10% internal → 25% general) and crash rate monitoring thresholds (0.5%).
+*   **Owner:** DevOps Engineer.
+*   **Parallelism:** Can proceed immediately alongside Lane A.
+
+## Gates & Checks
+
+**Gate 1: Migration Script Verification (Pre-Build)**
+*   **Action:** Manual verification of database migration scripts by a Senior Database Administrator.
+*   **Timing:** Before the first CI run.
+*   **Revision:** Latest commit on the release branch.
+*   **Constraint:** Critical. Once rollout >50%, migration is irreversible without outage.
+
+**Gate 2: CI Pipeline Execution**
+*   **Action:** Run full regression suite.
+*   **Timing:** After Lane A code complete and (if necessary) Lane B sign-off.
+*   **Constraint:** Limit re-runs to essential fixes only due to credit cost (400 credits/run).
+*   **Exception:** Automated accessibility checks on dark mode are excluded from blocking; results require manual verification by QA.
+
+**Gate 3: Dual Approval (Pre-Deployment)**
+*   **Approvers:** Product Owner AND Regional Operations Director.
+*   **Timing:** After CI passes and manual accessibility verification is complete.
+*   **Requirement:** Both signatures required before triggering the deployment pipeline.
+
+## Review Strategy
+
+**Code Review:**
+*   **Reviewer:** Senior Mobile Engineer (independent of the author).
+*   **Scope:** Offline caching logic, changelog accuracy, and rollout configuration code.
+*   **Constraint:** If the shared encryption module is touched, a second review is queued for the Security Lead upon their return Tuesday, unless an abstraction layer was used.
+
+**Manual Verification:**
+*   **Reviewer:** QA Specialist.
+*   **Scope:** Dark mode accessibility (due to flaky automation) and offline mode behavior on physical devices.
+
+**Rollout Monitoring:**
+*   **Owner:** On-Call SRE.
+*   **Check:** Continuous monitoring of crash rates.
+*   **Trigger:** If crash rate ≥ 0.5% at any stage, automatic halt and rollback initiation.
+
+## Landing & Merge Strategy
+
+**Phase 1: Internal Beta (10%)**
+*   **Target:** Internal testers only.
+*   **Duration:** Minimum 24 hours or until stability confirmed.
+*   **Decision Point:** If crash rate < 0.5%, proceed to Phase 2.
+
+**Phase 2: General User Expansion (25%)**
+*   **Target:** 25% of general user base.
+*   **Timing:** 48 hours after Phase 1 start, contingent on metrics.
+*   **Human Decision:** Regional Operations Director must explicitly authorize the jump from 25% to >50% due to irreversible migration risks.
+
+**Rollback Protocol:**
+*   **Trigger:** Crash rate ≥ 0.5% or critical data mismatch reported.
+*   **Action:** Immediate pipeline halt. Revert to previous stable version.
+*   **Constraint:** Rollback is safe only if rollout is <50%. If >50%, a full service outage is required to revert the database schema; this requires emergency executive approval.
+
+**Final Merge:**
+*   Once 100% rollout is successfully completed and verified for 24 hours, the release branch merges to `main`.
+*   Changelog publication coincides with the start of Phase 2.

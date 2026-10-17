@@ -1,0 +1,45 @@
+### Delivery Plan: Smart-Grid Load Balancing Canary (grid_opt_v2)
+
+**Lanes & Parallelism**
+*   **Lane A (Configuration - Builder):** Isolate `config/pacific-northwest.yaml`. Enable `grid_opt_v2` at 5% weight. Implement kill-switch logic (latency >200ms OR packet loss >0.5% over 10m). **Constraint:** Explicitly exclude legacy billing modules.
+*   **Lane B (Observability - Builder):** Extend real-time dashboard queries to compare "energy redistribution efficiency" between the 5% canary and the 95% control group.
+*   **Lane C (Safety Validation - QA):** Simulate latency spikes and packet loss in a unit-test harness to verify the kill-switch logic triggers correctly within the 30s cache delay window. *Note: Full hardware-in-the-loop simulation is deferred to the single production dry-run due to cost/time.*
+*   **Serialization:** Lane A and B run in parallel. Lane C depends on Lane A's logic completion. Integration (G7) waits for all three.
+
+**Gates & Checks**
+*   **G2 (Plan):** Confirm scope excludes billing modules. Set lane budget: Max 2 CI runs ($80 cap).
+*   **G3 (Design):** ADR documenting the 30s kill-switch delay risk and the manual fallback procedure if automatic triggers fail.
+*   **G4 (Implement):** Commits pushed to feature branch `feat/grid-opt-v2-canary`.
+*   **G5 (Verify):**
+    *   *Local:* Unit tests for kill-switch math (Lane C).
+    *   *CI:* Trigger pipeline **once** on the final merged SHA. Skip full hardware simulation if static analysis passes; rely on the staged production dry-run for physical validation.
+*   **G6 (Review):**
+    *   *Code Review:* Senior Engineer (independent of Builder) verifies config diff and dashboard queries.
+    *   *Security/Compliance:* Compliance Officer verifies regulatory adherence of the 5% selection logic.
+*   **G7 (Integrate):** Merge to `release-candidate`. Re-run only affected config linting.
+
+**Review Strategy**
+*   **Builder** implements config and dashboard changes.
+*   **QA** validates kill-switch logic via simulation harness (not full hardware).
+*   **Lead Network Engineer** (Human Gate) approves the technical rollout plan and kill-switch thresholds.
+*   **Compliance Officer** (Human Gate) approves the regional selection criteria and regulatory impact.
+*   *Constraint:* Builder never self-approves. Compliance review is mandatory before G8.
+
+**Landing & Rollback**
+*   **Human Gates (G8):** Dual approval required (Lead Network Engineer + Compliance Officer) before enabling the flag in production.
+*   **Deployment:**
+    1.  Deploy to staging (acknowledging latency test limitations).
+    2.  **Dry-Run:** Apply config to production in "shadow mode" (logging only, no traffic shift) for 1 hour.
+    3.  **Canary:** Enable 5% traffic shift.
+*   **Monitoring:** 48-hour watch period. Dashboards must show stability before any discussion of 20% expansion.
+*   **Rollback:**
+    *   *Automatic:* Kill-switch triggers if metrics breach thresholds (aware of 30s delay).
+    *   *Manual:* Immediate revert of `config/pacific-northwest.yaml` to previous SHA by Lead Network Engineer.
+    *   *Constraint:* Reverting the merge does not undo external effects; the kill-switch is the primary safety net.
+
+**Risks & Mitigations**
+*   **CI Cost/Time:** Limited to one full run. Reliance on shadow-mode production testing for physical validation.
+*   **Kill-Switch Latency:** 30s delay accepted; documented in ADR with manual override procedure ready.
+*   **Scope Creep:** Strict prohibition on touching billing modules enforced via code review checklist.
+
+**Next Step:** Await owner confirmation on the 48-hour stability criterion definition (specific SLOs for "stability") before generating the G1 Spec.

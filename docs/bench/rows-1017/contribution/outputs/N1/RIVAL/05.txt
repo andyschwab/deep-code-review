@@ -1,0 +1,31 @@
+Do not submit the 900-line PR. Based on the project's known preference for incremental changes, submitting a monolithic refactor of this size will almost certainly result in immediate closure without review. Instead, execute the following five-step decomposition plan to ensure stability and mergeability:
+
+**PR 1: Infrastructure & Observability (The "Safe" Foundation)**
+*   **Scope:** Add regression tests that specifically fail due to the current memory leak (e.g., heap snapshot assertions or reference count checks). Add logging hooks or metrics endpoints required to verify the fix later, but do not change any logic yet.
+*   **Goal:** Establish a failing test suite that proves the bug exists. This creates a safety net for subsequent PRs and demonstrates due diligence without risking runtime behavior.
+*   **Merge Criteria:** CI passes, tests fail as expected on `main`, no production logic changed.
+
+**PR 2: Data Structure Isolation (The "Interface" Split)**
+*   **Scope:** Identify the specific data structures causing the leak. Extract them into new modules or files if necessary, or introduce abstract interfaces/wrappers around them. Update callsites to use the new interfaces, but keep the underlying implementation identical to the current buggy version.
+*   **Goal:** Decouple the leaking components from the rest of the codebase. This is a pure refactor; behavior must remain bit-for-bit identical.
+*   **Merge Criteria:** All tests from PR 1 still fail (proving no regression fix yet), but code is reorganized for the upcoming swap.
+
+**PR 3: The Core Fix (The "Surgical" Strike)**
+*   **Scope:** Replace the internal implementation of the isolated data structures from PR 2 with the corrected logic that resolves the memory leak. This should be the smallest possible diff containing the actual algorithmic change.
+*   **Goal:** Solve the memory leak. Because the interface was stabilized in PR 2, this diff should be concise and focused solely on the leak mechanism.
+*   **Merge Criteria:** The regression tests from PR 1 now pass. No other tests break.
+
+**PR 4: Cleanup & Optimization (The "Polish")**
+*   **Scope:** Remove the temporary logging/hooks added in PR 1 if they are no longer needed for production. Perform minor performance optimizations or readability improvements on the new code from PR 3 that were withheld to keep the core fix small.
+*   **Goal:** Finalize the code quality without mixing concerns with the bug fix.
+*   **Merge Criteria:** Code coverage remains stable; performance benchmarks do not regress.
+
+**PR 5: Documentation & Integration (The "Handover")**
+*   **Scope:** Update user-facing documentation, changelogs, and architectural diagrams to reflect the new memory management strategy. Add comments explaining *why* the new approach prevents the leak.
+*   **Goal:** Ensure maintainers and future contributors understand the context that was originally in your head.
+*   **Merge Criteria:** Docs build successfully; no code changes.
+
+**Submission Order & Strategy:**
+Submit these strictly in order (1 → 5). Do not open PR 2 until PR 1 is merged; branch PR 2 off the merge commit of PR 1. This ensures the repository remains stable at every step. If a maintainer requests changes to PR 2, it does not block the validity of PR 1. This approach transforms a "risky refactor" into a series of "obvious improvements," aligning with the maintainers' workflow constraints.
+
+Note: Verify the project's `CONTRIBUTING.md` for specific rules on refactors vs. fixes before opening PR 1. Ensure each PR description explicitly links to the previous one to maintain context for reviewers.

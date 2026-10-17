@@ -1,0 +1,43 @@
+### Delivery Plan: Billing Calculator Isolation
+
+**Objective:** Extract billing logic into a standalone service with zero calculation drift, maintaining interface compatibility for downstream reports.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Contract):** Define the exact API surface and data schema to ensure downstream report compatibility. Identify all tax computation rules and 90-day backward compatibility requirements for `tax-rates.json`. *Parallel start.*
+*   **Lane B (Extraction & Build):** Create the new service repository structure. Port billing logic from the monolith, ensuring strict separation from user profile updates. Implement the identical interface. *Starts after Lane A defines contract.*
+*   **Lane C (Verification Harness):** Build a dual-run harness that executes identical inputs against both the legacy monolith and the new service to verify cent-perfect matching. *Parallel start with Lane B.*
+*   **Lane D (Migration Strategy):** Plan the cutover, including dual-write or shadow-read strategies to prevent deployment bottlenecks. Define rollback triggers. *Starts after Lane B shows initial success.*
+
+**Serialization:** Lane B cannot finalize implementation until Lane A freezes the contract. Lane D cannot finalize until Lane C proves verification capability.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Owner approves the API contract and tax rule inventory. Base SHA pinned.
+*   **G4 Implementation:** Code complete in isolated worktree. Unit tests ported.
+*   **G5 Verification (Critical):**
+    *   Run the dual-run harness (Lane C) against a frozen dataset.
+    *   **Condition:** 100% match on financial outputs (down to the cent).
+    *   **Flake Handling:** If the timezone conversion check fails, manually verify the specific case. Do not block delivery unless a genuine calculation drift is found.
+    *   **Cost Control:** Limit CI runs to 2 per hour to avoid the $45/build budget freeze. Optimize local testing before pushing.
+*   **G6 Review:**
+    *   **Security/Compliance:** Independent review of tax logic and `tax-rates.json` handling.
+    *   **Architecture:** Review separation from user profile logic.
+    *   **Reviewer:** Senior Engineer (not the builder) + Compliance Representative.
+*   **G7 Integration:** Merge to integration branch. Run final smoke test on the exact merged SHA.
+
+#### 3. Review Strategy
+*   **Builder:** Implements extraction in a dedicated worktree.
+*   **Independent QA:** Executes the dual-run harness and validates the "cent-perfect" requirement.
+*   **Security/Compliance:** Verifies tax calculation integrity and backward compatibility of `tax-rates.json`.
+*   **Constraint:** The builder cannot approve their own code. Compliance sign-off is mandatory before G7.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:** Merge to the integration branch only after G6 approval.
+*   **Human Approvals Required:**
+    *   **Dual Sign-off:** Chief Architect AND Risk Officer must explicitly approve the Production deployment (G8). This is a hard gate; no automated deployment.
+    *   **Flake Verification:** If the timezone flake triggers during final CI, a human must manually confirm it is a false positive before merging.
+*   **Rollback Plan:**
+    *   **Trigger:** Any calculation mismatch detected in production monitoring or dual-run shadow mode post-deploy.
+    *   **Action:** Immediate revert of the service routing to the monolith. The new service supports a "bypass" mode to route traffic back to legacy logic instantly.
+    *   **Data Safety:** No data migration is destructive; the monolith remains the source of truth until the new service is proven stable for one full fiscal cycle.
+
+**Risk Mitigation:** The known timezone flake is documented and bounded. Budget caps are enforced by limiting CI triggers. Calculation drift is prevented by the dual-run harness, not just unit tests.

@@ -1,0 +1,45 @@
+### Delivery Plan: Cargo Weight Filter (G0–G10)
+
+**Lanes & Parallelism**
+*   **Lane A (Spec & Design):** Product Analyst defines exact weight ranges, slider behavior, and acceptance criteria. Output: Updated spec + mockups. *Parallel.*
+*   **Lane B (Implementation):** Builder implements the slider component and map redraw logic in a dedicated worktree. Must read `map-config.json` state before starting; if locked during business hours, wait. Output: PR with unit tests. *Parallel with A.*
+*   **Lane C (Visual Evidence Prep):** QA prepares the headed-browser snapshot script targeting the specific route. *Parallel.*
+*   **Serialization Point:** Lane B merges into the integration branch only after Lane A approves the spec. Lane C runs only against the exact SHA of Lane B's final commit.
+
+**Gates & Checks (Exact Revision Strategy)**
+*   **G1 (Spec):** Analyst signs off on the "Done-when" criteria (slider updates map density without losing zoom).
+*   **G4 (Build):** Builder commits code with unit tests. Base SHA pinned.
+*   **G5 (Verify):**
+    *   Run local stack; verify map redraws on slider change.
+    *   **CI Gate:** Trigger the expensive browser suite **once** on the final PR head SHA.
+    *   **Flake Handling:** If the legacy browser visual check fails, retry exactly once. If it fails twice, mark as `UNVERIFIED` in CI, perform manual local verification on the exact SHA, and attach the receipt to the PR. Do not re-run CI.
+*   **G6 (Review):**
+    *   **Code:** Independent reviewer (not the Builder) checks logic and test coverage.
+    *   **Product:** Lead Analyst Jane Smith verifies the UI behavior matches the spec (G1).
+    *   **Security/Privacy:** Confirm no PII leakage in weight filtering logs.
+
+**Review Independence**
+*   The Builder never approves their own code.
+*   Jane Smith's approval is required for product fit; she does not review code syntax, only behavior.
+*   The CI pipeline provides the functional receipt; humans verify the *interpretation* of that receipt.
+
+**Landing & Human Gates**
+*   **Merge:** Once G6 is green (Code + Jane's sign-off + Green/Manually-Verified CI), merge to the integration branch.
+*   **Deploy (G8):** **Human Decision Required.** Deployments are irreversible without a full database rollback. The Release Owner must explicitly approve the deployment window.
+*   **Rollback Plan:** Since data schema is untouched but deployment is irreversible:
+    1.  Revert the merge immediately if the map fails to load or crashes.
+    2.  If state corruption occurs, execute the pre-verified full database rollback script (owner-triggered).
+*   **Post-Deploy (G9):** Verify route density map on production with real traffic. Monitor for flickering or state loss.
+
+**Cost & Risk Controls**
+*   **CI Cost:** Strictly one full run per PR head. No redundant triggers.
+*   **File Lock:** Check `map-config.json` lock status before Lane B starts. If locked, pause implementation to avoid collision.
+*   **Audit Readiness:** Attach the visual snapshot receipts (automated or manual) to the ticket for the compliance audit.
+
+**Summary of Flow**
+1.  Analyst finalizes spec (Lane A).
+2.  Builder codes + unit tests (Lane B), respecting config locks.
+3.  Single CI run on final SHA (Lane C). Handle flake via manual check if needed.
+4.  Jane Smith approves behavior; Peer reviews code.
+5.  Release Owner approves deploy.
+6.  Merge, then Deploy. Monitor.

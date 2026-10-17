@@ -1,0 +1,34 @@
+**Delivery Plan: S3 Bucket Policy Update for Archive Tier Access**
+
+**Lanes & Parallelism**
+*   **Lane 1 (Spec & Risk):** Product Analyst defines the exact IAM policy JSON snippet (additive only) and the "public exposure" detection metric. Security Lead defines the "write access" verification test. *Serialized:* Must complete before Lane 2 starts.
+*   **Lane 2 (Implementation):** Builder modifies the infrastructure definition in `core-net-storage` to grant `auditor-svc` read-only access to `legal-archive-09`. Ensures no changes to encryption or lifecycle rules. Creates a revert commit ready for immediate application. *Parallel with Lane 3.*
+*   **Lane 3 (Test Harness):** QA Engineer prepares the staging environment validation script to verify read access for files >7 years old and confirm write denial. *Parallel with Lane 2.*
+*   **Lane 4 (Security Review):** Security Lead reviews the proposed policy diff against the principle of least privilege and the additive-only constraint. *Serialized:* Must complete before G6.
+
+**Gates & Checks**
+*   **G1/G2 (Spec/Plan):** Freeze base SHA. Confirm budget for one full topology simulation (400 credits). Explicitly name the `network-latency-validator` flake; authorize one manual retry if it fails exclusively.
+*   **G4 (Implement):** Builder commits the additive policy change and the pre-prepared revert commit on a dedicated worktree.
+*   **G5 (Verify - Staging):**
+    *   Deploy to staging.
+    *   Run QA script: Verify `auditor-svc` can read old files and cannot write.
+    *   Run CI pipeline: Full topology simulation (22 mins). If `network-latency-validator` fails, retry once manually. Any other failure blocks.
+    *   **Exact Revision:** The specific commit SHA from G4.
+*   **G6 (Review):** Two senior engineers + one security lead review the diff, staging receipts, and the revert mechanism. Independent of the Builder.
+*   **G7 (Integrate):** Merge to the integration branch upon unanimous approval.
+
+**Landing & Human Decisions**
+*   **Human Approval Required:**
+    1.  **Merge Approval:** Two senior engineers and one security lead must approve the PR (G6).
+    2.  **Deploy Approval:** Owner must explicitly authorize deployment during the Tuesday 02:00–04:00 UTC window.
+*   **Merge Strategy:** Merge immediately after G6 approval to land the change, but **do not deploy** until the window opens. The work item closes at G7 (integration); deployment is a separate gated event (G8).
+*   **Rollback Plan:**
+    *   **Trigger:** Detection of write access by auditor or any public exposure flag.
+    *   **Action:** Apply the pre-prepared revert commit (created in G4) which restores the exact previous policy state.
+    *   **Constraint:** Do **not** delete the bucket policy resource entirely, as this triggers irreversible legacy lockout. The rollback must be an edit restoring the previous policy version.
+    *   **SLA:** Revert must be executed and verified within 5 minutes.
+
+**Risk Controls**
+*   **Irreversible Step:** Deleting the policy resource is forbidden. Edits must be strictly additive.
+*   **Cost Cap:** One simulation run permitted per lane; failure requires re-approval.
+*   **Scope Boundary:** Encryption and lifecycle rules are untouched; any drift here is a Blocker.

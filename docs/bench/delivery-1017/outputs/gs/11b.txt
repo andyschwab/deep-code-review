@@ -1,0 +1,48 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Ingestion
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Infrastructure Code - Platform Reliability):** Modify the Terraform/CloudFormation definition for the `ClaimsArchive` bucket policy. This work is isolated to the `core-network` repo.
+    *   *Constraint:* Must explicitly target only the `pending-review` prefix.
+    *   *Constraint:* Must not touch `global-audit-log` (shared across three clusters/Billing system).
+*   **Lane B (Vendor Coordination - Security/Compliance):** Obtain the exact Vendor IAM ARN/Identity and the specific encryption key ID they will use. Provide this to Lane A.
+    *   *Parallel:* Can run simultaneously with Lane A's drafting.
+*   **Lane C (Rollback Scripting - Platform Reliability):** Prepare the manual CLI command or script to revert the policy to the previous version ID.
+    *   *Dependency:* Requires the current policy version ID before any change is applied.
+
+#### 2. Gates & Checks (Serialized)
+1.  **Pre-Flight Gate (Local):** Lane A drafts the policy change. A senior engineer performs a local `terraform plan` (or equivalent dry-run) to verify:
+    *   Scope is limited to `pending-review`.
+    *   No changes to `global-audit-log`.
+    *   Vendor identity matches Lane B's input.
+2.  **Approval Gate (Human):** Submit PR/MR. **Blocking:** Requires explicit approval from **Jane Smith** AND the **Security Lead**. No code review tools substitute this.
+3.  **Simulation Gate (CI):** Trigger the environment simulation **once** only after approvals are secured.
+    *   *Cost Check:* Confirm budget for the $45 run.
+    *   *Timing:* Allow 22 minutes for execution.
+    *   *Verification:* Confirm vendor write success and internal auditor read restriction in the simulated env.
+4.  **Drift Check (Manual):** Since automated drift detection is flaky on Tuesdays, a human must manually verify the applied policy against the code definition post-deployment if today is Tuesday.
+
+#### 3. Review Strategy
+*   **Code Review:** Performed by a senior Platform Reliability engineer (not the author) to ensure syntax correctness and scope isolation.
+*   **Security Review:** Performed by the Security Lead (part of the approval gate) to validate the vendor identity and encryption requirements.
+*   **Independence:** The engineer running the simulation must not be the same person who wrote the policy, to prevent confirmation bias.
+
+#### 4. Landing & Merge
+*   **Merge Window:** Execute during a low-traffic window outside the "nightly bulk upload" time to avoid race conditions.
+*   **Merge Action:** Squash merge to `main` only after CI simulation passes and both human approvals are recorded.
+*   **Human Decision Point:** The Security Lead must give the final "Go" signal after reviewing the simulation logs, confirming no unexpected traffic patterns were flagged.
+
+#### 5. Rollback Plan (Verified)
+*   **Trigger Conditions:**
+    1.  Vendor test upload fails with non-permission errors.
+    2.  Internal monitoring flags unexpected traffic (e.g., writes outside `pending-review`, unencrypted uploads).
+    3.  Billing system logging anomalies detected within 1 hour of deploy.
+*   **Execution:**
+    1.  Identify the previous stable Policy Version ID (captured in Pre-Flight).
+    2.  Execute the pre-prepared CLI command: `aws s3api set-bucket-policy --bucket ClaimsArchive --policy file://rollback-policy.json` (or revert via IaC state if faster and verified).
+    3.  **SLA:** Must complete within 5 minutes.
+*   **Verification:** Immediately re-run a read-only audit check to confirm the policy has reverted and Billing logs are flowing.
+
+#### 6. Risk Mitigation
+*   **Billing System Protection:** The change scope is strictly limited to the `ClaimsArchive` bucket policy file. The `global-audit-log` config is untouched.
+*   **Cost Control:** CI simulation is triggered exactly once.
+*   **Compliance:** All actions are logged; the rollback plan is documented in the PR comments for audit trails.

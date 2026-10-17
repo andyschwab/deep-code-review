@@ -1,0 +1,29 @@
+### Delivery Plan: Daily LLM Spend Cap
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Backend Logic):** Implement the daily counter logic in `parser-service`. This includes reading the global config, checking the current spend against the $450 limit, and returning the specific user-facing error message when capped.
+*   **Lane B (Data & Config):** Prepare the irreversible database migration for tracking daily counts. Since this cannot be rolled back easily, it must be scripted separately and held for manual execution.
+*   **Lane C (Test Optimization):** Refactor the CI pipeline to skip the full historical dataset regression for this specific feature. Create a lightweight test suite focusing only on the new quota logic to avoid the 28-minute/ $12 cost per run.
+*   **Parallel Execution:** Lanes A, B, and C run in parallel initially. Lane B (Migration) must pause before execution until Lane A is code-complete and reviewed.
+
+**2. Gates & Checks**
+*   **Gate 1 (Local Verification):** Since the staging environment uses a mock API that ignores counters, local testing must inject a "forced quota exceeded" state to verify the user-facing error message renders correctly. This is a mandatory manual check before any commit.
+*   **Gate 2 (CI Light):** Commits must pass the new lightweight test suite (Lane C). The full 28-minute regression is deferred until post-merge on a non-critical branch or run manually by Marcus if absolutely required.
+*   **Gate 3 (Migration Review):** The database migration script (Lane B) requires a separate, dry-run analysis on a local dump to confirm irreversibility impacts. No automated check can validate this; it requires human inspection.
+*   **Revision Control:** All work branches off the current `main` head. The merge target is `main`. The code freeze point is Monday at 4:00 PM to ensure buffer time before Tuesday's email blast.
+
+**3. Review Process**
+*   **Code Review:** An independent senior engineer (not the author) reviews Lane A and Lane C changes. They must specifically verify that the $450 constant is configurable via the global config file and not hardcoded, and that the error message matches support requirements.
+*   **Architecture Review:** Marcus Thorne (Lead Architect) must review the Database Migration (Lane B) and the final merge request. His approval is the final gate for production access.
+*   **Independence:** The code reviewer cannot be the same person who optimized the CI pipeline, ensuring the test coverage is genuinely validated.
+
+**4. Landing & Rollback Strategy**
+*   **Deployment Sequence:**
+    1.  Deploy Lane A (Code) to Staging with a feature flag disabled.
+    2.  Manually execute Lane B (Migration) on Production database during a low-traffic window (Monday night). **Decision Point:** Marcus must give explicit "Go" for this irreversible step.
+    3.  Enable the feature flag in Production.
+*   **Human Decision Required:** Marcus Thorne must approve the merge to `main` and the execution of the database migration. No automated merge is permitted.
+*   **Rollback Plan:**
+    *   *Code:* Revert the `parser-service` commit and disable the feature flag immediately if errors occur.
+    *   *Database:* Since the migration is irreversible, a true rollback is impossible. The contingency is a "patch forward" script to reset counters or adjust the cap logic if the migration causes unintended locking.
+*   **Success Metric:** Monitoring the daily spend dashboard on Tuesday morning to ensure the cap triggers at $450 and the support ticket volume regarding "broken buttons" remains at zero.

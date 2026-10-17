@@ -1,0 +1,45 @@
+### Delivery Plan: Daily LLM Spend Cap
+
+**Objective:** Implement a hard daily spending limit per department with senior lead override, preventing unpredictable API costs.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Logic & Config):** Implement the quota tracking logic, the "Limit Reached" UI state, and the override permission check.
+    *   *Constraint:* Must read `global_limits.json` caching rules (4h) to ensure immediate enforcement or document the lag.
+    *   *Parallel:* Can run alongside Lane B.
+*   **Lane B (UI & Telemetry):** Update the claims portal frontend to disable the button, show the tooltip, and log blocked attempts.
+    *   *Parallel:* Can run alongside Lane A.
+*   **Lane C (Integration & Cost Guard):** Assemble A and B. Implement a local simulation of the billing ledger to verify the "midnight close" irreversibility scenario without touching production data.
+    *   *Serialization:* Must wait for A and B to pass unit tests.
+*   **Lane D (Security & Finance Prep):** Draft the deployment manifest and rollback justification specifically for the "dual approval" requirement.
+    *   *Parallel:* Can start immediately.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define the exact error message, the override workflow, and the specific JSON schema update. Pin base SHA.
+*   **G2 Plan:** Assign budgets. Since CI costs $15/run, the plan must limit re-runs to max 2 per lane before escalation.
+*   **G3 Design:** Address the 12-minute cluster restart risk. Decide if a config hot-reload is possible or if the restart window must be scheduled.
+*   **G4 Implement:** Code changes in isolated worktrees.
+    *   *Check:* Unit tests for quota math and role hierarchy.
+*   **G5 Verify:**
+    *   *Revision:* Exact SHA from G4.
+    *   *Action:* Run the local billing simulation (Lane C). Verify the button disables *before* the API call triggers.
+    *   *Constraint:* Do not run full CI until the local simulation proves the logic prevents the spike.
+*   **G6 Review:**
+    *   *Reviewer 1 (Security):* Independent of Builder. Verifies the override cannot be exploited and data masking remains intact.
+    *   *Reviewer 2 (Finance Ops):* Independent of Builder. Verifies the ledger logic matches the "irreversible at midnight" rule.
+*   **G7 Integrate:** Merge to the integration branch. Run one final CI pass ($15) only after both reviews are explicit "Green."
+
+#### 3. Landing & Human Decisions
+*   **Human Gate (Deploy):** This requires **dual approval** (Security Lead + Finance Ops Manager).
+    *   *Timing:* Must be scheduled to absorb the 12-minute cluster restart without disrupting active adjusters.
+    *   *Decision:* The owner must confirm the deployment time relative to the "midnight UTC" ledger close to avoid partial-day accounting errors.
+*   **Rollback Strategy:**
+    *   *Critical Constraint:* Reverting billing logic is **irreversible** once the ledger closes.
+    *   *Mitigation:* The deployment must include a "circuit breaker" feature flag. If costs spike unexpectedly, flip the flag to disable the *new* limiting logic and revert to the old behavior immediately, rather than attempting a code revert after the ledger closes.
+    *   *Approval:* Flipping this breaker requires immediate notification to Finance, but not full re-deployment approval.
+
+#### 4. Risk Controls
+*   **Cost Control:** Limit CI runs. If Lane A or B fails twice, pause for human triage rather than auto-retrying.
+*   **Cache Risk:** Explicitly document in the release notes that quota updates may take up to 4 hours to propagate due to `global_limits.json` caching, or implement a forced cache invalidation trigger if architecture allows.
+*   **Verification:** Success is defined as the button being disabled *before* an API call is attempted, verified by network log inspection in the test environment.
+
+**Next Step:** Confirm the deployment window with Security and Finance to align with the ledger close and cluster restart tolerance.

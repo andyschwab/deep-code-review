@@ -1,0 +1,53 @@
+# Delivery Plan: Core Ledger Engine v4.0 Upgrade
+
+## Lanes & Parallelism
+
+**Lane A: Core Engine & Migration (Serialized)**
+*   **Owner:** Platform Reliability Team Lead
+*   **Work:** Upgrade core dependency to v4.0; adapt transaction serialization logic; author irreversible database migration script.
+*   **Constraint:** Must complete before Lane B begins integration testing.
+
+**Lane B: Plugin Compatibility (Parallel to Lane A start)**
+*   **Owner:** Backend Engineering
+*   **Work:** Audit custom plugins built last year; refactor for v4.0 error codes; unit test in isolation.
+*   **Parallelism:** Can proceed while Lane A updates core logic, but blocks final integration.
+
+**Lane C: Test Infrastructure (Parallel)**
+*   **Owner:** QA Automation
+*   **Work:** Update integration tests for new error codes; implement flakiness mitigation for the currency conversion module (retry logic or quarantine) to prevent $450/build waste.
+
+**Lane D: Staging Validation (Serialized Gate)**
+*   **Owner:** SRE + Risk Compliance
+*   **Work:** Deploy to pre-production sandbox; execute migration script; run full reconciliation jobs against mirrored live traffic.
+
+## Gates & Checks
+
+1.  **Code Freeze Gate:** All changes merged to `feature/ledger-v4` branch. No direct commits to `main`.
+2.  **CI Gate:** Full suite must pass on `feature/ledger-v4` *after* currency module flakiness is mitigated. Failure triggers immediate rollback of the feature branch.
+3.  **Sandbox Gate:** Successful execution of the irreversible migration script in the pre-production sandbox. Verification of 6-month backward compatibility with archive storage.
+4.  **Compliance Gate:** Sign-off from Jane Smith and the Chief Risk Officer confirming reconciliation job integrity and regulatory adherence.
+
+## Review Strategy
+
+*   **Technical Review:** Independent senior engineer (not on Platform Reliability team) reviews serialization changes and migration script. Focus: Data integrity and rollback impossibility mitigation.
+*   **Plugin Review:** Original plugin authors review refactored code for logical consistency.
+*   **Process Review:** SRE verifies staging deployment runbook, specifically the "no downtime during market hours" staging window.
+
+## Landing & Rollout
+
+**Deployment Window:** Saturday 02:00 – 06:00 (Outside market hours).
+
+**Staged Rollout:**
+1.  **Phase 1:** Deploy to 5% of non-critical nodes. Monitor reconciliation latency.
+2.  **Phase 2:** Deploy to 50% of nodes. Verify archive storage writes.
+3.  **Phase 3:** Full rollout.
+
+**Human Decisions Required:**
+*   **Go/No-Go:** Jane Smith and Chief Risk Officer must explicitly approve the Sandbox Gate results before Phase 1.
+*   **Config Lock:** DevOps must temporarily lift the business-hours config lock specifically for the deployment window.
+
+**Rollback Plan:**
+*   **Pre-Migration:** Revert `feature/ledger-v4` branch; redeploy v3.x artifacts.
+*   **Post-Migration:** **NO AUTOMATED ROLLBACK.** Since the database migration is irreversible, a rollback requires activating the "Legacy Compatibility Mode" in v4.0 (if available) or restoring from the pre-Saturday backup (maximum 4-hour data loss window). This contingency must be dry-run in the sandbox.
+
+**Success Criteria:** Zero downtime during market hours Monday; nightly reconciliation jobs complete with zero errors; archive storage accepts v4.0 data with v3.0 headers.

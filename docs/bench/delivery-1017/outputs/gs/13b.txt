@@ -1,0 +1,45 @@
+### Delivery Plan: Sanitize PII in Insurance Claim Fixtures
+
+#### 1. Work Lanes & Parallelization
+*   **Lane A (Data Sanitization - Serialized):** A single engineer will identify and scrub PII in the staging fixture files. This must be done first, as all subsequent steps depend on the clean data.
+    *   *Action:* Replace real names and SSNs with format-compliant fictional placeholders. Preserve row counts and data types exactly.
+    *   *Constraint:* Do **not** modify `global-rates.json`. It is immutable; touching it halts the pipeline.
+*   **Lane B (Pipeline Configuration - Parallel):** A DevOps engineer will prepare the CI configuration to handle the known flaky check.
+    *   *Action:* Configure the regression suite to ignore timeout errors specifically in the document generation module, ensuring they do not fail the build falsely.
+*   **Lane C (Verification - Serialized after A & B):** Once Lane A commits clean fixtures and Lane B confirms the config, the nightly regression suite will be triggered manually on the specific commit hash.
+    *   *Constraint:* Trigger only one build to conserve compute credits.
+
+#### 2. Gates & Checks
+*   **Gate 1: Pre-Commit Static Scan:** Before pushing, run a local grep/search for regex patterns matching real SSNs (e.g., `XXX-XX-XXXX` where not a placeholder) and known policyholder names from the audit list.
+    *   *Pass Criteria:* Zero matches for real PII patterns.
+*   **Gate 2: Build Integrity Check:** Verify the build succeeds without attempting to write to `global-rates.json`.
+    *   *Pass Criteria:* Build logs show no "irreversible pipeline halt" errors.
+*   **Gate 3: Regression Suite Execution:** Run the full suite on the sanitized commit.
+    *   *Pass Criteria:* All tests pass except the documented document-generation timeouts (which must be logged as ignored, not failures). No raw data appears in build artifacts/logs.
+*   **Gate 4: Artifact Inspection:** Manually inspect the generated build artifacts.
+    *   *Pass Criteria:* Confirm no PII leaked into logs, reports, or snapshots.
+
+#### 3. Review Process
+*   **Primary Reviewer:** Lead Data Architect.
+    *   *Focus:* Verify data fidelity (formats match, row counts preserved) and confirm all PII is replaced with valid fictional data.
+*   **Independent Reviewer:** Chief Risk Officer (CRO).
+    *   *Focus:* Compliance validation. Confirm no real policyholder data remains and that the mitigation satisfies the audit requirement.
+*   **Constraint:** Reviews are independent; the CRO must not rely solely on the Architect’s approval. Both must explicitly sign off.
+
+#### 4. Landing & Merge Strategy
+*   **Merge Window:** Immediately following dual approval, and no later than Monday midnight to meet the Tuesday compliance review.
+*   **Merge Method:** Standard merge commit to the main branch. Do not rebase or squash to preserve the audit trail of the sanitization commit.
+*   **Human Decision Point:** If the regression suite fails due to an error *other* than the known flaky document generation timeout, a human must triage before merging. Do not auto-merge on red.
+*   **Rollback Plan:**
+    *   *Trigger:* Discovery of residual PII post-merge or critical pipeline failure caused by the fixture change.
+    *   *Action:* Revert the specific sanitization commit immediately.
+    *   *Notification:* Alert the Underwriting Operations team and Compliance instantly.
+    *   *Fallback:* Temporarily pause the nightly suite if the revert does not immediately resolve the leak, preventing further exposure.
+
+#### 5. Critical Constraints Summary
+*   **Do Not Touch:** `global-rates.json`.
+*   **Do Not Delete:** Rows in fixture files (maintain schema/counts).
+*   **Do Not Ignore:** Any test failure other than the specific document-generation timeout.
+*   **Deadline:** Complete verification before Tuesday morning.
+
+This plan ensures compliance through rigorous sanitization and dual review while protecting pipeline stability and compute resources.

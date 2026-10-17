@@ -1,0 +1,42 @@
+### Delivery Plan: Payment Gateway Timeout Hotfix
+
+**1. Work Lanes & Serialization**
+*   **Lane A (Code & Config - Serial):** Engineer applies the connection pool limit fix. Due to the business-hours lock on `global-config`, this lane must wait for the lock release or coordinate a synchronized edit window with the Config Owner. No parallel edits to config are permitted.
+*   **Lane B (CI Pipeline - Parallel):** Trigger the CI pipeline immediately upon code commit. Given the 22-minute runtime and $15 cost, this runs once per candidate revision. The "database-schema-sync" job must be monitored; if it fails due to latency (>50ms), a manual retry is authorized immediately without code changes.
+*   **Lane C (Verification - Serial):** While CI runs, the On-Call Manager prepares the production rollback script and verifies dashboard access. This lane activates fully only after CI passes.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Merge Sanity):** The automated sanity checks requested are the CI pipeline. The specific check criteria are:
+    *   Build success.
+    *   Unit test pass.
+    *   "database-schema-sync" completion (allow one manual retry).
+    *   **Revision:** Checks run on the exact merge commit of the hotfix branch against `main`.
+*   **Gate 2 (Security & Ops Approval):** Before merging, explicit written approval is required from both the **Security Lead** and the **On-Call Manager**. This is a hard block; no bypass is possible for direct production pushes.
+*   **Gate 3 (Post-Deploy Health):** Immediately upon deployment, monitor error dashboards.
+    *   **Condition:** If latency spikes >200ms for more than 60 seconds, the automatic rollback triggers.
+    *   **Constraint:** Since the DB is immutable, the rollback reverts only the application service configuration.
+
+**3. Review Strategy**
+*   **Independent Review:** The code fix requires a rapid review by a Senior Engineer *not* involved in writing the patch.
+*   **Approval Chain:** The Security Lead reviews for injection risks or credential exposure in the pool reset. The On-Call Manager reviews the operational safety of the new limits against current traffic load.
+*   **Sandbox Evidence:** The requester's verification in the disaster-recovery sandbox is accepted as pre-validation, but does not replace the CI sanity checks or the dual-approval requirement.
+
+**4. Landing & Rollback**
+*   **Merge Strategy:** Once CI passes and dual approval is secured, merge via a fast-forward or squash merge to `main`. Do not rebase to preserve the audit trail of the emergency fix.
+*   **Deployment:** The merge triggers the production deployment pipeline.
+*   **Human Decision Points:**
+    1.  Coordinating the `global-config` unlock.
+    2.  Authorizing the manual retry of the flaky DB sync job.
+    3.  Granting the two required approvals.
+    4.  Deciding whether to proceed if latency hovers near the 200ms threshold (edge case).
+*   **Rollback Protocol:** If the latency gate triggers:
+    1.  Automatic system reverts the service to the previous stable version.
+    2.  Engineer notifies stakeholders.
+    3.  Post-mortem begins immediately; no further hotfix attempts are made until the root cause of the spike is analyzed.
+
+**Summary of Constraints:**
+*   **Time Budget:** ~45 mins (Code/Config 10m + CI 22m + Approval/Deploy 13m). Tight margin for the 1-hour deadline.
+*   **Cost:** $15 per CI run.
+*   **Risk:** Flaky DB sync job and config lock contention are the primary bottlenecks.
+
+Execute Lane A and B immediately upon config lock resolution. Secure approvals in parallel to minimize delay.

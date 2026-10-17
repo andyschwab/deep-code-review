@@ -1,0 +1,65 @@
+### Delivery Plan: Smart-Grid Load Balancing Canary (grid_opt_v2)
+
+**Scope & Constraints**
+Target: 5% Pacific Northwest devices. Guardrails: Latency <200ms, Packet Loss <0.5% (10m window). Exclusion: Legacy billing modules.
+Constraints: 55-min CI cost ($40/run), Staging unreliable for latency, Dual human approval required, 30s kill-switch delay.
+
+#### 1. Lanes (Work Decomposition)
+
+*   **Lane A: Configuration & Logic (Builder)**
+    *   **Work:** Implement `grid_opt_v2` flag logic in the config parser. Hard-code the 5% PNW filter. Integrate the kill-switch listener (reading the read-only cache). Explicitly exclude billing module paths in the diff.
+    *   **Parallelism:** Runs parallel to Lane B.
+    *   **Output:** Code patch + Unit tests for flag logic (mocked cache).
+
+*   **Lane B: Observability & Dashboard (Builder)**
+    *   **Work:** Define metrics for "energy redistribution efficiency." Create the dashboard query comparing Canary vs. Control Group. Ensure no new dependencies touch billing tables.
+    *   **Parallelism:** Runs parallel to Lane A.
+    *   **Output:** Dashboard config + Integration test stubs (data ingestion only).
+
+*   **Lane C: Safety Simulation (QA - Serialized)**
+    *   **Work:** Since staging lacks meter simulators, this lane runs a localized, lightweight simulation script injecting synthetic latency/loss spikes to verify the kill-switch triggers within the 30s cache window.
+    *   **Dependency:** Must wait for Lane A's logic to be merged to the integration branch.
+    *   **Output:** Simulation receipt proving kill-switch activation time <35s.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec:** Confirm "5% PNW" logic matches regional ID mapping. Confirm billing modules are untouched.
+*   **G3 Design:** Verify kill-switch logic accounts for the 30s cache delay (system must tolerate this brief spike).
+*   **G4 Implement:**
+    *   **Check:** Static analysis to ensure zero changes in `billing/` directory.
+    *   **Check:** Unit tests for Lane A & B (fast, local).
+*   **G5 Verify (The Critical Gate):**
+    *   **Revision:** Exact SHA from Integration Branch.
+    *   **Action:** Trigger **one** full Hardware-in-the-Loop CI run ($40).
+    *   **Criteria:** Full pass + Lane C's simulation receipt attached. No "staging" latency claims accepted.
+*   **G6 Review:**
+    *   **Reviewer 1 (Security/Compliance):** Independent of Builder. Focus: Kill-switch reliability, data privacy in dashboards.
+    *   **Reviewer 2 (Network Eng):** Independent of Builder. Focus: Load balancing algorithm correctness.
+
+#### 3. Landing & Human Gates
+
+*   **Integration (G7):**
+    *   Merge Lanes A & B to `release/canary-pnw`.
+    *   Run Lane C simulation against this branch.
+    *   Trigger single CI build on the final merge SHA.
+*   **Human Approval (G8 - Mandatory):**
+    *   **Approvers:** Lead Network Engineer AND Compliance Officer.
+    *   **Input:** CI Green status, Simulation Receipt, Diff showing no billing changes, Dashboard preview.
+    *   **Decision:** Authorize deployment to 5% PNW.
+*   **Deployment Strategy:**
+    *   Deploy behind `grid_opt_v2` flag (default OFF).
+    *   Enable flag for 5% PNW segment only.
+*   **Monitoring & Rollback:**
+    *   **Watch:** Real-time dashboard for latency/loss.
+    *   **Auto-Rollback:** If metrics breach thresholds, the kill-switch flips the flag OFF. Note: Expect up to 35s delay (detection + cache refresh).
+    *   **Manual Rollback:** Immediate flag disable via config hot-reload if auto-switch fails.
+*   **Expansion (Future):**
+    *   The 20% expansion is a **new ticket** triggered only after 48h stability receipt. Do not plan this now.
+
+#### 4. Risk Mitigation
+
+*   **CI Cost:** Strictly one full CI run permitted before G8. All other checks must be local or unit-level.
+*   **Billing Safety:** The review explicitly signs off on "No billing module changes."
+*   **Kill-Switch Delay:** The 30s cache lag is an accepted risk; the threshold logic must be conservative enough to survive this window without customer impact.
+
+**Status:** Ready for G0 Intake confirmation.

@@ -1,0 +1,4 @@
+### Added
+
+- `mutation_changed.py` recognises five equivalent-mutant shapes among surviving mutants (a codec name changing case, a stdlib truthiness flag kwarg going `False` to `None`, a tail-of-function `break` becoming `return`, a constant that is only ever raised, a strip set that gains only `X` on lowercased data) and prints them as `LIKELY_EQUIVALENT` instead of `SURVIVED`. They are never counted and never fail `--strict`. The filter is a heuristic, tuned in-sample, unproven on fresh data; advisory. `scripts/test_mutation_equivalent.py` covers each rule and its near-misses; the `--selftest` covers the wiring.
+- `docs/bench/rows-1017/`: preregistered blind-judge re-tests of the contribution and product-output-safety skills against a like-for-like rival, and the held-out re-run of the mutation filter (not preregistered: its bars were set by the author after reading the held-out set).

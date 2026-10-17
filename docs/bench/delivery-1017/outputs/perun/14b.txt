@@ -1,0 +1,66 @@
+**Delivery Plan: Winter Inventory Sync Staged Rollout**
+
+**Scope & Constraints**
+Target: Mobile app distribution channel.
+Critical Fix: Offline caching data mismatch.
+Rollout Strategy: 10% internal beta → 25% general (48h) if crash <0.5%.
+Hard Constraints: Security Lead unavailable (encryption module frozen); CI cost cap (400 credits/run); Accessibility check manual-only; Dual human approval required; Schema migration irreversible >50%.
+
+**Lane Decomposition**
+
+1.  **Lane A: Migration Verification (Serialized, Pre-G4)**
+    *   **Actor:** Senior Backend Engineer (not the Builder).
+    *   **Task:** Dry-run schema migration scripts against a production snapshot. Verify irreversibility logic >50% threshold.
+    *   **Output:** Signed receipt confirming script safety and rollback impossibility boundary.
+    *   **Dependency:** Must complete before G4 (Implementation) finalizes.
+
+2.  **Lane B: Core Implementation (Parallel to A)**
+    *   **Actor:** Mobile Builder.
+    *   **Task:** Implement offline caching fix. **Constraint:** Do not touch the shared encryption module (Security Lead absent). Isolate changes to the sync logic layer only.
+    *   **Output:** Patch set with unit tests.
+
+3.  **Lane C: QA & Performance (Dependent on B)**
+    *   **Actor:** Independent QA Engineer.
+    *   **Task:** Execute regression suite on the exact G4 SHA. Limit runs to essential fixes to preserve CI credits. Manually verify dark mode accessibility (bypass automated flake). Simulate offline/online transitions to validate the fix.
+    *   **Output:** Test receipts, crash rate baseline, manual a11y sign-off.
+
+4.  **Lane D: Release Configuration (Parallel to C)**
+    *   **Actor:** Release Engineer.
+    *   **Task:** Configure staged rollout parameters (10% internal, 25% general, 48h window, 0.5% crash threshold auto-halt). Prepare changelog entry highlighting offline fix.
+    *   **Output:** Deployment manifest ready for G8.
+
+**Gates & Checks**
+
+*   **G2 (Plan):** Confirm encryption module is untouched. Define CI budget cap explicitly.
+*   **G3 (Design):** ADR confirming migration script dry-run strategy and irreversibility warning.
+*   **G4 (Implement):** Code freeze on exact SHA. Builder submits patch; Migration receipt attached.
+*   **G5 (Verify):**
+    *   **Revision:** Exact G4 SHA.
+    *   **Checks:** Unit/Integration tests (essential only). Manual a11y verification.
+    *   **Condition:** Stack must start; offline simulation must pass.
+*   **G6 (Review):**
+    *   **Reviewers:** Tech Lead (Code), QA Lead (Test Receipts).
+    *   **Security:** Limited scope review (confirming no encryption changes) since Security Lead is absent. If any crypto-adjacent change is detected, block until Tuesday.
+*   **G7 (Integrate):** Merge to release branch. Generate integration SHA. Re-run critical smoke tests on this new SHA (cost permitting).
+
+**Landing & Human Gates**
+
+*   **Human Approval (G8):**
+    *   **Approvers:** Product Owner AND Regional Operations Director (Dual signature required).
+    *   **Input:** G7 Integration SHA, Migration Safety Receipt, QA Manual A11y Sign-off, Rollout Config.
+    *   **Decision:** Authorize 10% internal beta start.
+*   **Deployment Execution:**
+    *   Trigger 10% rollout.
+    *   Monitor crash rates for 48h.
+    *   **Auto-Halt:** If crash >0.5%, pipeline halts expansion.
+    *   **Expansion:** If stable, Release Engineer triggers expansion to 25% (requires secondary confirmation that 48h window elapsed).
+*   **Rollback Plan:**
+    *   **<50% Rollout:** Standard pipeline rollback (revert deployment).
+    *   **>50% Rollout:** **Impossible without outage.** If critical failure occurs here, immediate hotfix lane required (new ticket), not a revert.
+
+**Risk Mitigation**
+*   **Security Gap:** Strict prohibition on encryption module edits mitigates the absent lead risk.
+*   **Cost Overrun:** QA lane restricted to "essential fixes" suite; no full regression re-runs unless a blocker is found.
+*   **Data Loss:** Migration script verified *before* code merge; team briefed that >50% point is no-return.
+
+**Next Step:** Await confirmation of Production Snapshot availability for Lane A dry-run.

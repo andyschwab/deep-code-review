@@ -1,0 +1,45 @@
+### Delivery Plan: Field Agent v4.2 Staged Rollout
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Compliance & Legal):** Immediately draft release notes using the approved legal language template. This runs in parallel with technical preparation.
+    *   *Dependency:* Must complete before App Store submission.
+*   **Lane B (Build & Verify):** Trigger the CI pipeline on the specific security patch revision (`sha-sec-patch-latest`).
+    *   *Constraint:* Only one build permitted. Verify the encryption library hash matches the warehouse tablet software's expected version to prevent joint-sign-off blockers.
+    *   *Output:* Enterprise distribution binary v4.2.
+*   **Lane C (Submission):** Submit the binary and Lane A's release notes to the enterprise app store.
+    *   *Timing:* Initiate immediately after Lane A and B complete. Account for the 2-business-day review window.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Submission):** CI must pass on `sha-sec-patch-latest`. Verification that the encryption library was *not* modified (or if modified, joint sign-off is attached).
+*   **Gate 2 (Store Approval):** App Store approval notification. Any metadata mismatch results in immediate queue reset; verify notes against legal text before submission.
+*   **Gate 3 (5% Deployment):** Configure staged rollout to 5% targeting *only* the Logistics Division user segment.
+    *   *Check:* Confirm database schema migration logs show successful application on the test subset.
+*   **Gate 4 (Stability Window):** Monitor crash-free session rates for 48 hours.
+    *   *Pass Criteria:* Zero critical alerts; crash-free rate ≥ 99.5% (or existing baseline).
+*   **Gate 5 (SLA Verification):** Review data synchronization latency metrics.
+    *   *Authority:* Requires explicit written confirmation from the Requester that metrics are within SLA thresholds.
+
+**3. Review Process**
+*   **Release Note Review:** Independent review by the Compliance Team Lead. They must sign off that the text matches approved legal language exactly. This is separate from the engineering team.
+*   **Encryption Library Check:** If the library was touched, a joint review by both the Field Ops Product Lead and the Warehouse Tablet Product Lead is mandatory before the build starts.
+*   **Rollout Decision Review:** The 48-hour stability report and SLA metrics will be reviewed by the Director of Logistics. This review is independent of the engineering deployment team.
+
+**4. Landing & Merge Strategy**
+*   **Phase 1 (Initial Rollout):** Upon Store Approval, enable the 5% staged rollout for Logistics.
+    *   *Irreversibility Warning:* Since schema migrations are included, do not exceed 10% without full confidence.
+*   **Phase 2 (Expansion to 25%):** Automatically eligible after 48 hours of stability *only if* no critical alerts occurred.
+    *   *Action:* Update store configuration to 25%.
+*   **Phase 3 (Full Release):** **HALT.** Do not proceed to 100% automatically.
+    *   *Human Decision:* The Director of Logistics must provide explicit written approval based on the SLA latency report.
+    *   *Execution:* Upon receipt of written approval, manually update the staged rollout to 100%.
+
+**5. Rollback Protocol**
+*   **Scenario A (Store Rejection):** Fix metadata, re-verify with Compliance, and resubmit. No binary change needed.
+*   **Scenario B (Critical Alerts <10%):** Immediately halt rollout progression. Since deployment is irreversible past 10% due to schema changes, if the 5% group experiences data corruption or critical crashes, a hotfix (v4.2.1) must be developed and submitted as a new build. There is no "undo" button for the database schema once applied.
+*   **Scenario C (SLA Failure):** If latency metrics fail after the 48-hour window, maintain the 25% cap indefinitely until a hotfix resolves the synchronization logic. Do not request full release approval.
+
+**Summary of Critical Constraints:**
+*   **Build Limit:** One CI run only (55 mins).
+*   **Point of No Return:** 10% user threshold (due to DB schema).
+*   **Final Authority:** Director of Logistics for >25% expansion.
+*   **Timeline:** Minimum 2 days (store review) + 2 days (stability monitoring) before full release consideration.

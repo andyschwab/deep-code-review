@@ -1,0 +1,38 @@
+### Delivery Plan: Core Data Engine v4.0 Upgrade
+
+**Lanes & Parallelism**
+*   **Lane 1 (Spec & Risk):** Product Analyst defines "system starts correctly" as measurable latency <200ms under load. Security reviews v4.0 release notes for supply-chain risks. *Parallel.*
+*   **Lane 2 (Infra Prep):** Builder prepares staging environment snapshot. Verifies `global-routes.json` lock status and schedules maintenance window if needed. *Serialized before Lane 3.*
+*   **Lane 3 (Implementation):** Builder updates dependency to v4.0 and configuration files in an isolated worktree. Implements schema migration script with dry-run mode. *Depends on Lane 2.*
+*   **Lane 4 (Verification):** QA executes functional tests on the exact build SHA in staging. Explicitly re-runs known flaky network latency check once; if failed, compares hash to ignore only if identical. Ignores pre-existing harness failures but validates new timeout errors are resolved. *Parallel with Lane 3 review, depends on Lane 3 build.*
+*   **Lane 5 (Rollback Prep):** Builder prepares rollback plan: since downgrading is irreversible due to schema mutation, this lane defines the "forward-fix" or data-restoration procedure from backup. *Parallel with Lane 3.*
+
+**Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Confirm appetite (tomorrow morning deadline) and constraints (no config changes during business hours). Output: Testable spec with latency SLOs.
+*   **G2 (Plan):** Validate budget cap ($45/run limit, max 2 runs + 1 flake retry). Confirm serialization of `global-routes.json` edit.
+*   **G3 (Design):** Approve migration strategy. Explicitly acknowledge irreversible schema change; require owner sign-off on backup integrity before proceeding.
+*   **G4 (Implement):** Commit code + migration script. Base SHA pinned.
+*   **G5 (Verify):** Run full CI suite on exact SHA in staging. **Hard Gate:** Dashboard must serve without timeout under simulated peak load. Unit tests alone are insufficient; live staging verification required.
+*   **G6 (Review):** Independent Senior Engineer reviews code + migration logic. Security verifies no new vulnerabilities. QA signs off on staging receipt. Builder cannot self-approve.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected checks on final merge SHA.
+
+**Review Strategy**
+*   **Code:** Independent Senior Engineer (not the Builder).
+*   **Security:** Dedicated Security role or Lead Architect (supply chain check).
+*   **QA:** Independent verification of staging behavior against SLOs.
+*   **Migration:** Lead Architect reviews the irreversible schema change logic.
+
+**Landing & Human Decisions**
+*   **Merge:** Automated merge to staging branch upon G6 approval.
+*   **Deploy to Staging:** Requires human approval from Market Data Lead to trigger staging deployment post-merge.
+*   **Production Deploy:** **Dual Approval Required:** Lead Architect AND Compliance Officer. This is a hard regulatory gate; no automation bypasses this.
+*   **Rollback:** Since downgrading is impossible, rollback entails restoring the database from the pre-migration backup and redeploying the previous engine version. This procedure must be dry-run verified in G5.
+*   **Timing:** Configuration changes to `global-routes.json` must occur strictly within the approved maintenance window outside business hours.
+
+**Risk Mitigation**
+*   **Flaky Test:** Network latency check re-run capped at one retry; failure ignored only if build hash matches previous success.
+*   **Cost:** CI runs limited to essential gates; no speculative retries.
+*   **Irreversibility:** Backup verification is a mandatory pre-condition for G8 (Production Release).
+
+**Output Contract**
+Final delivery includes: Exact SHA, staging verification receipt (latency metrics), migration dry-run log, rollback procedure document, and explicit sign-offs from Architect and Compliance for production movement.

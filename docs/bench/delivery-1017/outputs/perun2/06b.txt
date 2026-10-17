@@ -1,0 +1,78 @@
+**G0 Intake**
+*Goal:* Cap daily LLM spend per department with senior-lead override; prevent surprise invoices before quarter-end.
+*Non-goals:* Changing role hierarchy definitions; altering data masking logic.
+*Appetite:* 3 days max. Hard stop 48 hours before quarter-end to allow rollback window.
+
+**G1 Spec**
+*Acceptance:*
+1. Configurable `daily_limit_usd` per `department_id` in `global_limits.json`.
+2. UI: Summary button disabled + "Limit Reached" tooltip when `current_spend >= limit` AND user is not `senior_lead`.
+3. Override: `senior_lead` bypasses block; action logged to audit trail.
+4. Cost: Zero external API calls made once limit hit (client-side gate).
+*Base SHA:* Pin current `main` head before any branch creation.
+
+**G2 Plan (Lanes & Budgets)**
+*Budget Cap:* $150 total (10 CI runs max). Per-lane cap: $45.
+*Lane A (Backend Logic) - Parallel:*
+- Modify claims service to read `daily_limit_usd` and track `current_spend` (cached value + local session buffer).
+- Implement hard gate: if limit hit, return 403 with `reason: "quota_exceeded"` unless `role == senior_lead`.
+- *Dependency:* None.
+*Lane B (UI/UX) - Parallel:*
+- Consume 403 state to disable button and render tooltip.
+- Implement override prompt for senior leads.
+- *Dependency:* None.
+*Lane C (Config & Ops) - Serialized after A/B merge:*
+- Draft `global_limits.json` schema update.
+- Prepare cluster restart runbook (12-min window).
+- *Dependency:* Requires A/B integrated to validate config consumption.
+
+**G3 Design**
+*ADR:* Cache consistency strategy. Since config caches for 4 hours, the "hard" limit has a 4-hour drift window.
+*Mitigation:* Local session tracking enforces immediate stop after the first call that breaches the limit within the session; absolute hard stop occurs at cache refresh. Document this drift in the tooltip ("Limit reached for current session").
+*Security:* Audit log entry mandatory for every override.
+
+**G4 Implement**
+*Work Packets:*
+- Lane A: Unit tests for quota logic (mocked spend). Commit to `feat/spend-cap-backend`.
+- Lane B: Component tests for button state. Commit to `feat/spend-cap-ui`.
+- Lane C: Staging config file update.
+
+**G5 Verify (Exact Revision)**
+*Pre-check:* `scripts/host_probe.py` to ensure no heavy lanes collide.
+*Execution:*
+1. Build both branches on exact merged SHA.
+2. Run unit/integration suite (Cost: $15/run). **Max 2 runs.**
+3. **UI Verification:** Headed browser test on `/claims/<id>` showing disabled state and tooltip.
+4. **Security Check:** Verify audit log writes on override.
+*Constraint:* Do not trigger full cluster restart in staging unless config schema validation passes locally.
+
+**G6 Review**
+*Independence:*
+- Backend reviewed by Senior Engineer (not Lane A author).
+- UI reviewed by Product Owner (visual acceptance).
+- Security reviewed by Security Lead (audit log verification).
+*Rubric:* Blocker if override bypasses audit log. High if tooltip missing.
+
+**G7 Integrate**
+*Merge:* Single PR combining A+B. Re-run affected tests on final SHA ($15).
+*Receipt:* Integration commit SHA + green CI badge.
+
+**G8 Release (Human Gate)**
+*Approvers Required:* Security Lead AND Finance Ops Manager (Dual approval per Zone-B policy).
+*Deploy Window:* Off-peak (to absorb 12-min restart).
+*Rollback Plan:*
+- **Code:** Revert merge (safe).
+- **Data/State:** Ledger close at midnight UTC is irreversible. If deployed post-midnight, cannot roll back financial state; must patch forward.
+- **Trigger:** If error rate > 1% or false-positive blocks > 5%, immediate revert.
+
+**G9 Production Verify**
+*Check:* Monitor `quota_exceeded` 403 count vs. API spend curve for 1 hour post-deploy.
+*SLO:* Spend must flatten once projected limit reached.
+
+**G10 Learn**
+*Retro:* Compare projected vs. actual spend drift due to 4-hour cache. Decide if real-time counter service is needed next quarter.
+
+**Risks & Mitigations**
+- *Flaky Health Check:* The 12-min restart triggers monitoring alerts. Pre-notify Ops to suppress alerts during the maintenance window.
+- *Cache Drift:* Explicitly communicate the 4-hour potential over-spend variance to Finance; this is a architectural constraint, not a bug.
+- *CI Cost:* Strict limit of 2 full pipeline runs. Local lint/type checks mandatory before push.

@@ -1,0 +1,33 @@
+**Delivery Plan: Cargo Weight Filter (G0–G10)**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Design):** Product Analyst defines the numeric range, default bounds, and interaction spec (slider behavior). Architect drafts the ADR for state preservation (zoom/region) during redraw. *Serialized:* Must complete before Lane B starts.
+*   **Lane B (Implementation):** Builder implements the slider component and connects it to the map density redraw logic in an isolated worktree. Includes unit tests for the filter logic. *Parallel:* Can run alongside Lane C once the spec (Lane A) is fixed.
+*   **Lane C (Visual Test Harness):** QA engineer scripts the automated visual snapshot sequence (adjust slider → verify map update → check for flicker/state loss) targeting supported desktop browsers. *Serialized:* Depends on Lane B's feature branch being ready for integration testing.
+*   **Lane D (Flake Mitigation):** QA prepares the manual verification protocol for the legacy browser container, to be executed only if the automated suite fails twice.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Analyst produces a testable spec with acceptance criteria. *Review:* Lead Analyst Jane Smith.
+*   **G3 (Design):** ADR confirms no regression on zoom/region state. *Review:* Telemetry Team Architect.
+*   **G4 (Build):** Code committed with unit tests. *Check:* Lint and type-check on the exact commit SHA.
+*   **G5 (Verify):**
+    *   Run visual regression suite on the exact integration SHA.
+    *   **Cost Control:** Trigger only one full browser suite ($45/22m). If it fails, re-run once. If it fails twice, execute Lane D (manual local verify) instead of a third CI run.
+    *   **Constraint:** Do not touch `map-config.json` during business hours; mock config for tests.
+*   **G6 (Review):** Independent review of code + visual receipts. *Reviewer:* Senior Engineer (not the Builder). *Approver:* Jane Smith (mandatory sign-off).
+
+**3. Review Strategy**
+*   **Code:** Reviewed by a peer independent of the Builder.
+*   **Visual/Functional:** Verified by QA using the exact revision SHA. The Builder does not self-verify the visual outcome.
+*   **Security/Privacy:** Quick scan to ensure the weight filter does not expose unauthorized shipment data ranges.
+
+**4. Landing & Human Decisions**
+*   **Integration:** Merge Lane B and C results into a temporary integration branch. Run a final "smoke test" build on this exact SHA to confirm no merge conflicts affect the map logic.
+*   **Human Gate (G8):** Jane Smith must explicitly approve the merge to the main branch. The deployment is irreversible without a full database rollback; therefore, the merge *is* the deploy trigger.
+*   **Rollback Plan:** Since production deploys are irreversible via simple revert, a pre-calculated database rollback script must be staged and verified (dry-run) before the merge button is clicked. If the map fails post-deploy, execute the DB rollback immediately.
+*   **Timing:** Schedule the merge outside of business hours to avoid contention on `map-config.json` and to allow immediate manual intervention if the legacy browser flake manifests in production.
+
+**5. Risk Controls**
+*   **Flake Handling:** Automated visual check failure count is tracked. Two failures trigger an immediate switch to manual verification to prevent budget waste.
+*   **State Preservation:** The primary acceptance criterion is the preservation of zoom/region. If the map resets on filter change, the build fails G5.
+*   **Audit Readiness:** Visual snapshots serving as proof of compliance are archived as build artifacts linked to the final merge commit.

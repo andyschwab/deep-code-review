@@ -1,0 +1,45 @@
+### Delivery Plan: Daily LLM Spend Cap
+
+**Objective:** Enforce a $450 daily hard cap on external LLM calls with user-facing feedback, live before Tuesday's marketing blast.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Data & Schema):** Implement the irreversible database migration to track daily counts.
+    *   *Worker:* Senior Backend Engineer.
+    *   *Constraint:* Must run first. Cannot be parallelized with logic changes due to schema dependency.
+*   **Lane B (Logic Implementation):** Modify `parser-service` to check the counter before calling the external API. Implement the "try again tomorrow" user message.
+    *   *Worker:* Backend Developer.
+    *   *Dependency:* Waits for Lane A's migration script approval (not execution).
+*   **Lane C (Test Optimization):** Refactor the CI pipeline to skip historical dataset re-processing for this specific feature flag, targeting only the new counter logic.
+    *   *Worker:* DevOps Engineer.
+    *   *Parallel:* Can run alongside Lane B.
+*   **Lane D (Staging Verification):** Since the staging mock API does not increment counters, create a manual integration test script that simulates the counter hitting the limit against a localized production mirror or by mocking the DB layer directly.
+    *   *Worker:* QA Engineer.
+    *   *Dependency:* Waits for Lane B code completion.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Confirm the exact error message text with Customer Support lead to prevent ticket flooding.
+*   **G3 Design Review:** Marcus Thorne (Lead Architect) must approve the irreversible migration schema and the logic flow for the hard stop.
+*   **G4 Implementation:** Code committed to isolated worktrees. Lane B must include unit tests mocking the *exceeded* quota state.
+*   **G5 Verification (Critical):**
+    *   *Revision:* Exact SHA of Lane B + Lane A migration.
+    *   *Action:* Run the custom integration script (Lane D) to prove the UI shows the friendly message when the DB count > $450 equivalent. Standard unit tests are insufficient due to the staging mock limitation.
+    *   *CI Check:* Run the optimized pipeline (Lane C) to ensure green status within 10 minutes, avoiding the 28-minute historical regression.
+*   **G6 Security/Cost Review:** Independent review by a Senior Engineer (not the implementer) to verify the check occurs *before* the external call token is consumed.
+
+#### 3. Review Strategy
+*   **Code Review:** Peer review of Lane B by a Senior Engineer independent of the author. Focus: Race conditions in counter increment and correct error messaging.
+*   **Architecture Review:** Marcus Thorne reviews the migration (Lane A) and the integration point.
+*   **QA Sign-off:** QA Engineer verifies the "friendly message" visibility and the hard stop behavior via the custom script.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A (Migration) to `main` only after Marcus Thorne's explicit approval during business hours.
+    2.  Merge Lane B (Logic) and Lane C (CI) into a release branch.
+    3.  Final integration check on the release branch SHA.
+*   **Human Decision Required:** Marcus Thorne must approve the final merge to `main` and the production deployment. No automated merge to `main` is permitted.
+*   **Deployment:** Deploy behind a feature flag initially, then enable globally once the flag is confirmed active in production logs.
+*   **Rollback Plan:**
+    *   *Logic:* Instant rollback via feature flag toggle.
+    *   *Schema:* The migration is irreversible. If the logic fails, the system must degrade gracefully (e.g., allow requests but log warnings) rather than attempting a schema revert. A patch to bypass the check logic is the only recovery path for the schema.
+
+**Timeline:** All lanes must complete G5 verification by Monday EOD to allow Marcus Thorne to approve the Tuesday morning merge before the email blast.

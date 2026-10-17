@@ -1,0 +1,60 @@
+**Delivery Plan: Restore Checkout Latency to Baseline**
+
+**Objective:** Reduce checkout completion time from 3.8s to <1.5s.
+**Constraint:** Zero production deployment until synthetic benchmarks prove success. CI window 02:00–04:00 local.
+
+### 1. Lanes & Serialization
+
+*   **Lane A: Diagnosis & Hypothesis (Serial Start)**
+    *   **Actor:** Builder + Product Analyst.
+    *   **Work:** Analyze recent content update diffs in `ledger-service`. Identify candidate DB queries or asset sequences. Formulate specific hypotheses (e.g., "Missing index on X," "N+1 query in Y").
+    *   **Output:** Ranked list of suspects with proposed fixes.
+    *   **Dependency:** None. Must complete before Lane B.
+
+*   **Lane B: Local Verification & Benchmark Setup (Parallel to A after initial hypothesis)**
+    *   **Actor:** QA + Builder.
+    *   **Work:** Configure local staging with production-volume data snapshot. Script the synthetic traffic generator to run a 5-minute baseline test locally. Validate that the mock payment gateway timeout noise is filtered out in metrics.
+    *   **Output:** A reproducible local script `scripts/benchmark_checkout.sh` that fails on current code (showing ~3.8s) and passes on a known good historical commit (showing ~1.2s).
+    *   **Dependency:** Requires Lane A's suspect list to focus traffic generation on relevant paths.
+
+*   **Lane C: Fix Implementation (Serial after A)**
+    *   **Actor:** Builder (different worktree than QA).
+    *   **Work:** Implement fixes for top suspects one by one. If schema changes are required, dry-run migration locally first (irreversible constraint).
+    *   **Output:** Patch commits.
+    *   **Dependency:** Lane A complete.
+
+*   **Lane D: Formal CI Load Test (Serial, Time-Gated)**
+    *   **Actor:** CI System (Triggered by Conductor).
+    *   **Work:** Execute `scripts/benchmark_checkout.sh` on the exact integration SHA during the 02:00–04:00 window.
+    *   **Output:** Signed performance receipt showing average latency <1.5s.
+    *   **Dependency:** Lane C complete. Must wait for the specific time window.
+
+### 2. Gates & Checks
+
+*   **G1 Spec:** Define "Baseline" explicitly as <1.5s average over 1,000 synthetic transactions. Pin base SHA to the commit immediately preceding yesterday's content update.
+*   **G3 Design:** If a schema migration is proposed, the ADR must include the local dry-run log proving reversibility/safety before merge.
+*   **G5 Verify (Local):** Builder runs `scripts/benchmark_checkout.sh` on the fix branch. **Gate Condition:** Local average <1.4s (buffer for CI variance). If the mock gateway times out, the test must retry automatically; persistent failure blocks G5.
+*   **G5 Verify (CI):** The 02:00–04:00 job runs the same script on the exact merge-target SHA. **Gate Condition:** Hard fail if avg >1.5s. No "flaky" passes allowed.
+*   **G6 Review:**
+    *   **Code Review:** Senior Engineer (independent of Builder) reviews logic and migration safety.
+    *   **Performance Review:** SRE Lead validates the CI load test receipt and ensures the synthetic generator correctly isolated the mock gateway noise.
+
+### 3. Landing & Human Decisions
+
+*   **Integration:** Once G6 is green, the Conductor prepares a merge train entry.
+*   **Human Gate (Dual Approval):**
+    *   **Trigger:** Merge to `main` (which triggers production deployment).
+    *   **Approvers:** Site Reliability Lead AND Product Owner.
+    *   **Evidence Required:** The G6 Performance Receipt (CI log) and the G3 Schema Dry-run Log (if applicable).
+    *   **Decision:** Explicit "Approve Deploy" signal from both. No auto-merge.
+*   **Rollback Plan:**
+    *   **Pre-condition:** Before human approval, the Conductor verifies the previous known-good SHA is tagged and deployable.
+    *   **Action:** If post-deploy monitoring (first 15 mins) shows latency >1.5s or error rate spike, the SRE Lead executes an immediate revert to the pre-content-update SHA.
+    *   **Constraint:** Since schema migrations are irreversible, if the fix involved schema changes and rollback is needed, a forward-fix migration must be ready, not a revert. This risk must be explicitly acknowledged by the Product Owner in the G8 approval.
+
+**Execution Rhythm:**
+1.  Diagnose (Lane A) & Script (Lane B) immediately.
+2.  Implement (Lane C) upon hypothesis confirmation.
+3.  Hold at G5 until 02:00 local time.
+4.  Run CI Load Test (Lane D).
+5.  Present receipts to Approvers for G8 decision.

@@ -1,0 +1,42 @@
+### Delivery Plan: Pediatric Syrup Configuration Update
+
+**Lanes & Parallelism**
+Three lanes launch simultaneously from the current `main` HEAD (SHA: `abc123...`), each in an isolated worktree to prevent merge collisions on the shared specification file.
+
+*   **Lane 1 (Dosage):** Updates cherry flavor max daily dose (15ml → 12ml) in the product specification.
+*   **Lane 2 (Storage):** Updates storage instruction text to include refrigeration requirement in the product specification.
+*   **Lane 3 (Allergen):** Adds soy lecithin warning to the separate compliance manifest.
+
+**Serialization:** Lanes 1 and 2 target the same file. While they start in parallel worktrees, their integration is serialized. Lane 1 merges first; Lane 2 rebases onto Lane 1's commit before integration to ensure no overwrite occurs. Lane 3 is fully independent.
+
+**Gates & Checks**
+*   **G1 Spec (Immediate):** Verify the "medical directive" values (12ml, refrigeration, soy) against the ticket description. Since no external file access exists, the requester must confirm these values match the directive explicitly before code changes proceed.
+*   **G4 Implement:** Each lane produces a single commit with a test snapshot of the modified JSON/YAML structure.
+*   **G5 Verify (Local):** Syntax validation runs locally for each lane before any remote push. This prevents triggering the 18-minute CI pipeline on syntax errors.
+*   **G6 Review (Independent):**
+    *   *Reviewer A (QA Lead):* Validates syntax and cross-references ingredient codes for all three lanes.
+    *   *Reviewer B (Medical Formulator):* Independently verifies the 12ml dose and allergen text against the medical directive.
+    *   *Constraint:* Reviews occur on the **exact final integrated SHA**, not individual branch heads.
+*   **G7 Integrate:** A dedicated integration branch is created. Lanes 1 and 2 are stacked; Lane 3 is merged. The full 18-minute CI validation runs **once** on this final integrated SHA.
+
+**Landing & Human Gates**
+*   **Merge Strategy:** The integrated branch is merged via a Pull Request.
+*   **Human Approval (G8):** Deployment is **blocked** until dual approval is recorded in the PR comments from:
+    1.  Quality Assurance Lead
+    2.  Chief Medical Officer
+*   **Deployment Window:** Merge occurs only after approvals are received, ideally before Tuesday's audit.
+*   **Irreversibility Warning:** Once merged to the deployment branch, the labeling printer interface triggers an immediate physical reprint. This is the point of no return.
+
+**Rollback Plan**
+*   **Pre-Merge:** If CI fails or review rejects, close the PR. No physical impact.
+*   **Post-Merge (Critical):** Since physical tags are printed instantly, a git revert is insufficient.
+    *   *Action:* Immediate manual halt of the warehouse tagging line.
+    *   *Correction:* A "hotfix" lane must be prepared *now* (draft PR) with the correct values, ready for emergency dual-approval and re-printing if the initial values are found erroneous post-deployment.
+    *   *Residual Risk:* Misprinted tags already applied to stock must be manually quarantined and destroyed; this cost is unrecoverable via software.
+
+**Cost Control**
+*   The 18-minute CI run is triggered only once on the final integrated SHA. Local syntax checks prevent wasted compute credits on malformed data.
+*   No "dry runs" against the government database are possible locally; the single CI run serves as the definitive validation.
+
+**Next Step for Requester**
+Please confirm explicitly: "The values 12ml, 'refrigerate after opening', and 'soy lecithin' match the attached medical directive." Upon confirmation, execution begins.
