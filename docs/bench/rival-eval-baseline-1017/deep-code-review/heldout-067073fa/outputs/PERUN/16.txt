@@ -1,0 +1,40 @@
+Based on the provided patch, here is the code review:
+
+### 1. Critical Logic Error: Unsetting Undeclared Variables
+**File:** `lib/bats-core/test_functions.bash`
+**Hunk:** Line 351 (`unset output stderr lines stderr_lines`)
+
+**Why it is wrong:**
+The patch adds `lines` and `stderr_lines` to the `unset` command, but these variables are not declared as `local` within the `run()` function scope shown in the context, nor are they guaranteed to exist in the parent scope at this specific execution point.
+In Bash, `unset` on a variable that does not exist is generally silent, **unless** `set -u` (nounset) is enabled. If the test suite or the harness runs with `set -u`, this line will cause the script to terminate immediately with an "unbound variable" error before the command under test ever executes.
+Furthermore, if `lines` or `stderr_lines` were intended to be output arrays populated by the `run` command later in the function, unsetting them *before* the command runs is correct for isolation, but only if they are guaranteed to be re-populated. If the command fails early or is skipped, these variables remain unset, potentially causing downstream test assertions relying on them to fail cryptically or crash under `set -u`.
+The original code only unset `output` and `stderr`. Expanding this to `lines` and `stderr_lines` suggests a refactoring of the return values, but without seeing the subsequent logic that populates them, this `unset` introduces a high risk of breaking existing tests that expect these variables to persist from a previous scope or that run in strict mode.
+
+**Fix:**
+Ensure these variables are safely initialized or checked before unsetting if strict mode is active, or verify they are declared locally at the start of the function. If they are new return values, they must be declared `local` at the function entry to avoid leaking state or triggering `set -u` errors if the function exits early.
+
+```bash
+# Recommended fix pattern
+local -a lines=() stderr_lines=() # Initialize safely at function start
+# ... later ...
+unset output stderr lines stderr_lines # Now safe to unset as they are known locals
+```
+
+If `local` declaration is not possible at the top, guard the unset:
+```bash
+unset output stderr
+[[ -v lines ]] && unset lines
+[[ -v stderr_lines ]] && unset stderr_lines
+```
+
+### 2. Potential State Leakage (High)
+**File:** `lib/bats-core/test_functions.bash`
+**Hunk:** Line 351
+
+**Why it is wrong:**
+The `run` function is a core utility used in almost every test case. It relies on global state (`output`, `stderr`, and now potentially `lines`, `stderr_lines`) to pass results back to the caller.
+By unsetting `lines` and `stderr_lines`, the patch assumes these are the *only* variables used for line-array output. If any existing tests or helper functions rely on `lines` or `stderr_lines` persisting across multiple `run` calls within the same test (a common pattern for diffing outputs), this change breaks that behavior by clearing them prematurely.
+While unsetting `output` and `stderr` was the established pattern, extending it to array variables changes the contract of the `run` function. If a test calls `run` twice and compares the `lines` array from the first call with the second, the first call's data is now destroyed before the second call begins, whereas previously, if `lines` wasn't explicitly unset, it might have persisted (depending on prior implementation). This change enforces isolation but breaks any test relying on accumulation or previous-state comparison without explicit copying.
+
+**Fix:**
+Document this breaking change in the release notes. If backward compatibility is required, do not unset these variables unless they are explicitly re-initialized immediately after. Ensure the subsequent code in the function (not shown) robustly re-populates these arrays in all code paths, including failure paths, to prevent "dangling unset" states.

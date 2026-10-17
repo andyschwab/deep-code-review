@@ -1,0 +1,45 @@
+### Delivery Plan: Safe Connection Pool Rollout
+
+**G0/G1: Scope & Spec**
+*   **Goal:** Increase `config/app_defaults.yaml` pool size from 20 to 50.
+*   **Constraint:** Prevent `src/batch_runner.js` crash due to implicit dependency on the old default.
+*   **Non-Goal:** Refactoring batch jobs to explicitly set env vars (out of scope for this rush).
+*   **Acceptance:** Nightly sync (1.2M records) completes successfully under high load in staging; zero connection exhaustion errors in production post-deploy.
+
+**G2: Plan (Work Graph)**
+1.  **Lane A (Discovery):** Static analysis scan of `src/` to identify all processes inheriting `app_defaults.yaml` without explicit overrides. Output: Dependency map.
+2.  **Lane B (Implementation):** Update `config/app_defaults.yaml` (20 → 50). Add explicit override in `src/batch_runner.js` config loader *only if* Lane A confirms implicit reliance, or implement a temporary safeguard flag.
+3.  **Lane C (Verification - Staging):**
+    *   Deploy to staging.
+    *   Execute `yarn test-all` (mandatory, no skipping).
+    *   **Marcus's Gate:** Run high-load simulation against the batch runner in staging. Verify connection count stays < 50 and throughput handles 1.2M records.
+4.  **Lane D (Release):** Canary deploy to 10% production traffic; monitor DB connection metrics for 1 hour before full rollout.
+
+**G3: Design Decisions**
+*   **Safeguard:** If Lane A finds implicit dependencies, the code change will include a defensive check in `batch_runner.js` to log a warning if the pool size is not explicitly overridden, ensuring visibility.
+*   **Test Strategy:** The 15-minute integration test is a hard gate. It will run in parallel with Lane A to save time, but merge is blocked until it passes.
+
+**G4/G5: Execution & Verification Steps**
+1.  **Run Discovery:** Grep/AST scan for `pool_size` usage. Identify services lacking `PROCESS_POOL_SIZE` env vars.
+2.  **Apply Change:** Modify YAML. If needed, patch `batch_runner.js` to force a safe minimum or explicit read.
+3.  **Staging Verification:**
+    *   Trigger `yarn test-all`.
+    *   Execute load script: Simulate holiday traffic volume.
+    *   **Success Criteria:** DB connections active ≤ 45 (headroom), zero "connection timeout" logs, 1.2M records processed within SLA.
+4.  **Handback:** Provide Marcus with the load test logs and connection pool graph.
+
+**G6: Review**
+*   Independent review of the dependency map and the load test results.
+*   Security check: Ensure new pool limit doesn't exceed DB max_connections.
+
+**G7/G8: Integration & Release**
+*   Merge only after Marcus approves the staging load test receipt.
+*   Deploy via canary; automatic rollback if error rate > 0.1%.
+
+**Timeline:**
+*   **Wed EOD:** Lanes A, B, C complete. Staging verification done.
+*   **Thu 10:00:** Marcus review.
+*   **Thu 12:00:** Final approval and merge ready.
+
+**Note:** Do not proceed without the explicit "PASS" receipt from the 15-minute integration test; unit tests alone are insufficient for DB pool changes.
+**Note:** If the load test fails, the fallback is to revert the YAML change and scale the batch runner horizontally instead of increasing pool size.

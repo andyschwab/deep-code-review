@@ -1,0 +1,40 @@
+# Implementation Plan: Strict Email Validation for Signup Handlers
+
+## 1. Validation Logic Definition
+Implement a two-stage validation process in `src/signup_handler.go`:
+- **Syntax Check:** Use a compiled regular expression compliant with RFC 5322 (simplified for practical use) to validate email structure. This pattern must support valid edge cases like quoted local parts and subdomains while rejecting common invalid formats.
+- **Disposable Domain Check:** Integrate a lightweight, in-memory allowlist/blocklist mechanism. Load a curated list of known disposable email domains from a static asset embedded at compile time (using Go's `embed` package) to avoid external network dependencies during signup. Check the domain part of the email against this blocklist.
+
+## 2. Handler Refactoring and Propagation
+- **Extract Shared Logic:** Create a new internal package `internal/validation` containing a public function `ValidateEmail(email string) error`. This function encapsulates both the regex and disposable domain checks.
+- **Refactor Primary Handler:** Update `src/signup_handler.go` to call `validation.ValidateEmail` before processing registration. If validation fails, return a specific `400 Bad Request` with a generic error message ("Invalid email address") to avoid leaking validation rules to users.
+- **Propagate to Microservices:** Identify the three other microservices copying this handler. Apply the same refactoring pattern:
+    1. Import the shared `internal/validation` package (or copy the logic if strict module boundaries prevent sharing, though sharing is preferred for consistency).
+    2. Replace their inline email checks with calls to the shared validation function.
+    3. Ensure error handling matches the primary handler's response format.
+
+## 3. Logging Compliance
+- Implement structured logging for every rejected attempt. In the error branch of the validation check, log a warning-level event containing:
+    - Timestamp
+    - IP address (from request context)
+    - The rejected email string (hashed or truncated if privacy policies require, otherwise plain text as per David's requirement)
+    - Reason for rejection ("invalid_syntax" or "disposable_domain")
+- Ensure logs are routed to the central logging aggregator used by the compliance team.
+
+## 4. Test Strategy
+- **Update Existing Test:** Modify `tests/test_signup.go` to enforce the new strict rules. Remove any assertions that previously accepted invalid emails. Add specific test cases for:
+    - Valid complex emails (e.g., `user+tag@sub.domain.co.uk`, `"quoted"@example.com`) to ensure they pass.
+    - Invalid syntax (e.g., missing `@`, invalid characters) to ensure they fail.
+    - Known disposable domains to ensure they fail.
+- **Verification of False Positives:** Create a separate verification script or test suite that runs against a curated dataset of 1,000+ known valid email addresses (including edge cases from RFC lists). Run this dataset through the `ValidateEmail` function. The plan requires 100% acceptance of this valid set before merging. Any false rejection triggers an immediate review of the regex pattern.
+
+## 5. Execution Timeline
+- **Day 1:** Define regex pattern and compile disposable domain list. Extract validation logic into `internal/validation`.
+- **Day 2:** Refactor `src/signup_handler.go` and implement logging. Update `tests/test_signup.go`.
+- **Day 3:** Propagate changes to the three other microservices. Run full test suite (`go test ./...`).
+- **Day 4 (Morning):** Run the false-positive verification suite against the valid email dataset. Adjust regex if necessary.
+- **Day 4 (Afternoon):** Final code review with compliance officer (David) to verify logging output.
+- **Day 5 (Friday AM):** Deploy to staging for final integration testing.
+- **Friday 4 PM:** Deadline for production deployment.
+
+This plan ensures consistent validation across all services, meets compliance logging requirements, and rigorously prevents blocking legitimate users through dataset verification.

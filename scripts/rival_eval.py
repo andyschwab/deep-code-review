@@ -1,0 +1,462 @@
+#!/usr/bin/env python3
+"""Standing rival harness: scores each Perun skill against its strongest public rival so superiority is a number.
+
+usage: rival_eval.py run [--skills a,b | --changed [BASE]] [--split heldout|tune] [--gen pcss|claude]
+                         [--out DIR] [--jobs N] [--cap USD] [--total-cap USD]
+       rival_eval.py write SKILL SPLIT      (draw a scenario set from the skill's writer brief; never shows skill text)
+       rival_eval.py changed [BASE]         (print the skills a diff touches)
+       rival_eval.py check [SKILL ...]      (split hygiene only; offline)
+
+Per skill: Perun arm = the skill's SKILL.md as a system prompt; rival arm = the rival's public text; both answer the same
+scenarios with no tools. A blind pairwise judge with no rubric picks the better answer, in both orders. The default judge
+is DeepSeek-V4-Flash; a scenario counts as a win or loss only when both orders agree, else it is a tie (0.5). A judge whose
+slot-1 rate (share of non-tie picks that chose Response 1) leaves 0.4-0.6 is dropped and GLM-5.2 judges instead; when both are
+biased the skill gets no verdict. The generator is never a judge. Each judge's slot-1 rate is reported as a health metric.
+Output per skill: win rate, bootstrap 95% CI (10,000 resamples, seed 1, over scenarios), PASS only if the lower bound
+is above 0.5, and cost. The default generator and judges are PCSS models (free, $0); `--gen claude` is opt-in, one probe call
+first, aborts when plan-quota utilization is at or above 0.8, and is capped per skill run (--cap) and in total.
+The PCSS key comes from PCSS_KEY or a repo-root .env (never printed, never an argument). Only the PCSS host and, with
+--gen claude, the Claude API are contacted; rival texts are fetched once from the URL in rival.json and cached.
+Tune sets are for tuning a skill and never produce a verdict; only the frozen held-out set does.
+"""
+import argparse
+import concurrent.futures as cf
+import hashlib
+import json
+import os
+import random
+import re
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+FIX = ROOT / "scripts/eval-fixtures/rival"
+PCSS = "https://llm.hpc.psnc.pl/v1"
+GEN_MODEL, JUDGE_MODEL, TIE_MODEL = "Qwen3.5-397B-A17B", "DeepSeek-V4-Flash", "GLM-5.2"  # TIE_MODEL = fallback judge
+JUDGES = (JUDGE_MODEL, TIE_MODEL)  # tried in order; the first with a healthy slot-1 rate scores a skill
+SLOT1_OK = (0.4, 0.6)  # a judge whose share of "Response 1" picks leaves this band is position-biased and dropped
+CLAUDE_MODEL, QUOTA_STOP = "haiku", 0.8
+MIN_HELDOUT, MIN_TUNE = 10, 5
+ARMS = ("PERUN", "RIVAL")
+GEN_TASK = ("Respond to the request below as the assistant the requester has asked for help. You have no tools, no "
+            "network and no files: do not claim to have checked or run anything, and use only the facts given. Keep "
+            "your whole answer under 600 words. Put the deliverable first; add at most two short lines of note after "
+            "it, and only if essential. Do not describe which skills, rules or frameworks you are using.\n\nREQUEST:\n")
+JUDGE_SYSTEM = ("You are an impartial judge. Two assistants (Response 1 and Response 2) answered the same request from a "
+                "working professional. You do not know which system wrote which. Decide which response you would rather "
+                "receive if you were the requester: the one that would best help you make the right call or do the work "
+                "with the fewest follow-up questions, given the situation described. Do not prefer a response for length, "
+                "formatting or tone. No checklist is provided; use your own judgement.\n\n"
+                'Output only JSON: {"verdict": "1" or "2" or "tie", "reason": "<one sentence>"}')
+
+
+class Stop(Exception):
+    """Cap reached or quota too high: the run ends and reports what it has."""
+
+
+class State:
+    def __init__(self, cap):
+        self.cap, self.spent, self.util, self.lock = cap, 0.0, 0.0, threading.Lock()
+
+
+def sha(b):
+    return hashlib.sha256(b if isinstance(b, bytes) else b.encode()).hexdigest()
+
+
+def load_key():
+    """PCSS_KEY from the environment, else the first repo-root .env (this checkout, then the main checkout of a worktree)."""
+    if os.environ.get("PCSS_KEY"):
+        return os.environ["PCSS_KEY"]
+    cands = [ROOT / ".env"]
+    if os.environ.get("PCSS_ENV_FILE"):  # explicit override: search only this file
+        cands = [Path(os.environ["PCSS_ENV_FILE"])]
+    else:
+        common = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--git-common-dir"], capture_output=True, text=True).stdout.strip()
+        if common:
+            cands.append((ROOT / common).resolve().parent / ".env")
+    for p in cands:
+        if p.is_file():
+            m = re.search(r"^\s*(?:export\s+)?PCSS_KEY\s*=\s*['\"]?([^'\"\s]+)", p.read_text(), re.M)
+            if m:
+                return m.group(1)
+    raise SystemExit("PCSS_KEY missing: set it in the environment or in the repo-root .env")
+
+
+def chat(model, system, user, max_tokens=6000, temperature=0.0, tries=3):
+    """One PCSS chat completion -> text with any <think> block removed. Raises RuntimeError after `tries` failures."""
+    req_body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                "max_tokens": max_tokens, "temperature": temperature}
+    if model in (GEN_MODEL, TIE_MODEL):  # non-thinking mode: ~15x faster; the fallback judge answers a rubric-free A/B directly
+        req_body["chat_template_kwargs"] = {"enable_thinking": False}
+    body = json.dumps(req_body).encode()
+    err = ""
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(PCSS + "/chat/completions", body, {"Authorization": "Bearer " + load_key(), "Content-Type": "application/json"})
+            txt = json.load(urllib.request.urlopen(req, timeout=600))["choices"][0]["message"]["content"] or ""
+            txt = re.sub(r"<think>.*?</think>", "", txt, flags=re.S).strip()
+            if txt:
+                return txt
+            err = "empty output"
+        except Exception as e:  # network, HTTP, JSON shape: retry then report the type only (never the key)
+            err = type(e).__name__
+        time.sleep(2 * (i + 1))
+    raise RuntimeError(f"{model}: {err}")
+
+
+def claude_call(system, user, st, reserve=0.10):
+    """One claude -p call, no tools -> text. Checks the per-run cap before and plan-quota utilization after."""
+    with st.lock:
+        if st.util >= QUOTA_STOP:
+            raise Stop(f"plan quota utilization {st.util:.2f} >= {QUOTA_STOP}")
+        if st.spent + reserve > st.cap:
+            raise Stop(f"cap ${st.cap} reached: spent {st.spent:.3f}")
+    cmd = ["claude", "-p", "--model", CLAUDE_MODEL, "--output-format", "stream-json", "--verbose", "--tools", "",
+           "--no-session-persistence", "--setting-sources", "project,local", "--strict-mcp-config", "--disable-slash-commands",
+           "--max-budget-usd", str(reserve), "--system-prompt", system]
+    with tempfile.TemporaryDirectory(prefix="rival-") as w:
+        p = subprocess.run(cmd, input=user, capture_output=True, text=True, cwd=w, timeout=900)
+    txt, cost, util = "", 0.0, 0.0
+    for line in p.stdout.splitlines():
+        try:
+            j = json.loads(line)
+        except ValueError:
+            continue
+        if j.get("type") == "rate_limit_event":
+            ws = (j.get("rate_limit_info") or {}).get("unifiedWindows") or {}
+            util = max([util] + [float(v.get("utilization") or 0) for v in ws.values()])
+        elif j.get("type") == "result":
+            txt, cost = j.get("result") or "", float(j.get("total_cost_usd") or 0)
+    with st.lock:
+        st.spent += cost
+        st.util = max(st.util, util)
+    if not txt.strip():
+        raise RuntimeError("claude: empty output")
+    return txt
+
+
+def generate(backend, system, user, st):
+    return claude_call(system, user, st) if backend == "claude" else chat(GEN_MODEL, system, user, temperature=0.3)
+
+
+def boot(vals, n=10000, seed=1):
+    """Percentile bootstrap 95% CI of the mean of per-scenario scores."""
+    rng, m = random.Random(seed), len(vals)
+    bs = sorted(sum(vals[rng.randrange(m)] for _ in range(m)) / m for _ in range(n))
+    return bs[int(0.025 * n)], bs[int(0.975 * n) - 1]
+
+
+def order_score(verdict, first):
+    """Perun's score for one judged order: first/second = the arm shown as Response 1/2."""
+    if verdict == "tie":
+        return 0.5
+    win = first if verdict == "1" else "RIVAL" if first == "PERUN" else "PERUN"
+    return 1.0 if win == "PERUN" else 0.0
+
+
+def scenario_score(orders):
+    """1 only when Perun wins both orders, 0 only when it loses both; any split or tie is 0.5."""
+    return orders[0] if len(set(orders)) == 1 and orders[0] in (0.0, 1.0) else 0.5
+
+
+def slot1_rate(verdicts):
+    """Share of non-tie verdicts that picked Response 1 (None with no decisive verdict): position-bias health metric."""
+    v = [x for x in verdicts if x in ("1", "2")]
+    return v.count("1") / len(v) if v else None
+
+
+def jparse(txt):
+    s = txt.strip()
+    for o, c in (("[", "]"), ("{", "}")):
+        if o in s and c in s:
+            try:
+                return json.loads(s[s.index(o): s.rindex(c) + 1])
+            except ValueError:
+                pass
+    out, i, dec = [], 0, json.JSONDecoder()  # a writer that drops the outer brackets: objects back to back
+    try:
+        while i < len(s):
+            if s[i] != "{":  # skip separators and stray seed numbers between objects
+                i += 1
+                continue
+            o, i = dec.raw_decode(s, i)
+            out.append(o)
+    except ValueError:
+        return None
+    return out or None
+
+
+def config(skill):
+    return json.loads((FIX / skill / "rival.json").read_text())
+
+
+def skills():
+    return sorted(p.name for p in FIX.iterdir() if (p / "rival.json").is_file())
+
+
+def load_scenarios(skill, split):
+    """-> [{"id", "prompt"}]; a scenario with a "file" field takes the file's text as its prompt (review patches)."""
+    out = []
+    for s in json.loads((FIX / skill / f"{split}.json").read_text()):
+        if "file" in s:
+            s = {"id": s["id"], "prompt": "Review this patch and report what is wrong with it:\n\n" + (ROOT / s["file"]).read_text()}
+        out.append(s)
+    return out
+
+
+def norm(t):
+    return re.sub(r"\W+", " ", t.lower()).strip()
+
+
+def shingles(t, k=6):
+    w = norm(t).split()
+    return {" ".join(w[i:i + k]) for i in range(max(1, len(w) - k + 1))}
+
+
+def check_split(skill):
+    """Split-hygiene problems for one skill (empty list = clean). Held-out must be frozen, disjoint from tune and big enough."""
+    cfg, bad = config(skill), []
+    held, tune = load_scenarios(skill, "heldout"), load_scenarios(skill, "tune")
+    if sha((FIX / skill / "heldout.json").read_bytes()) != cfg.get("heldout_sha256"):
+        bad.append("heldout.json changed without updating heldout_sha256 in rival.json")
+    if len(held) < MIN_HELDOUT:
+        bad.append(f"heldout n={len(held)} < {MIN_HELDOUT}")
+    if len(tune) < MIN_TUNE:
+        bad.append(f"tune n={len(tune)} < {MIN_TUNE}")
+    for name, s in (("heldout", held), ("tune", tune)):
+        if len({x["id"] for x in s}) != len(s):
+            bad.append(f"{name} has duplicate ids")
+        if len({norm(x["prompt"]) for x in s}) != len(s):
+            bad.append(f"{name} has duplicate prompts")
+    if {x["id"] for x in held} & {x["id"] for x in tune}:
+        bad.append("heldout and tune share an id")
+    tsh = [shingles(x["prompt"]) for x in tune]
+    for h in held:
+        hs = shingles(h["prompt"])
+        if any(len(hs & t) / max(1, min(len(hs), len(t))) > 0.5 for t in tsh):
+            bad.append(f"heldout {h['id']} overlaps a tune prompt by more than half")
+    return bad
+
+
+def arm_text(skill, arm):
+    cfg = config(skill)
+    if arm == "PERUN":
+        return (ROOT / cfg["perun"]).read_text()
+    r = cfg["rival"]
+    if "path" in r:
+        return (ROOT / r["path"]).read_text()
+    cache = Path(os.environ.get("RIVAL_CACHE", Path.home() / ".cache/perun-rival")) / (sha(r["url"])[:16] + ".md")
+    if not cache.exists():
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(urllib.request.urlopen(r["url"], timeout=60).read())
+    return cache.read_text()
+
+
+def save(p, text):
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(x.rstrip() for x in text.splitlines()) + "\n")
+
+
+def judge_one(model, sc, a_arm, b_arm, d, outs):
+    """Cached judge call -> raw verdict ("1", "2", "tie") for this order, or None when the model gave no usable verdict."""
+    p = d / "judge" / model / f"{a_arm}__{b_arm}" / f"{sc['id']}.json"
+    if not p.exists():
+        a, b = outs[a_arm][sc["id"]], outs[b_arm][sc["id"]]
+        user = f"REQUEST:\n{sc['prompt']}\n\n=== Response 1 ===\n{a}\n\n=== Response 2 ===\n{b}\n"
+        for _ in range(2):
+            try:
+                j = jparse(chat(model, JUDGE_SYSTEM, user, max_tokens=3000))
+            except RuntimeError:
+                continue
+            if isinstance(j, dict) and j.get("verdict") in ("1", "2", "tie"):
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps({"verdict": j["verdict"], "reason": str(j.get("reason", ""))}, indent=1) + "\n")
+                break
+        else:
+            return None
+    return json.loads(p.read_text())["verdict"]
+
+
+def run_skill(skill, split, backend, out, jobs, cap):
+    """Generate both arms, judge, score. Returns the result dict (also written to <dir>/results.json)."""
+    assert GEN_MODEL not in JUDGES, "judge must differ from the generator"
+    if split == "heldout":
+        bad = check_split(skill)
+        if bad:
+            raise SystemExit(f"{skill}: split hygiene failed (fail closed): " + "; ".join(bad))
+    cfg, scs, st = config(skill), load_scenarios(skill, split), State(cap)
+    gen_task = (ROOT / cfg["gen_task"]).read_text() if "gen_task" in cfg else GEN_TASK
+    systems = {a: arm_text(skill, a) for a in ARMS}
+    key = sha("".join(systems.values()) + gen_task + (CLAUDE_MODEL if backend == "claude" else GEN_MODEL))[:8]
+    d = out / skill / f"{split}-{key}"
+    outs, errs = {a: {} for a in ARMS}, []
+
+    def gen(a, sc):
+        p = d / "outputs" / a / f"{sc['id']}.txt"
+        if not p.exists():
+            try:
+                save(p, generate(backend, systems[a], gen_task + sc["prompt"], st))
+            except RuntimeError as e:
+                return errs.append(f"gen {a}/{sc['id']}: {e}")
+        outs[a][sc["id"]] = p.read_text()
+
+    stopped = ""
+    try:
+        if backend == "claude":
+            claude_call("Be terse.", "ok", st, 0.05)  # quota probe: aborts before any real call when utilization >= 0.8
+        with cf.ThreadPoolExecutor(jobs) as ex:
+            list(ex.map(lambda t: gen(*t), [(a, s) for a in ARMS for s in scs]))
+    except Stop as e:
+        stopped = str(e)
+    ok = [s for s in scs if all(s["id"] in outs[a] for a in ARMS)]
+
+    health, used, sc_scores = {}, None, {}
+    for model in JUDGES:
+        def both(sc, model=model):
+            return sc["id"], [judge_one(model, sc, a, b, d, outs) for a, b in (ARMS, ARMS[::-1])]
+        with cf.ThreadPoolExecutor(jobs) as ex:
+            vs = dict(ex.map(both, ok))
+        rate = slot1_rate([x for pair in vs.values() for x in pair])
+        health[model] = None if rate is None else round(rate, 3)
+        if rate is None or SLOT1_OK[0] <= rate <= SLOT1_OK[1]:
+            used = model
+            for i, pair in vs.items():
+                if None in pair:
+                    errs.append(f"judge {i}: no verdict")
+                else:
+                    sc_scores[i] = scenario_score([order_score(x, a) for x, (a, _) in zip(pair, (ARMS, ARMS[::-1]))])
+            break
+    if used is None:
+        errs.append(f"no judge with slot-1 rate in {SLOT1_OK}: {health}")
+    v = list(sc_scores.values())
+    res = dict(skill=skill, split=split, rival=cfg["rival"]["name"], n=len(v), n_scenarios=len(scs),
+               gen_model=CLAUDE_MODEL if backend == "claude" else GEN_MODEL, judge=used, slot1_rate=health,
+               spend_usd=round(st.spent, 4), per_scenario=sc_scores, errors=errs, stopped=stopped,
+               perun_sha256=sha(systems["PERUN"])[:16], rival_sha256=sha(systems["RIVAL"])[:16],
+               bootstrap="10000 resamples, seed 1, percentile, over scenarios")
+    if v:
+        lo, hi = boot(v)
+        res.update(win_rate=round(sum(v) / len(v), 3), ci95=[round(lo, 3), round(hi, 3)])
+        if split == "heldout":
+            res["verdict"] = "PASS" if lo > 0.5 and len(v) >= MIN_HELDOUT else "FAIL"
+        else:
+            res["verdict"] = "tuning only (no verdict)"
+    (d / "results.json").parent.mkdir(parents=True, exist_ok=True)
+    (d / "results.json").write_text(json.dumps(res, indent=1) + "\n")
+    return res
+
+
+def summary(results):
+    rows = ["| Skill | Rival | n | Win rate [95% CI] | Verdict | Spend |", "|---|---|---|---|---|---|"]
+    for r in results:
+        w = f"{r['win_rate']:.3f} [{r['ci95'][0]:.3f}, {r['ci95'][1]:.3f}]" if "win_rate" in r else "no data"
+        rows.append(f"| {r['skill']} | {r['rival']} | {r['n']} | {w} | {r.get('verdict', 'n/a')} | ${r['spend_usd']:.2f} |")
+    return "\n".join(rows) + "\n"
+
+
+def changed_skills(base="origin/main"):
+    """Skills whose SKILL.md/references or rival fixtures a diff touches (committed since BASE plus working tree)."""
+    files = set()
+    for args in (["diff", "--name-only", f"{base}...HEAD"], ["diff", "--name-only", "HEAD"], ["ls-files", "--others", "--exclude-standard"]):
+        p = subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
+        if p.returncode:
+            raise SystemExit(f"git {' '.join(args)} failed: {p.stderr.strip()}")
+        files.update(p.stdout.split())
+    known = set(skills())
+    hit = set()
+    for f in files:
+        m = re.match(r"\.claude/skills/([^/]+)/|scripts/eval-fixtures/rival/([^/]+)/", f)
+        if m and (m.group(1) or m.group(2)) in known:
+            hit.add(m.group(1) or m.group(2))
+    return sorted(hit)
+
+
+def write_set(skill, split):
+    """Draw a scenario set from the writer brief (public purpose only) and freeze the held-out hash."""
+    cfg = config(skill)
+    w = cfg["writer"]
+    brief = (ROOT / w["brief"]).read_text()
+    seeds = [l for l in (ROOT / w["seeds"]).read_text().splitlines() if re.match(r"\d\d ", l)]
+    use = seeds[:6] if split == "tune" and w.get("sliced") else seeds[6:] if w.get("sliced") else seeds
+    prompt = brief.replace("{N}", str(len(use))) + "\n" + "\n".join(use) + "\n"
+    arr = None
+    for _ in range(6):
+        txt = chat(GEN_MODEL, "You write evaluation scenarios.", prompt, max_tokens=12000, temperature=0.7)
+        arr = jparse(txt)
+        if not isinstance(arr, list):  # writer ignored JSON: accept "NN" header lines followed by prose
+            bits = re.split(r"(?m)^(\d\d)[ \t]*$", txt)
+            arr = [{"id": i, "prompt": t.strip()} for i, t in zip(bits[1::2], bits[2::2]) if t.strip()]
+        if isinstance(arr, list) and len(arr) == len(use) and all(isinstance(x, dict) and {"id", "prompt"} <= set(x) for x in arr):
+            break
+        print(f"retry {skill}/{split}: got {len(arr) if isinstance(arr, list) else type(arr).__name__}, want {len(use)}")
+        arr = None
+    assert arr, "writer returned no valid scenario array"
+    p = FIX / skill / f"{split}.json"
+    p.write_text(json.dumps([{"id": ("h" if split == "heldout" else "") + str(x["id"]), "prompt": x["prompt"]} for x in arr], indent=1) + "\n")
+    if split == "heldout":
+        cfg["heldout_sha256"] = sha(p.read_bytes())
+        (FIX / skill / "rival.json").write_text(json.dumps(cfg, indent=1) + "\n")
+    print("wrote", p)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("run")
+    r.add_argument("--skills")
+    r.add_argument("--changed", nargs="?", const="origin/main", metavar="BASE")
+    r.add_argument("--split", default="heldout", choices=("heldout", "tune"))
+    r.add_argument("--gen", default="pcss", choices=("pcss", "claude"))
+    r.add_argument("--out", default=str(Path(os.environ.get("TMPDIR", "/tmp")) / "rival-eval"))
+    r.add_argument("--jobs", type=int, default=4)
+    r.add_argument("--cap", type=float, default=0.50, help="USD per skill run (claude generator only)")
+    r.add_argument("--total-cap", type=float, default=6.0, help="USD over all skills in this invocation")
+    w = sub.add_parser("write")
+    w.add_argument("skill")
+    w.add_argument("split", choices=("heldout", "tune"))
+    c = sub.add_parser("changed")
+    c.add_argument("base", nargs="?", default="origin/main")
+    k = sub.add_parser("check")
+    k.add_argument("skills", nargs="*")
+    a = ap.parse_args(argv)
+    if a.cmd == "write":
+        return write_set(a.skill, a.split)
+    if a.cmd == "changed":
+        return print("\n".join(changed_skills(a.base)))
+    if a.cmd == "check":
+        rc = 0
+        for s in a.skills or skills():
+            for b in check_split(s):
+                rc = 1
+                print(f"{s}: {b}")
+        return rc
+    if a.gen == "pcss":
+        load_key()  # fail early, before any diff work, when the judge key is missing
+    want = a.skills.split(",") if a.skills else changed_skills(a.changed) if a.changed else skills()
+    if not want:
+        return print("no skill touched by the diff: nothing to score")
+    out, results, total = Path(a.out), [], 0.0
+    for s in want:
+        if total >= a.total_cap:
+            print(f"total cap ${a.total_cap} reached; skipping {s}")
+            continue
+        res = run_skill(s, a.split, a.gen, out, a.jobs, min(a.cap, a.total_cap - total))
+        total += res["spend_usd"]
+        results.append(res)
+        print(summary([res]).splitlines()[-1], flush=True)
+        if res["stopped"]:
+            print("STOP:", res["stopped"])
+            break
+    (out / "summary.md").parent.mkdir(parents=True, exist_ok=True)
+    (out / "summary.md").write_text(summary(results))
+    (out / "summary.json").write_text(json.dumps({"total_spend_usd": round(total, 4), "results": results}, indent=1) + "\n")
+    print(summary(results) + f"Total spend ${total:.2f}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

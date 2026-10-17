@@ -1,0 +1,63 @@
+### Delivery Plan: Queue Worker Race Condition Fix
+
+**G0 Intake & Scope**
+*   **Goal:** Eliminate duplicate processing in `src/queue_worker.py` under heavy load; ensure zero backlog growth due to race conditions.
+*   **Constraints:** No sleep-based masking; performance degradation ≤10%; fix deployed before Saturday peak.
+*   **Appetite:** Time-boxed to Wednesday morning for plan approval; implementation targeted for Thursday/Friday deployment.
+
+**G1 Spec & Test Strategy (The "Reproduce" Step)**
+*   **Hypothesis:** Race condition occurs when multiple threads claim the same job ID due to non-atomic "fetch-then-lock" logic.
+*   **Test Implementation:** Create `tests/test_worker_concurrency.py`.
+    *   Use `concurrent.futures.ThreadPoolExecutor` to spawn 10+ worker threads.
+    *   Mock the queue backend to return the *same* job ID to multiple threads simultaneously.
+    *   Assert that the job processing function is invoked exactly once per unique job ID.
+    *   Current single-threaded tests (`test_worker.py`) remain unchanged but will run in the CI gate.
+*   **Acceptance Criteria:** New concurrent test fails on current code (reproducing the bug) and passes after the fix.
+
+**G2 Plan & Work Graph**
+*   **Lane 1: Concurrent Test Author (QA Hat)**
+    *   Write `test_worker_concurrency.py` to deterministically trigger the race.
+    *   Verify the test fails on the current `main` branch.
+*   **Lane 2: Synchronization Fix (Builder Hat)**
+    *   Refactor `src/queue_worker.py` to use atomic claiming (e.g., database-level `SELECT ... FOR UPDATE SKIP LOCKED`, Redis `SETNX`, or a distributed lock).
+    *   Ensure the fix handles lock timeouts to prevent deadlocks.
+*   **Lane 3: Performance Benchmark (QA Hat)**
+    *   Create a benchmark script comparing job throughput (jobs/sec) before and after the fix.
+    *   Gate: Throughput must not drop by >10%.
+
+**G3 Design Decisions**
+*   **Locking Mechanism:** Will be selected based on the existing queue backend (Redis vs. SQL). If Redis, use `SET resource_name my_random_value NX PX 30000`. If SQL, use transactional row locking.
+*   **Fallback:** If a lock cannot be acquired within 2 seconds, the job is re-queued (not dropped).
+
+**G4 Implementation Steps**
+1.  **Isolate Worktree:** Create `fix/queue-race-condition`.
+2.  **Write Test:** Implement the multi-threaded test case first (TDD). Confirm failure.
+3.  **Implement Fix:** Modify `src/queue_worker.py` to wrap job claiming in an atomic transaction or distributed lock.
+4.  **Verify Fix:** Run concurrent test; confirm pass.
+5.  **Performance Check:** Run benchmark; confirm <10% regression.
+
+**G5 Verification & Evidence**
+*   **Local Stack:** Run full test suite (`pytest`) including the new concurrent test.
+*   **Evidence Required:**
+    *   Green CI run showing `test_worker_concurrency.py` passing.
+    *   Benchmark report showing throughput metrics (Before vs. After).
+    *   Log output demonstrating atomic claiming under load (no duplicate IDs processed).
+
+**G6 Review & Security**
+*   **Review Focus:** Ensure the locking mechanism does not introduce deadlocks or starve the queue. Verify timeout handling.
+*   **Security:** Check that lock keys/values do not expose sensitive job data.
+
+**G7 Integration & G8 Release**
+*   **Integration:** Merge to `main` via PR with approved review.
+*   **Release Gate:** **Human Approval Required.** Elena (SRE) must approve the deployment plan due to production impact.
+*   **Deployment:** Deploy Thursday/Friday to allow monitoring before Saturday peak.
+*   **Rollback:** Immediate revert if error rates spike or throughput drops >10% in production canary.
+
+**G9 Production Verify**
+*   **Monitor:** Track job backlog size and duplicate processing logs during Saturday morning peak.
+*   **Success Metric:** Zero duplicate processing events; backlog clears within standard SLA.
+
+**G10 Learn**
+*   **Retro:** If the race condition was caused by a missing integration test pattern, add a standard "concurrency test" template to the repo to prevent recurrence in other workers.
+
+**Note:** This plan assumes access to the specific queue backend documentation to select the correct atomic primitive. Immediate start on Lane 1 (Test) is recommended to validate the reproducibility hypothesis before coding the fix.

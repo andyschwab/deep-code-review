@@ -1,0 +1,51 @@
+**Delivery Plan: Inventory Search Cache with Strict Invalidations**
+
+**G0/G1: Scope & Spec**
+*   **Goal:** Reduce `src/db_queries.sql` product search latency from ~8s to <200ms via caching.
+*   **Critical Constraint:** Cache invalidation must occur within 50ms of any write in `src/inventory_writer.py`. Stale data is unacceptable (per Jane's incident report).
+*   **Test Requirement:** Fix `tests/test_cache_layer.py` flakiness by enforcing deterministic timing checks, not disabling assertions.
+*   **Tech Stack:** TypeScript, SQL, existing `npm run verify-db` suite.
+
+**G2/G3: Plan & Design**
+1.  **Caching Layer:** Implement an in-memory cache (e.g., Node `Map` or Redis if external is preferred) keyed by search parameters.
+2.  **Invalidation Mechanism:** Wrap all write operations in `src/inventory_writer.py` with a mandatory `invalidateCache()` call. Use a pub/sub pattern or direct function hook to ensure immediate propagation.
+3.  **Timing Guarantee:** Instrument the invalidation path with high-resolution timestamps (`process.hrtime.bigint()`) to assert the delta between "write commit" and "cache clear" is <50ms.
+4.  **Flake Fix:** Refactor the flaky test to:
+    *   Mock the clock or use explicit synchronization barriers instead of `setTimeout`.
+    *   Assert cache state *immediately* after the write promise resolves.
+    *   Fail explicitly if the invalidation event listener is not triggered.
+
+**G4: Implementation Steps**
+*   Create `src/cache_layer.ts`: `getSearchResults()`, `invalidate()`, `recordInvalidationLatency()`.
+*   Modify `src/db_queries.sql` caller to check cache first; fallback to DB on miss.
+*   Inject invalidation hooks into every export in `src/inventory_writer.py`.
+*   Update `tests/test_cache_layer.py`: Replace race-condition waits with promise-chain assertions. Add a specific test case: `should_invalidate_within_50ms_on_write`.
+
+**G5: Verification Protocol**
+*   **Local Stack:** Run `npm run verify-db`. The build fails if any test is flaky or if invalidation latency >50ms.
+*   **Performance Check:** Seed DB with 50k+ items. Run 100 concurrent search requests. Assert p99 latency <200ms.
+*   **Correctness Check:** Execute a write, then immediately read. Assert the read reflects the write (no stale cache).
+*   **Evidence:** Capture logs showing `invalidation_latency_ms: <value>` for every write during the test run.
+
+**G6: Review Focus**
+*   **Security/Correctness:** Verify no code path in `inventory_writer.py` bypasses the invalidation hook.
+*   **Test Integrity:** Ensure the fixed test fails if the cache is *not* cleared, proving it actually tests the requirement.
+
+**G7: Integration**
+*   Merge to integration branch. Run full suite one final time on the exact merge SHA.
+
+**G8: Release & Monitoring**
+*   **Human Gate:** Jane (or delegate) must approve the deployment due to previous shipping error risk.
+*   **Monitoring:**
+    *   Add metrics: `cache_hit_rate`, `cache_invalidation_latency_p99`, `stale_read_errors`.
+    *   Dashboard alert: Trigger if `cache_invalidation_latency_p99` > 40ms (buffer before 50ms breach) or `cache_hit_rate` drops unexpectedly (indicating over-invalidation).
+    *   Log every cache miss that results in a >1s DB query for post-mortem analysis.
+
+**G9: Production Verify**
+*   Post-deploy, run a synthetic transaction: Write a stock change, verify dashboard updates within 200ms. Monitor SLOs for 1 hour before declaring success.
+
+**G10: Learn**
+*   If the flaky test root cause was a race condition in the test harness, document the pattern in `references/testing-patterns.md` to prevent recurrence.
+
+**Note:** This plan prioritizes correctness over speed of implementation; the 50ms invalidation SLA is treated as a blocker, not a target.
+**Note:** No changes will be merged without Jane's explicit sign-off on the G8 release manifest.

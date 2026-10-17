@@ -1,0 +1,102 @@
+### Recommendation: Split into Two Pull Requests
+
+Do not bundle the documentation with the bug fix. Submit two separate contributions:
+
+1.  **PR #1 (The Fix):** A minimal, focused change containing only the code repair for the race condition.
+    *   **Scope:** Only the files necessary to resolve the thread-safety issue.
+    *   **Rationale:** Maintainers prioritize merging critical fixes quickly. Bundling educational content increases review surface area and risks delaying the fix if the documentation wording sparks debate.
+2.  **PR #2 (The Docs):** A follow-up PR adding the "Concurrency Pitfalls" section to the contributor guide.
+    *   **Scope:** Documentation files only.
+    *   **Rationale:** This allows Tom and Jerry to review the educational value independently. It also gives you time to refine the generic example without holding up the production fix.
+
+---
+
+### Draft Documentation Content (For PR #2)
+
+**Title:** Concurrency Pitfalls: Avoiding Shared Mutable State in Data Processors
+
+**Context**
+In high-throughput data processing, it is tempting to share state objects across threads to reduce memory allocation. However, without explicit synchronization, this leads to race conditions that are non-deterministic and difficult to reproduce.
+
+**The Anti-Pattern**
+Consider a `StreamProcessor` that aggregates metrics. A common mistake is using a mutable list shared between the ingestion thread and the aggregation thread:
+
+```kotlin
+// ❌ DANGEROUS: Shared mutable state without synchronization
+class UnsafeProcessor {
+    private val buffer = mutableListOf<String>()
+
+    fun ingest(data: String) {
+        // Writer thread
+        buffer.add(data)
+    }
+
+    fun flush() {
+        // Reader thread
+        val snapshot = buffer.toList()
+        buffer.clear()
+        process(snapshot)
+    }
+}
+```
+
+**Why This Fails**
+Even if `add` and `clear` seem atomic, the internal array resizing of `ArrayList` is not thread-safe. If `ingest()` triggers a resize while `flush()` is iterating or clearing, the internal index pointers can become inconsistent, leading to `ArrayIndexOutOfBoundsException` or silent data corruption. This often manifests only under specific timing windows (e.g., high load), making it appear as a "ghost bug."
+
+**The Solution: Isolation or Synchronization**
+Choose one of the following patterns based on performance needs:
+
+**Option A: Thread Confinement (Preferred for Simplicity)**
+Ensure the mutable state is never accessed by more than one thread. Use channels or queues to pass ownership.
+
+```kotlin
+// ✅ SAFE: State is confined to a single worker thread
+class SafeProcessor(private val scope: CoroutineScope) {
+    private val channel = Channel<String>(capacity = 64)
+
+    fun ingest(data: String) {
+        scope.launch { channel.send(data) }
+    }
+
+    fun startWorker() {
+        scope.launch {
+            val buffer = mutableListOf<String>() // Local to this coroutine
+            for (item in channel) {
+                buffer.add(item)
+                if (shouldFlush()) {
+                    process(buffer.toList())
+                    buffer.clear()
+                }
+            }
+        }
+    }
+}
+```
+
+**Option B: Explicit Synchronization**
+If sharing is unavoidable, use thread-safe collections or explicit locks.
+
+```kotlin
+// ✅ SAFE: Explicit synchronization
+class LockedProcessor {
+    private val lock = ReentrantLock()
+    private val buffer = mutableListOf<String>()
+
+    fun ingest(data: String) {
+        lock.withLock { buffer.add(data) }
+    }
+
+    fun flush() {
+        val snapshot = lock.withLock { buffer.toList() }
+        process(snapshot)
+        lock.withLock { buffer.clear() }
+    }
+}
+```
+
+**Key Takeaway**
+Never assume a collection is safe because "reads are rare." In concurrent systems, default to immutability (`val`, `toList()`) or explicit confinement. If you must share mutable state, the burden of proof is on the author to demonstrate thread safety.
+
+---
+
+*Note: Ensure the fictional example uses generic terms like "metrics" or "events" rather than "Nexus Analytics" specific entities. Submit the code fix first to establish trust before proposing the documentation expansion.*

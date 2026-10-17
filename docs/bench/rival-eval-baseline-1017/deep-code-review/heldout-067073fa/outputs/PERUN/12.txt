@@ -1,0 +1,75 @@
+### 1. Critical: Prototype Pollution via `__proto__` or `constructor`
+**File:** `lib/helpers/formDataToJSON.js`
+**Line:** 38–40 (`target[name] = value;`) and 46 (`target[name] = [];`)
+
+**Why it is wrong:**
+The `buildPath` function recursively traverses the path provided by the user (e.g., `__proto__[polluted]`) and assigns values directly to the `target` object without sanitizing the property names.
+If an attacker submits a form field named `__proto__` or `constructor`, the code will execute `target['__proto__'] = value`. Since `target` is a standard JavaScript object (`{}`), this modifies the global `Object.prototype`.
+This leads to **Prototype Pollution**, allowing attackers to inject arbitrary properties into all objects in the runtime, potentially causing Denial of Service, privilege escalation, or Remote Code Execution depending on the application logic.
+
+**Fix:**
+Validate the `name` key before assignment. Reject or sanitize dangerous keys like `__proto__`, `constructor`, and `prototype`.
+```javascript
+// Add this check before any assignment to target[name]
+if (name === '__proto__' || name === 'constructor' || name === 'prototype') {
+  return; // Or throw an error
+}
+```
+Alternatively, use `Object.create(null)` for the `obj` initialization to create a null-prototype object, though sanitizing keys is safer for nested structures.
+
+---
+
+### 2. High: Logic Error in Array Handling Causes Data Loss
+**File:** `lib/helpers/formDataToJSON.js`
+**Line:** 37–40
+
+**Why it is wrong:**
+The logic attempts to handle duplicate keys (common in `multipart/form-data` for arrays) by converting an existing value into an array:
+```javascript
+if (utils.hasOwnProperty(target, name)) {
+  target[name] = [target[name], value];
+}
+```
+This only works for **two** collisions. If a third value arrives for the same key, `target[name]` is already an array. The code will wrap the *entire existing array* into a new array alongside the new value: `[[val1, val2], val3]`.
+This results in a deeply nested, incorrect data structure that breaks downstream consumers expecting a flat array `['val1', 'val2', 'val3']`.
+
+**Fix:**
+Check if the existing value is already an array before pushing.
+```javascript
+if (utils.hasOwnProperty(target, name)) {
+  if (!utils.isArray(target[name])) {
+    target[name] = [target[name]];
+  }
+  target[name].push(value);
+} else {
+  target[name] = value;
+}
+```
+
+---
+
+### 3. Medium: Unsafe Regex in `parsePropPath`
+**File:** `lib/helpers/formDataToJSON.js`
+**Line:** 10 (`return utils.matchAll(/\w+|\[(\w*)]/g, name)...`)
+
+**Why it is wrong:**
+The regex `/\w+|\[(\w*)]/g` is designed to parse paths like `foo[bar]` or `foo.bar`. However, it relies on `\w` (word characters) and specific bracket syntax.
+1. It silently ignores valid form data characters that are not `\w` (like dashes or dots in non-path contexts) if they don't match the specific alternations, potentially leading to unexpected parsing results where parts of the key are dropped.
+2. If the input contains malformed brackets like `foo[bar` (missing closing), the regex engine may skip or misinterpret segments, leading to incorrect path construction. While not immediately exploitable without further context, it creates a discrepancy between the received key and the processed key, complicating debugging and validation.
+
+**Fix:**
+Ensure the parser strictly validates the format or handles malformed segments explicitly rather than silently dropping them. If the intent is to support only specific path formats, return `null` or throw on invalid syntax to prevent silent data corruption.
+
+---
+
+### 4. Low: Inefficient `arrayToObject` Conversion
+**File:** `lib/helpers/formDataToJSON.js`
+**Line:** 14–24
+
+**Why it is wrong:**
+The `arrayToObject` function iterates over `Object.keys(arr)` to copy elements from an array to an object.
+1. This is unnecessary overhead if the intention is simply to ensure the value is an object; arrays are already objects in JS.
+2. More critically, this conversion destroys the numeric index semantics. If the downstream code expects an array (e.g., to iterate with `forEach` or access `.length`), converting it to a generic object `{0: 'a', 1: 'b'}` breaks those methods. The condition on line 51 (`utils.isArray(target[name])`) suggests the code expects arrays to persist, making this conversion contradictory and likely a bug that breaks iteration logic downstream.
+
+**Fix:**
+Remove the `arrayToObject` conversion unless there is a strict requirement to serialize sparse arrays as dense objects (which is rare in JSON contexts). If the goal is to handle sparse arrays, document this behavior clearly, as it deviates from standard JSON expectations.

@@ -1,0 +1,40 @@
+# Delivery Plan: Safe Connection Pool Rollout
+
+**Objective:** Increase default connection pool from 20 to 50 in `config/app_defaults.yaml` without disrupting the nightly batch sync (1.2M records) or crashing `src/batch_runner.js`.
+
+**Deadline:** Thursday Noon
+
+### Phase 1: Discovery & Impact Analysis (Wednesday AM)
+1.  **Static Analysis:** Scan the codebase for explicit overrides of the connection pool setting. Identify all services and scripts that *do not* set an environment variable, thereby relying on the implicit default in `app_defaults.yaml`.
+2.  **Dependency Map:** Specifically trace imports in `src/batch_runner.js` and any child processes it spawns. Confirm if the batch runner inherits the default or constructs its own pool.
+3.  **Risk Assessment:** Document exactly which long-running jobs will be affected by the change from 20 → 50. Verify if the underlying database infrastructure can handle the increased concurrent connection count across all instances.
+
+### Phase 2: Implementation & Local Verification (Wednesday PM)
+1.  **Configuration Update:** Modify `config/app_defaults.yaml`, changing the pool size to 50.
+2.  **Explicit Overrides:** For any critical legacy batch jobs identified in Phase 1 that must remain at 20 (or require a specific tuned value), update their specific environment configurations or startup scripts to explicitly define the pool size, decoupling them from the global default.
+3.  **Local Test Suite:** Run `yarn test-all`. **Constraint:** The 15-minute integration test for the batch runner must execute successfully. Do not skip. If it fails, revert and refine the explicit overrides before proceeding.
+
+### Phase 3: Staging Verification – Split Approach (Thursday AM)
+*Marcus’s High-Load Simulation Requirement*
+
+Deploy to a isolated Staging environment that mirrors Production topology.
+
+1.  **Split Verification Step A (Functional Baseline):**
+    *   Deploy the config change to 10% of staging workers.
+    *   Run a reduced dataset sync (10k records) to verify basic connectivity and lack of immediate crashes.
+    *   Monitor connection pool metrics for leaks or exhaustion.
+
+2.  **Split Verification Step B (High-Load Simulation):**
+    *   Once Step A passes, trigger Marcus’s high-load simulation against the remaining 90% of staging.
+    *   Simulate the "holiday rush" traffic pattern alongside the full 1.2M record batch job.
+    *   **Success Criteria:** Zero connection timeouts, batch job completes within the standard time window, and database CPU/Memory remains within safe thresholds.
+
+### Phase 4: Production Rollout (Thursday Noon)
+1.  **Canary Deployment:** Apply the change to 5% of production nodes. Monitor for 30 minutes.
+2.  **Full Rollout:** If canary metrics are stable, roll out to 100% of nodes.
+3.  **Nightly Watch:** Engineering team must be on standby during the first nightly sync post-deployment to intervene if the 1.2M record job behaves unexpectedly.
+
+**Deliverable:** A Pull Request containing the config change, the explicit overrides for legacy jobs, and a signed verification report from the Staging High-Load Simulation.
+
+*Note: If the database cannot support the aggregate increase of connections (50 * number of instances), the plan must pivot to increasing DB capacity first.*
+*All testing times assume the 15-minute integration test is included in the window.*

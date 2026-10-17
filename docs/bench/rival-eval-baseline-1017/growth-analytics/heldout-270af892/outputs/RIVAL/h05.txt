@@ -1,0 +1,48 @@
+# Testing Strategy: High-Risk, High-Reward Onboarding Redesign
+
+Given your constraint of 400 signups/week and a hard deadline of November 1, a standard fixed-horizon A/B test (95% confidence, 80% power) is mathematically impossible without extending beyond your timeline. To detect a 15% lift on a typical 40% baseline activation rate, you would need ~13,000 users per variant (approx. 16 weeks). You have roughly 8 weeks max, yielding ~3,200 total users.
+
+**Recommendation: Adopt a "High-Signal" Bayesian Approach with Early Stopping Rules.**
+
+Do not use sequential frequentist testing with standard thresholds; this will inflate your false positive rate unacceptably given the low sample size. Instead, shift the decision framework from "statistical significance" to "probability of success vs. cost of error."
+
+### The Protocol
+
+**1. Metric Definition**
+*   **Primary Metric:** Activation Rate (completion of the 2-step vs. 5-step flow).
+*   **Guardrail Metric:** Support tickets related to "setup confusion" or "missing data" within 48 hours of signup. (Simplifying steps often hides configuration errors that surface later).
+
+**2. Statistical Framework**
+*   **Method:** Bayesian A/B Testing.
+*   **Prior:** Use a "weakly informative" prior based on your current activation rate. This allows the model to converge faster with less data than a frequentist approach.
+*   **Decision Threshold:** Instead of waiting for 95% probability that B > A, set a dynamic threshold based on risk:
+    *   **Go:** If Probability(B > A) > 90% AND the lower bound of the 95% Credible Interval shows at least a 5% lift.
+    *   **No-Go:** If Probability(B > A) < 75% by Week 6.
+    *   **Extend:** If the probability is between 75-90% at the deadline, extend by 1 week only if engineering capacity allows; otherwise, default to "No-Go" to preserve roadmap velocity.
+
+**3. Traffic Allocation & Duration**
+*   **Split:** 50/50 split immediately. Do not ramp up; you cannot afford to waste data.
+*   **Duration:** Run for 6 weeks (2,400 users total). Reserve the remaining time until Nov 1 for analysis and implementation planning.
+*   **Interim Checks:** Review data weekly, but do not stop early unless the variant is catastrophically failing (activation drops >20%). Early stopping for *wins* is dangerous in low-traffic scenarios due to "peeking" bias; rely on the Bayesian probability curve stabilizing instead.
+
+### Trade-off Analysis for Leadership
+
+| Dimension | Standard Approach (Rejected) | Proposed High-Signal Approach |
+| :--- | :--- | :--- |
+| **Time to Decision** | 16+ weeks (Misses deadline) | 6 weeks (Meets deadline) |
+| **False Positive Risk** | Low (<5%) | Moderate (~10-15%) |
+| **False Negative Risk** | Low | Moderate (May miss small lifts <10%) |
+| **Decision Clarity** | Binary (Significant/Not) | Probabilistic (90% likely to win) |
+| **Strategic Fit** | Low (Too slow for pivot) | High (Balances speed/risk) |
+
+**The Verdict:**
+You are trading statistical certainty for strategic speed. There is a ~10% chance you might implement a change that provides no benefit (false positive). However, the cost of *not* testing (missing a potential 15% activation lift) outweighs the cost of a false positive, provided the redesign does not break data integrity (guardrail metric).
+
+**Execution Plan:**
+1.  Launch 50/50 split immediately.
+2.  Monitor Bayesian probability weekly.
+3.  Make Go/No-Go decision at Week 6 based on the 90% probability threshold.
+4.  If "Go," schedule rollout for Nov 1. If "No-Go," revert and park the hypothesis.
+
+*Note: Ensure your analytics tracking distinguishes between "flow completed" and "actual value realized" to prevent optimizing for empty setups.*
+*This strategy assumes your engineering team can deploy the variant toggle instantly without a full code branch release cycle.*

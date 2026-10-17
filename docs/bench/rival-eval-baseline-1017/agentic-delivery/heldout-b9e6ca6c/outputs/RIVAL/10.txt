@@ -1,0 +1,40 @@
+# Implementation Plan: Safe Removal of `enable_dark_beta` Flag
+
+**Objective:** Remove the `enable_dark_beta` feature flag and associated dead code from `src/ui_theme_manager.ts` while maintaining backward compatibility for mobile app v2.1 clients (~3000 users).
+
+### Phase 1: Analysis & Contract Verification (Day 1)
+1.  **Audit Usage:** Grep the repository for all references to `enable_dark_beta`. Confirm usage is isolated to `src/ui_theme_manager.ts` and related test files.
+2.  **API Contract Analysis:** Inspect the mobile API endpoint in `src/ui_theme_manager.ts` that accepts the legacy parameter from mobile v2.1.
+    *   Identify the specific parameter name (e.g., `theme_preference` or `flag_check`).
+    *   Verify that the server currently returns a boolean or specific payload based on the flag.
+3.  **Define Compatibility Layer:** Determine the safe response required for v2.1 clients.
+    *   *Strategy:* The server must continue accepting the legacy parameter but ignore its value, always returning the response structure expected by v2.1 (likely a "success" or "enabled" state) to prevent client-side crashes.
+
+### Phase 2: Implementation (Day 2-3)
+1.  **Refactor `src/ui_theme_manager.ts`:**
+    *   **Remove Flag Logic:** Delete the `if/else` blocks checking `enable_dark_beta`. Hardcode the logic to always execute the "dark mode enabled" path.
+    *   **Preserve API Surface:** Modify the API handler to still *accept* the incoming parameter from mobile v2.1 but treat it as a no-op. Ensure the JSON response schema remains identical to what v2.1 expects.
+    *   **Cleanup:** Delete unused imports, helper functions, and constants related solely to the flag.
+2.  **Update Tests:**
+    *   Remove unit tests specifically targeting the flag's `false` state.
+    *   Update tests to verify the API endpoint accepts the legacy parameter without error and returns the correct static response.
+    *   Add a specific regression test: `should handle legacy mobile v2.1 parameter without crashing`.
+
+### Phase 3: Verification & Sign-off (Day 4)
+1.  **Run Test Suite:** Execute `npm run test:unit` to ensure no regressions.
+2.  **Mobile Contract Verification Script:** Create a standalone script `scripts/verify-mobile-contract.ts`.
+    *   This script will simulate a request from mobile v2.1 (sending the legacy parameter).
+    *   It will assert that the response status is 200 and the body matches the expected legacy schema.
+    *   It will exit with code 0 on success, 1 on failure.
+3.  **Sarah's Sign-off Step:**
+    *   Provide Sarah with the command: `npx ts-node scripts/verify-mobile-contract.ts`.
+    *   She can run this locally or in CI to confirm the API contract holds before her team releases the next mobile version.
+
+### Phase 4: Deployment & Monitoring (Day 5 - Tuesday Deadline)
+1.  **Deploy:** Merge and deploy to staging, then production.
+2.  **Monitor:** Watch server logs for 500 errors on the theme endpoint and client-side crash reports for mobile v2.1.
+3.  **Final Cleanup:** Once mobile v2.1 usage drops to zero (or after a predetermined grace period), remove the legacy parameter acceptance logic entirely.
+
+**Notes:**
+*   Do not delete the database column for the flag yet if it exists; only remove the application-level logic.
+*   Ensure the `verify-mobile-contract.ts` script is included in the CI pipeline for future mobile releases.

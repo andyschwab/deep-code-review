@@ -1,0 +1,58 @@
+# Implementation Plan: ISO 8601 Date Format Migration with Risk Mitigation
+
+## Phase 1: Infrastructure for Format Control (Days 1-3)
+**Objective:** Decouple date format from hardcoded logic to enable per-customer configuration without deploying new code per client.
+
+1.  **Create `DateFormatStrategy` Interface:** Define an interface with `format(Date date)` and `getFormatString()` methods.
+2.  **Implement Strategies:**
+    *   `LegacyUSFormat`: Returns "MM/DD/YYYY" (current behavior).
+    *   `ISO8601Format`: Returns "YYYY-MM-DD" (new requirement).
+3.  **Update `ExportGenerator`:** Inject a `DateFormatResolver` that determines the strategy based on `customerId`. Default to `LegacyUSFormat` to maintain status quo.
+4.  **Configuration Store:** Add a database table or configuration file mapping `customerId` to `dateFormat`. Initially, map all 1500 customers to "legacy".
+5.  **Tests:** Verify `ExportGenerator` produces correct output for both strategies using `mvn test`.
+
+## Phase 2: Monitoring and Detection System (Days 4-7)
+**Objective:** Detect parser failures on the client side before they cause data corruption.
+
+1.  **Export Metadata:** Append a hidden metadata column or header field to the CSV indicating the date format used (e.g., `#DATE_FORMAT: ISO8601`). This allows client-side scripts to validate expectations before parsing.
+2.  **Client-Side Acknowledgement Protocol:**
+    *   Modify the export delivery endpoint to require an HTTP 200 ACK from the client's ingestion system within 5 minutes of file delivery.
+    *   If ACK includes an error flag or fails, trigger an alert.
+3.  **Centralized Logging:** Log every export generation with `customerId`, `formatUsed`, `fileSize`, and `deliveryStatus`.
+4.  **Dashboard:** Create a simple view showing exports by format and failure rates.
+
+## Phase 3: Verification Against Sample Parsers (Days 8-10)
+**Objective:** Validate output against Linda's 50 sample customer parsers.
+
+1.  **Test Harness:** Build a Java test module that:
+    *   Generates sample CSVs in both formats.
+    *   Executes the 50 provided parser scripts/binaries (via subprocess or Java ProcessBuilder).
+    *   Captures exit codes and stderr output.
+2.  **Baseline Run:** Run all 50 parsers against Legacy format; ensure 100% success (sanity check).
+3.  **Migration Run:** Run all 50 parsers against ISO 8601 format; categorize results:
+    *   **Green:** Parses successfully.
+    *   **Red:** Fails completely.
+    *   **Yellow:** Parses but produces incorrect data (e.g., swapped month/day).
+4.  **Report:** Generate a matrix of Customer ID vs. Compatibility Status for Linda.
+
+## Phase 4: Gradual Rollout Strategy (Days 11-14)
+**Objective:** Migrate customers with zero downtime and instant rollback capability.
+
+1.  **Wave 1 (Internal):** Switch 5 internal/test accounts to ISO 8601. Monitor for 24 hours.
+2.  **Wave 2 (Compatible Clients):** Switch all customers from the "Green" list in Phase 3. Monitor ACKs and logs for 48 hours.
+3.  **Wave 3 (Manual Outreach):** For "Red/Yellow" customers, Customer Success contacts them to update their parsers before switching their config flag.
+4.  **Rollback Mechanism:** If failure rate > 1% in any wave:
+    *   Immediately revert the `dateFormat` config for affected customers to "legacy" via database update (no code deploy needed).
+    *   Alert engineering team.
+
+## Contingency: Emergency Kill Switch
+Implement a global feature flag `forceLegacyFormatForAll`. If toggled, `DateFormatResolver` ignores individual customer settings and forces `LegacyUSFormat` for everyone. This is the nuclear option if a systemic issue is discovered.
+
+## Deliverables
+*   Modified `src/export_generator.java` with strategy pattern.
+*   New `DateFormatResolver` and configuration store.
+*   Verification test harness results for 50 parsers.
+*   Monitoring dashboard and alerting rules.
+*   Rollout schedule and communication templates for Customer Success.
+
+This plan ensures the major client gets their ISO 8601 format while protecting 1300 other customers from breaking changes, with full observability and instant rollback capability.

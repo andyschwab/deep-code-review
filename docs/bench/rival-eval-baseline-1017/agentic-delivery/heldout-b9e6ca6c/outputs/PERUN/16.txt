@@ -1,0 +1,60 @@
+**Delivery Plan: Integration Test Optimization & Risk Mitigation**
+
+**G0/G1: Scope & Specification**
+*   **Goal:** Reduce CI duration from 45 minutes while preserving detection of end-to-end data corruption bugs previously missed by unit tests.
+*   **Constraint:** Do not remove `tests/test_full_stack.py` without empirical proof of equivalent coverage.
+*   **Success Criteria:** CI time reduced by ≥30%; zero false negatives on data corruption scenarios during a 7-day parallel run; Engineering Director (Alex) approval based on bug detection metrics.
+
+**G2: Work Graph & Roles**
+1.  **Analysis Lane (Product Analyst/QA):**
+    *   Instrument `test_full_stack.py` to log specific assertions and state checks triggered during the data corruption incident.
+    *   Map these checks against existing unit tests to identify coverage gaps.
+    *   *Output:* Coverage gap report detailing exactly what the integration test catches that units miss.
+2.  **Refactor Lane (Builder):**
+    *   Propose two options: (A) Optimize the existing test (e.g., containerized ephemeral DB, mocked external services) or (B) Replace with a targeted "corruption-specific" integration test + faster smoke tests.
+    *   Implement the chosen optimization in a isolated worktree.
+    *   *Output:* Optimized test suite with local runtime <10 minutes.
+3.  **Verification Lane (QA):**
+    *   Configure CI to run *both* the original `test_full_stack.py` and the new optimized suite in parallel.
+    *   Set up a dashboard/log aggregator to compare pass/fail status and execution time daily.
+    *   *Output:* Daily divergence report for 7 days.
+
+**G3: Design Decisions (ADR)**
+*   **Decision:** Retain the original test as a "golden reference" during the parallel period. If the optimized test fails where the original passes, the optimization is rejected.
+*   **Data Integrity:** Explicitly inject the known data corruption scenario (from last month's bug) as a mandatory test case in the new suite.
+
+**G4–G5: Implementation & Verification Steps**
+1.  **Baseline Measurement:** Run `make ci-run` on current HEAD; record total time and `test_full_stack.py` duration.
+2.  **Gap Analysis:** Execute the analysis lane; document specific assertions unique to the integration test.
+3.  **Refactor:** Implement the optimized test strategy. Ensure the "corruption scenario" is explicitly named and covered.
+4.  **Parallel Run Setup:** Modify CI config (`.github/workflows/ci.yml` or equivalent) to trigger both test suites. Label outputs clearly (`legacy-integration` vs `optimized-integration`).
+5.  **Monitoring:** Automate a daily summary email to Alex comparing:
+    *   Total CI time savings.
+    *   Pass/Fail concordance.
+    *   Any unique failures detected by either suite.
+
+**G6: Review & Approval Gate**
+*   **Required Evidence:**
+    *   Coverage gap report showing no loss of critical path validation.
+    *   7-day parallel run log showing 100% concordance (or explained, acceptable divergences).
+    *   Bug detection rate comparison table (Legacy vs. Optimized) specifically highlighting the data corruption scenario.
+*   **Approver:** Alex (Engineering Director). No merge without explicit sign-off on the detection rate comparison.
+
+**G7: Integration**
+*   Upon approval, remove the legacy `test_full_stack.py` from the default branch.
+*   Merge the optimized suite.
+
+**G8: Release**
+*   Deploy the updated CI pipeline. Monitor the first 3 production deployments for any anomalies related to data integrity.
+
+**G9/G10: Post-Deployment & Learning**
+*   **Watch:** Monitor production logs for data corruption patterns for 2 weeks post-change.
+*   **Retrospective:** If the optimization holds, document the pattern for other slow tests. If a regression occurs, immediately revert and initiate a blameless post-mortem focusing on why the parallel run didn't catch it.
+
+**Timeline:**
+*   **Mon-Tue:** Analysis & Refactor.
+*   **Wed:** Parallel run start.
+*   **Next Wed:** 7-day data review.
+*   **Next Fri:** Final decision & merge (Deadline).
+
+*Note: This plan prioritizes risk mitigation over speed, ensuring the "critical data corruption" scenario remains guarded. The parallel run is non-negotiable for validating safety.*

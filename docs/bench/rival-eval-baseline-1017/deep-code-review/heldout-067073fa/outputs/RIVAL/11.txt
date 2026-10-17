@@ -1,0 +1,129 @@
+**Review Summary**
+The patch attempts to replace direct `os.Exit(1)` calls with `cli.OsExiter(1)` to likely facilitate testing. However, it introduces critical logic errors where function execution continues after the exit call, violating the original control flow. Additionally, it mishandles error returns in functions expected to propagate errors up the call stack.
+
+**Critical Issues (Confidence 90-100)**
+
+**1. Logic Error: Execution Continues After Exit Call**
+*   **File:** `internal/cli/cli.go`
+*   **Location:** Multiple locations, e.g., Line 590 (hunk `@@ -589,7 +590,7 @@`), Line 654, Line 726, Line 737, Line 758, Line 819, Line 1040, Line 1426, Line 1441, Line 1450.
+*   **Why it is wrong:** The original code used `os.Exit(1)`, which immediately terminates the process. The replacement `cli.OsExiter(1)` is typically a function variable used for mocking in tests; unless it explicitly panics or terminates (which standard `OsExiter` implementations do not in this context), execution continues to the next line.
+    *   **Example (Line 590):** The code calls `cli.OsExiter(1)` then `return err`. In the original, the process died, and `return` was unreachable. Now, the function returns normally after calling the exiter, potentially causing the caller to proceed with invalid state or double-handle errors.
+    *   **Example (Line 654):** Calls `cli.OsExiter(1)` then `return "", plugin, version, err`. The function continues execution flow instead of halting.
+*   **Fix:** Ensure `cli.OsExiter` triggers a panic if it's meant to stop execution in a testable way, or restructure the logic to `return` specific error codes that a top-level handler passes to `OsExiter`. If `cli.OsExiter` is intended to be a direct drop-in that exits, verify its implementation. Assuming standard mocking patterns, you must add `panic` or ensure the caller handles the exit signal, but the immediate fix for a direct replacement is often:
+    ```go
+    cli.OsExiter(1)
+    panic("unreachable") // Or ensure the function signature allows returning immediately without side effects
+    ```
+    However, the most robust fix given the existing `return` statements following the calls is to acknowledge that `OsExiter` in this library likely *doesn't* exit in tests. If this code runs in production, `cli.OsExiter` must be wired to `os.Exit`. If the intent is to stop execution *here*, the code must `return` immediately after if the function signature allows, or the `OsExiter` implementation must terminate.
+    *Specific Fix:* If `cli.OsExiter` does not halt execution, the logic is broken. The patch assumes `cli.OsExiter(1)` behaves exactly like `os.Exit(1)`. If it doesn't, every instance where code follows the call is a bug. The safest correction without seeing `cli.OsExiter`'s impl is to ensure the function returns immediately if the exit didn't happen, but the primary defect is the assumption of termination.
+    *Correction:* If `cli.OsExiter` is a mockable wrapper that *does* call `os.Exit` in production, this is fine. If it is a mock that *doesn't* exit in tests, the code following it executes in tests, which might be intended. **However**, look at **Line 338**: `helpCommand(...)` is called, then `cli.OsExiter(1)`. This is likely fine.
+    **Wait, re-evaluating Line 590:**
+    Original:
+    ```go
+    if err != nil {
+        os.Exit(1) // Process dies.
+        return err // Unreachable.
+    }
+    ```
+    New:
+    ```go
+    if err != nil {
+        cli.OsExiter(1) // Might not die if mocked.
+        return err      // Executes if mocked.
+    }
+    ```
+    If this is a test environment, `cli.OsExiter` doesn't exit. The function returns `err`. The caller sees an error. This might actually be *better* for testing, allowing cleanup.
+    **BUT**, look at **Line 338** (`CommandNotFound`):
+    ```go
+    helpCommand(logger, version, "", "")
+    cli.OsExiter(1)
+    ```
+    Original `Action` returned an error or exited. Here, `CommandNotFound` is a void function (no return). If `cli.OsExiter` doesn't halt, the function returns normally. This is likely acceptable for a "not found" handler if the framework expects no return.
+
+    **Let's look closer at Line 184:**
+    ```go
+    logger.Println("...")
+    cli.OsExiter(1)
+    return nil
+    ```
+    Original: Exited.
+    New: Calls exiter, returns nil. If exiter doesn't halt, it returns `nil` (success) to the framework! This is a **bug**. The framework thinks the command succeeded.
+
+    **Defect Confirmed:** In functions returning `error`, if `cli.OsExiter(1)` does not terminate the process, the subsequent `return nil` or `return err` changes the control flow. Specifically, returning `nil` (as in lines 184, 726, 737, 819, 1204, 1236, 1278, 1426) signals success to the CLI framework if the exit is mocked/skipped.
+
+    **Fix:** Change `return nil` to `return fmt.Errorf("exit code 1")` or similar if `OsExiter` doesn't halt, OR ensure `OsExiter` always halts in production. The most glaring issue is returning `nil` (success) after an error condition.
+
+    **Refined Defect 1:**
+    *   **File:** `internal/cli/cli.go`
+    *   **Location:** Lines 184, 726, 737, 819, 1204, 1236, 1278, 1426.
+    *   **Why:** Replacing `os.Exit(1)` with `cli.OsExiter(1)` followed by `return nil` causes the function to report success (`nil` error) if `OsExiter` does not terminate the process (e.g., in tests or if misconfigured). The original code never returned.
+    *   **Fix:** Change `return nil` to `return fmt.Errorf("command failed")` or ensure the error is propagated. Do not return `nil` after a fatal error.
+
+**2. Error Handling: Swallowing Specific Errors**
+*   **File:** `internal/cli/cli.go`
+*   **Location:** Line 1099 (hunk `@@ -1098,7 +1099,7 @@`)
+*   **Why it is wrong:**
+    Original:
+    ```go
+    if _, ok := err.(versions.NoVersionSetError); ok {
+        logger.Printf(...)
+        os.Exit(1) // Dies.
+    }
+    logger.Printf("error installing version: %v", err) // Only reached if not NoVersionSetError? No, wait.
+    ```
+    Actually, the original code exited on `NoVersionSetError`. The log "error installing version" was unreachable for that specific error type.
+    New:
+    ```go
+    if _, ok := err.(versions.NoVersionSetError); ok {
+        logger.Printf(...)
+        cli.OsExiter(1)
+    }
+    // Falls through?
+    ```
+    If `cli.OsExiter(1)` does not halt, the code falls through to `logger.Printf("error installing version: %v", err)`, logging a duplicate or confusing error message for the `NoVersionSetError` case.
+*   **Fix:** Add an explicit `return` after `cli.OsExiter(1)` if it doesn't halt, or restructure with `else`.
+    ```go
+    if _, ok := err.(versions.NoVersionSetError); ok {
+        logger.Printf(...)
+        cli.OsExiter(1)
+        return err // Prevent fall-through
+    }
+    ```
+
+**3. Incorrect Error Propagation in `latestCommand`**
+*   **File:** `internal/cli/cli.go`
+*   **Location:** Line 1179 (hunk `@@ -1178,7 +1179,7 @@`)
+*   **Why it is wrong:**
+    Original:
+    ```go
+    if err != nil {
+        os.Exit(1) // Dies.
+        return maybeErr // Unreachable.
+    }
+    return nil
+    ```
+    New:
+    ```go
+    if err != nil {
+        cli.OsExiter(1)
+        return maybeErr
+    }
+    return nil
+    ```
+    If `cli.OsExiter` doesn't halt, this returns `maybeErr`. This seems consistent with the original intent (returning an error if not exiting), but we must verify `maybeErr` is the correct variable. The original returned `maybeErr` (unreachable). The logic holds *if* the caller handles the error. However, if the original intended to *only* exit and never return, returning an error changes the contract. Given the pattern elsewhere, this is likely acceptable *unless* the caller expects silence.
+    Actually, the bigger issue is **Line 1157**:
+    ```go
+    if err != nil {
+        cli.OsExiter(1)
+    }
+    return err
+    ```
+    Original: Exited. Never returned.
+    New: Exits (maybe), then returns `err`.
+    If the caller of `latestCommand` checks the error, it will now receive an error where previously the process died. This changes the API behavior from "fatal only" to "return error". If the caller *also* exits on error, this is redundant but safe. If the caller handles the error gracefully, the program no longer exits on this condition. This is a **behavioral change**.
+*   **Fix:** Verify if `latestCommand` callers expect a fatal exit or an error return. If the original design was fatal, the caller should handle the exit, or this function should panic if `OsExiter` returns.
+
+**Summary of Fixes:**
+1.  **Lines 184, 726, 737, 819, 1204, 1236, 1278, 1426:** Change `return nil` to `return fmt.Errorf("operation failed")` to prevent reporting success if `OsExiter` doesn't halt.
+2.  **Line 1099:** Add `return err` after `cli.OsExiter(1)` to prevent fall-through logging.
+3.  **Audit Callers:** Verify that functions like `latestCommand` (Line 1157) returning errors instead of exiting doesn't break the expected fatal behavior of the CLI.
