@@ -157,7 +157,9 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(res["win_rate"], 0.95)
 
     def test_tune_split_never_gives_a_verdict(self):
-        with mock.patch.object(r, "chat", self.fake_chat(lambda m, u: "tie", [])):
+        def rule(model, user):  # healthy, order-consistent judge: Perun wins both orders
+            return "1" if user.index("PERUN-ANSWER") < user.index("RIVAL-ANSWER") else "2"
+        with mock.patch.object(r, "chat", self.fake_chat(rule, [])):
             res = r.run_skill(self.name, "tune", "pcss", self.tmp / "out", 2, 0.5)
         self.assertIn("tuning only", res["verdict"])
 
@@ -325,6 +327,134 @@ class Cli(unittest.TestCase):
                            env={**env, "PCSS_ENV_FILE": "/nonexistent/.env", "RIVAL_EVAL_BASE": "HEAD"})
         self.assertEqual(p.returncode, 0)
         self.assertIn("skipped", p.stdout + p.stderr)
+
+
+class ReviewFixes(unittest.TestCase):
+    """Regression tests for the PR review findings: key check, cap reserve, quota fail-closed, judge health, cache keys, freeze."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.name = fake_fixture(self.tmp, scen("held", 10, 10), scen("tune", 5))
+        self.p = [mock.patch.object(r, "ROOT", self.tmp), mock.patch.object(r, "FIX", self.tmp / "scripts/eval-fixtures/rival")]
+        for p in self.p:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in self.p])
+
+    def fake_chat(self, rule, log):
+        def chat(model, system, user, **kw):
+            log.append(("judge" if system == r.JUDGE_SYSTEM else "gen", model, user))
+            if system == r.JUDGE_SYSTEM:
+                return json.dumps({"verdict": rule(model, user), "reason": "x"})
+            return ("PERUN-ANSWER" if "PERUN skill text" in system else "RIVAL-ANSWER") + " for " + user[-20:]
+        return chat
+
+    @staticmethod
+    def perun_wins(model, user):
+        return "1" if user.index("PERUN-ANSWER") < user.index("RIVAL-ANSWER") else "2"
+
+    def claude_ok(self, util=0.1, cost=0.01):
+        ev = {"type": "rate_limit_event", "rate_limit_info": {"unifiedWindows": {"five_hour": {"utilization": util}}}}
+        return "\n".join(json.dumps(x) for x in (ev, {"type": "result", "result": "ok", "total_cost_usd": cost})) + "\n"
+
+    def test_1_run_needs_the_judge_key_even_with_the_claude_generator(self):
+        with mock.patch.object(r, "load_key", side_effect=SystemExit("no key")) as lk, mock.patch.object(r, "run_skill") as rs:
+            with self.assertRaises(SystemExit):
+                r.main(["run", "--gen", "claude", "--skills", self.name])
+        self.assertEqual((lk.call_count, rs.call_count), (1, 0))
+
+    def test_2_cap_counts_in_flight_reserves_and_timeouts_are_charged(self):
+        st = r.State(0.15)
+
+        def nested(*a, **k):  # a second call while the first is in flight must not fit under the cap
+            self.assertAlmostEqual(st.reserved, 0.10)
+            with self.assertRaises(r.Stop):
+                r.claude_call("s", "u", st)
+            return mock.Mock(stdout=self.claude_ok())
+        with mock.patch.object(subprocess, "run", side_effect=nested):
+            r.claude_call("s", "u", st)
+        self.assertEqual(st.reserved, 0)
+        st = r.State(0.5)
+        with mock.patch.object(subprocess, "run", side_effect=subprocess.TimeoutExpired("claude", 900)):
+            with self.assertRaises(RuntimeError):
+                r.claude_call("s", "u", st)
+        self.assertEqual((st.spent, st.reserved), (0.10, 0))  # unknown spend: the whole reserve is charged
+        with mock.patch.object(subprocess, "run", side_effect=FileNotFoundError("claude")):
+            with self.assertRaises(RuntimeError):
+                r.claude_call("s", "u", st)
+        self.assertEqual((st.spent, st.reserved), (0.10, 0))
+
+    def test_3_no_utilization_reading_fails_closed(self):
+        st = r.State(0.5)
+        out = json.dumps({"type": "result", "result": "ok", "total_cost_usd": 0.02}) + "\n"
+        with mock.patch.object(subprocess, "run", return_value=mock.Mock(stdout=out)) as run:
+            with self.assertRaises(r.Stop):
+                r.claude_call("s", "u", st)
+            self.assertAlmostEqual(st.spent, 0.02)  # the spend is still recorded
+            with self.assertRaises(r.Stop):  # and the quota now reads as exhausted: no further call
+                r.claude_call("s", "u", st)
+            self.assertEqual(run.call_count, 1)
+
+    def test_4_a_judge_with_no_decisive_verdicts_is_unhealthy_and_falls_back(self):
+        def rule(model, user):
+            return "tie" if model == r.JUDGE_MODEL else self.perun_wins(model, user)
+        with mock.patch.object(r, "chat", self.fake_chat(rule, [])):
+            res = r.run_skill(self.name, "heldout", "pcss", self.tmp / "out", 2, 0.5)
+        self.assertEqual((res["judge"], res["slot1_rate"][r.JUDGE_MODEL], res["verdict"]), (r.TIE_MODEL, None, "PASS"))
+        with mock.patch.object(r, "chat", self.fake_chat(lambda m, u: "tie", [])):
+            res = r.run_skill(self.name, "heldout", "pcss", self.tmp / "out2", 2, 0.5)
+        self.assertEqual((res["n"], res["judge"], res.get("verdict")), (0, None, None))
+
+    def test_5_cache_key_covers_scenario_rubric_and_judge(self):
+        log = []
+        with mock.patch.object(r, "chat", self.fake_chat(self.perun_wins, log)):
+            r.run_skill(self.name, "heldout", "pcss", self.tmp / "out", 2, 0.5)
+            n = len(log)
+            r.run_skill(self.name, "heldout", "pcss", self.tmp / "out", 2, 0.5)
+            self.assertEqual(len(log), n)  # unchanged inputs: all cached
+            with mock.patch.object(r, "JUDGE_SYSTEM", r.JUDGE_SYSTEM + " Be strict."):
+                r.run_skill(self.name, "heldout", "pcss", self.tmp / "out", 2, 0.5)
+            self.assertEqual([k for k, *_ in log[n:]].count("judge"), 20)  # new rubric: every verdict re-judged, answers reused
+            self.assertNotIn("gen", [k for k, *_ in log[n:]])
+            n = len(log)
+            held = scen("held", 10, 10)
+            held[0]["prompt"] += " plus a changed requirement"
+            (self.tmp / "scripts/eval-fixtures/rival" / self.name / "heldout.json").write_text(json.dumps(held))
+            cfgp = self.tmp / "scripts/eval-fixtures/rival" / self.name / "rival.json"
+            cfg = json.loads(cfgp.read_text())
+            cfg["heldout_sha256"] = r.digest(self.name)
+            cfgp.write_text(json.dumps(cfg))
+            r.run_skill(self.name, "heldout", "pcss", self.tmp / "out", 2, 0.5)
+        kinds = [k for k, *_ in log[n:]]
+        self.assertEqual((kinds.count("gen"), kinds.count("judge")), (2, 2))  # only the edited scenario is regenerated and re-judged
+
+    def test_6_frozen_heldout_needs_force_to_overwrite(self):
+        d = self.tmp / "scripts/eval-fixtures/rival" / self.name
+        cfg = json.loads((d / "rival.json").read_text())
+        cfg["writer"] = {"brief": "brief.txt", "seeds": "seeds.txt"}
+        (d / "rival.json").write_text(json.dumps(cfg))
+        (self.tmp / "brief.txt").write_text("Write {N} scenarios.")
+        (self.tmp / "seeds.txt").write_text("01 alpha\n02 beta\n")
+        before = (d / "heldout.json").read_bytes()
+        writer = mock.Mock(return_value=json.dumps([{"id": "01", "prompt": "new one"}, {"id": "02", "prompt": "new two"}]))
+        with mock.patch.object(r, "chat", writer):
+            with self.assertRaises(SystemExit):
+                r.write_set(self.name, "heldout")
+            self.assertEqual((writer.call_count, (d / "heldout.json").read_bytes()), (0, before))
+            r.write_set(self.name, "heldout", force=True)
+        self.assertEqual([x["id"] for x in json.loads((d / "heldout.json").read_text())], ["h01", "h02"])
+        self.assertEqual(json.loads((d / "rival.json").read_text())["heldout_sha256"], r.digest(self.name))
+
+    def test_7_referenced_files_are_part_of_the_frozen_hash(self):
+        d = self.tmp / "scripts/eval-fixtures/rival" / self.name
+        (self.tmp / "change.patch").write_text("--- a\n+++ b\n")
+        held = scen("held", 9, 10) + [{"id": "19", "file": "change.patch"}]
+        (d / "heldout.json").write_text(json.dumps(held))
+        cfg = json.loads((d / "rival.json").read_text())
+        cfg["heldout_sha256"] = r.digest(self.name)
+        (d / "rival.json").write_text(json.dumps(cfg))
+        self.assertEqual(r.check_split(self.name), [])
+        (self.tmp / "change.patch").write_text("--- a\n+++ b\n+swapped\n")  # json untouched, referenced file swapped
+        self.assertTrue(any("heldout_sha256" in b for b in r.check_split(self.name)))
 
 
 if __name__ == "__main__":

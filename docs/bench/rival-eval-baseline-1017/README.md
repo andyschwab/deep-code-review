@@ -20,6 +20,10 @@ because neither judge passed the position-bias health gate on them. Treat every 
 | product-discovery | phuryn pm-skills | DeepSeek-V4-Flash | 10 | 0.350 [0.200, 0.500] | FAIL |
 | product-output-safety | promptfoo redteam-setup | GLM-5.2 | 10 | 0.400 [0.150, 0.700] | FAIL |
 
+Judge choice matters for one row: product-output-safety is scored by GLM-5.2 (0.400 [0.150, 0.700]) because DeepSeek-V4-Flash's slot-1 rate there (0.632) is outside the
+0.4-0.6 band. Replayed from the committed verdicts, the dropped DeepSeek-V4-Flash judge would score it 0.800 [0.650, 0.950]. The gate removes the biased judge's number; it does not
+show that the two agree, and for this skill they do not. Treat that row as judge-dependent.
+
 Total spend $0.00. Win rate = mean over scenarios of 1 (Perun answer preferred in both orders), 0 (rival preferred in both
 orders) or 0.5 (the two orders disagree, or a tie). CI = percentile bootstrap over scenarios, 10,000 resamples, seed 1. With n = 10 the CI is
 wide (about plus or minus 0.3): a row near 0.5 means "not separable at this n", not "equal".
@@ -62,7 +66,7 @@ Pooled over this baseline:
 
 Both judges lean toward slot 1 overall (outside the 0.4-0.6 band when pooled). The gate is applied per skill, so a judge can be used on some skills and
 dropped on others; where both fail, the skill gets no verdict rather than a biased number. Because a win needs both orders to agree, slot bias
-cannot inflate a win rate; it can only push scenarios toward 0.5 and widen the interval. A third judge (gpt-oss_120b) was tried and dropped: slot-1 rate 0.75 on the three unscored skills.
+cannot inflate a win rate; it can only push scenarios toward 0.5 and widen the interval.
 
 ## Caveats
 

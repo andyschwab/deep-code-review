@@ -61,7 +61,7 @@ class Stop(Exception):
 
 class State:
     def __init__(self, cap):
-        self.cap, self.spent, self.util, self.lock = cap, 0.0, 0.0, threading.Lock()
+        self.cap, self.spent, self.reserved, self.util, self.lock = cap, 0.0, 0.0, 0.0, threading.Lock()
 
 
 def sha(b):
@@ -110,31 +110,44 @@ def chat(model, system, user, max_tokens=6000, temperature=0.0, tries=3):
 
 
 def claude_call(system, user, st, reserve=0.10):
-    """One claude -p call, no tools -> text. Checks the per-run cap before and plan-quota utilization after."""
+    """One claude -p call, no tools -> text. The cap is checked against spend plus every in-flight reserve; the plan-quota
+    reading must be present (fail closed). A timeout charges the reserve; a missing binary or timeout becomes a RuntimeError."""
     with st.lock:
         if st.util >= QUOTA_STOP:
             raise Stop(f"plan quota utilization {st.util:.2f} >= {QUOTA_STOP}")
-        if st.spent + reserve > st.cap:
-            raise Stop(f"cap ${st.cap} reached: spent {st.spent:.3f}")
+        if st.spent + st.reserved + reserve > st.cap:
+            raise Stop(f"cap ${st.cap} reached: spent {st.spent:.3f}, in flight {st.reserved:.3f}")
+        st.reserved += reserve
     cmd = ["claude", "-p", "--model", CLAUDE_MODEL, "--output-format", "stream-json", "--verbose", "--tools", "",
            "--no-session-persistence", "--setting-sources", "project,local", "--strict-mcp-config", "--disable-slash-commands",
            "--max-budget-usd", str(reserve), "--system-prompt", system]
-    with tempfile.TemporaryDirectory(prefix="rival-") as w:
-        p = subprocess.run(cmd, input=user, capture_output=True, text=True, cwd=w, timeout=900)
-    txt, cost, util = "", 0.0, 0.0
-    for line in p.stdout.splitlines():
-        try:
-            j = json.loads(line)
-        except ValueError:
-            continue
-        if j.get("type") == "rate_limit_event":
-            ws = (j.get("rate_limit_info") or {}).get("unifiedWindows") or {}
-            util = max([util] + [float(v.get("utilization") or 0) for v in ws.values()])
-        elif j.get("type") == "result":
-            txt, cost = j.get("result") or "", float(j.get("total_cost_usd") or 0)
+    txt, cost, util, seen, err = "", 0.0, 0.0, False, ""
+    try:
+        with tempfile.TemporaryDirectory(prefix="rival-") as w:
+            p = subprocess.run(cmd, input=user, capture_output=True, text=True, cwd=w, timeout=900)
+        for line in p.stdout.splitlines():
+            try:
+                j = json.loads(line)
+            except ValueError:
+                continue
+            if j.get("type") == "rate_limit_event":
+                ws = (j.get("rate_limit_info") or {}).get("unifiedWindows") or {}
+                util, seen = max([util] + [float(v.get("utilization") or 0) for v in ws.values()]), seen or bool(ws)
+            elif j.get("type") == "result":
+                txt, cost = j.get("result") or "", float(j.get("total_cost_usd") or 0)
+    except subprocess.TimeoutExpired:
+        cost, err = reserve, "claude: timed out"  # unknown spend: charge the whole reserve
+    except FileNotFoundError:
+        err = "claude: binary not found"
     with st.lock:
+        st.reserved -= reserve
         st.spent += cost
-        st.util = max(st.util, util)
+        if not err:
+            st.util = max(st.util, util if seen else 1.0)  # no utilization reading: treat the quota as exhausted
+    if err:
+        raise RuntimeError(err)
+    if not seen:
+        raise Stop("no plan-quota utilization reading in the claude output (fail closed)")
     if not txt.strip():
         raise RuntimeError("claude: empty output")
     return txt
@@ -209,6 +222,15 @@ def load_scenarios(skill, split):
     return out
 
 
+def digest(skill):
+    """sha256 over heldout.json plus the bytes of every file a scenario references, so a swapped patch breaks the freeze."""
+    h = (FIX / skill / "heldout.json").read_bytes()
+    for x in json.loads(h):
+        if "file" in x:
+            h += b"\0" + (ROOT / x["file"]).read_bytes()
+    return sha(h)
+
+
 def norm(t):
     return re.sub(r"\W+", " ", t.lower()).strip()
 
@@ -222,8 +244,8 @@ def check_split(skill):
     """Split-hygiene problems for one skill (empty list = clean). Held-out must be frozen, disjoint from tune and big enough."""
     cfg, bad = config(skill), []
     held, tune = load_scenarios(skill, "heldout"), load_scenarios(skill, "tune")
-    if sha((FIX / skill / "heldout.json").read_bytes()) != cfg.get("heldout_sha256"):
-        bad.append("heldout.json changed without updating heldout_sha256 in rival.json")
+    if digest(skill) != cfg.get("heldout_sha256"):
+        bad.append("heldout.json or a file it references changed without updating heldout_sha256 in rival.json")
     if len(held) < MIN_HELDOUT:
         bad.append(f"heldout n={len(held)} < {MIN_HELDOUT}")
     if len(tune) < MIN_TUNE:
@@ -264,10 +286,10 @@ def save(p, text):
 
 def judge_one(model, sc, a_arm, b_arm, d, outs):
     """Cached judge call -> raw verdict ("1", "2", "tie") for this order, or None when the model gave no usable verdict."""
-    p = d / "judge" / model / f"{a_arm}__{b_arm}" / f"{sc['id']}.json"
+    a, b = outs[a_arm][sc["id"]], outs[b_arm][sc["id"]]
+    user = f"REQUEST:\n{sc['prompt']}\n\n=== Response 1 ===\n{a}\n\n=== Response 2 ===\n{b}\n"
+    p = d / "judge" / model / f"{a_arm}__{b_arm}" / f"{sc['id']}-{sha(model + JUDGE_SYSTEM + user)[:8]}.json"  # key: judge, rubric, scenario, both answers
     if not p.exists():
-        a, b = outs[a_arm][sc["id"]], outs[b_arm][sc["id"]]
-        user = f"REQUEST:\n{sc['prompt']}\n\n=== Response 1 ===\n{a}\n\n=== Response 2 ===\n{b}\n"
         for _ in range(2):
             try:
                 j = jparse(chat(model, JUDGE_SYSTEM, user, max_tokens=3000))
@@ -297,7 +319,7 @@ def run_skill(skill, split, backend, out, jobs, cap):
     outs, errs = {a: {} for a in ARMS}, []
 
     def gen(a, sc):
-        p = d / "outputs" / a / f"{sc['id']}.txt"
+        p = d / "outputs" / a / f"{sc['id']}-{sha(sc['prompt'])[:8]}.txt"
         if not p.exists():
             try:
                 save(p, generate(backend, systems[a], gen_task + sc["prompt"], st))
@@ -323,7 +345,7 @@ def run_skill(skill, split, backend, out, jobs, cap):
             vs = dict(ex.map(both, ok))
         rate = slot1_rate([x for pair in vs.values() for x in pair])
         health[model] = None if rate is None else round(rate, 3)
-        if rate is None or SLOT1_OK[0] <= rate <= SLOT1_OK[1]:
+        if rate is not None and SLOT1_OK[0] <= rate <= SLOT1_OK[1]:  # no decisive verdict at all is unhealthy too
             used = model
             for i, pair in vs.items():
                 if None in pair:
@@ -376,9 +398,11 @@ def changed_skills(base="origin/main"):
     return sorted(hit)
 
 
-def write_set(skill, split):
+def write_set(skill, split, force=False):
     """Draw a scenario set from the writer brief (public purpose only) and freeze the held-out hash."""
     cfg = config(skill)
+    if split == "heldout" and (FIX / skill / "heldout.json").exists() and not force:
+        raise SystemExit(f"{skill}: heldout.json is frozen; rewriting it needs --force")
     w = cfg["writer"]
     brief = (ROOT / w["brief"]).read_text()
     seeds = [l for l in (ROOT / w["seeds"]).read_text().splitlines() if re.match(r"\d\d ", l)]
@@ -399,7 +423,7 @@ def write_set(skill, split):
     p = FIX / skill / f"{split}.json"
     p.write_text(json.dumps([{"id": ("h" if split == "heldout" else "") + str(x["id"]), "prompt": x["prompt"]} for x in arr], indent=1) + "\n")
     if split == "heldout":
-        cfg["heldout_sha256"] = sha(p.read_bytes())
+        cfg["heldout_sha256"] = digest(skill)
         (FIX / skill / "rival.json").write_text(json.dumps(cfg, indent=1) + "\n")
     print("wrote", p)
 
@@ -419,13 +443,14 @@ def main(argv=None):
     w = sub.add_parser("write")
     w.add_argument("skill")
     w.add_argument("split", choices=("heldout", "tune"))
+    w.add_argument("--force", action="store_true", help="overwrite a frozen held-out set")
     c = sub.add_parser("changed")
     c.add_argument("base", nargs="?", default="origin/main")
     k = sub.add_parser("check")
     k.add_argument("skills", nargs="*")
     a = ap.parse_args(argv)
     if a.cmd == "write":
-        return write_set(a.skill, a.split)
+        return write_set(a.skill, a.split, a.force)
     if a.cmd == "changed":
         return print("\n".join(changed_skills(a.base)))
     if a.cmd == "check":
@@ -435,8 +460,7 @@ def main(argv=None):
                 rc = 1
                 print(f"{s}: {b}")
         return rc
-    if a.gen == "pcss":
-        load_key()  # fail early, before any diff work, when the judge key is missing
+    load_key()  # the judges are always PCSS models: fail early, before any generation, when the key is missing
     want = a.skills.split(",") if a.skills else changed_skills(a.changed) if a.changed else skills()
     if not want:
         return print("no skill touched by the diff: nothing to score")
