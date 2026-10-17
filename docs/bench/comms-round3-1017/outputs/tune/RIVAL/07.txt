@@ -1,0 +1,25 @@
+## Reporting dashboard: route reads to read replica
+
+This PR shifts reporting dashboard queries from the primary database to a dedicated read replica. Write operations, such as saving dashboard configurations, continue to target the primary.
+
+**Changes**
+- Added read replica path for dashboard queries across 18 files (+423 lines, -89 lines).
+- Added 23 new tests covering replica routing; all 156 tests pass.
+
+**Staging Results**
+Moving reads to the replica significantly improved performance and reduced load on the primary:
+- Average dashboard load: 4.7s → 1.2s
+- P95 dashboard load: 8.3s → 2.1s
+- Primary DB CPU during spikes: 82% → 35%
+
+Replica lag on staging typically sits between 50–200ms. During a bulk import test, it peaked at 1.2 seconds.
+
+**Open Questions for On-Call Lead**
+We need to establish alerting and failover behavior for replica lag before merging.
+1. **Threshold:** What lag threshold should trigger an alert? Is 5 seconds too permissive, or is 1 second too sensitive given the 1.2s peak observed during bulk imports?
+2. **Failover Strategy:** If lag exceeds the threshold, should we automatically fail over reads to the primary, or serve stale data with a warning? Since the dashboard displays order counts and revenue, serving stale data risks misleading users during critical periods.
+
+Please advise on the preferred approach so we can implement the corresponding alerts and logic.
+
+---
+*Note: Assuming Kenji is the current on-call lead based on your note.*
