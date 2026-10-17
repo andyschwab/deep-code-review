@@ -1,0 +1,45 @@
+### ZenFlow Beta Instrumentation Plan (MVP Stage)
+
+Do not instrument every screen view. At 5,000 downloads, "track everything" creates noise, storage costs, and analysis paralysis without answering specific business questions. For the March 15 beta, instrument only events that validate your core value hypothesis: **Do users return to complete a second session?**
+
+Prioritize these three categories. Everything else (pausing audio, settings changes, scroll depth) is `UNVERIFIED` in terms of business impact and should wait until you have a specific question it answers.
+
+#### 1. The North Star & Core Value (Must Have)
+These events define whether the product works. If these do not happen, no amount of acquisition matters.
+*   **`session_completed`**: Fired when a user finishes a meditation or sleep story without abandoning early.
+    *   *Properties:* `content_type` (meditation/story), `duration_seconds`, `content_id`.
+    *   *Question Answered:* Are users actually consuming the core value?
+*   **`session_started`**: Fired when playback begins.
+    *   *Properties:* `entry_point` (home, push notification, deep link).
+    *   *Question Answered:* What is the drop-off rate between starting and completing? (Activation quality).
+
+#### 2. The Funnel & Conversion (Must Have)
+These events track the path to revenue and identify leaks before the paywall.
+*   **`paywall_viewed`**: Fired when the user sees the subscription offer (triggered by trial expiration or feature lock).
+    *   *Properties:* `trigger_reason` (trial_end, feature_lock), `days_since_install`.
+    *   *Question Answered:* How many users reach the monetization point?
+*   **`trial_started`**: Fired upon successful entry into the 7-day free trial.
+    *   *Properties:* `plan_type`, `acquisition_source`.
+    *   *Question Answered:* What is the activation rate from install to trial?
+*   **`subscription_converted`**: Fired when payment is successfully processed after the trial.
+    *   *Properties:* `revenue_amount`, `currency`, `days_to_convert`.
+    *   *Question Answered:* What is the final conversion rate?
+
+#### 3. Retention Diagnostics (Must Have)
+Retention is the primary metric for subscription apps. You need to know if users come back *after* day one.
+*   **`app_opened`**: Fired on every cold start.
+    *   *Properties:* `days_since_install`, `is_returning_user` (boolean).
+    *   *Question Answered:* What is our Day-1, Day-3, and Day-7 retention? (Read this before looking at acquisition).
+
+#### Explicitly Exclude for Now (Wait List)
+Do not build these yet. They are "nice to have" but will not drive your initial go/no-go decision.
+*   `audio_paused` / `audio_resumed`: Unless you suspect a technical bug causing drops, this is noise.
+*   `settings_changed`: Irrelevant to early retention/value validation.
+*   `screen_view`: Too granular. Use `app_opened` and specific action completions instead.
+*   `scroll_depth`: Vanity metric for this stage.
+
+#### Implementation Notes for Engineering
+*   **Identifier Seam:** Ensure every event includes a stable, pseudonymous `user_id` that persists across reinstallations (if possible) and sessions. Do not use raw PII (email/name) in event logs; route identity mapping to your secure user database.
+*   **Data Hygiene:** Define the schema for these 6 events strictly. If an event does not map to one of the questions above, reject the pull request.
+
+**This Week's Step:** Draft the JSON schema for the 6 events listed above and review them against the specific questions they answer. If an engineer cannot name the question an event answers, remove it from the March 15 scope.

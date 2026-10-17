@@ -1,0 +1,44 @@
+Your launch timeline and data gaps create a specific, high-stakes risk profile. Because this tool prioritizes worklists and suggests findings for potential diagnosis, it falls squarely into the category of high-stakes automation where errors can directly harm patients through delayed treatment or unnecessary procedures. You cannot certify this system as "safe" or "unbiased" before launch; no amount of testing proves the absence of harm. Instead, you must inventory the specific harms, measure what you can with your current constraints, and enforce strict human controls on the riskiest actions.
+
+**1. The Harm Inventory**
+Before writing a single test case, explicitly name the harms your specific constraints introduce:
+*   **Bias/Unfair Outcomes:** The known lack of diverse imaging data for older patients creates a high probability that the model will under-detect osteoporosis-related fractures in this demographic. This is not a hypothetical risk; it is a known data gap.
+*   **Automation Bias:** Radiographers may trust the "priority" ranking or the highlighted findings too much, potentially skipping a manual review of cases the AI marks as "normal" or low-priority.
+*   **Hallucination as Fact:** The tool might highlight noise or artifacts as fractures (false positives) or miss subtle breaks (false negatives), presenting these outputs with an authority that invites immediate clinical action or inaction.
+*   **Unsafe Automation:** If the tool automatically re-orders the worklist without human oversight, it could delay critical care for a patient the algorithm incorrectly deprioritized.
+
+**2. Measurement Plan: Test the Outputs, Not Just the Code**
+You cannot run extended clinical trials, but you must run targeted output evaluations on your existing data and any synthetic data you can generate. Do not report aggregate accuracy; it will hide the failure modes in your vulnerable population.
+
+Create a runnable evaluation plan with one test row per identified harm:
+*   **Probe Set for Bias:** Isolate every available image of patients over age 75 (even if the set is small). Create a "positive control" set of confirmed fractures in this group and a "negative control" set of healthy bones in this group.
+*   **Metric & Threshold:** Measure the False Negative Rate (missed fractures) specifically for the >75 demographic.
+    *   *Stop Condition:* If the False Negative Rate for older patients exceeds the rate for the general population by even a small margin (e.g., >0% delta), the feature must not launch with automatic prioritization enabled.
+*   **Adversarial Probes:** Inject known osteoporosis-specific fracture patterns into the test set to see if the model ignores them due to training gaps.
+*   **Reporting:** If you cannot measure a metric because the data is missing, label it **UNVERIFIED**. Do not invent a "95% accuracy" claim for older patients. State clearly: "Performance on osteoporosis-related fractures in patients >75 is UNVERIFIED due to data absence."
+
+**3. Managing Residual Risk: The Human Gate**
+Because you have a known data gap and a hard deadline, you must manage the residual risk through product design, not just testing.
+
+*   **Human-in-the-Loop on Prioritization:** The system must **not** automatically re-order the worklist or hide cases. It can *suggest* a priority flag, but a human radiographer must confirm the sorting logic or retain the ability to instantly view the raw, unsorted queue. Fully autonomous re-ordering of patient care is the failure mode you must prevent.
+*   **Defined Uncertainty Tiers:** Do not show the doctor a confidence score like "87% likely fracture." This implies a precision your model does not have, especially for older patients. Instead, use defined coarse tiers with clear definitions:
+    *   *Confirmed:* High correlation with known patterns.
+    *   *Corroborated:* Multiple indicators present.
+    *   *Single-Source/Unverified:* Weak signal, requires mandatory manual review.
+    *   *Colorblind-Safe Cues:* Use text and distinct shapes/colors to denote these tiers.
+*   **Override Capability:** Ensure the interface makes it trivial for a radiographer to override the AI's suggestion and mark a case as "AI Missed" with a single click. This data is critical for your post-launch monitoring.
+
+**4. Transparency Artifact (Model Card)**
+You must ship a Model Card with the tool. This is non-negotiable for a health-tech product. It must include:
+*   **Intended Use:** Pre-read assistance only, not definitive diagnosis.
+*   **Known Limitations:** Explicitly state: "Model performance on osteoporosis-related fractures in patients over 75 is unverified due to limited training data."
+*   **Subgroup Performance:** Report metrics separately for age groups if possible, or clearly state where data is insufficient.
+*   **Owner & Version:** Name the specific team member responsible for monitoring these outputs.
+
+**5. Post-Launch Monitoring Protocol**
+Since pre-launch data is limited, your post-launch monitoring must be aggressive:
+*   **Error Logging:** Track every instance where a radiographer overrides the AI or where a fracture is found later that the AI missed.
+*   **Demographic Slicing:** As real-world data comes in, immediately slice error rates by age. If the error rate for older patients spikes, trigger a rollback or disable the prioritization feature automatically.
+*   **Legal Routing:** You asked about safety evaluation, but whether this tool constitutes a regulated medical device requiring specific legal disclosures is a determination for counsel. Route this question immediately to your legal team (Lane R) to identify applicable regimes (e.g., FDA, EU AI Act) without asserting compliance yourself.
+
+Do not let the launch date force you to fabricate safety metrics. It is safer to launch with a "UNVERIFIED" label and a strict human gate than to launch with a false sense of security.

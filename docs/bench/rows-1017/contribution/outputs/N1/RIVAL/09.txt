@@ -1,0 +1,77 @@
+### Step-by-Step Rebase and Fix Sequence
+
+**1. Prepare and Fetch**
+Ensure your local `main` matches the upstream exactly and fetch your branch.
+```bash
+git fetch origin
+git switch <your-branch-name>
+git fetch origin main
+```
+
+**2. Start Interactive Rebase**
+Begin an interactive rebase against the updated upstream main. This allows you to edit specific commits to satisfy bot requirements (like commit message style) while applying your code changes.
+```bash
+git rebase -i origin/main
+```
+*In the editor that opens:*
+- Keep `pick` for commits that only need code changes from the maintainer's feedback.
+- Change `pick` to `edit` for any commit that needs its **message** fixed (for the "commit message style" bot).
+- Save and close the editor.
+
+**3. Address Stopping Points (Bot & Maintainer Fixes)**
+Git will stop at each commit marked `edit`.
+
+*If stopped for a Commit Message Fix:*
+Amend the message to match the project's convention (e.g., `feat(scope): description`), then continue.
+```bash
+git commit --amend
+# Fix the text in the editor, save, and exit.
+git rebase --continue
+```
+
+*If stopped for Code Changes (Maintainer Feedback):*
+Apply the specific code changes requested by the maintainer to the files in the current commit state.
+```bash
+# Edit files to address maintainer feedback
+git add <modified-files>
+# Amend the current commit to include these changes
+git commit --amend --no-edit
+git rebase --continue
+```
+
+*If stopped for Changelog/Formatting (Bot Requirements):*
+If the bot requires a changelog entry or formatting fix that logically belongs to a specific commit, add it now. If it is a separate concern, it is often cleaner to create a new "fixup" commit during the rebase rather than cluttering the original logic, but if the project demands a single commit, amend it.
+```bash
+# Example: Add changelog entry
+echo "- Fix: <description>" >> CHANGELOG.md
+git add CHANGELOG.md
+git commit --amend --no-edit
+git rebase --continue
+```
+
+**4. Resolve Conflicts (If Any)**
+If the rebase stops due to conflicts:
+1. Open the conflicting files and resolve the markers.
+2. Stage the resolved files: `git add <files>`.
+3. Continue the rebase: `git rebase --continue`.
+*Do not run `git commit` manually during conflict resolution unless the editor prompts you.*
+
+**5. Final Verification**
+Once the rebase finishes, verify your history is clean and linear.
+```bash
+git log --oneline
+# Ensure commit messages match conventions and no "merge" commits exist.
+```
+
+**6. Safe Push**
+Push the rewritten history to your fork. **Crucial:** Use `--force-with-lease` instead of `--force`. This ensures you do not overwrite changes if a bot or another process pushed to your branch while you were working.
+```bash
+git push fork <your-branch-name> --force-with-lease
+```
+
+**7. Respond to Bot Comments**
+After pushing, go to the PR on GitHub. Reply to each bot comment explicitly stating the fix is applied in the new history.
+> "Addressed in the latest rebase: commit `<short-hash>` now follows conventional commit standards / includes the changelog entry."
+
+**Note:** If you created separate fixup commits during the rebase for clarity, you may squash them locally before the final push using `git rebase -i origin/main` and selecting `squash` or `fixup` for those specific lines.
+**Note:** Never use `git push --force` without the `--lease` flag when a PR is under active review, as it can silently destroy review context.

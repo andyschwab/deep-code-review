@@ -1,0 +1,41 @@
+Your drug-interaction checker operates in a high-stakes environment where errors can directly impact patient safety. Because you are using a language model without access to real-time health records and relying on synthetic data, your pre-launch review must prioritize preventing hallucinations and ensuring safe failure modes. The following process addresses these specific constraints.
+
+**1. Targeted Hallucination Testing Strategy**
+
+Since you cannot test against live patient data, you must construct a "red team" dataset specifically designed to break the model. Do not rely on random queries. Instead, curate a test suite of 500+ synthetic profiles focusing on edge cases:
+
+*   **Rare Combinations:** Include interactions involving orphan drugs, recently approved medications, and off-label uses that may be underrepresented in the model's training data.
+*   **Complex Polypharmacy:** Create scenarios with five or more concurrent medications to test if the model loses track of cumulative effects.
+*   **Ambiguous Inputs:** Use vague patient descriptions (e.g., "that blue pill for blood pressure") to see if the model makes unsafe assumptions rather than asking for clarification.
+*   **Contradictory Constraints:** Input profiles with conflicting conditions (e.g., pregnancy vs. specific contraindications) to verify logical consistency.
+
+For each test case, define a "ground truth" answer verified by your licensed pharmacists. Any deviation where the model invents an interaction, misses a critical one, or provides dosage advice outside standard guidelines constitutes a hallucination. You must achieve 100% accuracy on critical safety failures before launch; non-critical conversational errors can be tolerated if they do not affect safety advice.
+
+**2. Confidence Scoring and Escalation Path**
+
+You must implement a mechanism where the model refuses to answer rather than guessing. Since LLMs do not natively know what they don't know, you need to engineer this behavior:
+
+*   **Self-Correction Prompting:** Instruct the model to explicitly state its confidence level internally before generating a response. If the internal confidence regarding a specific interaction is below a strict threshold (e.g., 90%), the system must trigger a fallback.
+*   **The "Safe Refusal" Response:** When confidence is low or the query involves a known high-risk category (e.g., anticoagulants, chemotherapy), the system should not attempt an answer. Instead, it must display a standardized message: *"I cannot verify this specific combination with sufficient certainty. Please consult a pharmacist immediately."*
+*   **Human-in-the-Loop Escalation:**
+    *   **Immediate Path:** Provide a prominent, one-click button to initiate a secure chat or phone call with an on-duty pharmacist for any flagged query.
+    *   **Logging:** Every escalated query must be logged with the user's input, the model's failed confidence score, and the final human resolution. This creates a feedback loop for retraining.
+
+**3. Pre-Launch Governance Checklist**
+
+Before going live, your team of ten must sign off on the following:
+
+*   **Pharmacist Verification:** A licensed pharmacist must review and approve the ground truth answers for the entire red team dataset.
+*   **Failure Mode Analysis:** Document exactly what happens when the system encounters an unknown drug name or a garbled input. It must never hallucinate a drug existence.
+*   **Disclaimer Prominence:** Ensure clear, unavoidable disclaimers state that the tool is an aid, not a replacement for professional medical advice.
+*   **Data Hygiene:** Confirm that no synthetic test data accidentally contains real PII and that logs strip user inputs after the session ends to maintain privacy compliance.
+
+**4. Post-Launch Monitoring Plan**
+
+Deployment is not the end of testing. Establish a daily review cycle for the first month:
+
+*   Review all instances where the "Safe Refusal" message was triggered.
+*   Investigate any user feedback indicating confusion or perceived errors.
+*   Update the blocklist and prompt instructions weekly based on new drug approvals or identified failure patterns.
+
+By treating every uncertain output as a potential safety incident and routing it to human experts, you transform the model's limitation into a safety feature. This approach ensures that while the AI handles routine queries, high-risk scenarios always receive human oversight.

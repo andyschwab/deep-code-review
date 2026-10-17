@@ -1,0 +1,48 @@
+### Critical: Premature Process Termination Prevents Cleanup and Error Propagation
+
+**File:** `internal/cli/cli.go`
+**Lines:** Multiple (e.g., 184, 340, 419, 593, 657, 729, 740, 761, 822, 885, 892, 899, 903, 947, 1043, 1102, 1160, 1182, 1207, 1212, 1227, 1239, 1270, 1281, 1285, 1314, 1345, 1429, 1434, 1444, 1453)
+
+**Why it is wrong:**
+The patch systematically replaces `os.Exit(1)` with `cli.OsExiter(1)` in locations where the code **immediately returns** or is inside a function that ignores the return value after the call.
+1.  **Dead Code:** In patterns like `cli.OsExiter(1); return nil`, the `return` statement is unreachable. While `cli.OsExiter` is likely a variable holding `os.Exit` for testing purposes, calling it terminates the process immediately.
+2.  **Resource Leaks:** Calling `Exit` (or the exiter) bypasses deferred statements (`defer`). If any of these functions have deferred cleanup (closing files, releasing locks, removing temporary directories), that cleanup will never run.
+3.  **Broken Error Handling:** In functions returning `error` (e.g., `pluginRemoveCommand`, `execCommand`), the caller expects to handle the error. By calling `Exit` directly, the function never returns the error to the caller. This prevents the CLI framework from performing its own error logging, formatting, or graceful shutdown sequences. It turns recoverable errors into hard crashes.
+4.  **Testability Illusion:** While `cli.OsExiter` allows tests to *mock* the exit call, placing it directly in business logic forces the test to panic/recover or use `os.Exit` mocking globally, which is fragile. The correct pattern is to `return err` and let the top-level `Execute` function handle the exit code based on the error type.
+
+**Fix:**
+Revert the changes. Do not call `cli.OsExiter` (or `os.Exit`) inside helper commands. Instead, ensure an appropriate `error` is returned to the caller. The top-level `app.Run` or the `Execute` function's error handler should be the single location responsible for inspecting the error and calling `os.Exit` with the correct code.
+
+**Specific Example Fix (Lines 737-740):**
+*Current (Buggy):*
+```go
+if pluginName == "" {
+    logger.Print("No plugin given")
+    cli.OsExiter(1) // Kills process, defer skipped, caller gets nil
+    return nil
+}
+```
+*Correct:*
+```go
+if pluginName == "" {
+    logger.Print("No plugin given")
+    return fmt.Errorf("no plugin given") // Let caller handle exit
+}
+```
+
+**Specific Example Fix (Lines 590-593):**
+*Current (Buggy):*
+```go
+if err != nil {
+    cli.OsExiter(1) // Kills process
+    return err      // Unreachable
+}
+```
+*Correct:*
+```go
+if err != nil {
+    return err // Propagate error up
+}
+```
+
+**Summary:** This patch incorrectly moves process termination logic deep into the call stack, breaking deferred cleanup, suppressing proper error propagation, and creating dead code. It should be reverted entirely in favor of returning errors.

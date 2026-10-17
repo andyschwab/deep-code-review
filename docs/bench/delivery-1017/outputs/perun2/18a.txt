@@ -1,0 +1,40 @@
+**Delivery Plan: Patient Intake Flow Update**
+
+**Lanes & Parallelism**
+Three lanes launch immediately from the current `main` HEAD (SHA to be pinned at G1):
+1.  **UX/Design Lane:** Redesigns the insurance verification step for clarity and applies branding updates. Output: Static assets and style specs.
+2.  **Backend/Data Lane:** Validates that the new flow captures all required fields for compliance. Output: Schema validation scripts and migration dry-runs.
+3.  **Implementation Lane:** Integrates UX assets and backend logic into the portal codebase. *Dependency:* Waits for UX specs (G3) before coding, but can prepare test scaffolding now.
+
+*Serialization:* The Implementation Lane must wait for UX finalization. Backend validation runs in parallel but must sign off on the data contract before Integration (G7).
+
+**Gates & Checks**
+*   **G1 (Spec):** Define "confusing" specifically via the reported stuck points. Pin base SHA.
+*   **G3 (Design):** ADR confirming branding consistency and accessibility for elderly users.
+*   **G4 (Build):** Unit tests for form logic. *Constraint:* Do not modify the immutable encryption config; verify via read-only checks.
+*   **G5 (Verify):**
+    *   Run full CI suite once on the exact integration SHA.
+    *   **Flake Handling:** If the known flaky insurance validation check fails, inspect logs. If it matches the known non-functional pattern, mark as "known flake" and proceed; do not re-run automatically unless code touched that module.
+    *   **UI Evidence:** Headed-browser recording of the full intake journey on the exact route, proving no stuck states.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (independent of Implementer).
+    *   **Compliance Review:** Compliance Officer verifies data capture completeness against audit requirements.
+    *   **Security:** Verify no attempts were made to alter the immutable encryption config.
+
+**Review Independence**
+The Implementer cannot approve their own code. The Compliance Officer's sign-off is mandatory and independent of the technical review. The Lead Architect provides the second required approval for deployment.
+
+**Landing & Human Decisions**
+*   **Merge:** Once G6 is green, merge to the release branch. This is not yet production.
+*   **Human Gates (G8):**
+    1.  **Lead Architect Approval:** Required for code structure and safety.
+    2.  **Compliance Officer Approval:** Required for regulatory adherence.
+    *   *Timing:* Both approvals must be secured before the Tuesday 02:00–04:00 UTC window.
+*   **Deploy:** Automated push occurs only within the restricted Tuesday window after dual approval is logged.
+*   **Rollback:** If production verification (G9) fails, trigger manual database restore from the nightly snapshot. *Warning:* This takes ~45 minutes; clinic operations will be impacted during restore.
+*   **Post-Deploy:** Notify requester only after G9 (production verification) confirms the live flow works and data is capturing correctly. Front-desk training begins only after this notification.
+
+**Risk & Constraints**
+*   **Cost:** Minimize CI runs by ensuring local green before pushing. No speculative branches.
+*   **Audit:** Incomplete files are a blocker; G5 must prove 100% data capture success in the test suite.
+*   **Urgency:** Target the earliest possible Tuesday window. If approvals miss the cutoff, deploy slips one week; do not attempt off-hours bypass.

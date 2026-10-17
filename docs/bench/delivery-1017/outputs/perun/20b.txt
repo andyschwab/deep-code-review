@@ -1,0 +1,59 @@
+### Delivery Plan: Irreversible Patient Data Erasure
+
+**Owner:** Clinical Data Team (Raj Patel)
+**Scope:** New endpoint, hard deletion logic, audit logging, authorization.
+**Constraints:** No soft-delete, no PII in logs, dual human approval for deploy, isolated sandbox for E2E.
+
+#### 1. Lanes & Parallelism
+*Work is split into three isolated worktrees. Lanes A and B run in parallel; Lane C is serialized after B.*
+
+*   **Lane A (Builder): Core Logic & API**
+    *   **Task:** Implement `DELETE /patients/{id}`. Enforce hard delete (no trash table). Strip PII from audit log entries before writing. Integrate Identity Provider (IdP) token validation middleware.
+    *   **Output:** Patch set + Unit tests mocking IdP and DB.
+    *   **Parallelism:** Runs parallel to Lane B.
+
+*   **Lane B (Security): Threat Model & Sandbox Prep**
+    *   **Task:** Define "irreversible" verification steps (e.g., WAL log inspection, backup exclusion rules). Provision the isolated sandbox cluster with sanitized data masks. Verify log scrubbing logic against regex patterns for PII.
+    *   **Output:** Security spec + Sandbox URL + Log sanitization test suite.
+    *   **Parallelism:** Runs parallel to Lane A.
+
+*   **Lane C (QA): Integration & Load**
+    *   **Task:** Execute E2E deletion in the isolated sandbox (from Lane B). Verify data absence at storage layer. Run load test capped at 40 concurrent sessions (below the 50-session pool limit) to prevent timeout.
+    *   **Dependency:** Must wait for Lane B's sandbox ready signal and Lane A's code merge to integration branch.
+    *   **Serialization:** Strictly sequential after A+B.
+
+#### 2. Gates & Checks
+*All checks run on the exact immutable SHA of the integration branch.*
+
+*   **G2 (Plan):** Confirm "hard delete" implementation strategy excludes backup streams. **Gate:** Raj Patel sign-off on design doc.
+*   **G4 (Build):**
+    *   Unit tests (Lane A).
+    *   Static analysis for PII leakage in log statements (Lane B).
+    *   **Constraint:** Skip retry on notification module flake if logs confirm core success.
+*   **G5 (Verify):**
+    *   **Sandbox E2E:** Prove data is unrecoverable in the isolated cluster.
+    *   **Log Audit:** Assert zero PII bytes in audit stream.
+    *   **Load:** Verify DB pool stability under 40-session load.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (not the builder) + Security Lead.
+    *   **Compliance Review:** Chief Compliance Officer (CCO) verifies audit log format and irreversibility guarantees.
+
+#### 3. Review Strategy
+*   **Independent Verification:** The Security Lead reviews Lane A's deletion logic without consulting the Builder. The CCO reviews the audit log schema independently of the implementation team.
+*   **No Self-Approval:** Builder cannot approve their own merge request.
+
+#### 4. Landing & Human Gates
+*   **Integration:** Merge to `release-candidate` branch only after G6 passes.
+*   **Human Decision (Dual Approval):**
+    *   **Action:** Deploy to Production.
+    *   **Approvers:** Lead Engineer (Raj Patel) AND Chief Compliance Officer.
+    *   **Mechanism:** Approval via internal governance portal (not just GitHub/GitLab).
+*   **Rollback Plan:**
+    *   Since deletion is irreversible, code rollback does not restore data.
+    *   **Mitigation:** Feature flag the endpoint. If a bug is found post-deploy, immediately disable the flag to stop further deletions.
+    *   **Recovery:** Restore affected records only from pre-erasure backups taken *before* the specific deletion request timestamp (if legally permissible for that specific patient subset), otherwise legal remediation only.
+
+#### 5. Risk Controls
+*   **DB Pool:** Hard-coded connection limit in the endpoint logic to prevent starvation.
+*   **Flake Handling:** CI configured to ignore notification module failures if deletion logs show `200 OK`.
+*   **Audit Safety:** Automated regex scan fails the build if any potential PII pattern is detected in log output during testing.

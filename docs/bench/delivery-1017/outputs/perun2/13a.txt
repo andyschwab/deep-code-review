@@ -1,0 +1,56 @@
+**G0 Intake & G1 Spec**
+*   **Objective:** Redact driver license numbers and home addresses in log outputs for both historical backfills and streaming events within the `freight-flow` transformation step.
+*   **Constraints:** Legal hold pauses all other releases. Production schema is immutable. Fixtures are read-only; generation scripts must be updated.
+*   **Scope:** Transformation logic only. No schema changes. No modification of static fixture files in the read-only bucket.
+*   **Acceptance:** Zero PII in staging logs for new streams and backfill replays.
+
+**G2 Plan: Lanes & Dependencies**
+*   **Lane A (Implementation):** Update the data generation script to produce masked fixtures. Modify the transformation step to apply masking logic to streaming events and backfill processes.
+    *   *Budget:* Cap at $90 (2 runs) due to flaky geo-validator.
+    *   *Dependency:* None.
+*   **Lane B (Verification - Independent):** Re-run the transformation step against the newly generated masked fixtures. Assert via log scraping that no regex matching license formats or address patterns exists in output.
+    *   *Dependency:* Waits for Lane A to produce the patched transformation binary/script.
+*   **Lane C (Security/Privacy Review):** Audit the masking algorithm against compliance standards (e.g., irreversibility). Verify scope covers both backfill and stream paths.
+    *   *Dependency:* Parallel to Lane B, requires Lane A's code diff.
+
+**Serialization:** Lane A must complete before Lane B can execute functional tests. Lane C runs in parallel with Lane B once code is ready.
+
+**G3 Design**
+*   **Decision:** Masking occurs in-memory before the logging serializer. Backfill logic reuses the same masking function as the stream processor to ensure consistency.
+*   **Artifact:** ADR confirming no schema changes and reliance on script-generated fixtures.
+
+**G4 Implement**
+*   **Action:** Lane A commits changes to the transformation module and fixture generator.
+*   **Check:** Local lint and unit tests run before push to avoid $45 CI waste on formatting errors.
+
+**G5 Verify (Exact Revision)**
+*   **Trigger:** Lane A's final commit SHA.
+*   **Execution:**
+    1.  Generate new masked fixtures via updated script.
+    2.  Run backfill job against these fixtures.
+    3.  Simulate streaming events.
+    4.  **Gate:** Log analysis script must return 0 matches for PII patterns.
+    5.  **Flake Handling:** If `geo-validator` fails (Tuesday rate limit), manual retry once. Do not re-run full suite for unrelated failures.
+
+**G6 Review**
+*   **Reviewer 1 (Lead Architect):** Code quality, architectural fit, immutability compliance.
+*   **Reviewer 2 (Data Privacy Officer):** Verification that masking meets legal requirements for "redaction" vs "encryption."
+*   **Independence:** Neither reviewer is the implementer. Both review the exact SHA from G5.
+
+**G7 Integrate**
+*   **Action:** Merge to integration branch.
+*   **Check:** Re-run affected subset of integration tests on the merge commit.
+
+**G8 Release (Human Gate)**
+*   **Approvers:** Lead Architect AND Data Privacy Officer.
+*   **Condition:** Legal team confirmation that the fix resolves the compliance violation.
+*   **Deployment:** Deploy transformation service to staging. Verify logs in real-time.
+*   **Rollback:** Revert the merge commit. Since no schema change occurred, rollback is immediate. Historical logs already written to disk cannot be retroactively cleaned by this code; a separate data-job ticket will be raised if log purging is required.
+
+**Cost & Risk Control**
+*   **Spend Cap:** Hard limit of 3 CI runs ($135). If flaky tests persist after one retry, escalate to manual verification on a isolated runner.
+*   **Risk:** Residual PII in existing disk logs. Mitigation: Explicitly state in the release note that this fix prevents *future* logging; past logs require separate handling.
+
+**Output Contract**
+*   **Deliverable:** Patched transformation module, updated fixture generator, green verification receipt showing zero PII matches in logs for the specific commit SHA.
+*   **Status:** Blocked until G8 human approvals are secured.

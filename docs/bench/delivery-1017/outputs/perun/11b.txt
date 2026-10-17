@@ -1,0 +1,50 @@
+### Delivery Plan: S3 Bucket Policy Update for Archive Ingestion
+
+**Objective:** Grant third-party vendor write access to `pending-review` prefix in ClaimsArchive bucket while maintaining internal auditor read restrictions and ensuring a verified 5-minute rollback capability.
+
+#### Lanes & Serialization
+
+1.  **Lane A (Policy Drafting & Isolation)**
+    *   **Actor:** Builder (Infrastructure Engineer).
+    *   **Work:** Create a dedicated worktree. Draft the specific IAM policy statement granting `s3:PutObject` (with encryption requirements) to the vendor identity scoped strictly to `arn:aws:s3:::claims-archive/pending-review/*`. Explicitly deny `s3:GetObject` for this identity.
+    *   **Constraint:** Do not touch `global-audit-log` yet. This lane produces the policy fragment only.
+    *   **Parallelism:** Can run immediately.
+
+2.  **Lane B (Rollback Mechanism)**
+    *   **Actor:** Builder (same as Lane A, serialized after Lane A's draft is stable).
+    *   **Work:** Script the rollback procedure. This must capture the *exact* current policy JSON, store it in a temporary secure location (or commit as a revert patch), and define the CLI command to restore it.
+    *   **Verification:** The script must be dry-runnable against a mock or read-only preview without triggering the $45 CI simulation.
+    *   **Serialization:** Must follow Lane A to know what is being reverted, but can be prepared in parallel if the "current state" capture is done first.
+
+3.  **Lane C (Security & Scope Audit)**
+    *   **Actor:** Security Lead (Independent).
+    *   **Work:** Review the policy fragment for scope creep. Verify the vendor identity is correct and that no wildcards exist. Confirm `global-audit-log` is untouched.
+    *   **Serialization:** Blocks merging until signed off.
+
+#### Gates & Checks
+
+*   **G1 (Spec Freeze):** Confirm vendor ARN and encryption requirement (AES256 or aws:kms) in writing.
+*   **G2 (Plan Review):** Jane Smith and Security Lead must approve the *diff* before any CI run. This avoids unnecessary $45 simulation costs.
+*   **G3 (Simulation Gate):** Trigger the CI pipeline **once** on the exact commit SHA resulting from G2.
+    *   **Check:** Environment simulation must pass.
+    *   **Constraint:** Do not run on Tuesdays due to flaky drift detection. If today is Tuesday, schedule for Wednesday 00:01 or perform manual verification.
+*   **G4 (Manual Verification):** Because drift detection is flaky, a human must manually verify the simulated policy output matches the intent (vendor write-only to prefix, auditors read-only).
+*   **G5 (Rollback Verification):** Confirm the rollback script executes successfully in the simulation and restores the prior state within the 5-minute window.
+
+#### Review Strategy
+
+*   **Code Review:** Performed by **Jane Smith**. She checks infrastructure correctness and ensures `global-audit-log` remains untouched.
+*   **Security Review:** Performed by the **Security Lead** (independent of the Builder). They verify the principle of least privilege and encryption enforcement.
+*   **Independence:** The Builder cannot approve their own change. Both approvers must sign off before the merge train accepts the PR.
+
+#### Landing & Human Decisions
+
+*   **Merge Strategy:** Squash merge to `main` only after both approvals and one successful CI run.
+*   **Human Gate (Deploy):** The actual application of the policy to production is a **human-gated action**. The CI simulates; a human must execute the apply command during the vendor's maintenance window or a low-traffic period.
+*   **Rollback Trigger:**
+    1.  Vendor test upload fails with non-permission errors.
+    2.  Internal monitoring flags unexpected traffic (e.g., reads from vendor, writes outside prefix).
+    3.  **Action:** Execute the pre-verified rollback script immediately.
+*   **Post-Landing:** Monitor `global-audit-log` for the Billing system for 1 hour post-deploy to ensure no collateral damage occurred.
+
+**Risk Mitigation:** The $45 CI cost is minimized by requiring human pre-approval of the diff. The Tuesday flake is mitigated by scheduling or manual override. The critical `global-audit-log` is protected by strict scope isolation in Lane A and explicit verification in Lane C.

@@ -1,0 +1,36 @@
+**Implementation Plan: Strict Email Validation & Propagation**
+
+**1. Validation Logic (src/signup_handler.go)**
+Implement a two-stage validation pipeline to balance strictness with legitimacy:
+*   **Syntax Check:** Use a compiled regular expression compliant with RFC 5322 (simplified for practical usage) to enforce standard structure (`local@domain.tld`). This rejects malformed strings immediately.
+*   **Disposable Domain Check:** Integrate a read-only lookup against a maintained blocklist of known disposable email domains (e.g., via a local map or embedded asset to avoid network latency/dependencies during signup).
+*   **Logging:** Inject a structured logger to record every rejection event with fields: `timestamp`, `input_hash` (not raw email for privacy), `reason` (syntax vs. disposable), and `source_ip`. This satisfies David's compliance requirement.
+
+**2. Propagation Strategy (DRY Principle)**
+To prevent inconsistency across the three other microservices:
+*   **Extract Library:** Refactor the validation logic into a shared internal package (e.g., `internal/validation/email`).
+*   **Dependency Update:** Update all four services to import this single package.
+*   **Handler Refactor:** Replace inline logic in all four handlers with a single call to `validation.IsValidEmail()`.
+*   **Benefit:** Future updates to the regex or blocklist require changes in only one location, guaranteeing consistency.
+
+**3. Test Refactoring (tests/test_signup.go)**
+*   **Remove Legacy Allowances:** Delete test cases that currently assert success for invalid emails.
+*   **Add Strict Cases:** Add assertions ensuring the new validator rejects:
+    *   Malformed syntax (missing `@`, invalid characters).
+    *   Known disposable domains.
+*   **Preserve Valid Complex Cases:** Explicitly add tests for legitimate complex emails (e.g., `user+tag@sub.domain.co.uk`) to ensure they pass, preventing false positives.
+
+**4. Verification of False Rejections**
+To ensure no valid users are blocked:
+*   **Allowlist Dry-Run:** Before enforcement, run the new validator in "log-only" mode against a sample of recent successful signups (if available) or a curated list of known valid complex emails.
+*   **Canary Deployment:** Deploy the change to a small percentage of traffic first. Monitor rejection logs specifically for patterns that look like valid addresses (manual review of sampled logs).
+*   **Feedback Loop:** Establish a rapid channel for support to flag false positives immediately post-launch.
+
+**5. Timeline to Friday 4 PM**
+*   **Today:** Extract validation logic, implement regex/blocklist, and write unit tests.
+*   **Tomorrow:** Refactor all four services to use the shared package; implement compliance logging.
+*   **Wednesday:** Run "log-only" dry-run verification; adjust regex if false positives appear.
+*   **Thursday:** Full code review, security check on the blocklist source, and merge.
+*   **Friday AM:** Deploy to staging for final integration test; Friday 2 PM: Production deploy; 4 PM: Deadline met.
+
+**Note:** The shared package approach eliminates the risk of drifting logic between services. Compliance logs must be rotated securely to protect user privacy.

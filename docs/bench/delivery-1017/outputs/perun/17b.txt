@@ -1,0 +1,58 @@
+**Delivery Plan: Helios Critical Patch Expedite**
+
+**Strategy**
+We cannot bypass security or integrity checks. The goal is to isolate the six patches from the flaky regional simulations and the monolithic queue bottleneck without violating the dual-approval production gate. We will run a targeted "Core + Security" pipeline instead of the full matrix.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Pipeline Reconfiguration (Serialized First)**
+    *   **Actor:** Builder (Platform focus).
+    *   **Work:** Create a new CI workflow definition (`ci-core-security.yml`) that triggers only on a specific label (`expedite-audit`). This workflow runs core unit tests, transaction integrity checks, and security scans, explicitly excluding the "regional simulation" job group.
+    *   **Constraint:** Since the Platform Architect is on leave, this change requires a temporary waiver. The Builder will draft the change and the specific risk acceptance statement.
+    *   **Dependency:** None, but must merge before patches can utilize the fast path.
+
+2.  **Lane B: The Six Patches (Parallel)**
+    *   **Actor:** Six distinct Builders (one per microservice/patch).
+    *   **Work:** Implement fixes in isolated worktrees. Each must include a specific regression test for the reported audit failure.
+    *   **Constraint:** Do not run the full local suite. Run only the "Core + Security" subset locally to verify before pushing.
+    *   **Parallelism:** All six can develop simultaneously.
+
+3.  **Lane C: Flakiness Mitigation (Parallel to B)**
+    *   **Actor:** QA Engineer.
+    *   **Work:** Analyze the currency conversion flake. If the six patches touch this module, QA will prepare a deterministic seed or mock to force stability during the expedited run. If not, this lane monitors the queue.
+
+**Gates & Checks**
+
+*   **G2 (Plan Approval):** The "Core + Security" pipeline definition and the risk waiver for the missing Architect sign-off must be approved by the Lead Engineer. *Human Gate.*
+*   **G4 (Implementation):** Each of the six patches must pass local "Core + Security" checks.
+*   **G5 (Verification):**
+    *   **Revision:** Each patch is built at its exact HEAD SHA.
+    *   **Check:** Run the new `ci-core-security.yml` workflow.
+    *   **Condition:** Green status on integrity and security. The regional simulations are skipped by design.
+    *   **Flake Handling:** If the currency conversion check fails, QA immediately re-runs with the deterministic seed from Lane C. Two failures trigger a manual code inspection, not an auto-retry.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer (independent of the specific patch author).
+    *   **Scope:** Diff review + verification that the "Core + Security" receipt is attached.
+    *   **Security:** Automated security scan receipt required; no manual security review needed if the automated tool passes (per existing policy), unless the tool flags a High/Critical.
+
+**Landing & Deployment**
+
+*   **Integration (G7):**
+    *   Once all six patches pass G6, they are merged into a temporary integration branch (`audit-expedite-integration`).
+    *   **Final Check:** Run `ci-core-security.yml` one last time on the *merged* SHA of the integration branch to ensure no interaction bugs.
+*   **Human Decision (G8 - Production):**
+    *   **Approvers:** Lead Engineer AND Risk Officer (Dual approval strictly required).
+    *   **Action:** They review the integration receipt and the risk waiver for the skipped regional tests.
+    *   **Deployment:** Upon dual approval, the Release Engineer deploys the `audit-expedite-integration` SHA to production.
+*   **Rollback:**
+    *   Since production deploys are irreversible, there is no "undo" button.
+    *   **Contingency:** A "Circuit Breaker" feature flag must be verified as OFF for the affected payment routes before deployment. If transaction integrity fails in production (G9), the Lead Engineer immediately flips the flag to route traffic to the legacy stable path while a hotfix is prepared.
+
+**Timeline**
+*   **Day 1 AM:** Lane A (Pipeline) drafted and approved (G2).
+*   **Day 1 PM - Day 2:** Lanes B (Patches) developed and verified (G4/G5).
+*   **Day 3 AM:** Code Review (G6) and Integration (G7).
+*   **Day 3 PM:** Dual Approval (G8) and Deploy.
+*   **Buffer:** Day 4 reserved for G9 production verification and potential circuit-breaker activation.
+
+**Risk Note:** Skipping regional simulations introduces geographic risk. The waiver must explicitly acknowledge that non-core region failures will be addressed in a follow-up patch post-freeze, prioritizing audit compliance over global coverage for this specific window.

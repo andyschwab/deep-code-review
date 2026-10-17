@@ -1,0 +1,34 @@
+### Delivery Plan: Claims Ingestion Latency Resolution
+
+**Lanes & Parallelism**
+Work proceeds in three parallel lanes under a single Conductor. Serialization is required only at the integration and deployment gates.
+*   **Lane A (Diagnosis & Fix):** A Builder analyzes the parsing logic to identify the bottleneck introduced by yesterday's patch. They will implement the fix in an isolated worktree, ensuring `global-rates.json` is read but not modified (respecting the business-hour lock).
+*   **Lane B (Benchmarking):** A QA Engineer prepares the standard load test dataset. They will execute local benchmarks against the baseline (pre-patch) and the candidate fix once Lane A provides a commit. This lane produces the mandatory before-and-after report.
+*   **Lane C (Compliance Prep):** A Compliance Analyst drafts the change justification for Jane Smith, ensuring all regulatory impacts of the parsing logic change are documented ahead of verification.
+
+**Gates & Checks**
+*   **G4 (Implementation):** Lane A completes the fix. No CI run yet. The output is a commit SHA and a unit-test receipt confirming logic correctness.
+*   **G5 (Verification):** **Critical Gate.** Lane B runs the load test against the exact SHA from Lane A on a local or staging environment.
+    *   *Success Criteria:* Average processing time < 2 minutes (baseline ~45s).
+    *   *Artifact:* A benchmark report showing before/after metrics.
+    *   *Flake Handling:* If the automated memory leak check fails, a manual verification step is triggered immediately; the gate does not pass on a flake without human sign-off.
+*   **G6 (Review):** Independent review of the code (by a Senior Engineer) and the compliance draft (by Jane Smith). They review the exact SHA verified in G5 and the benchmark report. CI is triggered **once** here for the final integrated SHA to minimize the $40/55min cost.
+*   **G7 (Integration):** Merge to the release branch upon dual approval and green CI.
+
+**Review Strategy**
+*   **Code:** Reviewed by a Senior Engineer independent of the Builder.
+*   **Compliance:** Reviewed by Jane Smith (Compliance Lead).
+*   **Performance:** The benchmark report serves as the objective reviewer; no self-attestation of speed is accepted.
+
+**Landing & Rollback**
+*   **Human Decisions:**
+    1.  Jane Smith must approve the compliance draft before G7.
+    2.  The Senior Engineer must approve the code fix.
+    3.  Final "Deploy" authorization requires confirmation that the G5 benchmark report shows metrics under the 2-minute threshold.
+*   **Merge Timing:** The fix merges only after G5 success and dual approval. Since production deploys are irreversible after 02:00 UTC, the merge must occur early enough to allow a pre-02:00 UTC deploy window if the fix is ready today. If the window is missed, the merge waits for the next cycle.
+*   **Rollback:** As production deploys are irreversible post-window, the rollback strategy is a **code revert and redeploy** within the same night's window if the issue is detected immediately post-deploy. If detected after 02:00 UTC, the system operates in a degraded state until the next nightly window; no partial data fixes are attempted manually.
+
+**Constraints Adherence**
+*   No changes to `global-rates.json`.
+*   CI triggered exactly once on the final SHA to control costs.
+*   No production deployment occurs until the benchmark report confirms success.

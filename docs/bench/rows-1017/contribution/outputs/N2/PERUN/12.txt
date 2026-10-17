@@ -1,0 +1,22 @@
+**Immediate Action Plan: Secret Rotation and Repository Sanitization**
+
+**Critical Warning:** You stated the token is *already rotated*. If the new token is secure, the old hardcoded value in the repository is now a "dead" credential. While it should still be removed to prevent confusion or reuse of the old pattern, **rewriting git history is likely unnecessary and disproportionately disruptive** if the secret is already invalid. History rewriting breaks forks, invalidates existing clones, and forces every contributor to re-clone the repository.
+
+If you strictly require removal from history despite the rotation (e.g., to prevent automated scanners from flagging the repo or to adhere to strict compliance policies regarding *any* secret presence), proceed with the following plan. If the goal is simply to stop *active* exploitation, **Step 2 alone is sufficient** and far safer for the ecosystem.
+
+1.  **Verify Secret Status:** Confirm absolutely that the rotated token renders the hardcoded one useless. If there is any doubt, rotate it again immediately before proceeding.
+2.  **Apply the Forward-Fix (Mandatory):**
+    *   Commit your prepared change replacing the hardcoded token with the placeholder variable (e.g., `ACME_LOGISTICS_TOKEN`).
+    *   Add a prominent note in the commit message and the file itself stating: "Security: Removed hardcoded credential. This token was rotated on [DATE]. Do not use this sample value."
+    *   Push this commit immediately. This ensures any new clone sees the safe version.
+3.  **Evaluate History Rewriting (Optional/High Risk):**
+    *   *Decision Point:* Only proceed if compliance mandates zero traces of the secret pattern. Acknowledge that this **will break existing forks** and require all users to run complex recovery commands (`git rebase` or re-clone). There is no technical method to rewrite history without breaking downstream links that rely on specific commit hashes.
+    *   *Tooling:* Use `git filter-repo` (preferred over `git filter-branch` for speed and safety) to scrub the specific string from all commits.
+    *   *Command:* `git filter-repo --replace-text <(echo "OLD_TOKEN==>REDACTED") --force`
+4.  **Force Push and Notify:**
+    *   If you performed Step 3, you must force-push: `git push --force --all`.
+    *   **Crucial Communication:** Immediately open a high-priority Issue and update the README. Explicitly state: "History has been rewritten to remove a leaked credential. All contributors must delete their local clones and re-clone the repository. Existing Pull Requests based on old commits will need to be rebased."
+5.  **Monitor for Re-exposure:** Set up repository scanning (e.g., GitHub Secret Scanning or GitLeaks) to ensure the pattern does not reappear in future contributions.
+
+**Note:** Given the token is already rotated, Step 2 (forward-fix) is the industry-standard response that balances security with ecosystem stability. History rewriting should be a last resort.
+**Note:** Ensure your local backup of the repository is complete before running `git filter-repo`, as the operation is destructive and irreversible.

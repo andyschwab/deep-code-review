@@ -1,0 +1,64 @@
+### Delivery Plan: Billing Calculator Isolation
+
+**Objective:** Extract billing logic into a standalone service with zero calculation drift and identical interfaces.
+
+#### 1. Work Lanes & Parallelism
+
+*   **Lane A: Extraction & Service Creation (Engineering)**
+    *   **Task:** Refactor the monolith to isolate billing logic into a new library/module. Spin up the new service skeleton wrapping this logic.
+    *   **Constraint:** Must maintain the exact existing function signatures and API contracts to ensure downstream report compatibility.
+    *   **Parallelism:** Can run parallel to Lane B, but must complete before Lane C.
+
+*   **Lane B: Data & Configuration Sync (Compliance/DevOps)**
+    *   **Task:** Replicate the `tax-rates.json` ingestion pipeline for the new service. Implement the 90-day backward compatibility layer.
+    *   **Constraint:** Must handle weekly updates from the non-code ticketing system without downtime.
+    *   **Parallelism:** Runs parallel to Lane A.
+
+*   **Lane C: Verification & Shadowing (QA/Engineering)**
+    *   **Task:** Build a "shadow mode" harness that routes live production traffic to both the legacy monolith and the new service, comparing outputs cent-by-cent.
+    *   **Constraint:** Cannot start until Lane A provides a deployable artifact.
+    *   **Serialization:** Strictly sequential after A and B.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Interface Freeze (Pre-Commit)**
+    *   **Check:** Automated diff review ensuring no changes to public billing method signatures or input/output schemas.
+    *   **Revision:** Applied to the feature branch before merge request creation.
+
+*   **Gate 2: The "Cent-Accuracy" Suite (CI Pipeline)**
+    *   **Check:** A deterministic replay of the last 90 days of billing transactions against the new service.
+    *   **Pass Criteria:** 100% match to the legacy system output down to the cent. Any drift fails the build immediately.
+    *   **Exception:** The known flaky timezone conversion error (15% false failure rate) is flagged but does not block the pipeline. It requires manual verification of the specific log entry before merging.
+
+*   **Gate 3: Budget Throttle (CI Infrastructure)**
+    *   **Check:** Monitor pipeline frequency.
+    *   **Constraint:** Limit full builds to 3 per hour to avoid the $45/run cost triggering the budget freeze. Queue subsequent commits if the limit is reached.
+
+*   **Gate 4: Compliance Data Validation (Staging)**
+    *   **Check:** Verify `tax-rates.json` updates apply correctly in the new service and that the 90-day rollback window functions as expected.
+
+#### 3. Review Process
+
+*   **Primary Reviewer:** Senior Platform Engineer (Independent of the author, familiar with monolith internals).
+    *   **Focus:** Code quality, isolation boundaries, and error handling.
+*   **Secondary Reviewer (Mandatory):** Risk Officer or Delegate.
+    *   **Focus:** Verification of the "Cent-Accuracy" suite results and the shadow mode logs.
+*   **Independence Rule:** The author cannot be the one to verify the shadow mode data match. A second engineer must sign off on the drift report.
+
+#### 4. Landing Strategy
+
+*   **Merge Protocol:**
+    1.  Merge to `staging` first. Enable shadow traffic (100% of requests duplicated, results logged only).
+    2.  Run for 48 hours or one full weekly `tax-rates.json` cycle, whichever is longer.
+    3.  Upon zero drift confirmation, request dual sign-off.
+
+*   **Human Decision Points:**
+    *   **Sign-off:** Both the Chief Architect and Risk Officer must explicitly approve the Production deployment ticket. No automated promotion to Prod.
+    *   **Flake Verification:** If the timezone error appears in CI, a human must confirm it is the known flake before merging.
+
+*   **Rollback Plan:**
+    *   **Trigger:** Any calculation drift detected in shadow mode post-merge, or failure in the first 1% of live canary traffic.
+    *   **Action:** Immediate revert of the feature flag routing traffic to the new service. The monolith remains the source of truth.
+    *   **Data Safety:** The new service writes to no databases during the shadow/canary phase; it is read-only, ensuring no data corruption on rollback.
+
+This plan prioritizes financial accuracy over speed, adhering to the strict compliance and budget constraints while mitigating the risks of the flaky test suite.

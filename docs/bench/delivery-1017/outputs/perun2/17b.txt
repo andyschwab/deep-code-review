@@ -1,0 +1,50 @@
+**Delivery Plan: Helios Critical Patch Expedite**
+
+**Constraints & Risks**
+*   **Budget:** $450/run; current burn rate unsustainable.
+*   **Bottleneck:** 110min full matrix; 4hr queue; Platform Architect (PA) unavailable for config sign-off.
+*   **Risk:** Irreversible deploys require dual approval (Lead + Risk); 15% flaky currency check; staging data resets daily.
+*   **Rule:** Cannot compromise transaction integrity; cannot edit monolithic config without PA.
+
+**Lanes (Parallel Execution)**
+1.  **Lane A (Integrity & Security):** Isolate the six patches. Run *only* core security scans and transaction integrity tests. Exclude regional simulations via test-selection flags (not config edits).
+    *   *Constraint:* Must run on exact SHA of combined patches.
+2.  **Lane B (Flake Mitigation):** Execute the currency conversion suite 3 times in parallel on the exact SHA.
+    *   *Logic:* If 2/3 pass, mark stable. If 2/3 fail, block. This bypasses the 15% random stall without ignoring the check.
+3.  **Lane C (Staging Dry-Run):** Deploy to staging immediately upon Lane A/B success. Verify against midnight-reset data snapshot.
+    *   *Serialization:* Must wait for Lane A/B green receipts.
+4.  **Lane D (Approval Prep):** Draft the deployment manifest and rollback script. Prepare the dual-approval request packet for Lead Engineer and Risk Officer.
+
+**Gates & Checks**
+*   **G2 (Plan Freeze):** Define test-selection flags to bypass regional sims without editing the monolithic config. Verify this approach does not require PA sign-off (scope limitation vs. config change).
+*   **G4 (Implement):** Commit patches. Freeze base SHA.
+*   **G5 (Verify):**
+    *   Run Lane A (Security/Integrity) on frozen SHA. **Gate:** Zero critical/high findings.
+    *   Run Lane B (Flake) on frozen SHA. **Gate:** ≥2/3 passes.
+    *   Run Lane C (Staging) on deployed SHA. **Gate:** Transaction logs match expected audit trails.
+*   **G6 (Review):** Independent QA reviews Lane A/B receipts. Security reviews Lane A logs. Neither reviews their own work.
+*   **G7 (Integrate):** Merge to release branch only after G5/G6 green. Generate final integration SHA.
+
+**Review Strategy**
+*   **Security Review:** Independent of Builder. Focus strictly on transaction integrity logs from Lane A.
+*   **QA Review:** Independent of Builder. Validates Lane B statistical pass and Lane C staging behavior.
+*   **Compliance Check:** Automated audit trail generation from Lane C to satisfy the "quarterly audit" requirement.
+
+**Landing & Human Gates**
+*   **Merge:** Automated merge to release branch upon G7 receipt.
+*   **Human Gate (G8 - Deploy):** **STOP.** Requires explicit, simultaneous approval from Lead Engineer AND Risk Officer.
+    *   *Input:* Deployment manifest, Lane A/B/C receipts, rollback proof.
+    *   *Action:* Officers authorize the irreversible production push.
+*   **Rollback Plan:**
+    *   *Trigger:* Any production error or audit mismatch within 1 hour of deploy.
+    *   *Action:* Immediate revert to previous stable SHA. Note: Data changes are irreversible; rollback restores code only. Financial reconciliation must be manual if transactions processed incorrectly.
+*   **Post-Deploy (G9):** Monitor transaction success rate for 30 minutes. Verify no queue buildup.
+
+**Cost & Time Control**
+*   **Spend Cap:** Max 4 runs (Initial + 1 retry for flake + Staging + Integration). Total est. cost <$2,000. Hard stop if budget exceeded.
+*   **Timeline:** Lanes A/B start immediately. Target G8 approval by Friday 2 PM to allow 3-hour buffer before 5 PM freeze.
+
+**Failure Mode**
+*   If Lane A fails: Stop. No bypass allowed for security/integrity.
+*   If Lane B fails (0/3 or 1/3 pass): Treat as real regression. Stop.
+*   If Approvals not received by 4 PM: Abort deploy. Do not rush human gate.

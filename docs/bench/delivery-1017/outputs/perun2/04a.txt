@@ -1,0 +1,40 @@
+**Delivery Plan: Billing Module Q3 Updates**
+
+**Lanes & Parallelism**
+Three lanes launch simultaneously, isolating changes to prevent collision before integration:
+1.  **Premium Logic (Builder A):** Adjusts base calculation in the main logic file.
+2.  **Tax Rates (Builder B):** Updates northern district percentage in the main logic file. *Constraint:* Builder B must branch from Builder A's completed commit to ensure adjacent line changes do not overwrite each other. This serializes the write-access to the main logic file while keeping the workstreams distinct.
+3.  **Notification Config (Builder C):** Refreshes contact email in the notification settings. Independent of the logic file; runs fully in parallel.
+
+**Gates & Checks**
+*   **G1/G2 (Spec & Plan):** Confirm exact line ranges for tax/pricing to prevent merge drift. Define "backward compatible" syntax rules for the notification config.
+*   **G4 (Implement):** Each builder commits to their isolated worktree/branch. Builder B rebases onto Builder A before pushing.
+*   **G5 (Verify - Local):**
+    *   **Integration:** Merge all three branches into a temporary local integration branch.
+    *   **Execution:** Run the full financial reconciliation simulation locally on this exact merged SHA.
+    *   **Constraint:** Do not trigger the remote CI pipeline yet. The $45 cost and 22-minute duration are reserved for the final candidate only.
+    *   **Legacy Check:** Manually validate notification config syntax against legacy alerting requirements.
+*   **G6 (Review):**
+    *   **Logic/Tax:** Requires independent approval from **Jane Smith** AND **John Doe**. Neither is the builder.
+    *   **Config:** Requires standard peer review.
+    *   **Flake Handling:** If the remote network validation suite fails upon push, re-run the job exactly once. Do not alter code unless the failure persists twice.
+
+**Review Strategy**
+*   **Independence:** Builders A, B, and C do not review each other's code.
+*   **Approvers:** Jane Smith and John Doe review the *merged* result of the logic/tax changes to ensure the interaction between adjacent lines is correct.
+*   **Security/Compliance:** Verify that the tax update does not introduce rounding errors affecting other districts (regression check).
+
+**Landing & Human Gates**
+*   **Merge Strategy:** Once local verification passes and approvals are secured, push the integration branch. The CI pipeline runs the financial reconciliation ($45 cost) on this exact SHA.
+*   **Human Decision (G8):** Deployment is **irreversible** and triggers a 24-hour frozen state.
+    *   **Approver:** Product Owner or Billing Lead must explicitly approve the deploy command after reviewing the green CI receipt and the local simulation logs.
+    *   **Timing:** Deploy immediately after approval to meet the quarter-close window, ensuring no other merges occur during the 24-hour freeze.
+*   **Rollback:**
+    *   **Code:** Since deployments are irreversible, a "rollback" implies a forward-fix commit. Prepare a revert patch *before* deployment, but acknowledge it cannot undo the 24-hour frozen state or external financial reports generated during the window.
+    *   **Data:** If the tax calculation errors in production, a manual credit adjustment process must be ready, as code reversion is impossible.
+
+**Risk Mitigation**
+*   **Collision:** Builder B branching off Builder A eliminates the "adjacent line" overwrite risk.
+*   **Cost:** Local simulation prevents wasting $45 on broken merges.
+*   **Flakes:** Strict one-retry rule prevents endless CI loops.
+*   **Freeze:** The 24-hour frozen state means zero tolerance for error; the local "dry-run" of the full reconciliation is the critical gate.

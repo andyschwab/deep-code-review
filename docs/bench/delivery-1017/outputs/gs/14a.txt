@@ -1,0 +1,66 @@
+# Delivery Plan: Field Agent v4.2 Staged Rollout
+
+## Work Lanes & Parallelization
+
+**Lane A: Release Engineering (Serialized Start)**
+*   **Task:** Trigger the single required CI build for `field-ops-core` targeting v4.2.
+*   **Constraint:** Do not re-trigger builds. Wait for the 55-minute emulation run to complete successfully before proceeding to any distribution steps.
+*   **Dependency:** None, but blocks all downstream lanes.
+
+**Lane B: Compliance & Documentation (Parallel to Lane A)**
+*   **Task:** Draft release notes using *only* the pre-approved legal language provided by the compliance team.
+*   **Gate:** Compliance Lead must sign off on the text match before the app store submission package is finalized.
+*   **Risk:** Metadata mismatch causes a 2-day reset. Verification must occur before submission.
+
+**Lane C: Library Governance (Parallel to Lane A)**
+*   **Task:** Verify if v4.2 touches the shared encryption library.
+*   **Gate:** If modified, obtain joint sign-off from both the Field Ops Product Lead and the Warehouse Tablet Product Lead.
+*   **Constraint:** No submission to the enterprise channel without this dual signature.
+
+## Gates & Checks
+
+**Gate 1: Pre-Submission Integrity**
+*   **Timing:** Post-CI success, pre-store submission.
+*   **Check:** Confirm binary version is v4.2, release notes match legal text exactly, and library sign-offs are present (if applicable).
+*   **Revision:** Must run on the exact artifact produced by Lane A's successful CI run.
+
+**Gate 2: The 5% Canary Monitor**
+*   **Timing:** Starts immediately after 5% deployment to Logistics Division.
+*   **Duration:** Fixed 48-hour observation window.
+*   **Metrics:** Crash-free session rates and data synchronization latency.
+*   **Stop Condition:** Any critical alert or latency breach pauses expansion immediately.
+
+**Gate 3: The 25% Expansion Decision**
+*   **Timing:** After 48 hours of stability at 5%.
+*   **Requirement:** Explicit written confirmation from the **Director of Logistics**.
+*   **Condition:** Confirmation must state that sync latency metrics are within SLA thresholds. No verbal approvals accepted.
+
+**Gate 4: The Point of No Return**
+*   **Timing:** Before exceeding 10% rollout.
+*   **Warning:** Database schema migrations make deploys irreversible past this threshold.
+*   **Action:** Final manual verification that rollback procedures are ready (though full rollback is impossible, mitigation plans must be active).
+
+## Review Strategy
+
+*   **Code/Build Review:** Independent of the release manager. A Senior Engineer not involved in the v4.2 code changes must verify the CI artifact hash matches the staging build.
+*   **Compliance Review:** Legal/Compliance team reviews release notes independently of the engineering team to ensure zero deviation from approved language.
+*   **Library Review:** If the encryption library is touched, the Warehouse Tablet team lead reviews the impact independently of the Field Ops team.
+
+## Landing & Rollback Strategy
+
+**Phased Merge/Deploy:**
+1.  **Submit to Enterprise Channel:** Occurs only after Gate 1 passes. Account for the 2-day review queue.
+2.  **Enable 5% Rollout:** Target strictly the Logistics Division user segment.
+3.  **Monitor (48 Hours):** Automated alerting on crash rates; manual review of latency logs.
+4.  **Decision Point:**
+    *   *If Stable + Director Approval:* Expand to 25%.
+    *   *If Unstable:* Halt expansion. Keep at 5% or halt new installs if critical.
+    *   *If Critical Failure:* Since >10% is irreversible, the strategy for <10% failure is to halt the rollout percentage increase immediately. Users on v4.2 cannot be downgraded due to schema migrations; a hotfix v4.2.1 must be prepared if data corruption or critical crashes occur.
+
+**Human Decisions Required:**
+*   **Compliance Lead:** Sign-off on release notes.
+*   **Product Leads (Joint):** If encryption library is modified.
+*   **Director of Logistics:** Written authorization to move from 5% to 25%.
+
+**Rollback Limitation:**
+Deploys are irreversible past 10% due to schema changes. If a critical issue arises at 5%, stop the bleed by halting expansion. If issues arise post-10%, a forward-fix (v4.2.1) is the only recovery path.

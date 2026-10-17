@@ -1,0 +1,32 @@
+### Diagnostic Plan for Remote Windows CI Failure
+
+**Phase 1: Log Forensics (Do this first)**
+Since you cannot reproduce the error locally, the CI logs are your only source of truth. Do not guess; extract exact data.
+1.  **Isolate the Compiler Error:** Locate the specific file and line number in the Windows log. Compare this strictly against your local successful build. Is it a missing header, a type mismatch, or an undefined symbol?
+2.  **Check Compiler Versions:** Run `clang --version` or `msvc --version` (or check the CI config) for the Windows runner. Compare this to your macOS/Linux compilers. Windows often lags behind or uses a different default standard (e.g., C++17 vs C++20).
+3.  **Inspect Preprocessor Definitions:** Look for `#ifdef _WIN32` or similar blocks in the failing file. The error might stem from a code path that is never compiled on Unix systems.
+4.  **Review Dependency Installation:** Check the "Setup" steps in the CI log. Did a specific library fail to install or link correctly on Windows? Look for "LINK : fatal error" vs "compile error."
+
+**Phase 2: Local Simulation (Without Windows)**
+You can often simulate the *conditions* of the failure without the OS.
+1.  **Force the Compiler:** If the CI uses MSVC and you have Clang/GCC locally, try installing `clang-cl` or use a Docker container with MinGW to see if the error reproduces under a different toolchain.
+2.  **Replicate Flags:** Manually add the specific warning flags or standard versions used by the Windows CI to your local build command. Sometimes a "error" is actually a treated-as-error warning unique to that configuration.
+3.  **Static Analysis:** Run a static analyzer (like `clang-tidy`) configured for Windows targets if available, to catch platform-specific undefined behavior.
+
+**Phase 3: Strategic Communication with Maintainers**
+Your goal is to show you have done the forensic work and need specific *information*, not *labor*. Frame your questions to prove you are debugging, not delegating.
+
+**Specific Questions to Ask:**
+*   "The CI log indicates a compilation failure at [Line X] regarding [Symbol Y]. My local builds on macOS/Linux succeed. Could you confirm if the Windows runner is using a specific compiler version or standard flag (e.g., `/Zc:__cplusplus`) that differs from the default?"
+*   "I noticed the error occurs within a `#ifdef _WIN32` block. Is there a known dependency or system header on the Server 2019 image that requires a specific include order or macro definition not present in the current source?"
+*   "Does the Windows CI environment utilize a specific package manager (vcpkg, Conan) configuration that might be resolving a conflicting version of [Library Name] compared to the Unix runners?"
+*   "Would it be permissible to push a temporary 'debug' commit to this PR branch that enables verbose logging or prints compiler macros during the build step, so I can inspect the environment variables remotely?"
+
+**Deliverable Checklist:**
+*   [ ] Extract exact error line and compiler version from logs.
+*   [ ] Verify preprocessor paths and dependency links in CI output.
+*   [ ] Attempt local reproduction via cross-compilation flags or containers.
+*   [ ] Draft the maintainer query using the specific questions above, attaching the relevant log snippets.
+
+Note: Never ask "Can you fix this?" Always ask "Can you confirm this environmental variable?"
+If the error is a linker issue, focus your questions on library paths rather than source code logic.

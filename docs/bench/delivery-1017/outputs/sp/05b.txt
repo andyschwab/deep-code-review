@@ -1,0 +1,69 @@
+# Delivery Plan: Inventory Schema Update
+
+## Lanes & Parallelism
+
+**Lane A: Schema & Provider Service (Internal)**
+*   **Owner:** Internal Engineering
+*   **Work:** Modify `inventory.proto` to add `string warehouse_zone = X;`. Update provider service serialization logic to populate this field.
+*   **Constraint:** Must be completed before Lane B can finalize validation.
+
+**Lane B: Consumer Integration Validation (External Coordination)**
+*   **Owner:** ShopFast & MegaMart Integration Teams
+*   **Work:** Update local parsers to expect `warehouse_zone`.
+*   **Parallelism:** Lane A and Lane B start simultaneously. Lane A provides the updated `.proto` file immediately. Lane B cannot validate against the live API until Lane A reaches Staging.
+
+**Lane C: Compliance & Scheduling (Administrative)**
+*   **Owner:** Release Manager
+*   **Work:** Secure dual approval (Logistics Lead + Security Officer). Confirm exact cutover time with Jane Smith.
+*   **Serialization:** Cannot finalize the deployment ticket until Lane A passes Staging checks.
+
+## Gates & Checks
+
+**Gate 1: Local Proto Compilation (Pre-Commit)**
+*   **Revision:** Feature branch head.
+*   **Check:** Verify `.proto` compiles locally for both internal service and provided consumer stubs. Prevents basic syntax errors before CI.
+
+**Gate 2: CI Pipeline (Automated)**
+*   **Revision:** Feature branch head (after Gate 1).
+*   **Check:** Full test suite with data mocking.
+*   **Constraint:** Limit to **one** successful run. Debug locally if failed to avoid $45 redundancy.
+*   **Timing:** Run immediately upon PR readiness.
+
+**Gate 3: Staging Integration (Time-Gated)**
+*   **Revision:** Merged to `staging` branch.
+*   **Timing:** **Wednesday Morning only** (avoid Tuesday DB locks).
+*   **Check:** Deploy to Staging. Verify ShopFast/MegaMart test harnesses successfully parse the new payload containing `warehouse_zone`.
+*   **Pass Criteria:** Zero parsing errors on both partner sides.
+
+**Gate 4: Executive Approval (Manual)**
+*   **Timing:** Post-Staging success, pre-Production.
+*   **Check:** Explicit written sign-off from Logistics Lead AND Security Officer.
+*   **Prerequisite:** Confirmed cutover time from Jane Smith attached to the approval ticket.
+
+## Review Strategy
+
+**Code Review (Independent)**
+*   **Reviewer:** Senior Engineer **not** on the Logistics team (to ensure protobuf compatibility neutrality).
+*   **Focus:** Verify `warehouse_zone` is marked `required` (or non-nullable equivalent) in Proto and handled correctly in serialization. Ensure no backward-incompatible changes to existing fields.
+
+**Integration Review (Partner-Led)**
+*   **Reviewers:** ShopFast and MegaMart Tech Leads.
+*   **Focus:** They must confirm their parsers handle the new field in the Staging environment before Gate 4 is cleared.
+
+## Landing & Rollback
+
+**Merge Strategy**
+*   **Branch:** Merge to `main` only after Gate 4 is fully satisfied.
+*   **Deployment Window:** The exact time confirmed with Jane Smith (must be prior to next Monday, avoiding Tuesday staging instability).
+*   **Activation:** The database migration making the column non-nullable runs automatically upon deploy.
+
+**Human Decision Points**
+1.  **Jane Smith:** Must define the precise cutover timestamp.
+2.  **Logistics Lead & Security Officer:** Must provide dual approval keys.
+3.  **Partners:** Must verbally or digitally confirm Staging success.
+
+**Rollback Plan**
+*   **Status:** **Impossible to hotfix/revert cleanly.**
+*   **Risk:** Once deployed, the database column becomes non-nullable. Reverting code without the field will cause immediate write failures.
+*   **Mitigation:** If Staging (Gate 3) fails, do not merge. If Production fails post-deploy, the only recovery is a 4-hour data migration script to revert the schema state. This requires an emergency change request and downtime approval.
+*   **Contingency:** If the cutover time is missed or partners are not ready by Friday PM, **halt deployment**. Do not ship partial; wait for the following weekend window to avoid crashing partner systems or missing the shipping window.

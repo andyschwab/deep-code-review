@@ -1,0 +1,54 @@
+**Delivery Plan: Billing Module Q4 Updates**
+
+**Scope & Constraints**
+Three changes must land atomically in a single commit/PR to prevent billing discrepancies:
+1.  **Premium Logic:** Adjust base calculation in `billing/main_logic.py`.
+2.  **Tax Rate:** Update northern district percentage in `billing/main_logic.py` (adjacent lines).
+3.  **Contact Email:** Refresh address in `config/notifications.yaml` (must remain legacy-compatible).
+
+**Work Lanes (Serialized)**
+Due to adjacent line edits in `billing/main_logic.py`, the pricing and tax updates **cannot** run in parallel. They must be executed by a single **Builder** in one isolated worktree to guarantee merge safety.
+*   **Lane A (Logic & Tax):** Single writer implements both changes in `billing/main_logic.py`.
+    *   *Constraint:* Must verify locally that neither change overwrites the other.
+*   **Lane B (Config):** Independent writer (or same builder, separate commit initially) updates `config/notifications.yaml`.
+    *   *Constraint:* Strict syntax validation against legacy alerting system requirements.
+
+*Serialization Strategy:* Lane A and Lane B develop in parallel branches but **must be squashed into a single atomic commit** before review to satisfy the "land together" requirement.
+
+**Gates & Verification (Exact Revision)**
+All checks run on the **final integrated SHA** of the squashed commit.
+
+*   **G4 (Implementation):**
+    *   Builder produces one patch containing all three changes.
+    *   Local verification: Run billing calculation simulation locally (if environment exists) or static analysis to confirm adjacent line integrity.
+*   **G5 (Verify):**
+    *   **CI Pipeline:** Trigger full financial reconciliation simulation ($45 cost, 22 min).
+        *   *Flake Handling:* If "network validation suite" fails, re-run job exactly once. Do not alter code.
+    *   **Config Check:** Validate `notifications.yaml` syntax against legacy schema.
+*   **G6 (Review):**
+    *   **Independent Reviewers:** Jane Smith (Pricing) AND John Doe (Tax). Both must approve the *same* SHA.
+    *   **Security/Compliance:** Verify no PII leakage in email update; confirm backward compatibility.
+*   **G7 (Integrate):**
+    *   Merge to integration branch only after dual approval and green CI.
+
+**Landing & Human Gates**
+*   **Merge Decision:** Requires explicit human approval from **both** Jane Smith and John Doe. No auto-merge.
+*   **Deployment:**
+    *   **Critical Gate:** Deployment is **irreversible** and triggers a 24-hour frozen state.
+    *   **Action:** Owner must explicitly authorize the push to production after verifying the G7 receipt.
+    *   **Rollback:** Not possible. Verification (G5) must be exhaustive locally and in CI before merge.
+*   **Post-Landing:** Monitor financial reconciliation logs immediately upon deploy.
+
+**Risk Mitigation**
+*   **Collision Risk:** Mitigated by serializing logic/tax edits in one lane and squashing before review.
+*   **Cost Risk:** One CI run ($45). Re-run only on confirmed flake.
+*   **Freeze Risk:** The 24-hour frozen state post-deploy means any error blocks all other changes. This necessitates the "verify merged result locally" step strictly before the PR is even opened.
+
+**Execution Order**
+1.  Builder creates worktree, implements all three changes, squashes to one commit.
+2.  Local static check for line adjacency and YAML syntax.
+3.  Push to feature branch; open PR.
+4.  CI runs (handle flake if needed).
+5.  Jane Smith and John Doe review and approve.
+6.  Owner authorizes merge and immediate deployment.
+7.  Monitor.

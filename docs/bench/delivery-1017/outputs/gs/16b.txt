@@ -1,0 +1,72 @@
+### Delivery Plan: Claims Ingestion Latency Resolution
+
+**Objective:** Identify and resolve the parsing bottleneck causing latency spikes (45s → 180s+) and verify restoration to <2 minutes using the standard load test dataset before merge.
+
+#### 1. Work Lanes & Parallelization
+
+**Lane A: Diagnostic & Hypothesis (Serial Start)**
+*   **Actor:** Senior Engineer (You).
+*   **Task:** Analyze the diff from yesterday's patch against the parsing logic. Isolate changes affecting I/O, serialization, or loop complexity.
+*   **Constraint:** Do not modify `global-rates.json` (locked). If the hypothesis points there, flag for Change Request immediately.
+*   **Output:** A targeted fix branch and a specific hypothesis for the regression.
+
+**Lane B: Benchmark Environment Prep (Parallel to A)**
+*   **Actor:** DevOps / CI System.
+*   **Task:** Provision an isolated staging environment with the standard load test dataset cached. Ensure the CI runner is ready but **do not trigger** the full $40/55min pipeline yet.
+*   **Output:** Ready-to-run benchmark harness.
+
+**Lane C: Compliance Pre-Check (Parallel to A)**
+*   **Actor:** Jane Smith (Compliance Lead).
+*   **Task:** Review the *nature* of the proposed fix area (e.g., "parsing logic optimization") to ensure no schema or regulatory rule changes are inadvertently included.
+*   **Output:** Preliminary compliance alignment (non-binding until code review).
+
+#### 2. Gates & Checks
+
+**Gate 1: Local/Staging Verification (Must Pass Before CI)**
+*   **Revision:** The fix branch head.
+*   **Action:** Run the standard load test dataset locally or in the prepared staging lane.
+*   **Success Criteria:** Average processing time < 120 seconds (baseline ~45s).
+*   **Failure Mode:** If >120s, return to Lane A. Do not proceed to CI.
+
+**Gate 2: The "Flake" Check (Post-Fix)**
+*   **Revision:** Same as Gate 1.
+*   **Action:** Run the automated memory leak check.
+*   **Contingency:** If this fails, trigger **Manual Verification** (human inspection of memory profiles) instead of auto-rejecting. Document the manual sign-off.
+
+**Gate 3: Cost-Gated CI Execution**
+*   **Trigger:** Only after Gate 1 and Gate 2 (or manual override) pass.
+*   **Action:** Trigger the single required CI pipeline run ($40 cost).
+*   **Scope:** Full integration test + final benchmark report generation.
+
+#### 3. Review Protocol
+
+**Primary Review (Technical)**
+*   **Reviewer:** Senior Engineer (Peer, not the author).
+*   **Focus:** Algorithmic complexity, resource usage, and verification that the fix addresses the specific regression introduced yesterday.
+*   **Independence:** Must be someone other than the implementer.
+
+**Secondary Review (Compliance)**
+*   **Reviewer:** Jane Smith.
+*   **Focus:** Verification that the fix does not alter data integrity rules or touch locked configurations (`global-rates.json`) without a CR.
+*   **Timing:** After Technical Review approval, before merge.
+
+#### 4. Landing Strategy
+
+**Merge Conditions**
+*   Both reviews approved.
+*   CI Benchmark Report attached showing <120s latency.
+*   Memory check passed (automated or manually verified).
+
+**Merge Window**
+*   **Deadline:** Must merge and validate before 02:00 UTC.
+*   **Action:** Merge to main. Since production deploys are irreversible after 02:00 UTC, if the merge occurs after 01:00 UTC, delay the production rollout until the next cycle unless an emergency waiver is signed.
+
+**Rollback Plan**
+*   **Trigger:** If post-merge monitoring shows latency >120s or data corruption.
+*   **Action:** Immediate revert of the merge commit.
+*   **Constraint:** Because deploys are irreversible after 02:00 UTC, if the issue is discovered after this window, the system must run in a degraded state (backlog accumulation) until the next deployment window opens. No hotfixes can be applied during the lockout.
+
+**Human Decision Points**
+1.  **Memory Check Failure:** Authorize manual verification vs. further debugging.
+2.  **`global-rates.json` Involvement:** Approve emergency Change Request if the lock prevents the fix.
+3.  **Late Merge:** Decide whether to deploy past 01:00 UTC given the irreversible deploy cutoff.

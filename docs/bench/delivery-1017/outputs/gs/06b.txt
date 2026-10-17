@@ -1,0 +1,50 @@
+### Delivery Plan: Cap Daily LLM Spend
+
+**Objective:** Implement a hard daily spending limit per department with senior lead overrides, live before the new quarter.
+
+#### 1. Work Lanes & Parallelism
+
+*   **Lane A: Core Logic & State (Serialized)**
+    *   **Owner:** Backend Engineer
+    *   **Work:** Implement the quota tracking service. This must write to a fast, low-latency store (e.g., Redis) rather than relying solely on `global_limits.json` to avoid the 12-minute cluster restart penalty for every check. The logic must decrement the quota on API call initiation and enforce the hard stop.
+    *   **Dependency:** None.
+*   **Lane B: UI & Role Integration (Parallel to A)**
+    *   **Owner:** Frontend Engineer
+    *   **Work:** Update the claims portal interface. Disable the "Summary" button when the quota signal is received. Implement the "Limit Reached" tooltip. Integrate the existing role hierarchy to enable the "Override" button only for users with "Senior Lead" permissions.
+    *   **Dependency:** Requires the API contract definition from Lane A (can be mocked initially).
+*   **Lane C: Configuration & Safety (Parallel to A/B)**
+    *   **Owner:** DevOps Engineer
+    *   **Work:** Define the schema for the new limits in `global_limits.json`. Prepare the deployment scripts to handle the 12-minute restart window safely. Configure the monitoring alerts to distinguish between "quota reached" (expected) and "system error" (unexpected).
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Unit & Integration Test (Pre-Commit)**
+    *   **Scope:** Verify quota decrement logic, override permission checks, and UI state transitions.
+    *   **Constraint:** Run once per major iteration to minimize the $15 CI cost. Use local mocking for initial development; reserve the full CI pipeline for the final candidate.
+*   **Gate 2: Staging Dry-Run (Pre-Approval)**
+    *   **Scope:** Deploy to a staging environment that mirrors Zone-B.
+    *   **Check:** Simulate a quota breach and verify the button disables correctly. Test the Senior Lead override.
+    *   **Critical Check:** Verify that `global_limits.json` updates trigger the restart correctly without failing the flaky health check (may require a temporary monitoring suppression window).
+*   **Gate 3: Financial Logic Audit (Pre-Merge)**
+    *   **Scope:** Code review specifically for the billing ledger interaction.
+    *   **Constraint:** Since reverting is irreversible after midnight UTC, this review must mathematically prove that no double-charging or leakage occurs at the boundary conditions.
+
+#### 3. Review Strategy
+
+*   **Primary Reviewer:** Senior Backend Engineer (independent of Lane A). Focus: Concurrency safety of the quota counter and race conditions.
+*   **Secondary Reviewer:** Security Lead. Focus: Ensuring the "Senior Lead" override cannot be escalated by lower roles and that no PII is exposed in the new logging.
+*   **Final Sign-off:** Finance Ops Manager. Focus: Confirming the limit logic aligns with budget constraints and the "irreversible" risk is understood.
+
+#### 4. Landing & Merge Strategy
+
+*   **Timing:** Deployment must occur **before 00:00 UTC** on the target day to ensure the new ledger logic is active before the daily close. Avoid deploying within 2 hours of midnight to allow for stabilization.
+*   **Merge Protocol:**
+    1.  Merge code to the release branch.
+    2.  Trigger the Zone-B deployment pipeline.
+    3.  **Dual Approval Wait:** The pipeline will pause pending explicit approval tokens from both the **Security Lead** and **Finance Ops Manager**.
+    4.  **Restart Window:** Once approved, the 12-minute cluster restart begins. Traffic should be routed to a standby node if available, or users notified of brief degradation.
+*   **Rollback Plan:**
+    *   **Pre-Midnight:** If the health check fails or logic errors appear immediately after restart, revert the deployment immediately. The ledger will not have closed, allowing a clean state reset.
+    *   **Post-Midnight:** Reversion is **blocked**. The fallback is to set the department quota to a artificially high value via `global_limits.json` to effectively disable the cap until the next cycle, preventing user lockout while preserving ledger integrity.
+
+**Human Decision Required:** The Finance Ops Manager must explicitly confirm the specific dollar amount for the initial daily cap before the deployment approval.

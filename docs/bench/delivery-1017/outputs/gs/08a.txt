@@ -1,0 +1,42 @@
+### Delivery Plan: Core Data Engine v4.0 Upgrade
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Configuration & Schema):** Update dependency manifest to v4.0 and modify `global-routes.json`. This lane is **serialized** behind the maintenance window due to the file lock.
+*   **Lane B (Validation Scripting):** Prepare local startup verification scripts and rollback procedures. This runs **in parallel** with Lane A's waiting period.
+*   **Lane C (Compliance Prep):** Draft the change request for the Lead Architect and Compliance Officer. Runs **in parallel** with Lane A.
+
+**Constraint:** Lane A cannot finalize until the maintenance window opens. Lane B and C proceed immediately.
+
+#### 2. Gates & Checks
+*   **Gate 1 (Pre-Merge Local Check):** Verify system startup locally on the feature branch *before* pushing. Since network latency checks are flaky (30% fail rate), a local build hash match is the acceptance criterion for this specific module, bypassing the CI flake for initial validation.
+*   **Gate 2 (CI Pipeline):** Trigger the full CI run on the merge commit.
+    *   **Pass Criteria:** All tests pass OR the only failure is the known network latency flake with a matching build hash.
+    *   **Cost Control:** Only one retry is permitted if the network flake occurs; further retries require human approval to save compute credits ($45/run).
+*   **Gate 3 (Staging Deployment):** Automated deployment to staging upon CI success.
+    *   **Verification:** Quantitative team confirms back-testing cycles start without timeout errors.
+*   **Gate 4 (Production Approval):** Dual sign-off required from Lead Architect and Compliance Officer before any production merge.
+
+#### 3. Review Strategy
+*   **Technical Review:** Performed by a senior Market Data team member *not* involved in Lane A (Configuration). They must verify the `global-routes.json` changes and dependency bump.
+*   **Compliance Review:** Independent review by the Compliance Officer focusing solely on regulatory impact and audit trails, separate from the technical code review.
+*   **Independence:** The coder (Lane A) cannot approve their own merge; the reviewer cannot be the same person who drafted the compliance request (Lane C).
+
+#### 4. Landing & Merge Protocol
+*   **Staging Merge:** Merge to `staging` branch immediately after Gate 2 passes. Target deadline: Tomorrow morning.
+*   **Production Merge:**
+    *   **Trigger:** Successful staging verification by the quantitative team + Dual Approval (Gate 4).
+    *   **Method:** Standard merge commit (no rebase/squash) to preserve audit history for financial regulations.
+    *   **Human Decision Point:** The Lead Architect must explicitly confirm the maintenance window timing for the `global-routes.json` update if it conflicts with business hours.
+
+#### 5. Rollback Plan
+*   **Irreversibility Warning:** Downgrading from v4.0 is **impossible** due to schema mutation.
+*   **Mitigation:** If v4.0 fails in staging:
+    1.  Halt production deployment immediately.
+    2.  Revert the staging merge to the pre-upgrade commit.
+    3.  Initiate a "Fix-Forward" strategy: Develop a v4.0.x patch on a new branch rather than attempting a downgrade.
+*   **Contingency:** If the upgrade breaks peak trading functionality in staging, the quantitative team must revert to manual back-testing procedures until a patch is ready. No attempt will be made to restore the old engine in production.
+
+#### 6. Known Risks & Acceptances
+*   **Test Failures:** Existing harness failures are explicitly excluded from the "Done" criteria per ticket instructions.
+*   **Network Flake:** CI failure in the network latency module is accepted if the build hash matches the local successful build.
+*   **Timeline:** Staging readiness is prioritized for tomorrow morning; production timing depends on the dual-approval workflow and maintenance window availability.

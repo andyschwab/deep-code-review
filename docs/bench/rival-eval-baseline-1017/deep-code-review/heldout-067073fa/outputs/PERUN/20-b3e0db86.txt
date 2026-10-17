@@ -1,0 +1,29 @@
+### 1. Critical: Command Injection via Unvalidated Arguments
+**File:** `lib/arguments/options.js`
+**Line:** 24 (`joinCommand`) and 28 (`crossSpawn._parse`)
+**Why it is wrong:** The code accepts `rawArgs` and passes them directly to `joinCommand` and subsequently `crossSpawn._parse` without any validation or sanitization. If `rawArgs` originates from user input (which is typical for argument parsers), an attacker can inject arbitrary shell commands or flags. Specifically, if `rawArgs` contains strings with spaces or shell metacharacters that `joinCommand` fails to escape correctly (implementation hidden but risky pattern), or if `crossSpawn` is misconfigured later, this leads to command injection. Furthermore, `handleNodeOption` is called on raw data before parsing; if this function manipulates the file path based on untrusted input, it could lead to argument injection where flags are injected into the command execution.
+**Fix:** Implement strict allow-listing for argument structures if possible, or ensure `joinCommand` uses `shellescape` equivalent logic for every argument. Validate that `rawArgs` does not contain null bytes or unexpected shell operators before processing.
+
+### 2. High: Path Traversal / Arbitrary File Execution
+**File:** `lib/arguments/options.js`
+**Line:** 19 (`safeNormalizeFileUrl`)
+**Why it is wrong:** The function `safeNormalizeFileUrl` is called on `rawFile` (the first argument). While the name suggests safety, the subsequent logic does not verify that the resolved `filePath` remains within a permitted directory (chroot/jail). If this library is used in a context where it should only execute binaries from a specific folder (e.g., `node_modules/.bin` or a project subdirectory), an attacker can provide a path like `../../etc/passwd` or an absolute path to a system binary. The code normalizes the URL but does not enforce a boundary.
+**Fix:** After normalization, resolve the real path and verify it starts with the expected working directory or allowed execution prefix. Reject paths containing `..` that escape the intended root.
+
+### 3. High: Unsafe Environment Variable Injection
+**File:** `lib/arguments/options.js`
+**Line:** 80 (`getEnv`)
+**Why it is wrong:** When `preferLocal` is true, the code merges `process.env` with `envOption` and passes it to `npmRunPathEnv`. If `envOption` is controlled by an untrusted user, they can overwrite critical environment variables like `PATH`, `LD_PRELOAD`, `NODE_OPTIONS`, or `AWS_SECRET_ACCESS_KEY`. This allows for dependency confusion attacks (by modifying `PATH` to point to a malicious binary) or secret exfiltration. The spread operator `{...process.env, ...envOption}` blindly prioritizes the user-supplied `envOption` over system defaults.
+**Fix:** Sanitize `envOption` keys against a blocklist of sensitive environment variables before merging. Ensure `PATH` modifications append rather than prepend untrusted directories, or restrict `npmRunPathEnv` to only trust specific, verified local directories.
+
+### 4. Medium: Silent Failure on Windows Command Execution
+**File:** `lib/arguments/options.js`
+**Line:** 33 (`args.unshift('/q')`)
+**Why it is wrong:** The code unconditionally adds the `/q` (quiet) flag to `cmd.exe` on Windows. While intended to reduce noise, this suppresses error output from the shell itself. If the command fails to spawn or `cmd.exe` encounters a syntax error during initialization, the output might be suppressed, making debugging impossible and potentially hiding security-relevant failure modes (e.g., fallback to a less secure shell).
+**Fix:** Remove the hardcoded `/q` flag. Allow the caller to control verbosity via the existing `verbose` option, ensuring error diagnostics are not silently discarded by default.
+
+### 5. Medium: Hardcoded Resource Limit May Cause DoS
+**File:** `lib/arguments/options.js`
+**Line:** 42 (`maxBuffer = DEFAULT_MAX_BUFFER`) and 76 (`DEFAULT_MAX_BUFFER`)
+**Why it is wrong:** The default `maxBuffer` is set to ~100MB (`1000 * 1000 * 100`). If this library executes a command that produces large output (intentionally or via log flooding), it will consume 100MB of RAM per invocation before crashing. In a high-concurrency environment, this allows a Denial of Service (DoS) attack by exhausting system memory. The limit is too high for a default safe value.
+**Fix:** Lower the default `maxBuffer` to a safer size (e.g., 1MB or 10MB) and require explicit opt-in for larger buffers. Document the memory implications clearly.

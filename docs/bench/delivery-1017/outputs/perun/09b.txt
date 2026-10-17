@@ -1,0 +1,43 @@
+### Delivery Plan: Partial Refund Logic Fix
+
+**Objective:** Correct fee proration for partial cancellations in `finance-core` without altering historical data.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Guardrails) – Conductor + Product Analyst**
+    *   **Work:** Define exact proration formula. Explicitly document the "no retroactive change" constraint. Draft migration safety checks.
+    *   **Parallel:** Yes. Must complete before Lane B starts coding.
+*   **Lane B (Implementation) – Builder**
+    *   **Work:** Isolated worktree. Update calculation logic in the billing service. Add unit tests for single-seat vs. group cancellations. Ensure migration script is idempotent or guarded to prevent historical mutation.
+    *   **Parallel:** No. Starts after Lane A spec sign-off.
+*   **Lane C (Verification Prep) – QA**
+    *   **Work:** Prepare integration test strategy. Define criteria to ignore the known currency conversion flake (timeout logs).
+    *   **Parallel:** Yes, runs alongside Lane B but executes only after Lane B's code is ready.
+
+#### 2. Gates & Checks
+*   **G1 Spec Gate:** Review proration formula and non-retroactivity guarantee. Output: Pinned spec SHA.
+*   **G4 Build Gate:** Builder commits code + unit tests. Base SHA locked.
+*   **G5 Verify Gate (Staging):**
+    *   **Environment:** Staging deployment.
+    *   **Checks:** Run full integration suite (45 min).
+    *   **Constraint:** Execute exactly **once** if possible to save $12. If the currency module fails with timeout logs, mark as known flake and proceed; otherwise, fail.
+    *   **Validation:** Verify refund amounts on new test bookings only. Confirm audit ledger history is untouched.
+*   **G6 Review Gate:**
+    *   **Reviewer:** Senior Engineer (independent of Builder).
+    *   **Scope:** Code diff + G5 receipts. Security check on financial calculation integrity.
+
+#### 3. Landing & Human Decisions
+*   **Integration:** Merge to integration branch only after G6 pass. Re-run affected integration tests on the merged SHA (cost acknowledged).
+*   **Staging Approval:** Requires sign-off from **two senior engineers**.
+*   **Production Deployment:**
+    *   **Window:** Tuesday, 2 PM – 4 PM only.
+    *   **Approver:** Compliance Officer (mandatory).
+    *   **Action:** Deploy migration (irreversible) then service.
+*   **Rollback Plan:**
+    *   Since the DB migration is irreversible, rollback involves deploying a previous service version that tolerates the new schema but reverts logic, OR a compensating transaction script if data corruption occurs. This requires immediate Compliance Officer notification.
+
+#### 4. Risk Controls
+*   **Historical Data:** The migration script must include a `WHERE created_at > NOW()` or equivalent guard. Verification must explicitly query a pre-change record to prove immutability.
+*   **Cost Containment:** Limit integration runs to the final candidate on staging. Use unit tests for iterative feedback.
+*   **Timeline:** Target completion 3 weeks before conference season to allow buffer.
+
+**Next Step:** Await Conductor approval of the proration formula (Lane A) before authorizing code changes.

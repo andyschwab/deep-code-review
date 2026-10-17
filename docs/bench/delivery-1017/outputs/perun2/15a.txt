@@ -1,0 +1,43 @@
+**Delivery Plan: Smart Irrigation Canary Release**
+
+**Lanes & Parallelism**
+*   **Lane A (Feature Flag & Routing):** Implement the 5% Oregon region filter and flag logic. Must read the shared read-only manifest without modifying its schema. (Builder)
+*   **Lane B (Kill Switch Logic):** Implement the automated reversion trigger based on error rates (>0.5%) and support ticket spikes. This logic must be local to the irrigation service to avoid latency. (Builder)
+*   **Lane C (Dashboard):** Build the real-time variance view for water usage (Control vs. Test). (Builder)
+*   **Lane D (Safety Simulation):** Run hardware-in-the-loop (HIL) simulations specifically targeting drought over-watering scenarios. (QA/Safety)
+
+*Serialization:* Lanes A, B, and C run in parallel. Lane D runs once Lanes A and B are code-complete but before integration. All lanes must freeze on the same base SHA before final integration.
+
+**Gates & Checks**
+*   **G2 Plan:** Confirm the shared manifest schema is treated as immutable. Define the exact metric source for "support ticket spikes."
+*   **G4 Implement:** Code complete on isolated worktrees. No changes to the manifest file structure.
+*   **G5 Verify (Off-Peak):** Execute full HIL simulation between 2 AM – 5 AM local time to minimize CI costs ($45/min).
+    *   *Constraint:* Ignore network latency module failures if packet delivery logs are successful (known flake).
+    *   *Critical Check:* Verify kill switch triggers within <1 second of threshold breach in simulation.
+    *   *UI Check:* Dashboard must show live variance data on the exact route.
+*   **G6 Review:**
+    *   **Safety Review:** Independent review by Safety Officer focused solely on the kill switch reliability and over-watering prevention.
+    *   **Agronomy Review:** Independent review by Lead Agronomist confirming the 5% selection logic and variance metrics.
+    *   **Code Review:** Independent developer review ensuring no schema changes to the shared manifest.
+
+**Review Independence**
+*   The Builder implements A, B, and C.
+*   The Safety Officer verifies Lane B (Kill Switch) and Lane D results.
+*   The Lead Agronomist verifies the business logic of Lane A (Targeting) and Lane C (Dashboard).
+*   No builder reviews their own code; no safety approver is the implementer.
+
+**Landing & Human Decisions**
+*   **Merge Strategy:** Merge to the integration branch only after G6 approval from both Safety Officer and Lead Agronomist.
+*   **Human Gate (G8 Release):** Deployment requires explicit sign-off from both the Lead Agronomist and the Safety Officer. This is not automatic upon merge.
+*   **Rollback Strategy:**
+    *   *Pre-Device:* If the build fails or gates red before packet generation, standard revert.
+    *   *Post-Device:* Reverting is **irreversible** once the packet reaches the device. The "rollback" is strictly the automated Kill Switch (Lane B) reverting logic to legacy methods remotely.
+    *   *Physical Fallback:* If the Kill Switch fails, a physical technician visit is required. This risk must be explicitly acknowledged in the G8 approval.
+
+**Risk Mitigation**
+*   **Cost:** All heavy verification is strictly scheduled for the 2 AM – 5 AM window.
+*   **Safety:** The Kill Switch is the primary rollback mechanism; it must be tested to failure in simulation before any real deployment.
+*   **Dependencies:** The shared manifest is read-only; any attempt to write to it will fail the build.
+
+**Output Contract**
+Final delivery includes the patched service, the dashboard URL, the simulation receipt showing kill-switch activation time, and the signed approval record from both required humans.

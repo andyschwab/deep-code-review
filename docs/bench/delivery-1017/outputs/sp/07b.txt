@@ -1,0 +1,29 @@
+### Delivery Plan: Emergency Fare Calculation Patch
+
+**1. Lanes and Parallelism**
+*   **Lane A (Verification):** Immediately trigger the manual sanity check suite against the `emergency-branch` code. Since the standard CI pipeline is too slow and the smoke tests are flaky, this manual run must explicitly target tax calculation edge cases known to be missed by automation.
+*   **Lane B (Approval Coordination):** Notify the Lead Engineer immediately for real-time code review. Simultaneously, alert the Operations Director that an incident declaration is active, requesting retroactive sign-off within the four-hour window.
+*   **Serialization Point:** Deployment cannot proceed until Lane A confirms the sanity checks pass AND Lane B secures the Lead Engineer's approval. These two lanes run in parallel, but the gate requires both.
+
+**2. Gates and Checks**
+*   **Revision Lock:** All checks and the final deploy must target the exact commit hash of the `emergency-branch` head. No further commits are permitted to this branch during the verification window.
+*   **Gate 1 (Code Quality):** The Lead Engineer must verify that the multiplier cap logic does not introduce side effects in the shared train or ferry modules. Given the monolithic architecture, a change in bus logic risks regressions in unrelated verticals.
+*   **Gate 2 (Functional Safety):** The manual sanity suite must pass with zero failures. If the flaky smoke test passes but the manual tax checks fail, the deploy is halted.
+*   **Database Safety Check:** Confirm the patch contains no schema migrations. Since schema changes are irreversible without a 45-minute restore, any detected DDL (Data Definition Language) statements require an immediate stop and a full backup verification before proceeding.
+
+**3. Independent Review**
+*   **Reviewer:** The Lead Engineer acts as the primary technical reviewer.
+*   **Independence:** The reviewer must be distinct from the author of the hotfix. If the Lead Engineer authored the patch, a Senior Backend Engineer from the train or ferry team must perform the review to ensure cross-module safety, leveraging their domain knowledge of the shared monolith.
+*   **Scope:** The review focuses strictly on the surge multiplier logic and potential bleed-over effects into train/ferry pricing. It does not re-evaluate the business decision to cap multipliers, only the implementation safety.
+
+**4. Landing and Rollback**
+*   **Merge Strategy:** Once Gates 1 and 2 are cleared, merge `emergency-branch` directly to `production`. Do not merge to `staging` first, as the staging window is bypassed per incident protocol.
+*   **Deployment:** Trigger the production deployment pipeline immediately post-merge. Monitor the dashboard metrics in real-time.
+*   **Human Decision:** The Operations Director's formal approval is the only pending human decision, to be documented retroactively within four hours.
+*   **Rollback Protocol:** If dashboard metrics do not stabilize within 15 minutes of deployment, or if train/ferry teams report anomalies:
+    1.  Immediately revert the production branch to the pre-deploy commit.
+    2.  Trigger the redeployment pipeline.
+    3.  **Critical Constraint:** If the issue persists after a code revert, suspect data corruption or schema drift. Initiate the full database restore from the last known good backup (45-minute downtime) only if the Lead Engineer confirms the code revert did not resolve the calculation error.
+
+**5. Post-Incident**
+Once metrics stabilize, confirm resolution to the finance team. Schedule a post-mortem to address why the flaky smoke test missed the initial regression and to formalize the retroactive approval received.

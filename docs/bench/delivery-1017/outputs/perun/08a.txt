@@ -1,0 +1,46 @@
+### Delivery Plan: Core Data Engine v4.0 Upgrade
+
+**Strategy:** High-risk migration with irreversible schema changes and regulatory gates. We will execute a "Pilot then Parallel" approach to minimize blast radius. The instruction to ignore existing test failures is rejected; G5 verification requires a green gate at the exact revision, or explicit human waiver for known harness issues.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Risk - Conductor/Analyst):** Define the exact `global-routes.json` mutation window and rollback criteria. Draft the compliance waiver for the flaky network latency check (hash-matching logic).
+    *   *Constraint:* Must complete before Lane B starts.
+*   **Lane B (Implementation - Builder):** Create a dedicated isolated worktree. Update dependency manifest to v4.0. Modify configuration for compression features. **Do not** touch `global-routes.json` yet; prepare the patch.
+    *   *Parallelism:* Can run alongside Lane C once Lane A is done.
+*   **Lane C (Verification Prep - QA):** Stand up a staging environment clone. Script the "peak trading" load simulation. Prepare the hash-match bypass for the flaky network check (only if build hash matches).
+    *   *Constraint:* Requires Lane B's artifact (SHA) to run against.
+*   **Lane D (Security & Compliance - Sec/Compliance):** Review v4.0 release notes for data privacy implications. Validate the irreversibility of the schema mutation.
+    *   *Parallelism:* Independent of code build, but must finish before G8.
+
+**Serialization Point:** Lane B (Code) and Lane C (Test Env) merge at G5. Lane D blocks G8.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Output is a testable spec naming the pinned base SHA and the specific "known test failures" to be waived vs. fixed.
+*   **G3 (Design):** ADR confirming the schema mutation path and the maintenance window for `global-routes.json`.
+*   **G4 (Implement):** Builder commits patch to feature branch. Base SHA is immutable.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Action:** Run full CI ($45 cost). Retry limit: 1 (no unnecessary retries).
+    *   **Flake Handling:** If network latency fails, verify build hash. If match, mark as "Known Flake - Waived." If mismatch, fail.
+    *   **Stack Requirement:** Staging stack must start successfully under load. Timeout errors must be resolved.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer (Independent of Builder).
+    *   **Scope:** Full diff + G5 receipts.
+    *   **Focus:** Verify no regression in non-upgraded modules.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected gates on final SHA.
+
+#### 3. Human Gates & Decisions
+*   **Maintenance Window:** Human approval required to lock `global-routes.json` during business hours.
+*   **G8 (Release):** **Dual Approval Required.** Lead Architect AND Compliance Officer must explicitly approve the production deploy due to financial regulations and irreversible schema change.
+*   **Waiver:** Human sign-off on ignoring the specific "harness" test failures (if any remain after G5).
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** Merge Train. Only one writer to the integration branch.
+*   **Deployment:** Scheduled immediately post-approval (G8) to meet the "tomorrow morning" deadline, ensuring the maintenance window aligns.
+*   **Rollback Plan:**
+    *   **Code:** Revert commit immediately.
+    *   **Data:** **NO AUTOMATED ROLLBACK.** Schema mutation is irreversible. Rollback entails restoring from the pre-migration backup taken before G8.
+    *   **Trigger:** If G9 (Production Verify) shows new timeout errors or data corruption.
+
+**Cost Control:** CI runs only on verified SHAs. No speculative retries.
+**Timeline:** Lane A/B/C/D start immediately. G5/G6 target EOD today. G8 approval sought for early morning deployment window.

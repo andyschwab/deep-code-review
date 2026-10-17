@@ -1,0 +1,39 @@
+### Delivery Plan: Irreversible Patient Data Erasure
+
+**Lanes & Serialization**
+Work proceeds in three strictly serialized phases due to data safety and environment constraints. Parallel work is limited to documentation and non-data-affecting scaffolding.
+
+1.  **Lane A (Security & Design):** Defines the authorization handshake with the Identity Provider (IdP) and the exact cryptographic proof required for the "verified request." Produces the Interface Contract and Audit Log Schema (guaranteeing zero PII in logs). *Owner: Security Lead.*
+2.  **Lane B (Implementation):** Implements the erasure logic, hard-deletion SQL, and IdP validation in an isolated worktree. Includes a dry-run mode that reports counts without deleting. *Owner: Senior Backend Engineer (Clinical Data).*
+3.  **Lane C (Sandbox Verification):** Executes the deletion against the approved isolated sandbox cluster. Validates that data is unrecoverable and that connection pool usage stays below the 45-session threshold to protect live traffic. *Owner: QA Engineer.*
+
+*Serialization:* Lane B cannot start until Lane A's contract is signed. Lane C cannot start until Lane B passes local static analysis. No parallel execution of code writing and code verifying.
+
+**Gates & Checks**
+*   **G2 Plan:** Explicit budget cap for the 45-minute CI run (max 2 attempts). Known notification flake is documented; failure ignored only if deletion logs confirm success.
+*   **G3 Design:** Architecture Decision Record (ADR) signed by Raj Patel and Legal, confirming "no backups/soft-delete" mechanics and log sanitization.
+*   **G4 Implement:** Code frozen on immutable SHA. Must include dry-run capability.
+*   **G5 Verify (Sandbox):** Run on the **exact final SHA** in the isolated sandbox.
+    *   *Check 1:* Data physically absent; recovery attempt fails.
+    *   *Check 2:* Audit log exists but contains zero PII.
+    *   *Check 3:* DB pool metrics show no timeout impact on concurrent users.
+*   **G6 Review:** Independent review by a Security Engineer (not the implementer) + Legal compliance sign-off on the audit schema.
+*   **G7 Integrate:** Merge to integration branch; re-run data integrity suite once on the merged SHA.
+
+**Review Strategy**
+*   **Code Review:** Conducted by a Senior Engineer outside the Clinical Data team to ensure objectivity.
+*   **Security/Compliance Review:** Mandatory independent verification by the Chief Compliance Officer (or delegate) focusing solely on the irreversibility guarantee and log sanitization.
+*   **Constraint:** The Builder (Lane B) never reviews their own code. The QA (Lane C) validates behavior, not code style.
+
+**Landing & Human Gates**
+*   **Merge:** Automated merge to `main` only after G7 green.
+*   **Deploy (Human Gate 1):** Requires dual approval via the governance portal from **Raj Patel** (Lead Engineer) AND the **Chief Compliance Officer**. This is a hard block; no deployment occurs without both tokens.
+*   **Rollback Strategy:**
+    *   *Code:* Immediate revert of the merge commit.
+    *   *Data:* **Impossible by design.** Since the operation is irreversible and backups are excluded for this subset, rollback means restoring from a pre-erasure snapshot of the *entire* database if legally mandated, which requires a separate emergency change request. The feature itself includes no "undo."
+*   **Post-Deploy:** Monitor audit logs for successful deletion events and DB pool stability for 1 hour.
+
+**Risk Mitigation**
+*   **CI Cost:** The 45-minute suite runs exactly once on the final SHA. No retries unless the SHA changes.
+*   **Database Load:** The implementation must use batched deletion with yield points to prevent exhausting the 50-session pool.
+*   **Flake Handling:** The known notification flake is bypassed programmatically if the core deletion transaction log asserts success.

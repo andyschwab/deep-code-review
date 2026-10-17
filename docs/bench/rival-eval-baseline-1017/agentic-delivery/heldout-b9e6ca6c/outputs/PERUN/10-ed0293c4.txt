@@ -1,0 +1,40 @@
+### Implementation Plan: Safe Removal of `enable_dark_beta` Flag
+
+**Objective:** Remove the `enable_dark_beta` feature flag and dead code from `src/ui_theme_manager.ts` while maintaining backward compatibility for Mobile App v2.1 (3,000 users) until the next release cycle.
+
+**Phase 1: Decouple Logic from Flag (Days 1-2)**
+1.  **Refactor `src/ui_theme_manager.ts`:**
+    *   Modify the theme resolution logic to ignore the `enable_dark_beta` flag value.
+    *   Force the new dark mode theme as the default behavior for all clients.
+    *   **Crucial:** Do not delete the flag parameter parsing yet. The code must still *accept* the parameter from mobile v2.1 requests without throwing an error or returning `undefined`, even if the value is ignored.
+    *   Ensure the function signature remains unchanged to prevent TypeScript compilation errors or runtime crashes in legacy clients expecting a specific response structure.
+2.  **Update Unit Tests:**
+    *   Modify existing tests in `npm run test:unit` to verify that the new theme is applied regardless of the flag's value (true, false, or missing).
+    *   Add a specific regression test simulating a mobile v2.1 request payload to ensure no exceptions are thrown.
+
+**Phase 2: Verification & Sign-off (Days 3-4)**
+1.  **Run Test Suite:** Execute `npm run test:unit` to confirm zero regressions.
+2.  **Mobile Contract Verification (For Sarah):**
+    *   Create a standalone script `scripts/verify_mobile_contract.ts`.
+    *   This script will simulate a v2.1 client request containing the legacy parameter.
+    *   It will assert that the server response is valid, the theme resolves correctly, and no errors are logged.
+    *   **Deliverable for Sarah:** She can run `npx ts-node scripts/verify_mobile_contract.ts` locally or in CI. A green exit code confirms v2.1 safety.
+3.  **Staging Deployment:** Deploy to staging with the flag logic disabled but present. Monitor logs for any unexpected parsing errors from mobile traffic.
+
+**Phase 3: Code Cleanup (Post-Mobile Release / Day 5+)**
+*Note: Only proceed after Mobile v2.2 is released or the v2.1 user count drops to zero.*
+1.  **Remove Dead Code:**
+    *   Delete the `enable_dark_beta` flag check entirely from `src/ui_theme_manager.ts`.
+    *   Remove the parameter parsing logic associated with the flag.
+    *   Clean up any types or interfaces solely defined for this flag.
+2.  **Final Verification:** Run `npm run test:unit` again to ensure cleanup introduced no errors.
+3.  **Merge:** Commit and merge the cleanup changes.
+
+**Risk Mitigation:**
+*   **Rollback Plan:** If staging logs show errors during Phase 2, revert the Phase 1 commit immediately. The flag logic remains the fallback.
+*   **Deadline Adherence:** Phases 1 and 2 will be completed by Monday EOD, allowing Sarah to sign off before Tuesday's deadline. Phase 3 is scheduled for the following sprint to ensure zero risk to legacy users.
+
+**Verification Command for Sarah:**
+`npx ts-node scripts/verify_mobile_contract.ts` (Exits 0 on success, 1 on contract breach).
+
+This plan ensures a clean removal without breaking legacy clients by separating the logical deprecation from the physical code deletion.

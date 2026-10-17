@@ -1,0 +1,43 @@
+### Session Plan: Safe Release & Risk Mitigation for Legacy Inventory Repo
+
+**Objective:** Execute a critical security patch within five days without triggering a production lockout due to expired/rotated credentials in the legacy pipeline.
+
+#### Phase 1: Immediate Containment & Non-Destructive Audit (Day 1)
+**Goal:** Understand the system without touching running infrastructure or secrets.
+
+*   **Owner (You):**
+    *   **Freeze & Fork:** Create a private fork of the repository. Do not touch the `main` branch yet.
+    *   **Credential Inventory:** Manually scan configuration files (`.env`, `config/`, CI YAML) for hardcoded secrets. List every service endpoint (DB, Cloud Provider, Registry) referenced.
+    *   **Access Verification:** Log into the cloud console and secret manager *read-only*. Verify which accounts you currently have access to. Do not attempt to rotate anything yet.
+*   **Junior Developer:**
+    *   **Static Analysis:** Run local linting and dependency checks on the forked code. Identify the specific library requiring the security patch.
+    *   **Pipeline Mapping:** Read the CI/CD configuration files (e.g., `.github/workflows`, `Jenkinsfile`). Document every step that involves authentication or deployment. Flag any step that looks like it writes to production.
+
+#### Phase 2: The "Dry Run" Environment (Day 2-3)
+**Goal:** Validate the build and deployment logic in a sandbox that mimics production but cannot harm it.
+
+*   **Owner (You):**
+    *   **Sandbox Provisioning:** If possible, spin up a ephemeral/staging environment using the current (potentially broken) credentials. If credentials are dead, this will fail safely here, not in production.
+    *   **Secret Rotation Plan:** Draft the exact commands needed to rotate credentials *after* the code is deployed, assuming the current ones are dead. Prepare the "break-glass" procedure for a full infra rebuild if the pipeline is unrecoverable.
+*   **Junior Developer:**
+    *   **Local Build Attempt:** Attempt to build the Docker image or binary locally using the patched dependency. Document every error related to missing keys or registry access.
+    *   **Mock Deployment:** Modify the deployment script locally to echo commands instead of executing them (dry-run mode). Verify the sequence of operations matches the documentation (or lack thereof).
+
+#### Phase 3: The Controlled Release (Day 4-5)
+**Goal:** Apply the patch and restore operational security.
+
+*   **Sequence of Execution:**
+    1.  **Patch Application:** Merge the security fix into the fork.
+    2.  **Credential Injection:** If the sandbox build succeeded, inject *new* temporary credentials into the pipeline for this specific run. If the build failed due to auth, manually build the artifact locally, scan it, and push it to the registry using your personal CLI session (bypassing the broken pipeline for this one-off).
+    3.  **Staging Deploy:** Deploy to a non-production environment first. Verify the application starts and connects to dependencies.
+    4.  **Production Deploy:** Execute the deployment during a low-traffic window.
+    5.  **Immediate Rotation:** Once the new version is live, immediately rotate all hardcoded credentials found in Phase 1 and update the secret manager.
+
+#### First Concrete Steps (Do These Now)
+1.  **Fork the repository** immediately to isolate your work.
+2.  **Grep the codebase** for keywords like `password`, `secret`, `key`, `token` and export this list to a secure, local text file.
+3.  **Instruct the junior developer** to read the CI/CD config file and produce a one-page diagram of the deployment flow, highlighting exactly where authentication happens.
+4.  **Do not run any build or deploy commands** until the credential inventory is complete and you have confirmed read-access to the cloud console.
+
+**Note:** If the pipeline fails authentication during the sandbox test, do not attempt to fix the pipeline scripts blindly; switch to a manual artifact push to bypass the broken automation for this emergency release.
+**Note:** Treat the current hardcoded credentials as compromised; assume they must be rotated immediately after the patch lands, regardless of whether they currently work.

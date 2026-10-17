@@ -1,0 +1,47 @@
+### Delivery Plan: Sanitize PII in Insurance Claim Fixtures
+
+**Lanes & Parallelism**
+*   **Lane 1: Data Sanitization (Builder)**
+    *   **Task:** Scan staging fixture files for real names and SSNs. Replace with format-compliant fictional placeholders. Preserve row counts and data types.
+    *   **Constraint:** Do not modify `global-rates.json` (immutable). Do not delete rows.
+    *   **Parallelism:** Runs independently.
+*   **Lane 2: Pipeline Configuration (Conductor)**
+    *   **Task:** Configure CI to ignore the known flaky check in the document generation module *only* if logs show specific timeout errors. Ensure no redundant builds are triggered during development.
+    *   **Parallelism:** Runs parallel to Lane 1.
+*   **Lane 3: Verification Prep (QA)**
+    *   **Task:** Prepare a script to scan build artifacts for raw PII patterns post-build.
+    *   **Dependency:** Must wait for Lane 1 to produce a candidate commit before final execution, but setup runs now.
+
+**Serialization Points**
+*   Lane 1 must complete and push a candidate SHA before Lane 3 executes the full regression suite.
+*   Lane 2 configuration changes must be merged before the final G5 verification build to ensure the flaky test handling is active.
+
+**Gates & Checks**
+*   **G4 (Implement):** Builder commits sanitized fixtures to a dedicated worktree. Commit message explicitly states "PII Scrubbed."
+*   **G5 (Verify):**
+    *   **Trigger:** Exact SHA from G4.
+    *   **Action:** Run nightly regression suite once.
+    *   **Check 1:** Suite passes (ignoring documented timeout flakes).
+    *   **Check 2:** QA scans build artifacts; zero matches for real SSN/name patterns.
+    *   **Check 3:** Confirm row counts match source.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Security Engineer (not the Builder).
+    *   **Scope:** Diff of fixture files only. Verify no `global-rates.json` changes. Confirm placeholder realism.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected subset of tests on the merge SHA.
+
+**Review Independence**
+*   The Builder implements the scrubbing.
+*   The Security Engineer reviews the diff and the QA artifact scan results.
+*   The Conductor verifies the CI configuration change against the flake policy.
+*   No self-approval allowed for the Security or QA roles.
+
+**Landing & Human Decisions**
+*   **Merge:** Automated upon G6 approval and G7 success.
+*   **Deploy (G8):** Requires dual approval from Chief Risk Officer and Lead Data Architect. This is a hard gate; the agent will prepare the release manifest but cannot trigger the deployment.
+*   **Rollback:**
+    *   **Trigger:** If PII is detected in production or downstream validation fails due to format mismatch.
+    *   **Action:** Revert the merge commit. Note: Since test data syncs hourly from a read-only replica, a revert alone does not clean the source; it only stops the bad data from entering the *next* pipeline run. Immediate manual intervention is required if the source replica itself was contaminated (outside this ticket's scope).
+*   **Timing:** Target completion before Tuesday compliance review. If G5 fails, the lane escalates to reframe the sanitization logic rather than retrying blindly.
+
+**Cost Control**
+*   Only one full regression suite run permitted at G5. Local linting and pattern matching used for iterative checks to save compute credits.

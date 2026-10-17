@@ -1,0 +1,57 @@
+### Delivery Plan: Pediatric Syrup Configuration Update
+
+**Objective:** Update dosage limits, storage instructions, and allergen warnings for the cherry flavor SKU to meet regulatory audit requirements.
+
+#### 1. Work Lanes & Parallelization
+
+*   **Lane A (Content Preparation - Serialized):**
+    *   **Actor:** Lead Formulator.
+    *   **Task:** Create a single feature branch (`update-cherry-sku-audit`).
+    *   **Action:** Edit the primary specification file to change the max daily dose (15ml → 12ml) and update storage text (add refrigeration). These edits must occur in the same commit or sequential commits on the same branch to prevent merge conflicts between the two fields.
+    *   **Action:** Edit the separate compliance manifest to add the soy lecithin allergen warning.
+    *   **Constraint:** Do not split these edits across different branches.
+
+*   **Lane B (Verification - Parallel to Lane A drafting, Serialized before Commit):**
+    *   **Actor:** Chief Medical Officer (CMO).
+    *   **Task:** Independently verify the numeric dose change (12ml) and the allergen text against the attached medical directive.
+    *   **Gate:** No code is committed until Lane B provides written confirmation that the values match the directive exactly.
+
+#### 2. Gates & Checks
+
+*   **Pre-Commit Gate (Human):**
+    *   **Check:** Side-by-side comparison of the proposed file changes against the medical directive.
+    *   **Location:** Local workstation, revision `HEAD` of the feature branch.
+    *   **Requirement:** Explicit sign-off from the CMO on the specific numeric value and allergen string.
+
+*   **Pipeline Gate (Automated):**
+    *   **Trigger:** Push to the feature branch.
+    *   **Check:** Syntax validation and government database cross-reference.
+    *   **Constraint:** This run takes 18 minutes. Ensure the branch is rebased on the latest `main` immediately before pushing to avoid failure due to concurrent edits by other formulators.
+    *   **Failure Protocol:** If the pipeline fails, do not retry immediately. Investigate if another formulator updated the spec file. Rebase, resolve conflicts, and re-verify the dose number (ensure it wasn't overwritten) before re-running.
+
+#### 3. Review Process
+
+*   **Primary Reviewer:** Quality Assurance (QA) Lead.
+    *   **Focus:** Verify that the storage text is clear, the allergen warning follows the standard legal format, and the pipeline passed successfully.
+*   **Secondary Reviewer:** Chief Medical Officer (CMO).
+    *   **Focus:** Re-confirm the dosage limit (12ml) in the final merged state.
+*   **Independence Rule:** The Lead Formulator who made the edits cannot approve their own merge. QA and CMO reviews are independent; both must approve.
+
+#### 4. Landing & Deployment
+
+*   **Merge Strategy:**
+    *   **Action:** Merge `update-cherry-sku-audit` into `main` via Pull Request.
+    *   **Requirement:** Dual approval (QA Lead + CMO) required on the PR before the merge button is active.
+    *   **Timing:** Complete merge no later than Friday to allow buffer before the Tuesday audit.
+
+*   **Deployment Trigger:**
+    *   **Action:** Merging to `main` automatically triggers the labeling printer interface.
+    *   **Risk:** This action is irreversible and initiates a physical reprint of all warehouse stock tags.
+    *   **Final Human Decision:** The QA Lead must perform a final "sanity check" on the live build artifact immediately post-merge but *before* acknowledging the deployment success, ensuring the printed output preview matches the 12ml limit.
+
+*   **Rollback Plan:**
+    *   **Scenario:** If the physical tags print with incorrect data.
+    *   **Action:** Immediately halt warehouse distribution. Revert the merge in the repository to restore the previous version.
+    *   **Limitation:** Since physical tags are already printed, a manual recall of the printed stock is required. The software revert only prevents *future* prints from carrying the error. There is no digital "undo" for the physical reprint already triggered.
+
+**Critical Warning:** The 18-minute validation window is a hard constraint. Do not initiate this process during peak hours when other formulators are known to edit the spec file, as a mid-validation conflict will waste credits and delay the audit readiness.

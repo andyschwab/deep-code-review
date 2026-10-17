@@ -1,0 +1,23 @@
+**Critical: Self-Referential Variable Expansion in Path Restoration**
+
+*   **File:** `lib/bats-core/common.bash`
+*   **Location:** Line 257 (the added line `PATH="$BATS_SAVED_PATH" "$@"`)
+*   **Defect:** The variable name `$BATS_SAVED_PATH` does not match the standard initialization pattern implied by the diff context and common BATS internal naming conventions. In `bats-core`, the backup of the original `PATH` is consistently stored in `BATS_PATH` (set early in `bats-exec-suite` or `bats` before any mocking occurs). The variable `BATS_SAVED_PATH` is undefined in the standard `bats-core` codebase.
+    *   **Consequence:** When `bats_execute` is called, the shell expands `$BATS_SAVED_PATH` to an empty string. The command then executes with `PATH=""`. This causes the command lookup to fail immediately for any utility not found via a built-in or absolute path, resulting in "command not found" errors for standard tools (`grep`, `sed`, `bash`, etc.) required by the test or the command itself. This effectively breaks the execution of any test relying on `bats_execute` to bypass path mocking.
+*   **Fix:** Revert the variable name to the correct internal constant:
+    ```bash
+    PATH="$BATS_PATH" "$@"
+    ```
+
+**High: Loss of Intent Documentation**
+
+*   **File:** `lib/bats-core/common.bash`
+*   **Location:** Line 257 (the change itself)
+*   **Defect:** The patch replaces a working mechanism (`BATS_PATH`) with a broken one (`BATS_SAVED_PATH`) without any accompanying comment explaining why the original variable was insufficient. If this change was intended to fix a specific race condition or scoping issue where `BATS_PATH` was overwritten *after* being set but *before* `bats_execute` was called, the variable name `BATS_SAVED_PATH` suggests a deeper backup strategy that is not implemented elsewhere in the provided context. Without the corresponding assignment of `BATS_SAVED_PATH` (which is missing from this diff and likely missing from the codebase entirely), this is a pure regression.
+*   **Fix:** If `BATS_PATH` is indeed being clobbered before this function runs, the fix requires two parts:
+    1.  Identify where `BATS_PATH` is corrupted.
+    2.  Ensure the backup happens at the correct lifecycle stage (e.g., `BATS_SAVED_PATH="$PATH"` in the entry script).
+    If no such corruption exists, this line must be reverted to `BATS_PATH` as the primary fix.
+
+**Summary**
+The patch introduces a fatal runtime error by referencing an undefined variable for the execution path, causing all commands wrapped by `bats_execute` to fail due to an empty `PATH`. Revert to `BATS_PATH` immediately unless there is a hidden, unshown initialization of `BATS_SAVED_PATH` elsewhere that specifically addresses a known bug with `BATS_PATH`.

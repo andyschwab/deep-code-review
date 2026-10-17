@@ -1,0 +1,29 @@
+# Delivery Plan: Inventory Search Cache with Strict Invalidations
+
+**Objective:** Reduce `src/db_queries.sql` product search latency from ~8s to <200ms via caching, ensuring immediate invalidation (<50ms) upon any write in `src/inventory_writer.py`, while fixing the flaky test in `tests/test_cache_layer.py` without weakening assertions.
+
+### Phase 1: Implementation & Cache Strategy
+1.  **Introduce Redis/Memory Cache Layer:** Wrap the specific product search query in a caching decorator. Set a short default TTL (e.g., 5 minutes) as a safety net, but rely primarily on explicit invalidation.
+2.  **Hook into Write Operations:** Modify `src/inventory_writer.py` to publish an invalidation event immediately after any successful transaction (INSERT, UPDATE, DELETE). This event must trigger the cache clear for the affected product IDs or the entire search index if row-level invalidation is too complex.
+3.  **TypeScript Integration:** Ensure type safety for the new cache client and invalidation events within the existing TypeScript codebase.
+
+### Phase 2: Testing & Verification (Critical Path)
+1.  **Fix Flaky Test:** Refactor `tests/test_cache_layer.py` to remove non-deterministic waits. Replace `sleep()` calls with explicit event-driven assertions that wait for the invalidation signal before checking cache state. The test must fail if the cache persists after a write.
+2.  **Latency Assertion:** Add a specific performance test that measures the time delta between the completion of a write operation in `inventory_writer.py` and the confirmation of cache invalidation. This test will explicitly assert the duration is <50ms.
+3.  **End-to-End Verification:** Run `npm run verify-db` to ensure the full suite passes, confirming no regressions in data integrity.
+
+### Phase 3: Monitoring & Deployment
+1.  **Metrics Instrumentation:** Integrate counters for `cache_hits`, `cache_misses`, and `invalidation_latency`.
+2.  **Dashboard Alert:** Configure an alert for `invalidation_latency_p99` exceeding 40ms (giving a 10ms buffer before the 50ms hard limit).
+3.  **Post-Deployment Monitoring:** Track cache hit rates over the weekend. A sudden drop in hit rate coupled with stable DB load may indicate over-aggressive invalidation; a spike in DB load indicates invalidation failures.
+
+### Deliverables Checklist
+*   [ ] Caching layer implemented around `src/db_queries.sql`.
+*   [ ] Invalidation hooks added to all write paths in `src/inventory_writer.py`.
+*   [ ] `tests/test_cache_layer.py` refactored for deterministic event-driven validation.
+*   [ ] New test case asserting <50ms invalidation latency added and passing.
+*   [ ] `npm run verify-db` passes 100%.
+*   [ ] Monitoring dashboard updated with cache hit/miss and invalidation latency graphs.
+
+**Note:** Given Jane's warning about shipping errors, we will deploy this to a staging environment first and simulate high-frequency write/load scenarios to validate the <50ms guarantee under stress before merging.
+**Timeline:** Implementation and testing to be completed by 4:00 PM today, allowing time for code review and merge before the weekend.

@@ -1,0 +1,62 @@
+### Delivery Plan: PulseRate Isolation
+
+**Objective:** Extract subscription renewal logic into `PulseRate` service while maintaining `MediCore` stability, adhering to Clinical team locks and zero-downtime requirements.
+
+#### 1. Lanes & Parallelism
+*Worktrees are isolated; one writer per tree.*
+
+*   **Lane A (Analysis & Contract Definition) – Serial First**
+    *   **Actor:** Product Analyst + Architect.
+    *   **Work:** Map exact dependencies between `claims_processor.py` and renewal logic. Define the API contract for `PulseRate`. Identify schema migration steps for `HealthVault`.
+    *   **Constraint:** Must complete before Lane B starts to prevent rework.
+    *   **Output:** Interface Definition Document (IDD) and Migration Runbook.
+
+*   **Lane B (Service Implementation) – Parallel to C**
+    *   **Actor:** Builder 1.
+    *   **Work:** Create `PulseRate` repo/service. Implement renewal calculations based on Lane A's contract. Build local DB schema.
+    *   **Constraint:** No changes to patient records interface.
+
+*   **Lane C (Monolith Adaptation) – Parallel to B**
+    *   **Actor:** Builder 2.
+    *   **Work:** Refactor `MediCore` to call `PulseRate` via the new API. Implement the "Strangler Fig" pattern to route traffic gradually.
+    *   **Constraint:** Strictly avoid `/config/global` breaking changes; maintain legacy tool compatibility. Respect 09:00–17:00 EST lock on `claims_processor.py` (commits queued outside this window).
+
+*   **Lane D (Migration & Verification) – Serial Last**
+    *   **Actor:** QA + DBA.
+    *   **Work:** Write idempotent migration scripts for `HealthVault`. Build integration tests verifying historical data integrity.
+    *   **Constraint:** Must run against the exact integrated SHA of B+C.
+
+#### 2. Gates & Checks
+*Every gate requires an exact revision SHA. No "latest" allowed.*
+
+*   **G1 (Spec Freeze):** Review IDD. **Check:** Does it exclude patient record modifications?
+*   **G3 (Design Sign-off):** Verify API contract and rollback strategy. **Check:** Can we revert `MediCore` to pre-extraction state instantly?
+*   **G4 (Implementation):** Code complete in isolated worktrees. **Check:** Lint/Type pass locally.
+*   **G5 (Verification):**
+    *   **Unit Tests:** Run in CI (Cost control: limit heavy mocking to affected modules only).
+    *   **Integration:** Spin up ephemeral `PulseRate` + `MediCore` stack. Verify claim adjudication remains unbroken.
+    *   **Data Dry-Run:** Execute migration script on a production snapshot (read-only). Verify zero data loss.
+*   **G6 (Independent Review):**
+    *   **Reviewer 1 (Security):** Audit data flow for PHI compliance.
+    *   **Reviewer 2 (Domain Expert):** Verify billing math matches legacy output exactly.
+    *   **Constraint:** Reviewers cannot be Builders from Lanes B or C.
+
+#### 3. Review Strategy
+*   **Independence:** Builder 1 reviews Builder 2's integration points; Builder 2 reviews Builder 1's API implementation.
+*   **External:** Finance representative validates the audit trail in `PulseRate` logs before G6 approval.
+*   **CI Optimization:** Tag tests to avoid running full 55-minute suite on non-impacted paths. Retry flaky network checks automatically (max 2 retries) before failing the gate.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:**
+    1.  Merge `PulseRate` code to its own main branch (G7).
+    2.  Merge `MediCore` refactor to a release candidate branch (G7).
+    3.  **Integration Branch:** Create a temporary merge commit of both for final G7 verification.
+*   **Human Decisions (G8 - Release):**
+    *   **Approval Required:** Dual sign-off from Chief Medical Officer and VP of Engineering is mandatory before deploying to Production.
+    *   **Timing:** Deploy during low-traffic window (outside 09:00–17:00 EST) to avoid Clinical team conflict.
+*   **Rollback Plan:**
+    *   **Trigger:** Any discrepancy in claim adjudication or migration failure.
+    *   **Action:** Revert `MediCore` to previous SHA; `PulseRate` traffic routing switches back to internal monolith logic immediately (feature flag flip).
+    *   **Data:** Migration scripts are forward-only; rollback relies on the pre-migration snapshot restored from backup if data corruption occurs.
+
+**Timeline:** Target completion 3 weeks prior to audit to allow buffer for unforeseen migration complexities.

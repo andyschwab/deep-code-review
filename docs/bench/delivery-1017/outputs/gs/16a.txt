@@ -1,0 +1,55 @@
+# Delivery Plan: Restore Checkout Latency to Baseline
+
+## Work Lanes & Parallelization
+
+**Lane A: Investigation & Reproduction (Owner: Backend Engineer)**
+*   **Task:** Analyze recent content update diffs in `ledger-service` to identify new database queries or asset loading chains.
+*   **Task:** Configure the synthetic traffic generator locally to replicate the 3.8s latency using staging data snapshots.
+*   **Constraint:** Must establish a stable "before" (1.2s) and "after" (3.8s) benchmark locally before any code changes are proposed.
+*   **Parallel Status:** Runs immediately. Independent of Lane B.
+
+**Lane B: Mitigation Hypothesis (Owner: Database Specialist)**
+*   **Task:** Review database schema migration logs from yesterday's update. Identify irreversible changes that correlate with the spike.
+*   **Task:** Draft potential rollback scripts or indexing fixes to be tested locally by Lane A.
+*   **Parallel Status:** Runs immediately. Must sync with Lane A once the specific query is identified.
+
+**Lane C: Infrastructure Prep (Owner: SRE)**
+*   **Task:** Reserve the CI cloud instances for the 2 AM – 4 AM window tonight.
+*   **Task:** Verify the mock payment gateway stability in staging; document known false-timeout patterns to avoid noise during testing.
+*   **Parallel Status:** Runs immediately. Must be complete before Lane D.
+
+**Lane D: Validation & Proof (Owner: QA Lead + Backend Engineer)**
+*   **Task:** Execute the synthetic traffic test in the reserved CI window against the proposed fix.
+*   **Gate:** Test must run on the exact revision containing the fix, merged with the current `main` branch.
+*   **Gate:** Average latency must be < 1.5 seconds over a full 15-minute run.
+*   **Serialization:** Cannot start until Lane A identifies the root cause and Lane C secures the window.
+
+## Gates & Checks
+
+1.  **Reproduction Gate (Local):** Before any PR is opened, Lane A must produce a log showing the synthetic generator hitting 3.8s on `main` and 1.2s on a reverted/hypothetical baseline locally.
+2.  **Schema Safety Gate:** Any proposed fix involving schema changes must be verified as reversible or safe-to-re-run locally. Irreversible migrations require a separate "Rollback Only" dry-run proof.
+3.  **Performance Gate (CI):** The 2 AM load test must pass with < 1.5s average. If the mock payment gateway times out, the test is invalid and must be rerun; do not average in false negatives.
+4.  **Data Hard Gate:** No merge is permitted without the signed CI test report showing the specific latency improvement metrics.
+
+## Review Process
+
+*   **Primary Reviewer:** Site Reliability Lead (Focus: System stability, database impact, rollback safety).
+*   **Secondary Reviewer:** Product Owner (Focus: Verification that the user journey is restored, no feature regression).
+*   **Independence Rule:** The Backend Engineer (Lane A) cannot approve their own merge. The Database Specialist (Lane B) must sign off on any SQL changes.
+*   **Review Trigger:** Only after the Performance Gate (CI) passes. Do not review code that hasn't passed the load test.
+
+## Landing & Rollback Strategy
+
+**Merge Protocol:**
+1.  **Dual Approval:** Explicit written approval from both the Site Reliability Lead and Product Owner is required in the ticket.
+2.  **Timing:** Merge immediately following approval, ideally outside peak traffic hours if possible, though urgency dictates ASAP once verified.
+3.  **Deployment:** Deploy to a canary group (5% of traffic) first. Monitor real-time dashboards for 10 minutes. If latency remains < 1.5s, roll out to 100%.
+
+**Rollback Plan:**
+*   **Trigger:** If canary latency exceeds 1.6s or error rates spike.
+*   **Action:** Immediate revert of the merge commit.
+*   **Constraint:** If the fix involved an irreversible schema migration, the rollback plan must involve deploying the previous application version *with a compatibility layer* or executing a pre-tested emergency script provided by Lane B. This script must be reviewed and dry-run locally before the initial merge.
+
+**Human Decisions Required:**
+*   Go/No-Go decision if the CI load test results are ambiguous (e.g., 1.49s average but high variance).
+*   Approval to proceed if the fix requires a complex database operation that cannot be fully automated in the pipeline.

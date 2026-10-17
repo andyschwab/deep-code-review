@@ -1,0 +1,72 @@
+### Delivery Plan: PulseRate Isolation
+
+**Objective:** Extract subscription renewal logic into the standalone 'PulseRate' service while maintaining zero downtime for the 'HealthVault' cluster and preserving the patient records interface.
+
+#### 1. Work Lanes & Parallelism
+
+*   **Lane A: Schema & Data Migration (Database Team)**
+    *   **Work:** Design the new PulseRate schema; write idempotent migration scripts to replicate renewal tables from HealthVault to the new cluster.
+    *   **Constraint:** Scripts must be reversible. No direct modification of live HealthVault tables until the cutover window.
+    *   **Parallelism:** Runs parallel to Lane B.
+
+*   **Lane B: Service Extraction (Platform Guild)**
+    *   **Work:** Copy renewal calculation logic and database schemas into the new PulseRate module. Refactor `claims_processor.py` to call PulseRate via API instead of direct logic execution.
+    *   **Constraint:** **Strict Read-Only** access to patient records interface files. No modifications allowed.
+    *   **Scheduling:** All code commits and merges to `claims_processor.py` must occur outside 09:00–17:00 EST to avoid Clinical team lockouts.
+    *   **Parallelism:** Runs parallel to Lane A, but serialized against the Clinical team's lock window.
+
+*   **Lane C: Configuration & Legacy Support (DevOps)**
+    *   **Work:** Update `/config/global` to include PulseRate endpoints while maintaining backward compatibility for the three legacy reporting tools.
+    *   **Parallelism:** Runs parallel to Lanes A and B.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Code Freeze & Branch Point**
+    *   **Revision:** Branch `feature/pulse-rate-isolation` from `main` at commit `HEAD` before any extraction begins.
+    *   **Check:** Verify no changes exist in patient record files in the diff.
+
+*   **Gate 2: Unit & Integration Validation**
+    *   **Trigger:** On every push to the feature branch.
+    *   **Execution:** Run CI pipeline ($45 cost, 55 mins).
+    *   **Flake Handling:** If staging network checks fail, auto-retry once. If it fails twice, flag for manual review (do not auto-merge).
+    *   **Check:** Ensure legacy reporting tools pass integration tests against the modified `/config/global`.
+
+*   **Gate 3: Data Migration Dry-Run**
+    *   **Environment:** Staging clone of HealthVault.
+    *   **Check:** Execute migration scripts; verify 100% data fidelity for historical renewal records. Verify rollback script restores state exactly.
+
+*   **Gate 4: Dual Approval**
+    *   **Approvers:** Chief Medical Officer (CMO) and VP of Engineering.
+    *   **Requirement:** Both must sign off on the final merge request. No deployment proceeds without both signatures.
+
+#### 3. Review Process
+
+*   **Code Review:**
+    *   **Reviewer:** Senior Platform Engineer (independent of the Platform Guild implementers).
+    *   **Focus:** Verify separation of concerns, ensure no patient record logic was touched, and confirm backward compatibility in config files.
+*   **Schema Review:**
+    *   **Reviewer:** Lead DBA (independent of Lane A).
+    *   **Focus:** Validate irreversibility risks and migration idempotency.
+*   **Audit Readiness:**
+    *   **Reviewer:** Finance Team Representative.
+    *   **Timing:** Post-dry-run, pre-production.
+    *   **Focus:** Confirm renewal calculations in PulseRate match historical HealthVault outputs exactly.
+
+#### 4. Landing Strategy
+
+*   **Merge Window:** Scheduled for a weekend or late evening (post-17:00 EST) to bypass Clinical team locks and minimize user impact.
+*   **Deployment Method:** Blue/Green deployment.
+    1.  Deploy PulseRate service to green environment.
+    2.  Run migration scripts to sync data.
+    3.  Switch traffic router to direct renewal requests to PulseRate.
+    4.  Keep HealthVault in read-only mode for renewal data as a fallback.
+*   **Human Decision Points:**
+    *   **Go/No-Go:** CMO and VP must explicitly approve the cutover time.
+    *   **Rollback Trigger:** If error rates on renewal calculations exceed 0.1% within the first hour, or if legacy reporting tools fail to fetch data.
+*   **Rollback Plan:**
+    1.  Revert traffic router to HealthVault immediately.
+    2.  Execute database rollback script to undo any partial writes to the new cluster.
+    3.  Restore previous `/config/global` version.
+    4.  Notify stakeholders of delay; investigate failure in staging.
+
+**Timeline Constraint:** All phases must conclude by the end of next month to satisfy the Finance audit requirement.

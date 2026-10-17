@@ -1,0 +1,62 @@
+### Delivery Plan: Secure Payment Logging Implementation
+
+**Objective:** Implement detailed, PII-safe logging in `src/payment_gateway.rb` using a new sanitization filter in `src/logger_util.rb`, verified by tests using fake credit card data, with a mandatory manual review gate.
+
+**Phase 1: Specification & Design (G1–G3)**
+*   **Define Sensitive Fields:** Explicitly list fields to mask: `credit_card_number`, `cvv`, `customer_name`, `billing_address`.
+*   **Sanitization Strategy:** Update `src/logger_util.rb` to include a `SensitiveDataFilter` module. This filter will:
+    *   Detect keys matching sensitive patterns (e.g., `/card/i`, `/name/i`).
+    *   Replace values with `[REDACTED]` before writing to the log stream.
+    *   Apply to both structured hash logs and interpolated string logs.
+*   **Logging Points:** Identify exact insertion points in `src/payment_gateway.rb`:
+    *   Entry: Payment request received (method, amount, currency, *masked* ID).
+    *   Pre-processing: Validation start.
+    *   External Call: Request sent to gateway (mask full payload except last 4 digits if needed for tracing).
+    *   Response: Status code, transaction ID, error codes (mask full error messages if they echo PII).
+    *   Exit: Final status (Success/Failure), duration.
+*   **Test Strategy:** Create `spec/logging_security_spec.rb`.
+    *   Generate a test payload containing fake credit card numbers (e.g., Stripe test tokens) and names.
+    *   Assert that the log output contains `[REDACTED]` where PII should be.
+    *   Assert that non-sensitive data (amount, timestamp, transaction ID) is present.
+    *   **Constraint:** Tests must run in all environments; no environment-based log disabling.
+
+**Phase 2: Implementation (G4)**
+*   **Worktree:** Isolate a dedicated worktree for this change.
+*   **Step 1:** Implement `SensitiveDataFilter` in `src/logger_util.rb`.
+*   **Step 2:** Refactor `src/payment_gateway.rb` to use the new logger methods at defined points.
+*   **Step 3:** Write `spec/logging_security_spec.rb` with the fake payload verification.
+*   **Step 4:** Run `bundle exec rspec` locally to ensure green status and zero PII leakage in test output.
+
+**Phase 3: Verification (G5)**
+*   **Automated:** Confirm `bundle exec rspec` passes, specifically the new security spec.
+*   **Manual Evidence Generation:**
+    *   Run a script to process a test payment with fake PII.
+    *   Capture the resulting log file.
+    *   Generate a diff showing the input payload vs. the sanitized log output.
+*   **Compliance Check:** Verify the log output contains no raw credit card numbers or names.
+
+**Phase 4: Review & Approval (G6–G8)**
+*   **Security Review (Mandatory):** Submit the captured log sample and the `SensitiveDataFilter` code to **Tom** for manual review of the output format.
+    *   *Gate Condition:* No merge until Tom explicitly approves the sanitization format.
+*   **Code Review:** Standard peer review for logic correctness and performance impact (given 5k daily transactions).
+*   **Merge:** Upon Tom's approval and green CI, merge to the integration branch.
+
+**Timeline:**
+*   **Draft Spec & Design:** Immediate.
+*   **Implementation & Tests:** Complete by Wednesday EOD.
+*   **Security Review (Tom):** Submit Thursday 9 AM.
+*   **Final Merge:** Thursday 2 PM (contingent on Tom's approval).
+
+**Risk Mitigation:**
+*   **PII Leak:** Prevented by the `SensitiveDataFilter` and the mandatory test asserting redaction.
+*   **Performance:** The filter uses simple string replacement/regex; impact is negligible for 5k/day.
+*   **Compliance:** Manual review by Security Lead ensures human verification of the sanitization logic.
+
+**Deliverable Checklist:**
+1.  Updated `src/logger_util.rb` with `SensitiveDataFilter`.
+2.  Updated `src/payment_gateway.rb` with structured logging calls.
+3.  New `spec/logging_security_spec.rb` proving PII masking.
+4.  Sample log output file for Tom's review.
+
+*Note: Do not proceed to merge without Tom's written approval on the log format.*
+*Ensure the test suite runs in the CI pipeline to prevent regression.*

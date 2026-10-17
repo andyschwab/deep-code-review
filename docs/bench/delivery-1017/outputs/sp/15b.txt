@@ -1,0 +1,31 @@
+### Delivery Plan: Smart-Grid Load Balancing Canary
+
+**1. Lanes & Parallelism**
+*   **Lane A (Configuration & Feature Flagging):** Engineer A modifies the regional configuration manifests to enable `grid_opt_v2` for 5% of Pacific Northwest device IDs. Simultaneously, they configure the kill-switch thresholds (latency >200ms, packet loss >0.5% over 10m) in the monitoring policy engine.
+*   **Lane B (Observability):** Engineer B builds the real-time dashboard comparing energy redistribution efficiency between the canary group and the control group. This work is independent of the deployment config and can proceed in parallel.
+*   **Lane C (Compliance & Documentation):** The Compliance Officer drafts the regulatory impact statement required for the dual-approval gate. This must be completed before the final merge request is raised.
+
+*Serialization Constraint:* Lane A cannot finalize the deployment commit until Lane B confirms the dashboard queries are validated against staging data (even if latency simulation is unavailable there). Lane C must complete before the merge request is submitted.
+
+**2. Gates & Checks**
+*   **Pre-Commit Gate:** Static analysis on configuration files to ensure no paths touch legacy billing calculation modules. A manual diff review by the Lead Network Engineer is required here to verify the "no touch" constraint.
+*   **Build Gate:** Trigger the CI pipeline *only* on the specific commit hash intended for production. To avoid unnecessary costs, no intermediate builds will run; the code must be verified locally or via dry-run scripts before pushing.
+*   **Deployment Gate:** The pipeline will pause after the hardware-in-the-loop simulation (55 mins). Success requires zero regression in simulation metrics.
+*   **Runtime Gate:** The automated kill switch acts as the primary runtime gate. Due to the 30-second cache delay, the monitoring alert must be tuned to trigger human paging immediately upon threshold breach, bridging the gap before the system auto-reverts.
+
+**3. Review Strategy**
+*   **Independent Code Review:** The configuration changes (Lane A) must be reviewed by a Senior Engineer *not* involved in writing the config, focusing strictly on the scope isolation (billing modules) and flag logic.
+*   **Dashboard Review:** Engineer B's dashboard logic is reviewed by the Data Lead to ensure the control group comparison is statistically valid.
+*   **Compliance Review:** The Compliance Officer reviews the final change ticket against regulatory requirements.
+*   **Final Authorization:** A dual-approval check in the deployment tool requires digital signatures from both the Lead Network Engineer and the Compliance Officer. Neither can approve their own work.
+
+**4. Landing & Rollback**
+*   **Merge Strategy:** The change merges to `main` only after dual approval. The deployment pipeline picks up this specific revision.
+*   **Canary Execution:** The rollout script targets the 5% Pacific Northwest slice. No traffic shifts occur until the kill-switch monitoring confirms active health checks.
+*   **Human Decision Point:** After 48 hours of stability, a formal review meeting is held. Expansion to 20% requires a new change ticket and re-approval; it is not automatic.
+*   **Rollback Protocol:**
+    *   *Automatic:* If metrics exceed thresholds, the kill switch disables `grid_opt_v2`. Expect up to 30 seconds of exposure due to cache latency.
+    *   *Manual:* If the dashboard shows subtle efficiency drops not caught by hard thresholds, the Lead Network Engineer can trigger an immediate config revert to 0% via the emergency console, bypassing the standard pipeline.
+    *   *Post-Incident:* Any rollback triggers an automatic freeze on further grid algorithm changes until a post-mortem is filed.
+
+This plan isolates risk to the specific region and device subset, respects the financial constraint regarding billing modules, and accounts for the specific latency in the safety mechanisms.

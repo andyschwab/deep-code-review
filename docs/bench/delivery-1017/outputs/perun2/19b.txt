@@ -1,0 +1,47 @@
+### Delivery Plan: PulseRate Isolation
+
+**Lanes & Parallelism**
+*   **Lane 1 (Spec & Contract):** Product Analyst defines the exact API boundary between the monolith and PulseRate. Output: Interface contract and migration validation criteria. **(Parallel Start)**
+*   **Lane 2 (Extraction):** Builder extracts renewal logic and schemas into the new `PulseRate` service worktree. Must serialize writes to `claims_processor.py` outside the 09:00–17:00 EST lock window. **(Parallel Start)**
+*   **Lane 3 (Migration Rehearsal):** DBA/SRE prepares the zero-downtime migration script and dry-runs it on a production snapshot. **(Parallel Start)**
+*   **Lane 4 (Legacy Compatibility):** Builder verifies `/config/global` changes against the three legacy reporting tools. **(Dependent on Lane 2 draft)**
+*   **Serialization Point:** Lane 2 and Lane 4 must merge into a single integration branch before final verification. Lane 3 (Migration) executes only after Lane 2 is verified green.
+
+**Gates & Checks**
+*   **G1 (Spec):** Freeze base SHA. Define "clean migration" as 100% row-count match and financial parity within $0.00.
+*   **G3 (Design):** ADR confirming no changes to the patient records interface. Explicit rollback plan for the irreversible `HealthVault` schema change.
+*   **G4 (Implement):** Code committed to isolated worktrees. Unit tests included.
+*   **G5 (Verify):**
+    *   **Local:** Build and unit tests pass on the exact commit SHA.
+    *   **Staging:** Deploy PulseRate to staging. Run full claims adjudication suite.
+    *   **Flake Handling:** Due to 20% network flakiness, failed staging checks trigger one automatic re-run. If it fails twice, manual triage is required (no blind retries).
+    *   **Cost Control:** CI runs are capped; optimize mocks to prevent budget overrun ($45/run).
+*   **G6 (Review):**
+    *   **Security:** Independent audit of the new service boundary and data access.
+    *   **QA:** Independent verification of financial calculations and legacy tool compatibility.
+    *   **Constraint:** Reviewers cannot be the Builder from Lane 2 or 4.
+*   **G7 (Integrate):** Merge to integration branch. Re-run affected integration tests on the final merged SHA.
+
+**Review Strategy**
+*   **Code Review:** Platform Guild senior engineer (independent of extraction work).
+*   **Domain Review:** Finance representative validates calculation logic parity.
+*   **Safety Review:** Clinical team lead confirms zero impact on patient records interface.
+*   **Security:** AppSec specialist reviews the new service surface.
+
+**Landing & Human Gates**
+*   **Merge:** Automated merge to `main` upon G7 success, provided it occurs outside the Clinical team's lock window (09:00–17:00 EST).
+*   **Human Approvals (G8):**
+    1.  **Chief Medical Officer:** Sign-off on clinical safety and patient record isolation.
+    2.  **VP of Engineering:** Sign-off on architectural integrity and rollback readiness.
+    *   *Note:* Both approvals are required before the deployment trigger.
+*   **Deployment:** Scheduled during a low-traffic window. Migration script executes in dual-write mode initially, then switches reads to PulseRate.
+*   **Rollback:**
+    *   **Code:** Revert merge immediately if G9 (Production Verify) shows errors.
+    *   **Data:** Since schema changes are irreversible, the rollback plan relies on the pre-migration snapshot and switching traffic back to the monolith's legacy logic paths (which must remain intact during the transition). The migration script must include a "switch-back" toggle.
+*   **Post-Deploy (G9):** Monitor claim adjudication success rates and financial totals for 24 hours.
+*   **Audit (G10):** Document the separation for the Finance team's upcoming audit.
+
+**Risk Mitigation**
+*   **Timeline:** If the Clinical lock window causes delays, the extraction lane pauses; no force-pushes.
+*   **Data Safety:** Migration is rehearsed on a snapshot; no live execution without a verified dry-run receipt.
+*   **Cost:** CI usage is monitored; heavy mocking is optimized before full suite runs.

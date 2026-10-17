@@ -1,0 +1,36 @@
+## Summary
+This PR introduces a critical validation check to the Kubernetes operator to prevent a cascade of pod restarts caused by malformed state transitions. The fix hardens the reconciliation loop against edge cases that currently bypass existing safety guards, ensuring cluster stability even when unexpected API states occur.
+
+## What
+- Adds a strict validation layer in `pkg/controller/reconcile.go` to verify resource state consistency before triggering pod lifecycle events.
+- Implements a guard clause that aborts reconciliation if specific invariant conditions are not met, preventing infinite restart loops.
+- Updates unit tests to cover the new validation path, ensuring the operator fails safely rather than propagating invalid states.
+
+## Why
+During a recent private deployment, a gap in the upstream validation logic allowed a specific, non-standard state transition to trigger a cascade of unnecessary pod restarts. While the specific trigger sequence involves proprietary orchestration logic that cannot be disclosed, the root cause was identified as a missing sanity check in the operator's core reconciliation function. Without this fix, any user or automation tool that inadvertently creates this edge-case state can destabilize the entire cluster. This change closes that gap by enforcing strict preconditions, making the operator resilient to both external automation errors and internal race conditions.
+
+## Test Plan
+The fix has been validated against the following scenarios:
+1. **Unit Tests**: New test cases `TestReconcile_InvalidStateTransition` and `TestReconcile_CascadePrevention` verify that the operator now rejects the problematic state pattern immediately.
+2. **Simulation**: A local kind cluster was subjected to rapid, conflicting state updates mimicking high-churn environments. The operator successfully aborted reconciliation without restarting pods.
+3. **Regression**: Existing integration tests pass, confirming no impact on standard operational flows.
+
+*Note: The specific API call sequence that originally triggered the bug is omitted from this description to protect proprietary infrastructure details, but the validation logic itself is generic and applies to any similar state inconsistency.*
+
+## Backward Compatibility
+This change is fully backward compatible. It only adds a defensive check that aborts operations which would have previously led to unstable behavior (cascading restarts). Valid, standard workflows remain unaffected.
+
+## Security Considerations
+This fix improves cluster reliability and prevents potential denial-of-service scenarios caused by accidental or malicious state manipulation. It does not expose any new surfaces or alter authentication/authorization logic.
+
+## Related Issue
+No prior issue exists as this vulnerability was discovered during internal stress testing. This PR serves as the primary disclosure and fix proposal.
+
+## Checklist
+- [x] Code follows project style guidelines.
+- [x] Unit tests added and passing.
+- [x] No proprietary triggers or internal architecture details disclosed.
+- [x] Validation logic is generic and applicable to all users.
+
+## AI-Assisted Disclosure
+This PR was drafted with the assistance of AI tools to ensure clarity and adherence to contribution guidelines. All logic, validation rules, and test cases were derived from the author's analysis of the upstream codebase and the generalized root cause. The author has reviewed every line and takes full responsibility for the technical content.
