@@ -3,6 +3,24 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.589.0] — 2026-10-17
+
+### Added
+- Bench: fresh 30-scenario held-out sets for contribution and product-output-safety against their rivals (docs/bench/contrib-safety-1017, free PCSS models, $0). Unedited product-output-safety beats promptfoo redteam-setup, 0.867 [0.750, 0.950]; the 0.400 reading on 10 scenarios was small-n and judge-dependent. contribution still loses to github-contributor (best 0.333 [0.200, 0.483], no judge passes the position-bias gate). A candidate edit to each skill was tested under a preregistered keep rule and reverted (no measured gain over the unedited skill); only the bench ships.
+
+agentic-ceo: open a call with a visible recompute of the stated figures; bench idea-critic (reverted)
+
+The conductor's "routes and decides" sentence now asks for a `Figures:` line right after the call, rebuilding each stated total, rate and date from its parts, so a planted slip leads the answer as the corrected number. The same sentence also carries the round-2 decision-memo contract (decide every listed choice, name sign-off owners, separate halt and fallback triggers, re-base an unrealistic assumption), which was benched in round 2 but never shipped, so this change ships both; the measured lift is for the two together, and the memo contract alone was not re-run on this held-out set.
+
+Round 3 bench (docs/bench/exec-round3-1017, preregistered before any held-out arm generation, PCSS models only): 40 fresh fictional scenarios per skill, three judges in both orders with strict agreement and a majority of three, generator never a judge. Held-out Perun win rate against the rival, bootstrap 95% interval: agentic-ceo 0.625 [0.537, 0.713] against 0.487 [0.388, 0.575] for the unedited text (kept; a re-judge of the same generations gave 0.637 [0.550, 0.725] against 0.487 [0.388, 0.588]); idea-critic 0.487 [0.375, 0.600] against 0.450 [0.338, 0.575] (lower bound not above 0.5, reverted, its text is unchanged). Slot-1 rates per judge are 0.562 to 0.863 over both-order calls, which is why only agreement counts. Caveats: judges and generator share one hosting cluster, ties count 0.5 (12 wins, 26 ties, 2 losses), the rival generations were made twice by a race in the driver so the two arms of a skill may face different rival samples, and the rival is a generated answer, not a human, and this is the third agentic-ceo candidate tried on a held-out set (round 2 r2b, now r3a), with no correction for multiple attempts.
+
+size-budget-raise: .claude/skills/agentic-ceo/SKILL.md 14718→15588 adds the round-2 decision-memo contract plus the Figures line, kept together by the held-out bench (0.487 to 0.625)
+
+Tests: see commit message.
+
+### Added
+- Bench: idea-critic against its rival, round 4 (docs/bench/idea-critic-r4-1017, free PCSS models, $0). Held-out n=40 fresh fictional scenarios, three judges in both orders with strict agreement and majority, each rival answer generated once and hash-frozen (fixes the round-3 driver race). The unedited skill scores 0.450 [0.338, 0.562] against the rival; the tested edit (a capped first tranche with an in-cap tripwire, chosen on a 10-scenario tune split) scored 0.412 [0.300, 0.525] and was reverted under the preregistered keep rule, so idea-critic does not yet beat its rival on this bar. Only the bench ships; no SKILL.md, eval or size-budget change.
+
 ## [1.588.0] — 2026-10-17
 
 ### Added
