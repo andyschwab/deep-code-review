@@ -1,0 +1,43 @@
+# Delivery Plan: Integration Test Optimization & Risk Mitigation
+
+**Objective:** Reduce CI duration while preserving end-to-end data integrity coverage, specifically addressing the data corruption scenario missed by unit tests.
+
+### Phase 1: Coverage & Risk Analysis (Days 1-2)
+1.  **Map Test Coverage:** Execute `tests/test_full_stack.py` with coverage reporting (`pytest --cov`) to identify exactly which code paths and integration points it touches that unit tests do not.
+2.  **Analyze the Corruption Bug:** Review the commit history and the specific bug report from last month. Isolate the exact conditions (timing, state, external service response) that triggered the data corruption.
+3.  **Gap Assessment:** Document specific scenarios where unit tests fail to detect the corruption but the integration test succeeds. This forms the baseline for Alex's bug detection rate comparison.
+
+### Phase 2: Refactoring Strategy (Days 3-4)
+1.  **Service Virtualization:** Replace real external services and the heavy database instance with lightweight containers (Docker Compose) or in-memory equivalents (e.g., SQLite for logic, mocked HTTP servers for external APIs) that preserve the protocol behavior but reduce spin-up time.
+2.  **Targeted Scenario Extraction:** Extract the specific data corruption reproduction case into a dedicated, focused integration test (`test_data_corruption_edge_case.py`). Ensure this test runs independently and quickly.
+3.  **Parallelization:** Modify `make ci-run` to run the new lightweight suite and the specialized corruption test in parallel with unit tests, rather than sequentially.
+
+### Phase 3: Implementation & Verification Setup (Day 5)
+1.  **Implement New Suite:** Deploy the refactored tests in a feature branch.
+2.  **Dual-Run Harness:** Create a CI job configuration that runs *both* the original slow test and the new optimized suite in parallel. The job will succeed only if both pass, but it will record timing and result discrepancies.
+3.  **Metrics Dashboard:** Configure the CI output to log:
+    *   Execution time difference.
+    *   Pass/Fail status of old vs. new tests.
+    *   Specific assertion failures in either suite.
+
+### Phase 4: Parallel Verification Period (Next Monday – Friday)
+1.  **Execute Dual-Run:** Merge the dual-run harness to the main branch. For one week, every commit triggers both the legacy test and the new approach.
+2.  **Data Collection:** Aggregate results daily. Specifically monitor for any instance where the new suite passes but the legacy test fails (false negative risk).
+3.  **Bug Detection Comparison:** Prepare a report for Alex comparing:
+    *   Historical detection (the known corruption bug).
+    *   Weekly detection rate (any new issues caught by old vs. new).
+    *   CI time savings realized.
+
+### Phase 5: Final Decision & Cleanup (Following Monday)
+1.  **Review Results:** If the new suite catches 100% of the failures the old test caught during the verification week, proceed to removal.
+2.  **Remove Legacy Test:** Delete `tests/test_full_stack.py` and remove it from `make ci-run`.
+3.  **Finalize CI:** Update documentation to reflect the new testing strategy and reduced CI time.
+
+**Deliverables:**
+*   Coverage gap analysis document.
+*   Refactored test suite with virtualized services.
+*   One-week dual-run metrics report.
+*   Updated `make ci-run` command.
+
+**Note:** If the dual-run reveals any discrepancy where the new suite misses a failure, the refactoring strategy must be revised before the legacy test is removed.
+**Deadline Check:** All phases fit within the timeline to present final data to Alex by next Friday.

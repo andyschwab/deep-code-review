@@ -1,0 +1,40 @@
+### Plan for Splitting the UI Pull Request
+
+To satisfy the maintainer's request for smaller, reviewable PRs while protecting internal data, split the remaining UI work as follows:
+
+**PR 2: Core Logic & Data Sanitization (The "Safety" Layer)**
+*   **Scope:** Extract the stock-counting calculation logic into a shared utility class. Crucially, include the **sanitization layer** here that maps internal warehouse codes to generic public IDs (e.g., `WH-A01` → `Zone-1`) before data reaches the UI.
+*   **Why:** This ensures no private codes ever exist in the UI layer code or runtime. It can be reviewed and merged independently because it has no visual dependencies.
+*   **Build Safety:** The UI layer (PR 3) will depend on this utility, but since PR 2 introduces the API the UI consumes, the build remains stable if merged in order.
+
+**PR 3: Generic UI Components (The "Display" Layer)**
+*   **Scope:** Update the UI components to consume the *sanitized* generic IDs from PR 2. Refactor variable names to use generic terms (e.g., `zoneId` instead of `acmeWarehouseCode`). Remove any hardcoded strings referencing specific internal locations.
+*   **Why:** This isolates the visual fix. Reviewers see only generic logic, eliminating the risk of exposing Acme Logistics' internal structure.
+*   **Dependency:** Explicitly depends on PR 2 being merged first.
+
+**PR 4: Integration & Configuration (The "Wiring" Layer)**
+*   **Scope:** Connect the new logic to the existing views and update configuration files to enable the new counting mode.
+*   **Why:** This is the final "glue" that activates the feature. If rolled back, it simply disables the feature without breaking the core logic or UI components.
+
+---
+
+### Draft Response to Jane
+
+**Subject:** Re: Splitting stock counting fix into sequential PRs
+
+Hi Jane,
+
+Thanks for the feedback on the initial PR. I agree that the 600-line diff was too broad for a comfortable review. I am restructuring the contribution into three atomic, sequential PRs to improve clarity and isolate concerns:
+
+1.  **PR #A (Core Logic & Sanitization):** Refactors the stock calculation engine and introduces a data sanitization layer to abstract internal identifiers before they reach the presentation tier.
+2.  **PR #B (UI Components):** Updates the interface to consume the sanitized data from PR #A, ensuring the display logic remains agnostic of underlying storage specifics.
+3.  **PR #C (Integration):** Wires the new logic and UI together and updates the necessary configuration flags.
+
+Each PR will build successfully on the previous one, and I will ensure the commit history clearly reflects this dependency chain using standard "builds on" references in the descriptions. I'll submit the first part shortly.
+
+Best regards,
+[Your Name]
+
+---
+
+**Commit Message Strategy:** Use `refactor(core): abstract inventory identifiers` for the first PR and `feat(ui): render sanitized inventory data` for the second. In the PR description body, add a "Dependencies" section stating: "This PR requires #A to be merged first to provide the sanitized data contract."

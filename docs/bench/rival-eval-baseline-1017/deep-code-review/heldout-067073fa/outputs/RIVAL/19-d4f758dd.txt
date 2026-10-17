@@ -1,0 +1,57 @@
+### Review Summary
+**File:** `index.js`
+**Scope:** Lines 1493–1512 (Hunk context)
+
+The patch introduces a regression in event emission logic and a potential runtime error due to variable scoping.
+
+---
+
+### Critical Defects
+
+#### 1. Runtime Error: `commandEvent` used outside of scope
+**Location:** Line 1505 (`} else if (this.parent && this.parent.listenerCount(commandEvent)) {`)
+**Confidence:** 95
+**Why it is wrong:**
+The constant `commandEvent` is declared on line 1493 inside the `if (this._actionHandler)` block. In JavaScript, `const` has block scope. When the code execution reaches the `else if` branch on line 1505, the `if (this._actionHandler)` block has not been entered (or has exited), making `commandEvent` undefined in this scope. This will throw a `ReferenceError: commandEvent is not defined`, crashing the application whenever an action handler is not present but the legacy event logic is triggered.
+
+**Fix:**
+Move the declaration of `commandEvent` outside the `if (this._actionHandler)` block so it is accessible to the subsequent `else if` branch.
+
+```javascript
+// Move this line up before the if statement
+const commandEvent = `command:${this.name()}`;
+
+if (this._actionHandler) {
+  // ... existing logic
+  if (this.parent) this.parent.emit(commandEvent, operands, unknown);
+} else if (this.parent && this.parent.listenerCount(commandEvent)) {
+  // Now commandEvent is defined here
+  this.parent.emit(commandEvent, operands, unknown);
+}
+```
+
+#### 2. Logic Regression: Suppression of default command event emission
+**Location:** Lines 1504–1505
+**Confidence:** 85
+**Why it is wrong:**
+The original code (line 1504 in the old version) unconditionally emitted the event on the current instance: `this.emit('command:' + this.name(), operands, unknown);`.
+The new code replaces this with `if (this.parent) this.parent.emit(...)`.
+This introduces two regressions:
+1.  **Lost Event:** The event is no longer emitted on `this` (the command instance itself). Any listeners attached directly to the command object will stop receiving the event.
+2.  **Conditional Failure:** If `this.parent` is null or undefined (e.g., for a root command or a standalone command), the event is never emitted anywhere. The original code did not have this dependency on a parent existing.
+
+**Fix:**
+Restore the emission on `this` and ensure the parent emission is additive, not replacement. Also, ensure the variable scope fix from Defect #1 is applied first.
+
+```javascript
+// Inside the if (this._actionHandler) block:
+this._actionHandler(args);
+
+// Restore original behavior: emit on self
+this.emit(commandEvent, operands, unknown);
+
+// Add legacy behavior: emit on parent if it exists
+if (this.parent) {
+  this.parent.emit(commandEvent, operands, unknown);
+}
+```

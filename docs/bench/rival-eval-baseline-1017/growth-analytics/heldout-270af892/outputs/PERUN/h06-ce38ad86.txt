@@ -1,0 +1,36 @@
+### FitPulse Launch Instrumentation Plan (Day One vs. Later)
+
+**North Star Metric:** Weekly Active Users completing a full "Log → View Progress" cycle.
+*Reject vanity metrics like total installs or raw pageviews; they rise regardless of value delivery.*
+
+#### 1. Day One: Absolute Must-Haves (Core Value & Retention)
+Instrument only events that answer specific questions about whether users derive value. Do not instrument "just in case."
+
+| Event Name | Question It Answers | Critical Properties |
+| :--- | :--- | :--- |
+| `workout_logged` | **Activation:** Did the user complete the core value action? | `workout_type`, `duration_sec`, `is_first_log` |
+| `progress_viewed` | **Value Realization:** Did the user see their data after logging? | `time_since_log_sec`, `chart_type_viewed` |
+| `session_start` | **Retention:** Did the user return? (Requires stable pseudonymous ID) | `days_since_install`, `platform_version` |
+| `app_crash` | **Stability:** (Already tracked, but ensure it blocks funnel analysis) | `screen_name`, `error_code` |
+
+**Why these four?**
+We read the funnel bottom-up. If `workout_logged` is low, acquisition is wasted. If `progress_viewed` is low after logging, the "aha" moment is broken. Without a stable pseudonymous user ID linking these events across sessions, you cannot calculate retention cohorts, rendering all other data useless for long-term growth.
+
+#### 2. Deferral: Post-Launch (Week 2+)
+Do not instrument social features on Day One. Social sharing is a **Referral** metric (the top of the funnel expansion), not a **Retention** metric. If users are not retaining via the core loop, social friction is irrelevant. Adding these now introduces noise and engineering risk.
+
+*   **Defer:** `share_button_tapped`, `share_completed`, `invite_sent`.
+*   **Reasoning:** These answer "How do we grow?" not "Are we keeping users?" Fix the leaky bucket (retention) before pouring in water (acquisition/referral).
+
+#### 3. Critical Implementation Constraints
+*   **Identifier Seam:** You must generate a stable, pseudonymous `user_id` at first launch that persists across reinstalls/sessions. Do not use raw device IDs or PII. This is the single point of failure for cohort analysis. Route any PII handling to your privacy compliance protocol.
+*   **No Benchmarks:** Do not ask "What is a good retention rate?" We will compare your Week 2 data against your Week 1 baseline. Any external benchmark is fabricated noise.
+*   **Experiment Readiness:** If you plan to A/B test onboarding flows immediately, pre-commit your sample size and primary metric (`workout_logged`) now. Do not peek at results after 48 hours; doing so invalidates statistical significance.
+
+#### This Week's Action Steps
+1.  **Define the Schema:** Finalize the JSON payload for `workout_logged` and `progress_viewed` ensuring the `user_id` is included in every event.
+2.  **Verify the Link:** Run a dry-run test to confirm a single test user's `session_start` → `workout_logged` → `progress_viewed` sequence links correctly in your analytics tool.
+3.  **Freeze Social Tracking:** Explicitly remove social event instrumentation from the April 10 build to reduce QA surface area.
+
+**Note:** If `progress_viewed` does not occur within 60 seconds of `workout_logged` for >40% of users, the product flow is broken, regardless of install numbers.
+**Note:** Any metric without an instrumentation ticket assigned today is `UNVERIFIED` and will remain blind for 7+ days post-launch.

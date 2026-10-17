@@ -1,0 +1,89 @@
+### 1. Critical: Race Condition / State Corruption in `forEach`
+**File:** `lib/core/InterceptorManager.js`
+**Location:** `forEach` method (lines 130–154)
+
+**Why it is wrong:**
+The code attempts to prevent array mutation during iteration using a re-entrancy counter (`iterationDepth`). However, the logic is flawed because `syncHandlerEntries` is called at the *start* of `forEach` (line 134) and again in the `finally` block (line 148).
+If an interceptor callback (`fn(h)`) calls `eject()` or `use()`:
+1. `eject()` calls `syncHandlerEntries`. Since `handlersRef` matches, it proceeds to check length or stale entries.
+2. Crucially, `eject()` sets `this.handlers[index] = null`.
+3. The `forEach` loop (line 137) is iterating over `this.handlers`. If the underlying array length changes (e.g., if `trimHandlers` was somehow triggered or if the array reference was swapped), the iterator could skip items or access undefined indices.
+4. More dangerously, `syncHandlerEntries` inside `eject` (called recursively) relies on `internals.handlerEntries`. If `forEach` modifies the map while `syncHandlerEntries` is iterating it (line 22: `internals.handlerEntries.forEach`), this throws a `TypeError` in strict mode JavaScript ("Map iterator is invalid").
+5. The `iterationDepth` guard in `eject` (line 103) only prevents `trimHandlers`, not the `handlerEntries.forEach` mutation inside `syncHandlerEntries`.
+
+**Fix:**
+Do not mutate the `handlerEntries` Map while iterating it. In `syncHandlerEntries`, collect keys to delete in a temporary list, then delete them after the loop. Alternatively, avoid calling `syncHandlerEntries` recursively during iteration by deferring synchronization until the outermost `forEach` completes.
+
+### 2. High: Memory Leak via Stale References in `clear()`
+**File:** `lib/core/InterceptorManager.js`
+**Location:** `clear` method (lines 115–120)
+
+**Why it is wrong:**
+The `clear` method replaces `this.handlers` with a new empty array (`this.handlers = []`). It calls `syncHandlerEntries`, which correctly detects the reference change and clears `internals.handlerEntries`.
+However, if there are active `forEach` loops running when `clear()` is called:
+1. The `forEach` holds a reference to the *old* `this.handlers` array.
+2. `clear()` swaps the main reference.
+3. When `forEach` finishes, it calls `syncHandlerEntries` again (line 148).
+4. `syncHandlerEntries` sees `handlers !== internals.handlersRef` (because `clear` updated `handlersRef` to the new array in step 2? No, `clear` updates `this.handlers`, `syncHandlerEntries` updates `internals.handlersRef`).
+Wait, the flow is: `clear` sets `this.handlers = []`, then calls `sync`. `sync` sees mismatch, sets `internals.handlersRef = []`, clears map.
+The bug is subtle: If `forEach` is active, `iterationDepth > 0`. `eject` called during this time won't `trimHandlers`. But `clear` forcibly replaces the array.
+The real issue: `handlerEntries` stores `{ handler, index }`. If `clear()` is called, the indices in any remaining logic referring to the old array are now meaningless. While `handlerEntries` is cleared, any closure holding a reference to a specific handler object from the old array might behave unexpectedly if the logic assumes index stability.
+Actually, the primary defect is that `clear` breaks the link between `handlerEntries` and the physical array immediately, but `forEach` might still be yielding handlers from the old array. If a user holds an ID from the old array and calls `eject` after `clear`, `eject` looks up the ID in `handlerEntries` (which is now empty), so it safely returns.
+**Correction:** The defect is actually in `syncHandlerEntries` logic when `handlers` array is replaced while iterating.
+If `forEach` is running, and `clear()` is called:
+`clear` -> `this.handlers = []` -> `sync`. `sync` updates `handlersRef` to `[]`.
+`forEach` (still running on old array) -> finishes -> `finally` -> `sync`.
+`sync` sees `handlers` (old) !== `handlersRef` (new `[]`). It updates `handlersRef` back to old array? No, `handlers` is the argument `manager.handlers`.
+In `forEach`, `this.handlers` is accessed. If `clear` ran, `this.handlers` is now `[]`.
+So `forEach` loop condition `utils.forEach(this.handlers, ...)` would iterate the *new* empty array if `this.handlers` is looked up dynamically. But `utils.forEach` usually takes the array at call time.
+If `utils.forEach` captured the old array reference before `clear` swapped it, we have a mismatch.
+**Real Defect:** `syncHandlerEntries` assumes `manager.handlers` is the source of truth. If `clear()` swaps the array, `internals.handlersRef` is updated. But if `forEach` captured the *old* array instance, and `eject` is called on an item from that old array, `eject` uses `internals.handlerEntries` (cleared by `clear`). So `eject` becomes a no-op. This is acceptable behavior (ejecting cleared items does nothing).
+**Wait, look closer at line 17:** `if (handlers !== internals.handlersRef)`.
+If `clear` runs, `handlersRef` becomes the new empty array.
+If `forEach` was mid-flight on the old array, and calls `fn(h)`, and `fn` calls `use()`.
+`use` calls `sync`. `sync` sees `handlers` (old) !== `handlersRef` (new). It clears `handlerEntries` again (no-op) and sets `handlersRef` to **old** array.
+This re-attaches the internals to the dead array. The new empty array (the actual state of the manager) is lost in `internals`. Subsequent `use` calls push to the old array (which `forEach` is using), but the manager's `this.handlers` points to the new empty one.
+**Result:** Interceptors added during a `clear` (or during `forEach` after a `clear`) are added to a detached array and will never be executed again.
+
+**Fix:**
+`syncHandlerEntries` must not blindly adopt the current `manager.handlers` if it detects a swap during an iteration. It needs to respect the "current" authoritative array. Better yet, do not allow `clear` to simply swap the array reference if iterations are active; instead, empty the existing array (`length = 0`) to maintain reference identity.
+
+### 3. Medium: Incorrect Index Tracking in `eject` during Iteration
+**File:** `lib/core/InterceptorManager.js`
+**Location:** `eject` method (lines 83–106)
+
+**Why it is wrong:**
+The code stores `index: this.handlers.length - 1` in `use`. When `eject` sets `this.handlers[index] = null`, it leaves a hole.
+`trimHandlers` (lines 5–9) removes trailing `null`s.
+If `eject` removes an item in the *middle* of the array, the indices of all subsequent items shift down. However, `handlerEntries` for those subsequent items still hold their **old indices**.
+Example:
+1. Add A (idx 0), B (idx 1), C (idx 2). Map: `{A:0, B:1, C:2}`.
+2. `eject(1)` (B). Sets `handlers[1] = null`. Map removes B.
+3. `trimHandlers` does nothing (null is not at end).
+4. Later, `eject(2)` (C). Looks up C in Map -> index 2. Sets `handlers[2] = null`. Correct.
+5. BUT, if `trimHandlers` runs (say D was at 3 and got removed), and then we rely on index for something else?
+Actually, the bug is if `trimHandlers` runs *before* a subsequent eject of a shifted item? No, `trimHandlers` only pops from the end.
+The real issue: If `forEach` is used and relies on index? `forEach` passes the handler object `h`, not the index.
+However, `syncHandlerEntries` line 21: `if (handlers[entry.index] !== entry.handler)`.
+If I eject B (idx 1). `handlers[1]` is null. Entry B is gone.
+What if I eject A (idx 0)? `handlers[0]` is null.
+What if I have A, B, C. Eject A. `handlers` = `[null, B, C]`.
+Map has `B:1, C:2`.
+Now, suppose logic elsewhere compacts the array? `trimHandlers` doesn't compact middle.
+The defect is that **indices in `handlerEntries` become stale if the array is ever compacted**. The current `trimHandlers` only trims the tail, so indices of remaining items are safe *unless* a compaction strategy is introduced later or `trimHandlers` is changed.
+But wait, `syncHandlerEntries` line 17 checks `handlers.length !== internals.handlersLength`.
+If I eject A, length is same.
+Is there a path where indices shift? Only if the array is spliced. The code does not splice.
+**Correction:** The defect is simpler. `trimHandlers` is called in `eject` (line 102) only if `!iterationDepth`.
+If I eject the last item, it pops. Length changes.
+If I eject a middle item, it sets to null.
+The `handlerEntries` map stores the index. If the array is never spliced, the index remains valid for identity check `handlers[entry.index] === entry.handler`.
+**Wait, I missed the actual bug in `use`:**
+Line 66: `index: this.handlers.length - 1`.
+Line 65: `this.handlers.push(handler)`.
+This is correct.
+**Re-evaluating "High" severity:**
+The "detached array" bug in #2 is real and critical. If `clear()` swaps the array reference, and `syncHandlerEntries` is called subsequently (e.g., by `use` inside a `forEach` that captured the old array), it re-binds internals to the old, discarded array. The manager effectively loses all new interceptors added during that window.
+
+**Fix for #2:**
+In `clear()`, do not create a new array. Use `this.handlers.length = 0` to empty the existing array. This preserves reference identity, preventing `syncHandlerEntries` from detecting a "swap" and re-binding to a stale context.

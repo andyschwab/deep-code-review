@@ -1,0 +1,62 @@
+# Delivery Plan: Secure Payment Logging Implementation
+
+**Deadline:** Thursday 2:00 PM
+**Owner:** Development Team
+**Stakeholders:** Tom (Security Lead)
+
+## Phase 1: Sanitization Foundation (Thursday 9:00 AM)
+**Objective:** Extend `src/logger_util.rb` to automatically mask sensitive fields before writing to stdout/file.
+
+1.  **Define Sensitive Patterns:** Create a constant list of regex patterns and field names to target:
+    *   Credit Card Numbers (13-19 digits, with/without spaces/dashes)
+    *   CVV codes (3-4 digits following a card number field)
+    *   Field names: `:card_number`, `:cvv`, `:customer_name`, `:billing_address`.
+2.  **Implement Filter Logic:** Add a `sanitize_payload(data)` method to `LoggerUtil`.
+    *   Recursively traverse hashes/objects.
+    *   Replace matched values with `[REDACTED]` or show only last 4 digits for cards (e.g., `****-****-****-1234`).
+    *   Ensure this runs *before* the string interpolation happens in the logger.
+3.  **Unit Test Sanitization:** Write tests in `spec/logger_util_spec.rb` asserting that:
+    *   Input containing raw card numbers returns redacted output.
+    *   Input containing customer names returns redacted output.
+    *   Non-sensitive data passes through unchanged.
+
+## Phase 2: Instrumentation of Payment Flow (Thursday 11:00 AM)
+**Objective:** Add structured logs to `src/payment_gateway.rb` at critical failure points without capturing raw PII.
+
+**Log Points & Data Strategy:**
+1.  **Entry Point (`process_payment` start):**
+    *   *Log:* "Payment processing initiated"
+    *   *Data:* `transaction_id`, `amount`, `currency`, `payment_method_type` (e.g., "visa", "stripe"). **Exclude:** Full card object.
+2.  **External API Call (Before request):**
+    *   *Log:* "Requesting gateway authorization"
+    *   *Data:* `gateway_endpoint`, `transaction_id`, `masked_card` (use sanitizer output).
+3.  **External API Response (After response):**
+    *   *Log:* "Gateway response received"
+    *   *Data:* `status_code`, `error_code` (if failed), `transaction_id`. **Exclude:** Full response body if it echoes PII.
+4.  **Exception Handling (Rescue blocks):**
+    *   *Log:* "Payment processing failed"
+    *   *Data:* `error_class`, `error_message` (scrubbed), `transaction_id`.
+    *   *Action:* Pass the exception message through the `sanitize_payload` method before logging to catch accidental PII leaks in error strings.
+
+## Phase 3: Verification & Security Audit (Thursday 1:00 PM)
+**Objective:** Prove no PII leaks under test conditions.
+
+1.  **Integration Test Creation:**
+    *   Create `spec/payment_gateway_logging_spec.rb`.
+    *   **Test Case:** "Does not log PII during failure"
+    *   **Procedure:**
+        *   Construct a test payload with fake data: `card_number: "4111111111111111"`, `customer_name: "John Doe"`.
+        *   Mock the external gateway to raise a timeout error.
+        *   Capture the logger output.
+        *   **Assertion:** Assert the output string does *not* contain "4111111111111111" or "John Doe". Assert it *does* contain "[REDACTED]" or the masked equivalent.
+2.  **Manual Security Review Prep:**
+    *   Generate a sample log file by running the new integration test.
+    *   Prepare a summary document highlighting the redaction logic for Tom.
+
+## Phase 4: Final Review & Merge (Thursday 1:45 PM)
+1.  **Tom's Manual Review:** Walk through the generated sample log file with Tom to confirm format and redaction visibility.
+2.  **Full Suite Run:** Execute `bundle exec rspec` to ensure no regressions.
+3.  **Merge:** Submit PR with the "Security Audit Passed" label.
+
+**Note:** If the sanitizer introduces measurable latency (>5ms per log), optimize regex compilation to static constants immediately.
+**Note:** Do not merge until Tom explicitly approves the sample log output.

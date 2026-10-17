@@ -1,0 +1,59 @@
+# WanderLust Event Taxonomy Migration Strategy
+
+## Phase 1: Governance & Standardization (Weeks 1-2)
+Before migrating data, establish the single source of truth to prevent regression.
+
+**1. Adopt Object-Action Naming Convention**
+Mandate `object_action` format (lowercase, underscores).
+*   *Current:* `click_book`, `book_click`, `booking_clicked`
+*   *New Standard:* `booking_clicked`
+*   *Rule:* The object comes first, followed by the specific user action.
+
+**2. Create the Master Mapping Table**
+Document every legacy event name and map it to the new standard.
+| Legacy Event | New Standard Event | Status |
+| :--- | :--- | :--- |
+| `click_book` | `booking_clicked` | Mapped |
+| `book_click` | `booking_clicked` | Mapped |
+| `search_flights` | `flight_search_initiated` | Mapped |
+
+**3. Define Property Standards**
+Ensure properties are consistent (e.g., always use `destination_city`, never `city_dest` or `location`).
+
+## Phase 2: The Dual-Stream Transition (Weeks 3-8)
+Do not delete old events immediately. Run a parallel stream to preserve historical continuity while building new datasets.
+
+**1. Implement Dual Emission**
+Update the tracking library (client-side or server-side) to fire **both** the legacy event and the new standard event for every action.
+*   *Volume Impact:* With 2M daily events, this temporarily doubles ingestion for affected events. Monitor pipeline capacity.
+*   *Duration:* Maintain this for 90 days to capture a full quarter of overlapping data.
+
+**2. Build Reconciliation Views**
+Create BI views that union the legacy and new streams.
+*   *Logic:* `SELECT * FROM new_events WHERE date > [start_date] UNION ALL SELECT * FROM legacy_events WHERE date < [cutoff_date]`
+*   *Validation:* During the overlap period, query both streams independently. The counts must match within a 0.1% tolerance. If they diverge by 15%, the mapping logic is flawed.
+
+**3. Dashboard Migration**
+Update reports one by one to point to the new standard events. Keep the old dashboards read-only for historical reference until the overlap period ends.
+
+## Phase 3: Deprecation & Enforcement (Week 9+)
+**1. Sunset Legacy Events**
+Once the 90-day overlap is complete and validated, stop emitting legacy events in the codebase. Update the data pipeline to drop these events at the ingestion layer to save storage costs.
+
+**2. Archive Historical Data**
+Move raw legacy event logs to cold storage. They remain queryable for deep historical analysis but are removed from active daily tables.
+
+**3. Preventative Guardrails**
+*   **Schema Validation:** Implement strict schema enforcement in your data pipeline (e.g., using JSON Schema or Protobuf). Any event not matching the approved taxonomy is rejected or flagged immediately.
+*   **Change Management:** Require a "Taxonomy Review" step in the engineering pull request process. No new event names can be merged without approval from the data lead.
+*   **AutomatedLinting:** Add a pre-commit hook or CI check that scans code for unapproved event naming patterns.
+
+## Rules for Future Stability
+1.  **No Ad-Hoc Names:** If an event isn't in the Master Mapping Table, it doesn't exist.
+2.  **Context in Properties, Not Names:** Do not create `booking_clicked_mobile` and `booking_clicked_desktop`. Use one event `booking_clicked` with a `device_type` property.
+3.  **Deprecation Policy:** Old events are never reused for new meanings. If a flow changes significantly, create a new event name and deprecate the old one formally.
+
+This approach ensures your 15% variance disappears through validation while maintaining an unbroken chain of historical data for year-over-year comparisons.
+
+*Note: Coordinate closely with your data engineering team regarding the temporary storage cost increase during the dual-emission phase.*
+*Ensure all analysts are trained on the new naming convention before the switch-over.*

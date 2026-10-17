@@ -1,0 +1,43 @@
+### Simulation Plan for Auto-Merge Decision Logic
+
+Since live testing in production-like environments is prohibited, you must construct a high-fidelity **Local Dependency Graph Sandbox**. This sandbox simulates the package ecosystem, version constraints, and known vulnerability databases entirely within your isolated development environment.
+
+**1. Construct the Synthetic Package Registry**
+Create a local mock registry containing "golden" packages and specifically crafted "poison" packages.
+*   **Golden Set:** Replicate your top 50 most-used internal and external dependencies with valid semantic versioning histories.
+*   **Edge Case Set:** Generate packages with:
+    *   **Conflicting Constraints:** Package A requires `lib-x > 2.0`, while Package B (a transitive dependency) requires `lib-x < 2.0`.
+    *   **Yanked Versions:** Simulate versions that were published then immediately yanked due to bugs.
+    *   **Malicious Metadata:** Packages with valid signatures but known CVEs inserted into your local vulnerability feed.
+    *   **Pre-release Traps:** Versions tagged as `beta` or `rc` that semantically appear higher than stable releases but are unstable.
+
+**2. Define Decision Logic Test Vectors**
+Feed the assistant's decision engine specific pull request scenarios derived from the synthetic registry. Do not use real PRs; generate JSON payloads representing the diff and metadata.
+*   **Vector A (The False Positive):** A safe update where the assistant incorrectly flags a conflict due to overly strict heuristic matching.
+*   **Vector B (The False Negative):** A dangerous update (e.g., introducing a CVE or breaking change) where the confidence score incorrectly exceeds the merge threshold.
+*   **Vector C (The Transitive Trap):** A direct dependency update that appears safe but forces a resolution of a transitive dependency that breaks the build.
+*   **Vector D (The Race Condition):** Simulate a scenario where the vulnerability database updates *after* the compatibility check starts but *before* the merge decision finalizes.
+
+**3. Execute Deterministic Replay Simulations**
+Run the decision logic against these vectors in a loop with varying "confidence threshold" settings.
+*   **Step 1:** Freeze the local vulnerability database snapshot.
+*   **Step 2:** Inject Vector B (Dangerous Update). Verify the system *rejects* the merge. If it merges, log the specific heuristic failure.
+*   **Step 3:** Inject Vector C (Transitive Trap). Force the resolver to calculate the full tree. Verify the system detects the downstream breakage without executing a real build.
+*   **Step 4:** Vary the confidence threshold from 0.5 to 0.99. Map the exact point where the system transitions from "Safe" to "Unsafe" for ambiguous cases.
+
+**4. Validate the "Circuit Breaker" State**
+Simulate system degradation to ensure the assistant fails safely.
+*   **Network Partition Simulation:** Cut access to the local mock vulnerability feed mid-evaluation. The system must default to "No Merge" rather than assuming safety due to missing data.
+*   **Timeout Injection:** Delay the response from the mock registry. Verify the assistant aborts the evaluation rather than merging based on incomplete analysis.
+
+**5. Audit Trail Verification**
+For every simulation run, assert that the decision log captures:
+*   The exact version constraints evaluated.
+*   The specific rule or heuristic that triggered the pass/fail.
+*   The state of the vulnerability database at the moment of decision.
+*   The final confidence score and the threshold it was compared against.
+
+By strictly containing these simulations within a local, synthetic environment, you validate the logic's robustness against edge cases and conflicting dependencies without violating your security clearance constraints or risking client infrastructure.
+
+*Ensure your synthetic registry data is version-controlled so simulations are reproducible across your seven-person squad.*
+*Document any "gray area" decisions where the logic hesitates; these require manual policy refinement before beta.*

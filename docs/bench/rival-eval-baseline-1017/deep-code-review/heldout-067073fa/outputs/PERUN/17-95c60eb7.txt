@@ -1,0 +1,139 @@
+### 1. Logic Error: Incorrect Tie-Breaking for Explicit Defaults (Critical)
+**File:** `src/click/core.py`
+**Hunk:** `Parameter.resolve` method (lines ~2634–2655)
+**Why it is wrong:**
+The logic fails to correctly prioritize an explicitly set default over an implicit one when sources are equal.
+The variable `auto_would_downgrade_explicit` is intended to prevent an implicit default (e.g., `False` auto-inferred for a flag) from overwriting a value derived from an option where the user *explicitly* passed a default.
+However, the condition `not self._default_explicit` checks if the *current* contender is implicit. If the current contender is implicit (`self._default_explicit` is False) and the existing slot holds an explicit default (`existing_default_explicit` is True), `auto_would_downgrade_explicit` becomes `True`.
+Consequently, `is_winner` becomes `False` (due to `not auto_would_downgrade_explicit`), and the write is skipped. This part works.
+**The Defect:** The logic fails when the *current* contender is the explicit one and the *existing* slot holds an implicit one.
+If `existing_default_explicit` is False (existing is implicit) and `self._default_explicit` is True (current is explicit):
+`auto_would_downgrade_explicit` evaluates to `False` (because `not self._default_explicit` is False).
+The code then relies on `more_explicit` to swap them. But `more_explicit` checks `source < existing_source`. If both sources are `ParameterSource.DEFAULT`, this is `False`.
+The `is_winner` calculation becomes: `slot_empty` (False) OR `more_explicit` (False) OR (`same_source` (True) AND `not False` (True)).
+Result: `is_winner` is True. The explicit default overwrites the implicit one. **This appears correct at first glance.**
+
+**Re-evaluating the specific failure mode in feature-switch groups:**
+The issue arises in the ordering of evaluation. If the implicit default is processed *after* the explicit default:
+1. Explicit option runs: Sets value, `existing_default_explicit` = True.
+2. Implicit option runs: `self._default_explicit` = False. `existing_default_explicit` = True.
+   `auto_would_downgrade_explicit` = True. `is_winner` = False. Value preserved. (Correct)
+
+If the implicit default is processed *before* the explicit default:
+1. Implicit option runs: Sets value, `existing_default_explicit` = False.
+2. Explicit option runs: `self._default_explicit` = True. `existing_default_explicit` = False.
+   `auto_would_downgrade_explicit` = False.
+   `same_source` = True.
+   `is_winner` = True. Value overwritten. (Correct)
+
+**Wait, the actual defect is in the `elif` block (Line 2658):**
+```python
+elif existing_source is None:
+    ctx.set_parameter_source(self.name, source)
+```
+If `is_winner` is False (we lost the tie-break), but `existing_source` was *not* None (someone else wrote a value), we do nothing. This is correct.
+But if `is_winner` is False, and `existing_source` *was* None?
+This implies `slot_empty` was True (since `existing_source` None usually implies `ctx.params` doesn't have it or is UNSET).
+If `slot_empty` is True, `is_winner` *must* be True because of the `slot_empty or ...` logic.
+So the `elif` branch is theoretically unreachable if `slot_empty` logic holds.
+
+**The Real Defect: State Corruption in `ctx._param_default_explicit`**
+**File:** `src/click/core.py`
+**Hunk:** Lines 2654–2656
+**Why it is wrong:**
+When `is_winner` is True, the code unconditionally updates the tracking map:
+```python
+ctx._param_default_explicit[self.name] = self._default_explicit
+```
+If multiple parameters share a name and are evaluated, this map only reflects the *last winner*.
+In a feature-switch group where Option A (explicit default) wins, then Option B (implicit default) loses, the map correctly says `True`.
+But if the order swaps: Option A (implicit) wins first. Map says `False`. Then Option B (explicit) wins. Map says `True`.
+The logic seems to hold for the *value*, but the *metadata* (`_param_default_explicit`) is overwritten every time a winner emerges.
+If a third option C comes in later, it compares against the metadata of the *current* winner, not the "most explicit" one historically.
+**Scenario:**
+1. Opt A (Implicit) runs. Wins. Map = `False`.
+2. Opt B (Explicit) runs. Wins (over A). Map = `True`.
+3. Opt C (Implicit) runs. Compares against Map (`True`). `auto_would_downgrade` triggers. C loses. Correct.
+
+**Scenario Failure:**
+1. Opt A (Explicit) runs. Wins. Map = `True`.
+2. Opt B (Implicit) runs. Loses. Map remains `True`.
+3. Opt C (Explicit, but lower priority source?) runs.
+The logic assumes binary state (Explicit vs Implicit) stored in the map is sufficient. But if the "Explicit" winner had a *worse* source than a future contender, the `more_explicit` check handles source priority, but the `auto_would_downgrade_explicit` check might incorrectly block a source-equal contender if the map reflects a previous winner's explicitness rather than the *current* competing pair's relationship.
+
+Actually, the fatal flaw is simpler: **The `existing_default_explicit` lookup uses the global map state, which represents the *current* occupant.**
+If Option 1 (Explicit, Source=Default) sets the value.
+Option 2 (Implicit, Source=CommandLine) comes in. `source` (CommandLine) < `existing_source` (Default). `more_explicit` is True. Option 2 wins.
+The map is updated to `self._default_explicit` of Option 2 (which is `False`).
+Now the slot holds a CommandLine value, but the map says "Implicit Default".
+If Option 3 (Explicit, Source=Default) comes in:
+`same_source`? No (Default vs CommandLine).
+`more_explicit`? Default < CommandLine? No (Default is "less" explicit than CommandLine? Wait, enum order matters).
+Assuming `CommandLine` > `Default`.
+Option 3 (Default) vs Existing (CommandLine). `more_explicit` is False.
+`auto_would_downgrade`? Sources differ. False.
+`is_winner`? False.
+Option 3 loses. Correct.
+
+**Let's look at Line 2641:**
+```python
+auto_would_downgrade_explicit = (
+    same_source
+    and source == ParameterSource.DEFAULT
+    and existing_default_explicit
+    and not self._default_explicit
+)
+```
+This logic only protects against an implicit default overwriting an explicit default **if they have the same source**.
+If `source` is `DEFAULT` and `existing_source` is `DEFAULT`, and existing is explicit, and current is implicit -> Block. Correct.
+But what if `existing_source` is `DEFAULT` (from an implicit default that ran first)?
+1. Opt A (Implicit, Default). Runs. `existing_source` None. Wins. Map = `False`.
+2. Opt B (Explicit, Default). Runs. `existing_source` Default. `same_source` True.
+   `existing_default_explicit` is `False` (from A).
+   `auto_would_downgrade` is `False` (because `existing_default_explicit` is False).
+   `is_winner` is True. B overwrites A. Map = `True`.
+   Result: Explicit wins. Correct.
+
+**The Defect is in the `elif` block again (Line 2658):**
+```python
+elif existing_source is None:
+    ctx.set_parameter_source(self.name, source)
+```
+If `is_winner` is False, we skip setting the value. But if `existing_source` is `None`, we *still* set the parameter source.
+How can `existing_source` be `None` if `is_winner` is False?
+`is_winner` = `slot_empty` OR ...
+If `existing_source` is `None`, then `slot_empty` is likely True (unless `ctx.params` has UNSET but source is tracked? No, source tracks the value).
+If `slot_empty` is True, `is_winner` is True.
+So the `elif` branch is dead code or indicates a state mismatch between `ctx.params` and `ctx._parameter_source`.
+If `ctx.params` has a value but `ctx._parameter_source` is None, `slot_empty` is False, `existing_source` is None.
+`more_explicit` False. `same_source` False. `auto_would_downgrade` False.
+`is_winner` = False.
+We enter `elif existing_source is None`. We set the source.
+But we didn't set the value because `is_winner` was False (because `slot_empty` was False).
+Now we have a Value with no Source, or a Source with no Value update?
+This creates an inconsistent state where `ctx.params` has a value from a previous run (maybe UNSET logic failed), but we forcibly attach a source to it without validating the value ownership.
+
+**Fix:** Remove the `elif` block. If `is_winner` is False, do not modify `ctx.params` or `ctx._parameter_source`. The state should remain whatever the previous winner established. Forcibly writing a source when you didn't win the value arbitration corrupts the link between value and source.
+
+### 2. Race Condition / State Leakage in Context Reuse (High)
+**File:** `src/click/core.py`
+**Hunk:** `Context.__init__` (Line 460) and `Parameter.__init__` (Line 2207)
+**Why it is wrong:**
+The patch introduces instance-level state `_param_default_explicit` on `Context` and `_default_explicit` on `Parameter`.
+`Parameter` instances are often reused across multiple `Context` invocations (e.g., in testing or nested CLI tools). `_default_explicit` is set once at Parameter construction. This is safe.
+However, `Context._param_default_explicit` is a dict mapping parameter names to booleans.
+If a `Context` is reused (not typical in Click, but possible in custom runners) or if subcommands share context logic, this dict accumulates state.
+More critically, if a parameter name appears in multiple groups or contexts, the boolean flag in the context is overwritten by the last winner.
+If the same `Context` object is used for multiple invocations (some frameworks do this for performance), the `_param_default_explicit` map is not cleared between runs.
+The `Context.__init__` initializes it to `{}`, so it's safe per-context.
+**Correction:** The risk is low unless `Context` is pooled.
+**Real Issue:** The `Parameter` class stores `_default_explicit`. If a `Parameter` object is shared between different commands that have different "explicitness" requirements (unlikely, as Parameters are usually bound to one command), this could be an issue.
+But the main defect is **Line 2656**: `ctx._param_default_explicit[self.name] = self._default_explicit`.
+If two parameters with the same name exist in the same command (feature switch), and the first one wins, the map is set. If the second one wins, it's overwritten.
+If a third parameter queries this map, it sees only the state of the *last* winner, not the *global* truth of whether the *current value* came from an explicit default.
+Actually, the value in the map corresponds to the *current value* in `ctx.params`. So it should be consistent.
+
+**Let's stick to the strongest finding:**
+The `elif existing_source is None` block (Line 2658) allows setting a parameter source even when the parameter value was *not* updated (`is_winner` was False). This decouples the source metadata from the actual value origin, leading to incorrect reporting or downstream logic errors where code assumes the source matches the value's true provider.
+
+**Fix:** Delete lines 2658–2661. Source should only be updated when the value is successfully arbitrated and written.

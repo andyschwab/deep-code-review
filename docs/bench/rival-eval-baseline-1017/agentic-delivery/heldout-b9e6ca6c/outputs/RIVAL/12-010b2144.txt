@@ -1,0 +1,42 @@
+# Delivery Plan: Queue Worker Race Condition Fix
+
+**Deadline:** Wednesday Morning
+**Owner:** Development Team
+**Priority:** Critical (Customer Impact)
+
+## Phase 1: Reproduce the Race Condition (Tuesday AM)
+**Goal:** Create a failing test that reliably demonstrates duplicate processing.
+1.  **Analyze `src/queue_worker.py`:** Identify the exact window between "claiming" a job ID and "marking" it as processed. Look for non-atomic read-modify-write operations on the job status.
+2.  **Write Concurrent Test (`tests/test_worker_concurrency.py`):**
+    *   Use Python's `threading` or `multiprocessing` modules to spawn 10–20 worker threads simultaneously.
+    *   Mock the queue to return the *same* job ID to all threads upon request.
+    *   Assert that the job processing logic executes exactly once. Currently, this test should fail, showing multiple executions for the single job ID.
+    *   *Success Criteria:* The test fails consistently (9/10 runs) with "Duplicate Processing Detected."
+
+## Phase 2: Implement Synchronization Fix (Tuesday PM)
+**Goal:** Ensure atomic job claiming without using sleep delays.
+1.  **Select Strategy:** Based on the infrastructure identified in Phase 1:
+    *   *If using Redis:* Implement `SETNX` (Set If Not Exists) or a Lua script for atomic claiming.
+    *   *If using Database:* Use a transactional `UPDATE ... WHERE status = 'pending' RETURNING id` with row-level locking (`SELECT FOR UPDATE SKIP LOCKED`).
+    *   *If in-memory only:* Use a `threading.Lock` or `asyncio.Lock` around the claim section (note: this only works for single-process concurrency; distributed systems require external locks).
+2.  **Refactor `src/queue_worker.py`:** Apply the chosen atomic operation to the job claiming phase. Ensure the lock scope is minimal to prevent throughput degradation.
+
+## Phase 3: Verification & Performance Benchmark (Wednesday AM)
+**Goal:** Confirm fix and validate performance constraints.
+1.  **Run Concurrent Test:** Execute `tests/test_worker_concurrency.py`.
+    *   *Success Criteria:* Test passes 10/10 times with zero duplicate executions.
+2.  **Performance Benchmark:**
+    *   Run the existing single-threaded suite (`pytest tests/test_worker.py`) on the `main` branch and record average execution time ($T_{base}$).
+    *   Run the same suite on the fix branch and record average time ($T_{fix}$).
+    *   Calculate degradation: $((T_{fix} - T_{base}) / T_{base}) \times 100$.
+    *   *Success Criteria:* Degradation is $\le 10\%$. If higher, optimize lock contention.
+3.  **Load Simulation:** Run a local script simulating 200 jobs under high concurrency to verify no backlog forms.
+
+## Phase 4: Deployment Prep (Wednesday Noon)
+1.  Code review focusing on thread safety and lock scope.
+2.  Merge to staging.
+3.  Prepare deployment ticket for Friday afternoon (pre-weekend peak).
+
+---
+*Note: If the current architecture is purely multi-process (not multi-threaded) on a single node, standard Python locks will not work; distributed locking (Redis/DB) is required.*
+*Elena should be notified immediately upon successful Phase 3 verification to prepare for Friday deployment.*

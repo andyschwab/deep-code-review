@@ -1,0 +1,70 @@
+# Implementation Plan: Payment Gateway Retry Logic Replacement
+
+## Objective
+Replace the custom retry loop in `src/gateway_client.py` with a standard library implementation (recommended: `tenacity`) that enforces exponential backoff while strictly adhering to a 4500ms total timeout.
+
+## 1. Dependency Management
+*   **Action:** Add `tenacity>=8.0.0` to `requirements.txt` or `pyproject.toml`.
+*   **Constraint Check:** Verify `notification-service` build compatibility. Since `notification-service` imports `billing-service` but likely does not pin transitive dependencies, ensure the new dependency is added to the shared requirements file or explicitly documented for the notification service CI pipeline to install.
+
+## 2. Code Changes: `src/gateway_client.py`
+
+### Identify Current Logic
+Locate the existing retry loop, likely resembling:
+```python
+# Lines ~20-45 (Estimated)
+def call_gateway(payload):
+    attempts = 0
+    while attempts < MAX_RETRIES:
+        try:
+            return requests.post(URL, json=payload, timeout=...)
+        except Exception:
+            attempts += 1
+            time.sleep(0.1) # Incorrect fixed/linear backoff
+    raise GatewayError
+```
+
+### Replacement Implementation
+Replace the entire `while` loop block with a decorator or wrapper using `tenacity`.
+
+**Specific Lines to Change:**
+*   **Imports:** Add `from tenacity import retry, stop_after_delay, wait_exponential, retry_if_exception_type`.
+*   **Function Definition:** Apply the `@retry` decorator to the primary gateway method (e.g., `send_payment`).
+*   **Configuration:**
+    *   `stop=stop_after_delay(4.5)`: Enforces the strict 4500ms total wall-clock time.
+    *   `wait=wait_exponential(multiplier=100, min=100, max=1000)`: Sets initial backoff to 100ms, doubling thereafter, capped at 1s to prevent single long waits from consuming the budget.
+    *   `retry=retry_if_exception_type((ConnectionError, Timeout))`: Restrict retries to transient network errors only; do not retry logical payment failures (e.g., `InvalidCard`).
+
+**Critical Logic for `src/order_processor.py`:**
+No changes required in `order_processor.py` if the timeout is enforced internally within the client. The `stop_after_delay(4.5)` ensures the client raises an exception before 4500ms elapses, causing the caller to fail immediately as required.
+
+## 3. Test Updates: `tests/test_gateway.py`
+
+Do not weaken assertions. Update the following specific tests to validate the new timing behavior:
+
+*   **`test_retry_exponential_backoff_timing`**
+    *   *Current State:* Likely asserts a fixed number of retries or total time > X.
+    *   *Update:* Mock the HTTP call to fail 3 times then succeed. Assert that the time delta between calls follows the pattern: ~100ms, ~200ms, ~400ms. Use `pytest.approx` with a tight tolerance (e.g., ±20ms) to prove the algorithm is exponential, not linear.
+
+*   **`test_total_timeout_enforcement`**
+    *   *Current State:* May check if a timeout eventually occurs.
+    *   *Update:* Mock the HTTP call to hang indefinitely. Assert that `GatewayError` is raised within 4.6 seconds (allowing 100ms slack for processing). Explicitly assert the elapsed time is `< 4.55` seconds to prove the 4500ms hard stop works.
+
+*   **`test_no_retry_on_business_logic_errors`**
+    *   *Current State:* Might retry on all exceptions.
+    *   *Update:* Mock a `PaymentDeclined` exception. Assert the function is called exactly once and no backoff occurs.
+
+*   **`test_notification_service_compatibility`**
+    *   *New Test:* Import the client in a test simulating the `notification-service` environment to ensure the new dependency resolves correctly without version conflicts.
+
+## 4. Verification
+*   Run `make test-gateway` to confirm all updated assertions pass.
+*   Manually verify the `notification-service` build pipeline succeeds with the new dependency tree.
+
+## 5. Delivery Timeline
+*   **Draft Complete:** Immediately.
+*   **Implementation & Testing:** To be executed upon approval.
+*   **Deadline Met:** Plan delivered well before tomorrow 10 AM.
+
+Note: Ensure the `tenacity` version chosen supports the Python version used in the CI environment.
+If `order_processor.py` implements its own external timeout wrapper, ensure the internal 4500ms limit is slightly lower (e.g., 4400ms) to prevent race conditions.

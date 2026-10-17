@@ -1,0 +1,28 @@
+**Implementation Plan: Payment Gateway Retry Standardization**
+
+**1. Dependency & Build Safety**
+*   **Action:** Add `tenacity` (or `retrying`) to `billing-service/requirements.txt`.
+*   **Build Verification:** Run `make test-gateway` and explicitly verify the `notification-service` build pipeline. Since `notification-service` imports the client but likely does not invoke the retry logic directly, ensure the new dependency is either scoped to `billing-service` only or added to the shared workspace root if monorepo constraints require it. If the notification service build fails due to missing imports, add the dependency to its requirements as well.
+
+**2. Code Changes: `src/gateway_client.py`**
+*   **Identify Target:** Locate the custom retry loop (likely a `while` loop with `time.sleep`) surrounding the upstream HTTP call.
+*   **Replace Logic:**
+    *   Remove the manual loop and sleep calculations.
+    *   Apply a decorator (e.g., `@retry`) or a wrapper function using the standard library.
+    *   **Configuration:** Set `stop=stop_after_delay(4.5)` (4500ms) and `wait=wait_exponential(multiplier=1, min=100, max=1000)` (adjust multiplier/min/max to fit typical backoff curves within the 4.5s cap).
+    *   **Timeout Enforcement:** Ensure the underlying HTTP request has a socket timeout set (e.g., `timeout=1.0`) so that a single hanging request doesn't consume the entire 4500ms budget alone, allowing retries to occur.
+*   **Error Propagation:** Configure the retry strategy to `retry_if_exception_type(ConnectionError/Timeout)` only. Ensure that upon exhausting the 4500ms window, the final exception is raised immediately to `src/order_processor.py` without additional delay.
+
+**3. Test Updates: `tests/test_gateway.py`**
+*   **Identify Targets:** Locate tests mocking the upstream provider, specifically those asserting on retry counts or total execution time.
+*   **Update Assertions:**
+    *   **Backoff Verification:** Replace assertions checking fixed sleep intervals with checks verifying the *cumulative* time between calls increases exponentially (e.g., assert `call_times[1] - call_times[0] < call_times[2] - call_times[1]`).
+    *   **Total Timeout Proof:** Add a specific test case where the upstream provider hangs indefinitely. Assert that the total execution time of the client call is between 4400ms and 4600ms (allowing small overhead) and that `order_processor` receives a timeout exception immediately after this window.
+    *   **Failure Mode:** Ensure tests verify that if the 4500ms limit is hit, no further retries are attempted, even if the exception type is retryable.
+*   **Strictness:** Do not widen assertion tolerances to make tests pass; if timing varies, assert on the *sequence* of delays rather than exact millisecond matches, but keep the total cap assertion strict.
+
+**4. Validation**
+*   Execute `make test-gateway` to confirm all updated tests pass and the new dependency resolves correctly.
+*   Verify `src/order_processor.py` handles the raised exception as a hard fail (no silent catches extending the wait).
+
+**Note:** This plan assumes `tenacity` is acceptable for your security posture; if a standard library-only approach is mandated, use `urllib3.util.retry` instead. Ensure the 4500ms clock includes both wait time and request execution time.
