@@ -3,6 +3,40 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.590.0] — 2026-10-17
+
+### Added
+- `docs/bench/comms-round2-1017/`: a pre-registered, free-model (PCSS, no paid call) second attempt to make `communication-structure` beat humanizer after round 1 (`docs/bench/loss-fix-1017`, 0.175). Root cause from the judge reasons: the rival returns a send-ready email with a stated recommendation, ours returned a headed memo that listed options and asked the reader to choose; answer length was the same. One candidate edit (email form for messages to a named person, plus a flagged lean derived from the source's facts before the ask) was tuned on 20 scenarios (0.15 unedited to 0.30), then run once on 40 fresh held-out scenarios: 0.438, 95% CI 0.312 to 0.562, against a preregistered keep bar of a lower bound above 0.5 (unedited skill on the same set: 0.312, 0.200 to 0.425). The bar was not met, so the SKILL.md edit was reverted and only the bench ships. Post hoc and descriptive: on the 16 status-note scenarios the edit moved the win rate from 0.094 to 0.406; on the 12 PR and 12 executive-summary scenarios it did not move (0.458 both).
+
+### Added
+- `docs/bench/comms-round3-1017/`: a pre-registered, free-model (PCSS, no paid call) third attempt to make `communication-structure` beat humanizer, bench only. Candidate edits were derived from the judge reasons of 196 round-2 verdicts where the rival won (trailing meta notes and skill vocabulary in the answer, a `pr` template that forces invented Why and Risk lines, executive summaries cut to three findings), tuned on 10 fresh scenarios, then the tune-selected candidate (a no-trailing-note rule plus a `pr` template without forced Why and Risk lines) ran once on 40 fresh held-out scenarios with three judges (DeepSeek-V4-Flash, GLM-5.2, gpt-oss_120b), both orders, strict agreement per judge, majority across judges: 0.325, 95% CI 0.225 to 0.438, against a preregistered keep bar of a lower bound above 0.5 (unedited skill on the same set: 0.212, 0.125 to 0.300). The bar was not met, so no SKILL.md, template or eval edit ships. Post hoc and descriptive: status notes 0.312 vs 0.062 for the unedited skill, PR bodies 0.333 vs 0.458, executive summaries 0.333 vs 0.167.
+
+Positioning: commit to one call instead of a menu; business-ops edit tested and reverted
+
+Positioning loses to the hedge it was told to write: judges preferred the rival for being decisive and ready to use, and called Perun "a cautious hypothesis with validation caveats". Positioning `SKILL.md` gains one new section, "Deliver the call, not a menu" (commit to one segment and lead message with a one-line reason, give a ready-to-use statement and headline, answer each named alternative, say "hypothesis" once, route trademark, legal or market-size questions only when asked or claimed), one Verification bullet naming it, and one eval, `commits-to-one-call-and-answers-each-alternative` (the bench arm that was run had the section but not the Verification bullet). No other skill text changes; no version bump, SHA256SUMS, INDEX.md or size-budgets.tsv change in this commit.
+
+Preregistered bench (docs/bench/posbiz-r3-1017, free PCSS models, $0): 40 fresh fictional held-out scenarios per skill, three judges (none the generator), both orders each with strict agreement, majority decides, bootstrap 95% interval. Positioning: unedited 0.675 [0.562, 0.775], edited 0.787 [0.688, 0.887] (paired gain +0.1125, interval 0.013 to 0.213); kept under the rule (lower bound above 0.5 and at least the unedited score). Business-ops: unedited 0.287 [0.163, 0.412], best candidate 0.338 [0.225, 0.463]; reverted, business-ops `SKILL.md` is unchanged and the candidate is kept only as docs/bench/posbiz-r3-1017/edits-reverted-business-ops.patch. Unedited business-ops loses clearly to marketingskills pricing. The earlier near-0.5 readings were n=10 to n=20.
+
+- size-budget-raise: .claude/skills/positioning/SKILL.md 8579→9468 one new "Deliver the call, not a menu" section
+
+## [1.589.0] — 2026-10-17
+
+### Added
+- Bench: fresh 30-scenario held-out sets for contribution and product-output-safety against their rivals (docs/bench/contrib-safety-1017, free PCSS models, $0). Unedited product-output-safety beats promptfoo redteam-setup, 0.867 [0.750, 0.950]; the 0.400 reading on 10 scenarios was small-n and judge-dependent. contribution still loses to github-contributor (best 0.333 [0.200, 0.483], no judge passes the position-bias gate). A candidate edit to each skill was tested under a preregistered keep rule and reverted (no measured gain over the unedited skill); only the bench ships.
+
+agentic-ceo: open a call with a visible recompute of the stated figures; bench idea-critic (reverted)
+
+The conductor's "routes and decides" sentence now asks for a `Figures:` line right after the call, rebuilding each stated total, rate and date from its parts, so a planted slip leads the answer as the corrected number. The same sentence also carries the round-2 decision-memo contract (decide every listed choice, name sign-off owners, separate halt and fallback triggers, re-base an unrealistic assumption), which was benched in round 2 but never shipped, so this change ships both; the measured lift is for the two together, and the memo contract alone was not re-run on this held-out set.
+
+Round 3 bench (docs/bench/exec-round3-1017, preregistered before any held-out arm generation, PCSS models only): 40 fresh fictional scenarios per skill, three judges in both orders with strict agreement and a majority of three, generator never a judge. Held-out Perun win rate against the rival, bootstrap 95% interval: agentic-ceo 0.625 [0.537, 0.713] against 0.487 [0.388, 0.575] for the unedited text (kept; a re-judge of the same generations gave 0.637 [0.550, 0.725] against 0.487 [0.388, 0.588]); idea-critic 0.487 [0.375, 0.600] against 0.450 [0.338, 0.575] (lower bound not above 0.5, reverted, its text is unchanged). Slot-1 rates per judge are 0.562 to 0.863 over both-order calls, which is why only agreement counts. Caveats: judges and generator share one hosting cluster, ties count 0.5 (12 wins, 26 ties, 2 losses), the rival generations were made twice by a race in the driver so the two arms of a skill may face different rival samples, and the rival is a generated answer, not a human, and this is the third agentic-ceo candidate tried on a held-out set (round 2 r2b, now r3a), with no correction for multiple attempts.
+
+size-budget-raise: .claude/skills/agentic-ceo/SKILL.md 14718→15588 adds the round-2 decision-memo contract plus the Figures line, kept together by the held-out bench (0.487 to 0.625)
+
+Tests: see commit message.
+
+### Added
+- Bench: idea-critic against its rival, round 4 (docs/bench/idea-critic-r4-1017, free PCSS models, $0). Held-out n=40 fresh fictional scenarios, three judges in both orders with strict agreement and majority, each rival answer generated once and hash-frozen (fixes the round-3 driver race). The unedited skill scores 0.450 [0.338, 0.562] against the rival; the tested edit (a capped first tranche with an in-cap tripwire, chosen on a 10-scenario tune split) scored 0.412 [0.300, 0.525] and was reverted under the preregistered keep rule, so idea-critic does not yet beat its rival on this bar. Only the bench ships; no SKILL.md, eval or size-budget change.
+
 ## [1.588.0] — 2026-10-17
 
 ### Added
