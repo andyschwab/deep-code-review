@@ -5,8 +5,8 @@ Long sessions re-read their whole context from cache on every turn, so cost grow
 hook JSON on stdin, takes the last assistant message's usage (input + cache_read + cache_creation tokens) from
 `transcript_path` (Claude Code transcript format) as the current context size, and when it is at least
 `PERUN_CONTEXT_NUDGE_TOKENS` (default 250000) prints (UserPromptSubmit stdout enters context) a line telling the agent
-to write `.claude/handoff.md` (handoff_inject.py re-injects it after auto-compact on Claude Code) and not to ask the
-owner to restart. A known host adds a second line with its own commands for compaction, a new chat, usage/cost, resume
+to update `.claude/handoff.md` with `focus_kit.py handoff set` (handoff_inject.py re-injects it after auto-compact on
+Claude Code) and not to ask the owner to restart. A known host adds a second line with its own commands for compaction, a new chat, usage/cost, resume
 and model/effort switching. It repeats only after another 50000 tokens of growth, tracked in a stamp under
 `$XDG_CACHE_HOME/perun/context-nudge/` (default `~/.cache`).
 
@@ -158,8 +158,9 @@ def check(payload):
             note += f" A model switch now re-reads the {size // 1000}k-token context uncached."
     lines = []
     if hot:
-        lines.append(f"Context is {size // 1000}k tokens and every turn re-reads it: write .claude/handoff.md (state, open work, "
-                     "next step) now. " + ("Auto-compact then re-injects it; do not" if key == "claude-code" else "Do not")
+        lines.append(f"Context is {size // 1000}k tokens and every turn re-reads it: update .claude/handoff.md now with "
+                     f"`python3 {Path(__file__).resolve().with_name('focus_kit.py')} handoff set <section> <text>` (goal, stage, "
+                     "next, in flight, blockers, decisions). " + ("Auto-compact then re-injects it; do not" if key == "claude-code" else "Do not")
                      + " tell the owner to restart the session.")
     if host and hot:
         tail = f"{host[0]} commands: {host[2]}; model and effort: {host[3]}."
@@ -210,7 +211,9 @@ def _selftest():
         write(100_000)
         res.append(("silent-below-threshold", check(pl) is None))
         write(260_000, "garbage\n" + json.dumps({"type": "user"}) + "\n")
-        res.append(("fires-over-threshold-skipping-junk-tail", "260k" in (check(pl) or "")))
+        line = check(pl) or ""
+        res.append(("fires-over-threshold-skipping-junk-tail", "260k" in line))
+        res.append(("nudge-names-the-handoff-updater", "focus_kit.py handoff set" in line))
         write(290_000)
         res.append(("silent-within-50k-growth", check(pl) is None))
         write(310_000)

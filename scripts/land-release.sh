@@ -2,7 +2,7 @@
 # land-release.sh [--regen] — stamp a release at merge time so parallel lanes never collide on a version.
 #
 # Lanes do NOT bump. A lane adds changelog.d/<slug>.md (the body that goes under the release heading,
-# e.g. "### Added" + bullets) and commits no generated artifact (INDEX.md files, SHA256SUMS, size-budgets.tsv
+# e.g. "### Added" + bullets) and commits no generated artifact (INDEX.md files incl. docs/INDEX.md, SHA256SUMS, size-budgets.tsv
 # rows): committing them makes any two lanes conflict. CI rebuilds them for an unlanded tree with
 # `scripts/regen-unlanded.sh` (which calls `--regen`); the land commit below carries them, checked byte-for-byte.
 #
@@ -81,7 +81,7 @@ LOCK="$(git rev-parse --git-common-dir)/land-release.lock"
 mkdir "$LOCK" 2>/dev/null || { echo "land-release: lock held ($LOCK); another land is running" >&2; exit 1; }
 trap 'rmdir "$LOCK"' EXIT
 
-GENERATED='SHA256SUMS|scripts/size-budgets.tsv|\.claude/skills/(.*/)?INDEX\.md'
+GENERATED='SHA256SUMS|scripts/size-budgets.tsv|docs/INDEX\.md|\.claude/skills/(.*/)?INDEX\.md'
 SKILLS="deep-code-review agentic-delivery idea-critic"
 
 regen() {
@@ -96,6 +96,7 @@ regen() {
     $1 !~ /^\.claude\/skills\//{print}' sizes.new scripts/size-budgets.tsv >scripts/size-budgets.new
   awk -F'\t' 'NR==FNR{have[$1]=1; next} !($1 in have)' scripts/size-budgets.new sizes.new >>scripts/size-budgets.new
   mv scripts/size-budgets.new scripts/size-budgets.tsv; rm sizes.new
+  if [ -f docs/INDEX.md ]; then python3 .claude/skills/agentic-delivery/scripts/focus_kit.py docs-index --exclude bench >/dev/null; fi   # the docs map; scripts/ci-tests.d/focus-kit.sh checks it with the same flags
   bash scripts/write-checksums.sh >/dev/null   # pin LAST, after every skill-tree edit
 }
 
@@ -133,6 +134,6 @@ awk 'NR==FNR{r=r $0 "\n"; next} !d && /^## /{printf "%s", r; d=1} {print}' relea
 mv CHANGELOG.new CHANGELOG.md; rm release.new
 git rm -q "${frags[@]}"
 regen
-git add -A CHANGELOG.md .claude-plugin .codex-plugin gemini-extension.json .claude/skills SHA256SUMS scripts/size-budgets.tsv
+git add -A CHANGELOG.md .claude-plugin .codex-plugin gemini-extension.json .claude/skills SHA256SUMS scripts/size-budgets.tsv docs/INDEX.md
 git commit -q -m "release: $ver (stamped at land time)"
 echo "land-release: $ver"
