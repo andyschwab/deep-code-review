@@ -1,0 +1,54 @@
+**Delivery Plan: Integration Test Optimization & Risk Mitigation**
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Reduce CI duration from 45m while preserving end-to-end (E2E) data integrity coverage currently provided by `tests/test_full_stack.py`.
+*   **Constraint:** Do not remove the test until a parallel verification period (1 week) proves equivalent bug detection.
+*   **Acceptance Criteria:**
+    1.  Analysis of `test_full_stack.py` vs. unit test coverage gaps.
+    2.  Refactored test strategy (mocked services or optimized setup) reducing runtime by ≥50% without losing the "data corruption" detection path.
+    3.  One-week parallel run showing 100% correlation in pass/fail status between old and new tests.
+    4.  Director Alex's approval based on comparative bug detection metrics.
+
+**G2 Plan: Work Graph**
+1.  **Lane A (Analysis):** Instrument `test_full_stack.py` to log exactly which code paths and data states it touches that unit tests miss. Specifically isolate the logic path responsible for the previous month's data corruption bug.
+2.  **Lane B (Refactor):** Create `tests/test_full_stack_optimized.py`. Replace real external service spin-up with containerized mocks or state snapshots, retaining the real database interaction if necessary for the corruption check. Target runtime: <10 mins.
+3.  **Lane C (Verification Harness):** Modify CI (`make ci-run`) to execute *both* the original and optimized tests in parallel for a 7-day window. Fail the pipeline only if results diverge or the optimized test misses a failure the original catches.
+4.  **Lane D (Metrics):** Generate a report comparing bug detection rates (false negatives) between the two versions over the week.
+
+**G3 Design**
+*   **ADR:** "Preserve E2E Data State Verification." We will not mock the database layer if the corruption bug stems from ORM/DB interaction, but we will mock upstream/downstream external APIs to cut network latency.
+*   **Safety Gate:** The original test remains blocking until G9 (Production Verify) confirms zero divergence.
+
+**G4 Implementation Steps**
+*   **Builder:** Implement the "Corruption Scenario" as a distinct, fast-running fixture used by both tests to ensure identical stress conditions.
+*   **QA:** Verify the optimized test fails when the specific data corruption pattern is injected manually.
+
+**G5 Verification (The Parallel Run)**
+*   **Action:** Deploy the dual-test CI configuration.
+*   **Monitor:** Daily check of Lane C logs. Any discrepancy (Old=Pass, New=Fail or vice versa) immediately halts the optimization effort for root cause analysis.
+*   **Metric:** Track "Time Saved" vs. "Coverage Delta."
+
+**G6 Review & G7 Integration**
+*   **Review:** Independent review of the coverage analysis (Lane A) to confirm unit tests truly miss the E2E state transitions.
+*   **Integration:** Merge the parallel harness first. Merge the optimized test only after the 7-day successful window.
+
+**G8 Release (Human Gate)**
+*   **Approval Required:** Present Alex with the "Bug Detection Comparison Report."
+    *   *Metric:* Number of unique failures caught by Old vs. New.
+    *   *Decision:* If New catches 100% of Old's failures (including the corruption pattern), approve removal of the legacy test.
+
+**G9 Production Verify**
+*   Monitor CI times post-removal. Ensure no latency creep in other areas.
+
+**G10 Learn**
+*   Document the specific "data corruption" pattern in the regression suite to prevent future unit-test-only blind spots.
+
+**Schedule:**
+*   **Mon-Tue:** Lanes A & B (Analysis/Refactor).
+*   **Wed:** Lane C (Harness) + Start Parallel Run.
+*   **Next Wed:** End Parallel Run, Generate Metrics (Lane D).
+*   **Thu:** Review with Alex.
+*   **Fri:** Final Merge/Removal (if approved).
+
+**Note:** Do not delete `test_full_stack.py` until the 7-day parallel run completes successfully.
+**Note:** If the optimized test cannot replicate the corruption bug detection, revert to mocking only non-critical external services.

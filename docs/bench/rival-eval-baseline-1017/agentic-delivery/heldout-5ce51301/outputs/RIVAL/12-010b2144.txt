@@ -1,0 +1,36 @@
+# Delivery Plan: Queue Worker Race Condition Fix
+
+**Objective:** Eliminate duplicate job processing in `src/queue_worker.py` under heavy load, verify with concurrent tests, and ensure performance degradation remains under 10%.
+
+## Phase 1: Diagnosis and Test Reproduction (Wednesday)
+1.  **Code Audit:** Analyze `src/queue_worker.py` to identify the critical section where job claiming occurs. Look for non-atomic "check-then-act" patterns (e.g., checking job status then updating it) without distributed locking or database-level constraints.
+2.  **Develop Concurrent Test:** Create `tests/test_worker_concurrency.py`.
+    *   Use `pytest` with `pytest-asyncio` or `multiprocessing` to spawn multiple worker threads/processes.
+    *   Mock the queue to inject a specific delay between "claim" and "process" to widen the race window.
+    *   Assert that a single job ID is processed exactly once across all workers.
+    *   Verify the test fails consistently on the current codebase (reproducing the bug).
+
+## Phase 2: Implementation of Synchronization Fix (Thursday)
+1.  **Select Strategy:** Implement a robust synchronization mechanism based on the infrastructure:
+    *   *Database-backed:* Use an atomic `UPDATE ... WHERE status = 'pending' RETURNING id` query or a unique constraint on `processing_worker_id` to ensure only one worker successfully claims a job.
+    *   *Distributed Lock:* If using Redis, implement a Redlock pattern or `SETNX` with an expiration TTL to claim jobs atomically.
+    *   *Queue-Level:* If the queue provider supports it (e.g., AWS SQS visibility timeout, RabbitMQ prefetch), configure it to handle delivery guarantees natively.
+2.  **Refactor Worker:** Modify `src/queue_worker.py` to use the chosen atomic claiming mechanism. Ensure proper error handling releases locks or resets job status if a worker crashes mid-process.
+3.  **Performance Baseline:** Measure average job completion time on the current code with a load test of 200+ jobs.
+
+## Phase 3: Verification and Performance Guardrails (Friday Morning)
+1.  **Verify Fix:** Run `tests/test_worker_concurrency.py`. It must pass consistently (10/10 runs) with zero duplicate processing events.
+2.  **Regression Testing:** Ensure existing single-threaded tests in `tests/test_worker.py` still pass.
+3.  **Performance Validation:** Run the load test again with the fix applied.
+    *   Calculate the percentage change in average completion time.
+    *   **Gate:** If degradation > 10%, optimize the locking strategy (e.g., reduce lock granularity or timeout values) and re-test.
+4.  **Final Review:** Code review focusing on edge cases (worker crash, network partition) and lock expiration safety.
+
+## Phase 4: Deployment Preparation (Friday Afternoon)
+1.  **Staging Deployment:** Deploy to a staging environment mirroring production load.
+2.  **Monitoring Setup:** Add metrics for "jobs claimed," "jobs processed," and "lock contention" to detect issues early.
+3.  **Rollout Plan:** Prepare a canary deployment strategy for Saturday morning, monitoring specifically for backlog clearance rates.
+
+**Deliverable:** A merged PR containing the fixed `src/queue_worker.py`, the new `tests/test_worker_concurrency.py`, and a performance report confirming <10% overhead.
+
+*Note: This plan assumes access to the underlying queue/database infrastructure to implement atomic operations. If infrastructure changes are required, coordinate with DevOps immediately on Wednesday.*

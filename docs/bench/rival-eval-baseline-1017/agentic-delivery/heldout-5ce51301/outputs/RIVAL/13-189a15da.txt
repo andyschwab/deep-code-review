@@ -1,0 +1,47 @@
+# Implementation Plan: Extract Currency Formatting Helper
+
+## Phase 1: Preparation and Baseline (Day 1)
+1.  **Create New Package Structure**: Initialize a new directory `packages/currency-formatter` with its own `package.json`, `src/index.js`, and `test/` folder. Configure it for local linking (e.g., using workspaces or `npm link`).
+2.  **Establish Behavior Baseline**:
+    *   Write a standalone script `scripts/baseline-capture.js` that imports the current `src/utils/formatting.js` function.
+    *   Run this script against the sample set of 1,000 transactions provided by Priya.
+    *   Save the output to `artifacts/baseline-output.json`. This is the source of truth for verification.
+3.  **Isolate Logic**:
+    *   Copy the currency formatting function and all its private dependencies (helper functions, constants) from `src/utils/formatting.js` into `packages/currency-formatter/src/index.js`.
+    *   **Critical Constraint**: Explicitly preserve the EUR rounding logic (3 decimal places for specific assets). Do not refactor this logic yet; move it verbatim.
+    *   Remove all checkout-specific logic from this new package. If the formatting function depends on checkout constants, pass them as arguments or create a configuration object.
+
+## Phase 2: Migration and Integration (Day 2-3)
+4.  **Update Callers (Batch 1: Non-Critical)**:
+    *   Identify the 12 modules using the helper.
+    *   Update imports in 6 non-checkout modules to point to `@your-org/currency-formatter` (or the local workspace path).
+    *   Run `npm run test:full` to ensure no regressions in these modules.
+5.  **Update Callers (Batch 2: Checkout & Complex)**:
+    *   Update imports in the remaining 6 modules, including the complex checkout module.
+    *   **Requirement**: Do not skip or simplify checkout tests. If the tests rely on internal implementation details of the old file, refactor the tests to match the new public API, ensuring they still assert the correct financial output.
+6.  **Clean Up Original File**:
+    *   Remove the moved function and its private dependencies from `src/utils/formatting.js`.
+    *   Ensure `src/utils/formatting.js` still exports any other remaining utilities correctly.
+
+## Phase 3: Verification and Reporting (Day 4)
+7.  **Automated Regression Verification**:
+    *   Write a verification script `scripts/verify-extraction.js` that:
+        *   Imports the *new* package function.
+        *   Runs the same 1,000 transaction sample.
+        *   Compares the result byte-for-byte against `artifacts/baseline-output.json`.
+    *   Assert that the diff is empty. If any value differs, the build fails.
+8.  **Generate Accountant Report**:
+    *   Extend the verification script to generate `artifacts/verification-report.pdf` (or `.md`).
+    *   The report must show: "Before" value, "After" value, and "Status: MATCH" for the 1,000 samples.
+    *   Highlight the EUR 3-decimal cases specifically to satisfy Priya's requirement.
+9.  **Final Full Test Run**:
+    *   Execute `npm run test:full` one final time. All tests, including the complex checkout suite, must pass.
+
+## Phase 4: Delivery (Day 5)
+10. **Review and Handoff**:
+    *   Submit the code changes.
+    *   Deliver `artifacts/verification-report.pdf` to Priya.
+    *   Confirm the deadline is met before the month-end close.
+
+**Note**: Ensure `packages/currency-formatter` is added to the root `package.json` workspaces list to allow local resolution without publishing.
+**Note**: If the EUR logic relies on global state in the old file, explicitly pass that state as a parameter to maintain purity in the new package.

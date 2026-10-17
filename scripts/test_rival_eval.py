@@ -2,6 +2,7 @@
 """Tests for scripts/rival_eval.py: scorer, CI math, split hygiene, --changed, quota/cap gates. Offline; no model is called."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,17 @@ import rival_eval as r  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 SKILLS = sorted(p.name for p in (REPO / ".claude/skills").iterdir() if (p / "SKILL.md").is_file())
+
+
+def is_judge(system):
+    """True for a judge call (the system text is the JUDGE_SYSTEM template, filled in or not)."""
+    return system.startswith(r.JUDGE_SYSTEM[:40])
+
+
+def judge_reply(user, v):
+    """Fake judge output: v in "1", "2", "tie" (slot picked) translated to this call's neutral labels."""
+    x, y = re.findall(r"=== Response (\w+) ===", user)
+    return json.dumps({"analysis": "x", "verdict": {"1": x, "2": y, "tie": "tie"}[v]})
 
 
 def fake_fixture(root, held, tune, sha_ok=True, name="alpha"):
@@ -105,8 +117,8 @@ class EndToEnd(unittest.TestCase):
     def fake_chat(self, judge_rule, calls):
         def chat(model, system, user, **kw):
             calls.append(model)
-            if system == r.JUDGE_SYSTEM:
-                return json.dumps({"verdict": judge_rule(model, user), "reason": "x"})
+            if is_judge(system):
+                return judge_reply(user, judge_rule(model, user))
             return ("PERUN-ANSWER" if "PERUN skill text" in system else "RIVAL-ANSWER") + " for " + user[-20:]
         return chat
 
@@ -194,6 +206,53 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(res["n"], 0)
         self.assertNotIn("win_rate", res)
         self.assertTrue(res["errors"])
+
+
+class JudgeProtocol(unittest.TestCase):
+    """Neutral labels and reason-first reply: the judge never sees "Response 1" and cannot answer with a slot number."""
+
+    SC = {"id": "01", "prompt": "Decide X"}
+
+    def test_labels_are_neutral_distinct_and_deterministic(self):
+        x, y = r.labels(self.SC, "answer a", "answer b")
+        self.assertEqual((x, y), r.labels(self.SC, "answer a", "answer b"))  # cached verdicts stay valid
+        self.assertNotEqual(x, y)
+        for t in (x, y):
+            self.assertRegex(t, r"^[B-Z]{3}$")
+            self.assertNotIn(t, ("1", "2", "tie"))
+        self.assertNotEqual((x, y), r.labels(self.SC, "answer b", "answer a"))  # the swapped order draws fresh labels
+
+    def test_parse_verdict_maps_labels_back_to_slots(self):
+        j = lambda v: json.dumps({"analysis": 'says "verdict": "KKK"', "verdict": v})  # noqa: E731
+        self.assertEqual(r.parse_verdict(j("BCD"), "BCD", "FGH"), "1")
+        self.assertEqual(r.parse_verdict(j("FGH"), "BCD", "FGH"), "2")
+        self.assertEqual(r.parse_verdict(j("tie"), "BCD", "FGH"), "tie")
+        self.assertEqual(r.parse_verdict(j("Response FGH"), "BCD", "FGH"), "2")
+        self.assertEqual(r.parse_verdict('{"analysis": "a", "verdict": "BCD"} {"verdict": "FGH"}', "BCD", "FGH"), "2")  # last verdict wins
+
+    def test_a_literal_slot_number_is_no_verdict(self):
+        for bad in ('{"verdict": "1"}', '{"verdict": "2"}', '{"verdict": ""}', '{"verdict": "ZZZ"}', "Response 1 is better", ""):
+            self.assertIsNone(r.parse_verdict(bad, "BCD", "FGH"), bad)
+
+    def test_prompt_is_reason_first_and_has_no_ordinal(self):
+        sysm = r.JUDGE_SYSTEM.format(a="BCD", b="FGH")
+        self.assertLess(sysm.index('"analysis"'), sysm.index('"verdict"'))  # reason before verdict
+        self.assertNotRegex(sysm, r"Response [12]\b")
+        self.assertIn("Response BCD", sysm)
+
+    def test_judge_one_sends_tokens_and_a_slot_biased_judge_gets_no_verdict(self):
+        outs = {"PERUN": {"01": "p text"}, "RIVAL": {"01": "r text"}}
+        seen = []
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(r, "chat", lambda m, s, u, **k: seen.append((s, u)) or '{"analysis": "a", "verdict": "1"}'):
+            self.assertIsNone(r.judge_one("m", self.SC, "PERUN", "RIVAL", Path(td), outs))  # always "1": rejected, not counted as slot 1
+        self.assertNotIn("Response 1", seen[0][1])
+        self.assertNotIn("Response 2", seen[0][1])
+        x, y = r.labels(self.SC, "p text", "r text")
+        self.assertLess(seen[0][1].index(f"=== Response {x} ==="), seen[0][1].index(f"=== Response {y} ==="))
+
+    def test_judges_are_three_distinct_models_none_the_generator(self):
+        self.assertEqual(len(set(r.JUDGES)), 3)
+        self.assertNotIn(r.GEN_MODEL, r.JUDGES)
 
 
 class SplitHygiene(unittest.TestCase):
@@ -342,9 +401,9 @@ class ReviewFixes(unittest.TestCase):
 
     def fake_chat(self, rule, log):
         def chat(model, system, user, **kw):
-            log.append(("judge" if system == r.JUDGE_SYSTEM else "gen", model, user))
-            if system == r.JUDGE_SYSTEM:
-                return json.dumps({"verdict": rule(model, user), "reason": "x"})
+            log.append(("judge" if is_judge(system) else "gen", model, user))
+            if is_judge(system):
+                return judge_reply(user, rule(model, user))
             return ("PERUN-ANSWER" if "PERUN skill text" in system else "RIVAL-ANSWER") + " for " + user[-20:]
         return chat
 

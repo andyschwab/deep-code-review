@@ -1,0 +1,96 @@
+# Implementation Plan: ISO 8601 Date Format Migration with Risk Mitigation
+
+## Phase 1: Infrastructure for Safe Migration (Days 1-3)
+
+**Task 1.1: Add Configurable Date Format Strategy**
+- Create `DateFormatStrategy` interface with implementations: `USDateFormat` (MM/DD/YYYY) and `ISO8601Format` (YYYY-MM-DD)
+- Modify `ExportGenerator` to accept a `DateFormatStrategy` via constructor or configuration
+- Default behavior remains `USDateFormat` to preserve existing customer integrations
+- Add configuration key `export.date.format` with values `us` or `iso8601`
+
+**Task 1.2: Customer-Level Format Override System**
+- Add `date_format` column to customer configuration table/database
+- Create service method `getDateFormatForCustomer(customerId)` that returns the appropriate strategy
+- Implement fallback to default format when customer setting is absent
+- Add admin API endpoint to update customer date format preferences
+
+**Task 1.3: Dual-Format Logging & Detection**
+- Add structured logging for each export: customer ID, format used, file size, record count
+- Create `ExportAudit` table to track: timestamp, customer_id, format_used, file_path, status
+- Implement anomaly detection: flag exports where file size deviates >10% from customer's 30-day average (potential parser failure indicator)
+
+## Phase 2: Monitoring & Verification Infrastructure (Days 4-7)
+
+**Task 2.1: Parser Failure Detection Dashboard**
+- Create metrics endpoint exposing: exports-by-format, error-rate-by-customer, size-anomaly-count
+- Add alerting rule: trigger when customer has 3+ consecutive exports with size anomalies
+- Build simple admin UI showing customers by format, recent export status, and anomaly flags
+
+**Task 2.2: Sample Parser Verification Suite**
+- Create `src/test/resources/sample-parsers/` with 50 customer parser implementations (or mock simulations based on Linda's specifications)
+- Build `ParserVerificationTest` that:
+  - Generates sample exports in both formats
+  - Runs each sample parser against both formats
+  - Records pass/fail status per parser per format
+  - Outputs verification report to `target/verification-report.json`
+- Add Maven profile `-Pverify-parsers` to run this suite independently
+
+**Task 2.3: Canary Export System**
+- Implement "canary mode": generate parallel exports (both formats) for selected customers without sending the new format
+- Add configuration `export.canary.customers` (comma-separated customer IDs)
+- Canary exports are logged but only the default format is delivered
+- Verification job compares canary output against sample parsers automatically
+
+## Phase 3: Gradual Migration Execution (Days 8-12)
+
+**Task 3.1: Internal Testing & Sample Parser Validation**
+- Run full verification suite against all 50 sample parsers in ISO8601 mode
+- Document which parsers pass/fail; work with Linda to contact customers whose parsers fail
+- Fix any issues in `ISO8601Format` implementation based on test results
+
+**Task 3.2: Pilot Migration (5-10 Customers)**
+- Select 5-10 low-risk customers (confirmed by Linda as having modern parsers)
+- Update their `date_format` setting to `iso8601`
+- Enable canary mode for these customers for 48 hours before actual switch
+- Monitor logs and anomaly detection closely; prepare rollback script
+
+**Task 3.3: Staged Rollout**
+- Migrate customers in batches of 20-30 per day based on:
+  - Parser verification results (passing sample parsers first)
+  - Customer communication confirmation
+  - Low historical anomaly rates
+- Maintain rollback capability: single SQL update or config change reverts customer to `us` format
+- Daily review of anomaly alerts; pause rollout if >2 customers show parsing issues
+
+## Phase 4: Completion & Cleanup (Days 13-14)
+
+**Task 4.1: Major Client Migration**
+- Switch the major client (requiring ISO8601) to `iso8601` format
+- Enable enhanced monitoring for this customer specifically
+- Validate first 3 exports manually against their test system
+
+**Task 4.2: Final Verification & Documentation**
+- Run complete verification suite; archive report
+- Document migration status: customers migrated, customers pending, customers with known issues
+- Create runbook for customer success team: how to migrate customers, how to rollback, how to interpret alerts
+
+**Task 4.3: Rollback Procedures**
+- Documented rollback: `UPDATE customers SET date_format = 'us' WHERE customer_id = ?`
+- Emergency rollback script: reverts all customers to `us` format in one operation
+- Post-mortem template if issues arise
+
+## Risk Mitigation Summary
+
+- **Backward Compatibility**: Default unchanged; opt-in migration per customer
+- **Early Detection**: Size anomalies, structured logging, canary testing
+- **Verification**: 50-parser suite validates before any customer migration
+- **Rollback**: Instant per-customer or global rollback via configuration
+- **Gradual Rollout**: Controlled batches with monitoring between each
+- **Deadline Alignment**: Pilot by Day 10, major client by Day 13, buffer day for issues
+
+## Commands
+
+- Run verification: `mvn test -Pverify-parsers`
+- Check anomalies: Query `ExportAudit` for size deviations
+- Migrate customer: Update `date_format` column
+- Rollback customer: Set `date_format = 'us'`

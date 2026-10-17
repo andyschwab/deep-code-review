@@ -1,0 +1,55 @@
+# WanderLust Event Taxonomy Migration Strategy
+
+## Phase 1: Governance & Standardization (Weeks 1-2)
+Before migrating data, establish the single source of truth to prevent regression.
+
+**1. Adopt Object-Action Naming Convention**
+Mandate `object_action` format (lowercase, underscores). Map your duplicates immediately:
+*   **Standard:** `booking_clicked`
+*   **Deprecated:** `click_book`, `book_click`, `booking_clicked`
+*   **Rule:** Event names describe *what happened*, not *where*. Context (page location, button color) moves to event properties (e.g., `location: "search_results"`).
+
+**2. Create the Master Taxonomy Registry**
+Publish a living document (spreadsheet or data catalog) listing every valid event, its required properties, and its owner. No event enters production without being registered here first.
+
+## Phase 2: The Dual-Write Transition (Weeks 3-8)
+Do not delete old events yet. Run a parallel tracking strategy to ensure continuity.
+
+**1. Implement Dual-Logging**
+Update your tracking library (GTM, Segment, or custom SDK) to fire **both** the legacy event and the new standardized event for every action.
+*   *Action:* User clicks "Book Now"
+*   *Fire:* `click_book` (Legacy) AND `booking_clicked` (New)
+*   *Volume Impact:* Negligible increase on your 2M/day volume; ensures zero data gaps.
+
+**2. Update Dashboards Incrementally**
+Instruct BI analysts to update reports one by one to point to the new `booking_clicked` event.
+*   **Validation Window:** Run the old and new queries side-by-side for 14 days.
+*   **Acceptance Criteria:** Variance must be <1%. If variance exceeds this, investigate property mapping errors immediately.
+
+## Phase 3: Historical Preservation & Cutover (Week 9+)
+Once 100% of active dashboards use the new taxonomy, execute the preservation strategy.
+
+**1. The "Freeze and Archive" Approach**
+Do not attempt to rewrite historical raw data logs (too risky at 2M/day). Instead:
+*   **Stop Legacy Emissions:** Disable the dual-write for old events in the production code.
+*   **Create Compatibility Views:** In your data warehouse (Snowflake/BigQuery), create SQL views that union the old and new schemas for historical analysis.
+    ```sql
+    CREATE VIEW all_booking_clicks AS
+    SELECT event_name, properties, timestamp FROM raw_events WHERE event_name = 'booking_clicked' -- New
+    UNION ALL
+    SELECT 'booking_clicked' as event_name, properties, timestamp FROM raw_events WHERE event_name IN ('click_book', 'book_click') -- Old mapped to new
+    ```
+*   **Result:** Analysts querying `all_booking_clicks` get a seamless 2-year history. Direct queries to raw tables retain the old names for forensic auditing if absolutely necessary.
+
+**2. Deprecation Notice**
+Mark legacy events as "Deprecated" in your registry. Set a hard date (e.g., 6 months out) after which support for debugging legacy-only issues ends.
+
+## Prevention Rules for the Future
+1.  **Schema Enforcement:** Implement automated CI/CD checks that block code deployments containing unregistered event names.
+2.  **Property Over Name:** Never create a new event name just to capture a different context (e.g., do not create `booking_clicked_header` and `booking_clicked_footer`). Use one event `booking_clicked` with a `location` property.
+3.  **Quarterly Audits:** Run a monthly script to identify events with <100 occurrences or naming deviations, and alert data owners immediately.
+
+This approach prioritizes data integrity over speed, ensuring your 15% variance issues resolve without breaking year-over-year comparisons.
+
+*Note: Ensure your data engineering team tests the SQL view performance on full historical datasets before the final cutover.*
+*Communicate the "Dual-Write" phase clearly to stakeholders so they understand why event volumes may temporarily appear to double in raw logs.*

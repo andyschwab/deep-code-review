@@ -1,0 +1,70 @@
+### Delivery Plan: Safe Connection Pool Rollout
+
+**G0 Intake & G1 Spec**
+*   **Goal:** Increase default pool size from 20 to 50 in `config/app_defaults.yaml` to handle holiday load.
+*   **Constraint:** Prevent `src/batch_runner.js` crash due to implicit dependency on the old default (20).
+*   **Non-Goal:** Refactoring batch jobs to explicitly set env vars in this phase (scope creep).
+*   **Appetite:** Delivery by Thursday noon.
+*   **Acceptance Criteria:**
+    1.  Config updated to 50.
+    2.  All services relying on implicit defaults identified and verified.
+    3.  `yarn test-all` passes, including the 15-minute batch runner integration test.
+    4.  Marcus-approved high-load simulation passes in staging.
+    5.  Zero disruption to nightly 1.2M record sync.
+
+**G2 Plan: Acyclic Work Graph**
+*   **Lane A (Discovery & Impact Analysis):**
+    *   Scan codebase for `config/app_defaults.yaml` usage.
+    *   Specifically trace `src/batch_runner.js` initialization path to confirm implicit reliance.
+    *   Identify any other services lacking explicit `POOL_SIZE` env overrides.
+    *   *Output:* List of affected services and risk assessment.
+*   **Lane B (Implementation & Unit Safety):**
+    *   Update `config/app_defaults.yaml` (20 → 50).
+    *   Run unit tests excluding the long integration suite to verify no immediate regressions.
+    *   *Output:* Patch with green unit tests.
+*   **Lane C (Staging Verification - Marcus's Gate):**
+    *   Deploy Lane B's artifact to Staging.
+    *   Execute full `yarn test-all` (must include the 15-minute batch runner test).
+    *   Run high-load simulation script against Staging batch processor.
+    *   Monitor connection exhaustion metrics during the 1.2M record simulation.
+    *   *Output:* Verification receipt with load test logs and DB connection graphs.
+
+**G3 Design: Split Verification Strategy**
+*   **Phase 1 (Local/CI):** Run standard suite. If the 15-minute test is skipped in CI due to timeout, it must be run manually or in a dedicated long-runner pipeline before G6.
+*   **Phase 2 (Staging Shadow):** Deploy to a isolated Staging environment mirroring Prod DB topology.
+    *   Trigger the nightly sync logic manually.
+    *   Apply artificial load to spike connection requests >20.
+    *   Verify `src/batch_runner.js` maintains stability at 50 connections.
+*   **Phase 3 (Canary):** If Staging passes, enable config change for only 10% of non-critical batch jobs in Prod (if architecture allows) or proceed to full deploy during a low-traffic maintenance window if canarying is impossible.
+
+**G4 Implement**
+*   Writer updates config and ensures test harness invokes the full suite.
+*   No scope creep: Do not rewrite batch job env var logic now; rely on the new safe default.
+
+**G5 Verify (Local & Staging)**
+*   **Mandatory:** `yarn test-all` must complete successfully. The 15-minute integration test is a hard gate; skipping it renders the lane `UNVERIFIED`.
+*   **Load Sim:** Marcus must review the staging load test receipt showing connection count stabilizing at <50 under load, with no timeouts.
+
+**G6 Review**
+*   Independent QA verifies the "implicit default" assumption was correctly identified in Lane A.
+*   Security checks that increasing pool size does not exceed DB max_connections limits.
+
+**G7 Integrate**
+*   Merge only after Staging receipt is signed off by Marcus.
+
+**G8 Release (Human Gate)**
+*   **Owner Approval Required:** Marcus or designated lead must approve the production deploy.
+*   Deploy during a defined maintenance window to protect the nightly sync.
+
+**G9 Production Verify**
+*   Monitor the first nightly sync post-deploy.
+*   Rollback immediately if connection errors spike.
+
+**G10 Learn**
+*   Document the implicit dependency found in `src/batch_runner.js` to prevent future regressions.
+
+**Human Gates Required:**
+1.  **Marcus:** Approval of Staging load test results (G5/G6).
+2.  **Ops Lead:** Authorization for Production Deploy (G8).
+
+*Note: Do not start Lane C until Lane A confirms no other hidden dependencies exist. If the 15-minute test fails, do not merge; fix the root cause.*

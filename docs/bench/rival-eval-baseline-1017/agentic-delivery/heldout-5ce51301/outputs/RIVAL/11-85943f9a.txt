@@ -1,0 +1,41 @@
+# Implementation Plan: Strict Email Validation for Signup Handlers
+
+## 1. Validation Logic Definition
+Implement a two-stage validation process in `src/signup_handler.go`:
+- **Syntax Check:** Use a compiled regular expression compliant with RFC 5322 (simplified for practical use) to validate email structure. This pattern must support quoted local parts, subdomains, and valid TLDs without being overly restrictive.
+- **Disposable Domain Check:** Maintain an internal allow-list/deny-list mechanism. Load a curated list of known disposable email domains (e.g., from a maintained open-source blocklist) into memory at startup. Reject any email where the domain matches this list.
+
+## 2. Logging Compliance
+Integrate structured logging for every rejection event to satisfy David's compliance requirement:
+- Log level: `WARN`
+- Fields: `timestamp`, `ip_address`, `email_attempted`, `rejection_reason` (either "invalid_syntax" or "disposable_domain").
+- Ensure logs are flushed asynchronously to prevent latency impact on the signup endpoint.
+
+## 3. Propagation Strategy to Microservices
+To prevent inconsistency across the three other microservices copying this handler:
+- **Extraction:** Refactor the validation logic (regex + domain check + logging) into a shared internal package: `internal/validation/email.go`.
+- **Dependency Update:** Update all four microservices to import and call `validation.ValidateEmail()` instead of containing local logic.
+- **Configuration Sync:** Ensure the disposable domain list is sourced from a single central configuration file or service endpoint shared by all four services, guaranteeing identical blocklists.
+
+## 4. Test Refactoring
+Update `tests/test_signup.go` to enforce strictness:
+- **Remove:** Any test cases currently asserting that invalid or disposable emails are accepted.
+- **Add:** Positive tests for complex but valid emails (e.g., `user+tag@sub.domain.co.uk`, quoted strings).
+- **Add:** Negative tests ensuring specific disposable domains and malformed addresses return specific error codes.
+- **Verification:** Run `go test ./...` to confirm all tests pass with the new logic.
+
+## 5. Verification of False Rejections (Safe Launch)
+To ensure no legitimate users are blocked before the Friday 4 PM deadline:
+- **Shadow Mode Deployment:** Deploy the change with a "log-only" flag enabled initially. The handler will validate emails and log what *would* have been rejected without actually blocking the signup.
+- **Traffic Analysis:** Monitor shadow logs for 24 hours against real production traffic. Manually review any flagged "complex" emails that were marked as invalid.
+- **Activation:** Once confirmed that zero valid emails are flagged in shadow mode, disable the "log-only" flag to enforce active rejection.
+
+## 6. Timeline
+- **Today:** Extract validation logic, update shared package, and refactor tests.
+- **Tomorrow:** Deploy to staging, run integration tests, and begin Shadow Mode in production.
+- **Thursday:** Analyze shadow logs, adjust regex/domain list if false positives appear.
+- **Friday AM:** Final verification.
+- **Friday 2 PM:** Enable active enforcement.
+- **Friday 4 PM:** Deadline met; marketing campaign proceeds with clean data.
+
+Note: The shared internal package approach eliminates code duplication risks. Shadow mode ensures safety without delaying the launch.

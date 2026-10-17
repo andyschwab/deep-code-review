@@ -1,0 +1,40 @@
+# Delivery Plan: Integration Test Optimization & Risk Mitigation
+
+**Objective:** Reduce CI duration while preserving end-to-end data integrity coverage, specifically addressing the data corruption scenario detected last month.
+
+### Phase 1: Coverage & Risk Analysis (Days 1-2)
+1.  **Map Test Coverage:** Execute `tests/test_full_stack.py` with coverage tools (e.g., `pytest-cov`) to generate a report of lines/branches hit exclusively by this test compared to the existing unit test suite.
+2.  **Isolate the Corruption Scenario:** Identify the specific state conditions and sequence of operations in `test_full_stack.py` that triggered the data corruption bug last month. Document this as a "Critical Path Profile."
+3.  **Gap Analysis:** Compare the Critical Path Profile against current unit tests. Quantify exactly what logic or integration points (e.g., transaction boundaries, ORM flush timing, external service handshakes) are *only* covered by the slow test.
+
+### Phase 2: Refactoring Strategy (Days 3-4)
+1.  **Develop Fast Equivalent:** Create a new test, `tests/test_data_integrity_fast.py`, that:
+    *   Mocks external services but retains the real database interaction (or uses a lightweight in-memory DB if schema-compatible).
+    *   Specifically replicates the Critical Path Profile identified in Phase 1.
+    *   Targets execution time < 2 minutes.
+2.  **Preserve Original:** Rename `test_full_stack.py` to `test_full_stack_legacy.py` and mark it with a custom pytest marker (e.g., `@pytest.mark.slow-integration`).
+
+### Phase 3: Parallel Verification (Days 5-11)
+1.  **CI Pipeline Update:** Modify `make ci-run` to:
+    *   Run the new `test_data_integrity_fast.py` in the primary pipeline.
+    *   Trigger `test_full_stack_legacy.py` in a separate, non-blocking parallel job (or a nightly scheduled job) for one week.
+2.  **Data Collection:** Configure the CI system to log pass/fail rates and execution times for both tests separately.
+
+### Phase 4: Director Review & Decision (Day 12 - Next Friday)
+1.  **Generate Comparison Report:** Produce a report for Alex containing:
+    *   **Bug Detection Rate:** Comparison of failures caught by the legacy test vs. the new fast test during the parallel week.
+    *   **Coverage Delta:** Percentage of critical path coverage retained in the new test.
+    *   **Time Savings:** Actual reduction in CI pipeline duration.
+2.  **Decision Gate:**
+    *   *If the new test catches 100% of legacy failures:* Propose removing `test_full_stack_legacy.py`.
+    *   *If the legacy test catches unique failures:* Retain the legacy test as a nightly-only job and refine the fast test further.
+
+### Deliverable Checklist
+*   [ ] Coverage differential report (Unit vs. Full Stack).
+*   [ ] `test_data_integrity_fast.py` implementation.
+*   [ ] Updated `make ci-run` with parallel execution logic.
+*   [ ] One-week parallel run metrics dashboard.
+*   [ ] Final recommendation memo for Alex with bug detection statistics.
+
+**Note:** Do not merge the removal of the legacy test until the one-week parallel run data confirms zero divergence in failure detection.
+**Deadline:** All artifacts must be ready for Alex's review by next Friday morning.

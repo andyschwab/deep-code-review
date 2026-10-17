@@ -1,0 +1,29 @@
+**Implementation Plan: Payment Gateway Retry Standardization**
+
+**1. Dependency & Compatibility Strategy**
+*   **Library:** Introduce `tenacity` (standard, lightweight) to `billing-service/requirements.txt`.
+*   **Compatibility Check:** Before merging, verify `notification-service` build. Since `notification-service` imports the client but likely does not invoke the retry logic directly, ensure the function signature of `src/gateway_client.py` remains unchanged. If `notification-service` has its own `requirements.txt`, no change is needed there; if it shares a monorepo lockfile, update it to include `tenacity`.
+
+**2. Code Changes: `src/gateway_client.py`**
+*   **Remove:** Delete the existing custom `while` loop and manual `time.sleep` calculations (approx. lines 45–70, pending exact inspection).
+*   **Implement:** Apply the `@retry` decorator to the primary request method (e.g., `execute_payment`).
+*   **Configuration:** Configure the decorator with:
+    *   `stop=stop_after_delay(4.5)` (Enforces the strict 4500ms total timeout).
+    *   `wait=wait_exponential(multiplier=1, min=0.1, max=1.0)` (Ensures backoff without exceeding total timeout).
+    *   `retry=retry_if_exception_type(ConnectionError)` (Or the specific exception currently caught).
+*   **Timeout Enforcement:** Wrap the decorated call in a hard timeout guard if the library's `stop` condition is not strictly synchronous, ensuring `src/order_processor.py` receives a timeout exception immediately upon hitting 4500ms, preventing any drift.
+
+**3. Test Updates: `tests/test_gateway.py`**
+*   **Test Case A (Backoff Verification):** Update `test_retry_exponential_backoff`.
+    *   *Current:* Asserts retry count only.
+    *   *New:* Mock `time.time` to assert that the interval between attempts increases exponentially (e.g., ~100ms, ~200ms, ~400ms) and that the sum of intervals + execution time never exceeds 4500ms.
+*   **Test Case B (Total Timeout Boundary):** Update `test_total_timeout_enforcement`.
+    *   *Current:* May allow slight overruns or fixed delays.
+    *   *New:* Assert that if the upstream blips continuously, the total elapsed time from first call to final exception is `< 4600ms` (allowing minor scheduling overhead) and strictly fails before 5000ms. Verify the exception raised matches what `order_processor.py` expects.
+*   **Test Case C (Integration Safety):** Add `test_notification_service_import`.
+    *   Verify that importing the client in a clean environment with the new dependency does not raise `ImportError` or alter static method signatures used by the notification service.
+
+**4. Validation Command**
+*   Run `make test-gateway` to confirm all assertions pass and the new dependency resolves correctly.
+
+**Note:** This plan assumes `tenacity` is an acceptable addition per your security policy; if a vendor-approved list exists, cross-reference it first. The hard timeout guard is critical to satisfy the "fail immediately" requirement for the order processor.

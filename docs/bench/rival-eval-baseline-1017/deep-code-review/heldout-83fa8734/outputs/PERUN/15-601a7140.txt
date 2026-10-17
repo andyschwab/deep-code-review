@@ -1,0 +1,23 @@
+### Critical: Broken Path Restoration Logic
+
+**File:** `lib/bats-core/common.bash`
+**Hunk:** Line 257 (changed from `BATS_PATH` to `BATS_SAVED_PATH`)
+
+**Why it is wrong:**
+The variable `BATS_SAVED_PATH` is undefined in the provided context and likely undefined in the runtime environment of this script.
+1.  **Naming Convention Mismatch:** The surrounding codebase (evidenced by the original line using `BATS_PATH`) and standard BATS internal conventions typically use `BATS_PATH` to store the backed-up `PATH`. The suffix `_SAVED_` appears to be an assumption or a hallucination of a variable name that does not exist in the standard `bats-core` initialization sequence.
+2.  **Runtime Failure:** When `bats_execute` is called, the shell will expand `$BATS_SAVED_PATH` to an empty string. Consequently, the command executes with `PATH=""`.
+3.  **Consequence:** With an empty `PATH`, the shell cannot locate *any* executables (including standard utilities like `echo`, `cat`, or the command being tested unless invoked with an absolute path). This causes immediate "command not found" failures for almost any test case relying on `bats_execute` to run external tools, effectively breaking the test suite's ability to validate command execution.
+
+**Fix:**
+Revert the variable name to the established internal variable `BATS_PATH`, which is populated during the BATS initialization phase to hold the pre-mock system path.
+
+```bash
+# Corrected line 257
+bats_execute() { # <command...>
+  PATH="$BATS_PATH" "$@"
+}
+```
+
+**Verification Requirement:**
+Before merging, confirm where `BATS_PATH` is assigned in the startup sequence (typically in `bats-exec-file` or `bats-preprocess`) to ensure it holds the correct value at the time `bats_execute` is invoked. Do not introduce `BATS_SAVED_PATH` unless there is a corresponding, verified assignment elsewhere in the repository that this patch omits.
