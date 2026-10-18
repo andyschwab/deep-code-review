@@ -1,0 +1,41 @@
+To answer your retention questions, your event schema must center on a single **North Star**: *Weekly Active Users who successfully verify a true threat*. Vanity metrics like "total motion events" or "alerts sent" will rise even as churn increases; they do not measure value. Your schema must link every system-generated signal to a specific user action to distinguish noise from value.
+
+Structure your logical categories around three core entities and their relationships:
+
+**1. The Incident (The Trigger)**
+This is the root event. Do not log raw sensor data here; log the *classified outcome*.
+*   **Incident ID**: A unique, stable identifier for this specific motion event.
+*   **Object Type**: Enumerated value (Person, Pet, Vehicle, Unknown). This directly addresses your hypothesis about false positives.
+*   **Confidence Score**: The algorithm's probability score. High false positives often cluster around low-confidence thresholds.
+*   **Context Properties**: Time of day, location zone (e.g., "Front Door" vs. "Backyard"), and environmental tags (e.g., "Night Mode").
+*   **User ID (Pseudonymous)**: A stable, anonymized ID linking the incident to a specific household. *Note: Do not store PII here; route personal data to your privacy compliance layer.*
+
+**2. The Alert Delivery (The System Action)**
+Separate the detection from the notification to measure delivery latency and channel effectiveness.
+*   **Alert ID**: Linked to the Incident ID.
+*   **Channel**: Push, SMS, Email, or In-App.
+*   **Delivery Timestamp**: When the user theoretically received the signal.
+
+**3. The User Response (The Value Signal)**
+This is the missing link in your current data. You must instrument the explicit reaction to every alert.
+*   **Response Type**: Enumerated value (Verified/Safe, Verified/Threat, Dismissed, Ignored/No Action).
+*   **Response Timestamp**: Critical for calculating "Time to Verify."
+*   **Follow-up Action**: Did the user view live video? Did they trigger a siren? Did they call emergency services?
+
+**The Critical Relationships for Retention Analysis**
+Your backend must support joins across these entities to answer the "bottom-up" retention questions:
+
+*   **Incident → Response**: This relationship calculates your **False Positive Rate by Object Type**. If "Pet" incidents have a 95% "Dismissed" rate while "Person" incidents have a 20% "Verified/Threat" rate, your algorithm is failing on pets, validating your churn hypothesis.
+*   **Time Delta (Delivery → Response)**: Measures engagement speed. A pattern of "Ignored" responses growing over time is a leading indicator of churn before the user actually cancels.
+*   **Cohort Analysis**: Group users by their ratio of "Verified" vs. "Dismissed" events in Week 1. Compare the retention curve of the "High Noise" cohort (mostly dismissals) against the "High Value" cohort (mostly verifications).
+
+**Instrumentation Guardrails**
+Do not instrument "just in case." Only log events that answer a named question:
+*   *Question:* "Do pet alerts cause users to stop opening the app?" → *Event:* `alert_dismissed` with property `object_type=pet`.
+*   *Question:* "Does time-of-day affect verification?" → *Event:* `alert_verified` with property `time_block=night`.
+
+**This Week's Step**
+Before Monday's modeling session, define the exact enumeration values for `Response Type`. If you cannot distinguish between a user "swiping away" a notification versus "opening and closing" the app without action, your data will remain ambiguous. Ensure the schema captures the *intent* of the dismissal, not just the closure of the UI. Without this distinction, you cannot prove that false positives drive churn.
+
+*Note: This schema design assumes a stable pseudonymous user ID is available across sessions; ensure your identity management system provides this before finalizing the foreign keys.*
+*Do not estimate current false positive rates; these are `UNVERIFIED` until the new schema is live and data is collected.*

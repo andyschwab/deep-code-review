@@ -1,0 +1,52 @@
+# SafeNest Motion Detection Event Schema
+
+## Core Event Categories
+
+To answer your retention questions regarding false positives and user verification behavior, the event logs must be structured around three logical entities: **The Trigger**, **The Alert**, and **The User Response**. These entities must be linked via a unique correlation ID to trace the full lifecycle of an incident.
+
+### 1. Trigger Event (The Detection)
+This category captures the raw algorithmic output before any user interaction. It establishes the ground truth of what the system "saw."
+*   **Event Identity:** `motion_detected`
+*   **Key Attributes:**
+    *   `object_classification`: Enumerated value (Person, Pet, Vehicle, Unknown).
+    *   `confidence_score`: Numerical value (0.0–1.0) indicating algorithm certainty.
+    *   `sensor_location`: Logical zone (e.g., Front Door, Living Room).
+    *   `environmental_context`: Time of day, ambient light level (if available).
+*   **Purpose:** Allows you to segment false positives by object type. If "Pet" triggers have low confidence scores but high volume, the algorithm threshold needs adjustment.
+
+### 2. Alert Delivery Event (The Notification)
+This category confirms the system attempted to engage the user. Not every trigger results in an alert (e.g., if the user has "Pet Mode" enabled).
+*   **Event Identity:** `alert_sent`
+*   **Key Attributes:**
+    *   `delivery_channel`: Push notification, SMS, Email.
+    *   `delivery_status`: Sent, Failed, Delayed.
+    *   `user_segment`: The notification profile active at the time (e.g., "Home," "Away," "Night").
+*   **Purpose:** Filters out technical delivery failures from actual user disinterest. You cannot measure dismissal rates if the alert never arrived.
+
+### 3. User Response Event (The Action)
+This is the critical missing link in your current data. It captures explicit user intent immediately following the alert.
+*   **Event Identity:** `alert_interaction`
+*   **Key Attributes:**
+    *   `action_type`: Enumerated value (Viewed Live Feed, Dismissed, Marked as False Alarm, Ignored/Timeout).
+    *   `time_to_action`: Duration in seconds between `alert_sent` and this event.
+    *   `follow_up_action`: Did the user arm/disarm the system or contact support after this interaction?
+*   **Purpose:** Differentiates between a "false positive" (user marks as false alarm) and "alert fatigue" (user dismisses or ignores without verifying). High dismissal rates suggest users don't trust the alerts; high "Marked as False Alarm" rates suggest the classifier is wrong.
+
+## Logical Relationships and Aggregation
+
+To derive retention insights, these events must be linked sequentially:
+1.  **One-to-One Mapping:** Every `alert_sent` must link back to exactly one `motion_detected` via a `session_id` or `incident_id`.
+2.  **Optional Linkage:** An `alert_interaction` links to an `alert_sent`. If no interaction occurs within a defined window (e.g., 5 minutes), the system must logically infer an `Ignored/Timeout` state to avoid data gaps.
+3.  **Temporal Grouping:** All events must carry a precise timestamp to allow aggregation by time-of-day buckets (Morning, Afternoon, Evening, Night). This reveals if false positives spike during specific lighting conditions or household routines.
+
+## Analytical Outcomes
+
+With this structure, your backend team can model queries to answer:
+*   **Verification Rate:** The percentage of `alert_sent` events resulting in `Viewed Live Feed` vs. `Dismissed`, segmented by `object_classification`.
+*   **False Positive Cost:** The correlation between high volumes of `Marked as False Alarm` events for specific `object_classification` types and subsequent user churn.
+*   **Contextual Accuracy:** Whether `confidence_score` predicts `action_type`. (e.g., Do users verify alerts where the system was less confident?)
+
+Ensure the schema supports appending metadata later, such as firmware version or model update ID, to track improvements in the algorithm over time.
+
+*Note: Define a standard "Timeout" duration globally to consistently categorize unresponded alerts as "Ignored" rather than null values.*
+*Recommendation: Include a boolean flag for "Repeat Offender" sensors to identify if specific hardware units generate disproportionate false positives.*

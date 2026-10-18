@@ -1,0 +1,26 @@
+For the SkyDrop Austin pilot, reject "FlightInitiated" and "PackageSecured" as primary success metrics; they measure operational output, not customer value or trust. Your North Star must be **CustomerHandoff Completed**. This event only fires when the recipient physically accepts the package, directly validating your hypothesis that trust (safety/reliability) is the adoption bottleneck. If a drone flies and lands safely but the customer refuses the handoff due to perceived risk, "SafeLanding" would falsely count as success while "CustomerHandoff" correctly identifies a trust failure.
+
+To distinguish operational failures from external factors like weather, implement a three-tier event taxonomy with specific properties:
+
+1.  **Primary Value Event:** `CustomerHandoff_Completed`
+    *   **Definition:** The moment the customer scans/confirms receipt.
+    *   **Properties:** `delivery_id`, `scheduled_time`, `actual_time`, `weather_condition_code` (e.g., clear, rain, wind_speed), `delay_reason_code` (e.g., none, weather_hold, mechanical_fault, customer_unavailable).
+    *   **Insight:** A low completion rate despite high `FlightInitiated` counts indicates a trust or last-mile reliability issue.
+
+2.  **Operational Integrity Event:** `SafeLanding_Confirmed`
+    *   **Definition:** Drone touches down within geofence without incident.
+    *   **Properties:** `landing_status` (success, hard_landing, abort), `abort_reason` (weather, sensor_error, low_battery).
+    *   **Insight:** Use this to calculate the "Operational Success Rate." If `SafeLanding` is high but `CustomerHandoff` is low, the issue is customer trust or handoff logistics, not flight safety.
+
+3.  **External Factor Marker:** `Weather_Hold_Initialized`
+    *   **Definition:** System pauses dispatch or recalls drone due to weather thresholds.
+    *   **Properties:** `trigger_metric` (wind_gust, precipitation), `duration_minutes`.
+    *   **Insight:** Do not count these as failures in your reliability metric. Instead, create a derived metric: **Adjusted Reliability Rate** = `(CustomerHandoff_Completed) / (Total Orders - Weather_Held_Orders)`. This isolates system performance from uncontrollable environmental factors.
+
+**Dashboard Logic for Priya:**
+Do not track cumulative flights (vanity). Track **Weekly Active Recipients** who successfully completed a `CustomerHandoff`. To validate the trust hypothesis, segment `CustomerHandoff_Completed` by `first_time_user` vs `repeat_user`. If first-time completion rates are low due to "customer_unavailable" or explicit refusals logged in `delay_reason_code`, your trust hypothesis is confirmed, and you must improve safety communication or visible reliability cues before scaling acquisition.
+
+**This Week's Step:** Instrument the `CustomerHandoff_Completed` event with the `delay_reason_code` property immediately. Define the specific logic for `weather_condition_code` ingestion from your local Austin weather API so that every delivery record automatically tags external conditions, allowing you to filter them out of reliability calculations on Day 1.
+
+*Note: Ensure the user identifier in these events is pseudonymous to comply with privacy standards, separating PII from the analytics stream.*
+*Do not set arbitrary benchmarks for "good" completion rates; establish your baseline from the first 50 deliveries and measure trend improvements against that specific pilot data.*

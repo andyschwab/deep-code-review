@@ -1,0 +1,26 @@
+**Immediate Call: Treat the 18% drop as `UNVERIFIED` data loss, not a business decline.** Do not present a "corrected" growth metric to the board until you reconcile the ingestion pipeline; presenting an estimated number without validation violates the prime directive of using only user-supplied data. Your baseline is the pre-migration trend; the current figure is an instrument failure until proven otherwise.
+
+**Step 1: Isolate the Instrumentation Seam (Days 1–2)**
+Stop analyzing user behavior immediately. The discrepancy coincides exactly with the vendor migration (Nov 5), indicating a broken tap, not a churn event.
+*   **Action:** Compare raw server access logs (even if incomplete) against the new vendor's ingestion receipts for the top 3 high-volume, low-complexity events (e.g., `page_view`, `app_launch`, `session_start`).
+*   **Validation Goal:** If server logs show stable traffic but the new vendor shows a drop, the issue is **data loss in transit**, not user exodus. If both logs show a drop, only then investigate a real outage or blocking error.
+*   **Priority Events:** Check **authentication events** (`login_success`) first. If users cannot log in due to a migration-side config error, *all* downstream metrics will vanish. This is the single point of failure that explains a uniform 18% drop.
+
+**Step 2: Audit the Event Taxonomy Mapping (Days 3–4)**
+Legacy systems often use different naming conventions or ID structures than new vendors.
+*   **Action:** Audit the mapping table for the **stable per-user identifier**. If the new system fails to link sessions to the legacy pseudonymous ID, returning users appear as "new" or are dropped entirely, artificially deflating Daily Active Users (DAU).
+*   **Validation Goal:** Verify that the `user_id` property is populating correctly in the new stream. A missing or malformed ID is the most common cause of apparent retention collapse post-migration.
+*   **Scope Check:** Segment the drop by platform (iOS, Android, Web). If the drop is isolated to one client, the SDK implementation for that specific platform is broken. If uniform, the backend ingestion pipeline is the culprit.
+
+**Step 3: Establish a "Shadow Baseline" for the Board (Days 5–7)**
+You cannot ethically "estimate" missing volume for the board without a verified recovery rate.
+*   **Action:** Calculate the **recovery ratio**. If you can recover 90% of the missing data from raw logs for a sample day, apply that ratio to the gap period *only* as a sensitivity range (e.g., "Actual DAU is between 78k and 84k"), explicitly labeling the lower bound as "unverified raw data" and the upper bound as "projected based on log sampling."
+*   **Board Narrative:** Present the **pre-migration trend line** as the continuing North Star. Annotate the Nov 5–20 period as "Data Integrity Window – Metrics Unreliable." Do not fabricate a smooth curve. Honesty about the data gap preserves credibility; inventing a benchmark or filling the gap with assumptions destroys it.
+
+**This Week's Concrete Steps:**
+1.  **Query:** Run a count of `login_success` events in raw server logs vs. new vendor for Nov 6–8.
+2.  **Test:** Verify the `user_id` field population rate in the new vendor's debug console.
+3.  **Decision:** If raw logs match pre-migration volumes, halt all growth reporting until the vendor pipeline is fixed; report the *pipeline status* to the board, not a fake DAU number.
+
+**Note:** Never assert a "good" retention rate or industry benchmark to explain the drop; compare only against DataPure's own pre-Nov 5 baseline.
+**Note:** If the identifier seam is broken, cohort analysis is impossible; fix the ID mapping before attempting any funnel diagnostics.

@@ -1,0 +1,39 @@
+### Investigation Plan: Mobile vs. Web Activation Discrepancy
+
+**Objective:** Isolate the root cause of the 23-point activation gap (Web 45% vs. Mobile 22%) by identifying the specific friction point in the mobile user journey, distinguishing between technical performance and UX design flaws.
+
+**1. Event Taxonomy & Question Mapping**
+Instrument only events that answer specific divergence questions. Do not track "page views." Define the **Core Action** clearly (e.g., "First Task Created"). Map the following events with properties for `device_type`, `os_version`, and `session_id`:
+*   `onboarding_start`: Did they enter the flow?
+*   `step_[x]_view`: Did the screen load? (Property: `load_time_ms`)
+*   `step_[x]_interaction`: Did they attempt the action? (Property: `interaction_type`)
+*   `step_[x]_error`: Did a technical failure occur? (Property: `error_code`)
+*   `activation_complete`: Did they finish the core action?
+
+**2. Funnel Analysis: Bottom-Up Retention Focus**
+Analyze the funnel step-by-step to find the largest drop-off delta between mobile and web.
+*   **Hypothesis A (Technical):** If `step_view` counts match but `step_interaction` drops on mobile, or if `load_time_ms` correlates strongly with drop-off, the issue is performance.
+*   **Hypothesis B (UX/Design):** If users view and interact but abandon mid-checklist, or if specific steps (e.g., "upload avatar") show high mobile drop-off compared to web, the issue is screen real estate or input complexity.
+*   **Action:** Generate a cohort report comparing conversion rates *between* each consecutive step for both platforms. The step with the statistically significant divergence is the target.
+
+**3. Normalization Strategy for Session Frequency**
+Since mobile users have shorter, more frequent sessions, do not measure activation within a single session if the checklist spans multiple days.
+*   **Metric Definition:** Define activation as a **cumulative state** over a fixed time window (e.g., "Did the user complete the core action within 3 days of `onboarding_start`?").
+*   **Cohorting:** Group users by `install_date` and `device_type`. Compare the *cumulative* completion rate at Day 1, Day 3, and Day 7. This neutralizes session frequency differences and measures whether the device type ultimately prevents value realization.
+
+**4. Technical vs. UX Isolation**
+*   **Performance Correlation:** Bin mobile users by `load_time_ms` (e.g., <1s, 1-3s, >3s). Plot activation rate against these bins. A steep negative slope confirms a technical bottleneck.
+*   **Input Method Analysis:** If performance is stable, segment by interaction type (touch vs. keyboard). If steps requiring text input show higher drop-off on mobile than steps requiring taps, the hypothesis shifts to UX design (keyboard obstruction, small touch targets).
+
+**5. Experiment Design (Pre-Committed)**
+Once the bottleneck step is identified, propose an A/B test for the next quarter.
+*   **Primary Metric:** Activation rate (cumulative 3-day).
+*   **Guardrail Metric:** App crash rate / Error rate.
+*   **Design:** Pre-commit to a sample size based on the current 22% baseline and a Minimum Detectable Effect (e.g., 10% relative lift). Do not peek at results before the sample size is reached.
+
+**This Week's Steps:**
+1.  Query the data warehouse for the step-by-step funnel breakdown for the last 30 days, segmented by device, to pinpoint the exact drop-off step.
+2.  Correlate `load_time_ms` with drop-off at that specific step; if correlation is low, audit the UX of that specific screen for mobile-specific constraints.
+3.  Draft the event instrumentation spec for any missing properties (specifically `load_time_ms` and granular step interactions) required to validate the hypothesis.
+
+*Note: All metrics must be derived from OmniTask's actual analytics; no external benchmarks for "good" activation rates will be used. PII must be pseudonymized in all cohort exports.*
