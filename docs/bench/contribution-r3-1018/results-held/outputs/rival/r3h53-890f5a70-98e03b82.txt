@@ -1,0 +1,66 @@
+### Testing Strategy: Protocol Simulation and Contract Verification
+
+Since direct connection to the production read-replica is forbidden, you must shift your validation strategy from **integration testing** (connecting to the real DB) to **protocol conformance testing** and **contract verification**.
+
+1.  **Implement a "Wire-Level" Mock Server:**
+    Instead of mocking the Java interface, build a lightweight TCP server (using a library like Netty or standard Java Sockets) that sits on `localhost`. This server should not implement full database logic; it only needs to replay the specific byte-level handshake and protocol frames your driver expects from the mainframe.
+    *   **Action:** Capture a sanitized packet trace (if available) or strictly follow the legacy protocol specification to hard-code the server's responses.
+    *   **Benefit:** This validates your driver's parsing logic, timeout handling, and state machine transitions against the *actual protocol structure* without touching real data or risking table locks.
+
+2.  **Define a Strict Interface Contract:**
+    Since you cannot test against real data volume, you must prove your code adheres to the `DataBridge` abstraction contract.
+    *   **Action:** Write unit tests that inject your "Wire-Level" mock. Assert that your driver correctly translates the legacy protocol's specific error codes, null representations, and transaction boundaries into the standard exceptions and data types expected by `DataBridge`.
+    *   **Evidence:** Include a matrix in your PR showing exactly which protocol states (e.g., "Handshake Success," "Auth Failure," "Timeout," "Malformed Packet") are covered by your mock tests.
+
+3.  **Security & Safety Audit:**
+    Explicitly document that your code contains *no* hardcoded production endpoints. Verify via static analysis that connection strings are purely configuration-driven. This assures maintainers that merging the code cannot accidentally trigger a production connection.
+
+---
+
+### Draft Pull Request Description
+
+```markdown
+## Summary
+Adds a legacy mainframe driver to the DataBridge abstraction layer to resolve "driver not found" exceptions for older systems. This implementation strictly adheres to the legacy protocol specification without requiring access to live production infrastructure.
+
+## What
+- Implemented `LegacyMainframeDriver` conforming to the `DataBridge` interface.
+- Added a local, wire-level protocol simulator for validation (no external dependencies).
+- Included comprehensive unit tests covering handshake, authentication, data retrieval, and error propagation scenarios defined in the protocol spec.
+
+## Why
+Current systems fail when connecting to legacy mainframe read-replicas due to missing driver support. This change enables Globex Manufacturing and other users to integrate historical inventory data safely.
+
+## Test Plan & Limitations
+**Constraint:** Direct integration testing against the live production read-replica is prohibited by security policy to prevent table locking and data exposure.
+
+**Validation Strategy:**
+1.  **Protocol Conformance:** Validated against a custom-built TCP mock server that replays exact protocol byte-sequences.
+2.  **Contract Verification:** Unit tests assert that all legacy-specific responses are correctly translated to standard `DataBridge` exceptions and data types.
+3.  **Safety Check:** Static analysis confirms no hardcoded production endpoints exist; connections are purely configuration-driven.
+
+| Scenario | Test Method | Outcome |
+| :--- | :--- | :--- |
+| Successful Handshake | Mock server sends valid ACK | Driver establishes session |
+| Authentication Failure | Mock server sends Auth Error | Driver throws `AuthException` |
+| Network Timeout | Mock server delays response >阈值 | Driver triggers `TimeoutException` |
+| Data Parsing | Mock server sends legacy binary blob | Driver returns correct Java Object |
+
+## Backward Compatibility
+Fully backward compatible. No existing interfaces modified; new functionality is opt-in via configuration.
+
+## Security Considerations
+- No production credentials or endpoints included in code or tests.
+- Driver fails closed on any protocol mismatch.
+
+## Related Issue
+Fixes #[IssueNumber] (or "Created via internal request for Globex Manufacturing integration")
+
+## Checklist
+- [x] Code follows project style guidelines
+- [x] All unit tests pass locally
+- [x] No production secrets exposed
+- [x] Documentation updated for new configuration options
+```
+
+*Note: Replace `[IssueNumber]` with the actual tracker ID. If no issue exists, create one immediately before submitting, as many maintainers require issue-first workflows for new drivers.*

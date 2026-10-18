@@ -1,0 +1,22 @@
+### Sanitized Reproduction Steps (Draft)
+
+**Test Case: High-Volume Burst Deadlock in Queue Manager**
+
+1.  **Environment**: Standard Java Messaging System (vX.Y+) with default broker configuration.
+2.  **Setup**: Initialize a `QueueManager` with a single consumer thread and a producer pool of $N$ threads (where $N > 2 \times$ CPU cores).
+3.  **Trigger**:
+    *   Configure the producer pool to send messages in synchronous bursts of size $B$ (e.g., $B=5000$) with zero inter-message delay.
+    *   Simultaneously induce a artificial latency of $T$ milliseconds (e.g., $T=50$ms) on the consumer's `acknowledge()` call to mimic slow downstream processing.
+    *   Execute the burst loop for $D$ seconds.
+4.  **Observation**: The system hangs indefinitely. Thread dumps reveal a circular wait condition where producer threads hold the internal queue lock while waiting for consumer acknowledgment slots, while the consumer thread is blocked attempting to acquire the same queue lock to process the backlog.
+5.  **Verification**: The deadlock resolves immediately if the burst size $B$ is reduced below the internal buffer threshold or if the consumer latency $T$ is removed.
+
+---
+
+### Explanation for Maintainers (Draft)
+
+"We have isolated a deadlock in the `QueueManager` triggered by high-volume synchronous bursts combined with slow consumer acknowledgment. The attached test case reproduces this using only standard public APIs and synthetic latency injection, requiring no proprietary configuration.
+
+Please note that our initial discovery occurred within a complex, proprietary infrastructure involving custom broker settings and specific network topologies owned by our organization. To adhere to strict confidentiality policies and avoid leaking sensitive architectural details, we have distilled the issue down to this minimal, environment-agnostic reproduction. This synthetic case isolates the core concurrency flaw without exposing any private implementation details or internal parameters."
+
+**Note**: Replace `$N$`, `$B$`, and `$T$` with the smallest integer values that still trigger the hang on your local machine to ensure the test is truly minimal. Do not include any actual logs, stack traces containing internal class paths, or timing data from your production environment in the final PR.

@@ -1,0 +1,57 @@
+You cannot upstream a fix that relies on your private CA certificates, nor should you attempt to generalize a solution that hardcodes or specifically enables your organization's private infrastructure. The standard pattern for handling enterprise-specific certificate requirements in open source Rust projects is to leverage the existing `rustls` or `native-tls` configuration hooks to allow users to inject **any** custom root store, without referencing your specific CA in the code, documentation, or commit history.
+
+Since the maintainers reject patches requiring non-public downloads, your contribution must strictly provide a **generic mechanism** for loading additional trust anchors from the OS store or a user-specified path, removing all references to "Omni Consumer Products," specific intermediate CAs, or your internal error logs.
+
+### Solution Description (for PR Body)
+
+**Title:** feat: support loading additional trust anchors from user-provided paths
+
+**Problem:**
+Users in enterprise environments with private Certificate Authorities (PKI) often face SSL handshake failures because the default trust store does not include their internal root certificates. Currently, the server lacks a configuration option to append custom CA certificates to the default trust store without replacing it entirely.
+
+**Change:**
+This PR introduces a `extra_trust_roots` configuration field (or CLI flag) that accepts a path to a PEM file containing additional CA certificates. When provided, these certificates are added to the default `rustls::RootCertStore` (or equivalent) alongside the system defaults.
+
+**Implementation Details:**
+- Added `extra_trust_roots: Option<PathBuf>` to the server configuration struct.
+- Updated the TLS builder to read the specified PEM file and append valid certificates to the root store.
+- If the file is missing or contains invalid PEM data, the server fails to start with a clear error message, preventing silent security degradation.
+- No default certificates are included; the feature is opt-in.
+
+**Testing:**
+- Verified that the server starts successfully with a valid custom CA bundle.
+- Verified that the server rejects invalid PEM files with a descriptive error.
+- Confirmed that default behavior (no extra roots) remains unchanged.
+
+### Code Change Pattern (Generic)
+
+Do not include your specific certificate data. Instead, implement the loading logic generically:
+
+```rust
+use rustls::{RootCertStore, Certificate};
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
+
+fn load_extra_trust_roots(
+    base_store: &mut RootCertStore,
+    pem_path: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(path) = pem_path {
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+        let certs = rustls_pemfile::certs(&mut reader)?;
+
+        // Inject generic logic: add all found certs to the store
+        for cert in certs {
+            base_store.add(&Certificate(cert))?;
+        }
+    }
+    Ok(())
+}
+```
+
+### Critical Privacy & Compliance Notes
+
+1.  **Strip All Identifiers:** Ensure your commit message, code comments, and test fixtures contain **zero** references to "Omni Consumer Products," internal hostnames, ticket numbers (e.g., "OCP-123"), or specific error messages from your production logs. Use synthetic paths like `/etc/ssl/custom-ca.pem` in examples.
+2.  **Do Not Upstream Private Logic:** If your "fix" involves bypassing validation specifically for your chain rather than enabling generic user injection, **do not submit it**. That logic must remain in your private fork. This PR is only valid if it enables *any* user to load *any* custom CA.

@@ -1,0 +1,44 @@
+### Vulnerability Disclosure Strategy: Theoretical Proof-of-Concept
+
+To convey the severity of the denial-of-service (DoS) vector without executing a resource-intensive attack or violating cloud terms, you should construct a **Static Resource Estimation Model** and a **Packet Structure Specification**. This approach shifts the burden of verification from "running an attack" to "reviewing a mathematical inevitability," which is standard practice for high-severity security disclosures.
+
+#### 1. Define the Amplification Factor (The Math)
+Instead of running the script, calculate the theoretical resource cost per packet. Maintainers need to see the ratio between input size and server processing cost.
+
+*   **Input Size ($I$):** Specify the exact byte size of your malformed packet (e.g., 64 bytes).
+*   **Processing Cost ($C$):** Analyze the `StreamProcessor` source code to identify the expensive operation triggered by this packet (e.g., regex backtracking, unbounded buffer allocation, recursive descent). Estimate the CPU cycles or memory bytes required to process one such packet based on the code logic.
+*   **Amplification Ratio ($A = C / I$):** Present this ratio. If a 64-byte packet triggers a 10MB allocation, the amplification is ~160,000x.
+*   **Threshold Calculation:** Calculate how many packets per second (pps) are required to exhaust standard server resources (e.g., "At 500 pps, a standard 2GB instance will exhaust memory in 4 seconds").
+
+This mathematical proof demonstrates exploitability without sending a single packet.
+
+#### 2. Specify the Packet Structure (The Blueprint)
+Provide a hex dump or a pseudo-code definition of the malformed packet rather than an executable script. This allows maintainers to verify the vector by inspection or by writing a benign, single-packet unit test.
+
+*   **Hex Dump:** Provide the exact byte sequence of the *single* critical packet.
+    ```text
+    Offset: 00 01 02 03 04 05 06 07 08 09 ...
+    Data:   FF D8 00 10 [LENGTH_FIELD] ...
+    ```
+*   **Trigger Condition:** Explicitly state which code path is triggered (e.g., "When `header.type == 0xFF` and `payload.length > MAX_INT`, the loop at `engine.rs:402` fails to terminate").
+*   **Single-Packet Unit Test:** Suggest a tiny, safe unit test the maintainers can run locally that feeds *one* such packet into the parser in isolation. This confirms the crash logic without generating network traffic or sustained load.
+
+#### 3. Draft the Disclosure Document
+Structure your report to the maintainers as follows:
+
+*   **Summary:** "Unbounded resource allocation in `StreamProcessor` via malformed header parsing."
+*   **Theoretical Impact:** "A single 64-byte packet triggers a 10MB allocation. At 1,000 pps (achievable via UDP spoofing), this consumes 10GB/s, crashing a standard node in seconds."
+*   **Reproduction (Safe):** "Do not run a flood test. Instead, apply this single-packet unit test to verify the parser enters an infinite loop/overflows." (Include the code for the single-packet test).
+*   **Code Reference:** Link directly to the vulnerable lines in the repository that cause the expensive operation.
+*   **Mitigation Proposal:** Suggest the specific fix (e.g., "Add a length check at `engine.rs:400` to cap allocation at `MAX_BUFFER_SIZE`").
+
+#### 4. Secure Transmission
+Since this is a security vulnerability:
+*   Do not open a public GitHub Issue.
+*   Check the repository for a `SECURITY.md` file or a `security@` email address.
+*   If none exists, open a private advisory via GitHub's "Security" tab (if enabled) or contact the maintainers directly via email, attaching the text-based analysis above.
+
+By providing the **mathematical proof of exhaustion** and the **specific code path**, you satisfy the need for verification. The maintainers can confirm the logic error by reading the code and running a single-packet unit test, rendering a full-scale DoS demonstration unnecessary and irresponsible.
+
+*Note: Ensure you explicitly state in your report that a full-scale script was withheld to prevent accidental abuse and comply with cloud provider terms.*
+*This approach aligns with responsible disclosure standards used by major security teams.*

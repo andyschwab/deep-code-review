@@ -1,0 +1,35 @@
+### Proposed Build Strategy: Decoupled Dependency Resolution
+
+To satisfy the requirement for a public build process while protecting internal infrastructure, you must separate the **definition** of dependencies from the **resolution** of their location. The build script should never hardcode Acme Corp's internal URLs. Instead, adopt a "Bring Your Own Dependency" (BYOD) or standard public mirror approach.
+
+**1. Switch to Standard Public Identifiers**
+Modify the build configuration (e.g., `CMakeLists.txt`, `Makefile`, or `binding.gyp`) to reference dependencies by their standard public coordinates (e.g., specific version tags on GitHub, official package manager names like `apt`, `brew`, `vcpkg`, or `conan` center) rather than internal artifact paths.
+*   **Action:** Replace `URL https://artifacts.acme.internal/libX-v1.2.tar.gz` with `find_package(LibX 1.2 REQUIRED)` or a standard package manager manifest.
+*   **Result:** The build script now asks the system for "LibX 1.2" without specifying where to get it. This removes all references to internal infrastructure from the code.
+
+**2. Implement a Fallback Search Order**
+Configure the build system to search for dependencies in a standard order that prioritizes public sources but allows local overrides for development:
+1.  **System Package Manager:** Check standard paths (`/usr/lib`, `/usr/local`) where a user might have installed the library via `apt` or `brew`.
+2.  **Standard Package Managers:** Invoke `vcpkg`, `conan`, or `pkg-config` to locate publicly available binaries.
+3.  **User-Provided Path (Optional):** Allow an optional environment variable (e.g., `LIBX_ROOT`) for users who have a custom build, but **do not** set a default value pointing to internal repos.
+*   **Crucial Rule:** The default value for any path variable must be empty or a standard public path. Never default to an internal URL.
+
+**3. Provide a "Dev-Only" Local Override Mechanism**
+For your internal development, create a local configuration file (e.g., `.local_build_config.sh` or `CMakeUserPresets.json`) that is explicitly listed in `.gitignore`.
+*   **Workflow:** You populate this ignored file with your internal artifact tokens and paths. The main build script checks for this file; if it exists, it sources it to resolve dependencies internally. If it does not exist (as will be the case for public users), the script proceeds to search public sources.
+*   **Safety:** Since this file is never committed, your internal URLs and tokens never leave your machine.
+
+**4. Documentation for Public Users**
+Update the `CONTRIBUTING.md` and `README` to clearly state how to satisfy dependencies using public means:
+*   "To build this binding, ensure `LibX` is installed via your system package manager or build it from source at [Public Upstream URL]."
+*   Provide exact commands for major platforms (e.g., `brew install libx`, `sudo apt-get install libx-dev`).
+
+**Summary of Changes Required:**
+*   **Remove:** All hardcoded `http://artifacts.acme.internal` strings from tracked build files.
+*   **Add:** Logic to detect dependencies via standard tools (`pkg-config`, `find_package`).
+*   **Add:** A `.gitignore` entry for any local config file you use to inject internal paths during your private development.
+*   **Verify:** Clone the repo into a fresh directory on a machine with no access to Acme Corp's network. If the build fails with a clear error like "LibX not found" rather than "403 Forbidden" or "Connection Timed Out" to an internal IP, the leak is plugged.
+
+This approach ensures the PR contains only public-friendly logic, while you retain the ability to build internally using your private overrides.
+
+*Note: Ensure your CI pipeline for this PR runs in a clean, public-network-only environment to prove the build works without internal access before submitting.*

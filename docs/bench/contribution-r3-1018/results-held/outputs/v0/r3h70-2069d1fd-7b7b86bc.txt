@@ -1,0 +1,32 @@
+You cannot contribute your company's dataset, nor can you bypass the requirement for reproducible benchmarks by asking users to fetch private data. The only viable path is to engineer a **deterministic synthetic data generator** that replicates the *statistical properties* and *structural complexity* of your real data without containing any actual user information.
+
+Here is your strategy to proceed:
+
+1.  **Analyze, Don't Copy:** Run a local analysis on the LexCorp data to extract only aggregate statistical metrics. Do not extract rows or specific values. Capture:
+    *   **Schema Depth:** Maximum nesting levels, average array sizes, and distribution of optional fields.
+    *   **Value Distributions:** Histograms of string lengths, integer ranges, and cardinality of enum-like fields (e.g., "user_type" has 5 distinct values with a 60/20/10/5/5 split).
+    *   **Correlation Patterns:** Note structural correlations (e.g., "users with field X usually have array Y of size >10") without recording the actual data pairs.
+
+2.  **Build a Parametric Generator:** Write a C++ or Python script included in the repository that uses these statistics as seeds.
+    *   Use a fixed random seed (e.g., `42`) to ensure the generated dataset is bit-for-bit identical every time anyone runs the generator.
+    *   Implement logic to mimic the "complexity" you observed: if real data has deeply nested objects 5% of the time, program the generator to create that structure 5% of the time using randomized, non-sensitive placeholder strings (e.g., `user_8a7f9d`).
+    *   This satisfies the "realistic load pattern" requirement because the *shape* and *size* of the data match reality, even if the content is fake.
+
+3.  **Validate the Proxy:** Run your benchmark locally on both the real LexCorp data and your new synthetic dataset.
+    *   If the performance improvement gap is similar (e.g., 20% speedup on real data vs. 18% on synthetic), the synthetic set is a valid proxy.
+    *   If the results diverge significantly, refine the generator's parameters (e.g., increase string length variance or nesting depth) until the performance characteristics align.
+
+4.  **Contribute the Generator, Not the Data:** Your Pull Request will include:
+    *   The new generator script.
+    *   Instructions to run it (e.g., `./generate_benchmark_data.sh`).
+    *   The benchmark configuration pointing to the generated output.
+    *   A note in the PR explaining that the generator mimics production-scale complexity based on statistical modeling, ensuring reproducibility without privacy risks.
+
+**Direct Answer to Your Uncertainty:**
+You are unsure how to mimic complexity without real data; the solution is to model the **distribution of structural traits** (nesting, size, variance) rather than the data content itself. Complexity in JSON parsing is driven by memory allocation patterns and tree traversal depth, which are determined by the *shape* of the data, not whether a name is "John Doe" or "User_123."
+
+**Fallback:**
+If maintainers reject the synthetic approach, propose a benchmark mode that accepts a `--data-source` flag. Default it to your synthetic generator, but allow advanced users to point it to their own private datasets for internal validation. This keeps the public repo clean and reproducible while acknowledging that specific internal data may vary.
+
+**Note:** Never attempt to anonymize the real dataset by stripping fields; re-identification risks remain too high for public distribution.
+**Note:** Ensure your generator code is licensed compatibly with the target project before submitting.

@@ -1,0 +1,50 @@
+### Plan to Abstract Test Data and Preserve Coverage
+
+1.  **Map Defect Classes, Not Business Logic**
+    Identify the specific validation rules the regression broke (e.g., "nested array length mismatch," "type coercion failure on optional fields," "circular reference detection"). List these as abstract requirements. Do not map them to "Customer," "Order," or "Wayne Enterprises" concepts. The test must verify the *validator's logic*, not your domain model.
+
+2.  **Synthesize Generic Schemas**
+    Create entirely new, meaningless data structures that trigger the same defect classes.
+    *   *Replace* `Customer` → `EntityA`
+    *   *Replace* `OrderHistory` → `RelatedItemsList`
+    *   *Replace* `SecretAccountID` → `UniqueIdentifierString`
+    *   *Replace* nested business relationships (e.g., `User` → `Profile` → `Billing`) with generic nesting (e.g., `Root` → `Child` → `Grandchild`).
+    Ensure the *structural complexity* (depth, array nesting, optional vs. required mix) matches the original to maintain coverage, but strip all semantic meaning.
+
+3.  **Rewrite Assertions Based on Structure**
+    Update test assertions to check for structural validity rather than business correctness.
+    *   *Bad:* `assert result.customer_id is valid_uuid` (implies business context).
+    *   *Good:* `assert result.field_x matches pattern ^[0-9a-f]{8}$` (checks format only).
+    Verify that the validator rejects invalid structures and accepts valid ones using these generic payloads.
+
+4.  **Sanitize Commit History and Artifacts**
+    Since the AI-generated code containing proprietary schemas already exists in your working directory:
+    *   Do not commit the original files.
+    *   If you already committed them, you must rewrite the branch history (`git rebase -i` or `git filter-branch`) to purge the confidential schemas before pushing. A simple "fix" commit later does not remove the secret from the history.
+    *   Run a local search for unique identifiers (e.g., "Wayne", specific internal field names) across the diff to ensure no traces remain in comments or variable names.
+
+5.  **Final Privacy Gate Check**
+    Before drafting the Pull Request, perform a mental "mosaic check": If a competitor read these tests, could they infer your database schema? If the answer is yes, increase the abstraction level further. The test data should look like random noise that happens to satisfy the validator's rules.
+
+### Draft Commit Message
+```text
+test: add generic regression cases for schema validator nesting
+
+Adds synthetic test data to cover edge cases in nested array validation
+and optional field type coercion. Data structures are abstract (EntityA,
+ItemB) to ensure no domain-specific logic is exposed while maintaining
+structural coverage of the reported regression.
+
+Fixes #[IssueNumber]
+```
+
+### Draft PR Body Section (Testing)
+```markdown
+## Testing
+- Created synthetic datasets mimicking the depth and complexity of the failure scenario without using production schemas.
+- Verified validator rejects malformed generic structures and accepts valid ones.
+- Confirmed no proprietary field names or business logic references exist in the diff.
+```
+
+**Note:** Never push the original AI-generated tests, even to a private fork, if they contain real schemas; treat them as compromised.
+**Note:** If the bug relies on a specific, unique data relationship that cannot be abstracted, the fix may be too specific for upstream; consider keeping it as a local patch.

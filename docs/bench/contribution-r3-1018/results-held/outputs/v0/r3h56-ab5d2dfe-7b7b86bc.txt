@@ -1,0 +1,45 @@
+### Synthesized Test Artifact Generation
+
+To satisfy the requirement for a reproducible test case without violating legal constraints, you must generate a **synthetic file** that mimics the byte structure of the problematic encoding using invented data. Since the bug lies in the *decoding table* and specific *byte sequences* of the rare character set, the semantic content (names, addresses) is irrelevant; only the byte values matter.
+
+**Step 1: Generate the Synthetic Input**
+Write a small script (Python or C++) to construct the file programmatically. Do not open or modify an existing customer file. Instead, define the specific byte ranges or sequences known to trigger the corruption in the rare character set and fill the rest with generic, invented placeholders.
+
+*Example Python approach:*
+```python
+# Generate a synthetic file with the problematic encoding
+# Replace [0xC0, 0xFF] with the actual byte range causing the issue
+problematic_bytes = bytes([i for i in range(0xC0, 0xFF)])
+padding = b"SYNTHETIC_PLACEHOLDER_DATA_" * 100
+
+# Construct the file: mix padding with the specific byte sequences
+content = padding + problematic_bytes + padding
+
+with open("test_rare_encoding.dat", "wb") as f:
+    f.write(content)
+```
+*Action:* Run this script to create `test_rare_encoding.dat`. Verify locally that this new file triggers the garbled output in the unpatched version and converts correctly in your fixed version.
+
+**Step 2: Draft the Pull Request Explanation**
+Include the following text in your PR description to clearly communicate the privacy constraint and the validity of the synthetic test:
+
+> **Test Data Strategy:**
+> The original reproduction cases contain proprietary client information (PII) that cannot be shared due to strict legal constraints. Anonymizing the original files risks altering the specific byte structures required to reproduce this encoding bug.
+>
+> **Solution:**
+> I have included `test_rare_encoding.dat`, a **synthetically generated file** created programmatically. This file contains no real-world data but precisely replicates the problematic byte sequences and encoding characteristics of the rare character set that trigger the corruption.
+> *   **Verification:** This file fails conversion on the base branch (producing garbled output) and passes on this branch (correct decoding).
+> *   **Safety:** No customer data, names, or account numbers are present in this artifact or the commit history.
+
+### Direct Answer to Your Uncertainty
+You do not need to anonymize existing customer files. Instead, **construct a new file from scratch** using code that writes the specific hex values associated with the rare character set. As long as the byte sequence matches the encoding specification that causes the crash, the "content" can be entirely made up. This preserves the bug-triggering structure while containing zero PII.
+
+### Fallback Plan
+If the maintainers insist on seeing a real-world example, politely decline citing the legal prohibition and offer to:
+1.  Provide a screen-recorded video (with sensitive data blurred) showing the bug on your local machine using the real file.
+2.  Walk them through the specific hex values in a debug session via a secure, private channel if the project has one for security-sensitive issues.
+
+***
+
+**Note:** Ensure your git history never contains the original customer file; if it was accidentally added, you must rewrite the branch history before pushing.
+**Note:** Confirm with your legal team that generating synthetic data based on the *structure* of the proprietary format is permissible, though this is standard practice for open-source contributions.

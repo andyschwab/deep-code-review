@@ -1,0 +1,37 @@
+### Strategy: Synthetic Repro in a Contained Environment
+
+You cannot safely attach the raw exploit file to a public PR, nor should you describe the exact byte sequence in public text if it reveals WAF signatures or provides a copy-paste exploit. Instead, provide a **self-contained, synthetic test script** that generates the malicious payload *at runtime* within the test environment.
+
+**Step 1: Create a Generator Script (Not the Payload)**
+Write a PHP or Python script (e.g., `generate_test_payload.php`) that constructs the dangerous byte sequence programmatically using hex codes or base64 decoding.
+*   **Action:** Do not save the output file to disk in your repository. Only commit the generator script.
+*   **Benefit:** The script itself looks like harmless code to the WAF and static analysis tools. It contains no "live" attack data until executed.
+
+**Step 2: Implement an Isolated Unit Test**
+Create a unit test within the project's existing test suite (e.g., PHPUnit) that:
+1.  Calls your generator script to create the byte sequence in memory or a temporary isolated directory.
+2.  Feeds this data directly into the `FileUpload` module's validation function.
+3.  Asserts that the module rejects the file before the fix, and accepts/handles it safely after the fix.
+*   **Action:** Commit only the test code and the generator. The actual malicious file is never stored in the git history.
+*   **Benefit:** Maintainers can run the test suite locally. The payload exists only momentarily during execution, bypassing the need to transfer forbidden files or trigger network-based WAF rules during the PR review.
+
+**Step 3: Sanitize the PR Description**
+In your Pull Request body:
+*   **Do not** paste the raw hex string or base64 blob if it matches WAF signatures.
+*   **Do** describe the *logic* of the bypass: "The validator fails when the magic bytes at offset X match pattern Y, which this test generates dynamically."
+*   **State clearly:** "The proof-of-concept payload is generated dynamically by `tests/generate_test_payload.php` to avoid storing exploit artifacts in the repository and to bypass local WAF restrictions on static files."
+
+**Step 4: Addressing Your Specific Concerns**
+*   **WAF Triggers:** By committing only the *generator code* (which looks like normal logic) and not the *output file* (which looks like an attack), you avoid triggering signature-based scans on the repository content.
+*   **Leaking Exploit Details:** Describing the *concept* ("manipulated magic bytes at offset X") is standard security disclosure. Providing a script that requires execution to become dangerous is significantly safer than attaching a ready-to-use weaponized file. It raises the bar for script kiddies while giving maintainers exact reproduction steps.
+*   **Corporate Policy:** This approach adheres to "no external files" policies because the dangerous artifact is never created outside the controlled test execution context.
+
+**Fallback if Maintainers Insist on a Static File:**
+If maintainers absolutely require a static file attachment:
+1.  Encrypt the file (e.g., `payload.bin.gpg`) and commit the encrypted blob.
+2.  Provide the decryption key only via a secure, private channel (e.g., direct email to a trusted maintainer or a private security advisory platform like GitHub Private Vulnerability Reporting).
+3.  Include instructions in the public PR on how to decrypt and run the test once the key is obtained privately.
+
+---
+*Note: Always verify your project's `CONTRIBUTING.md` for specific rules on security disclosures; some projects mandate private reporting before any public PR.*
+*If the vulnerability is critical, consider reporting it privately to the maintainers first before opening a public PR with even a synthetic test.*

@@ -1,0 +1,36 @@
+You cannot and should not attempt to generate synthetic data that "mirrors actual production data" while claiming it contains no private information if the temporal patterns themselves are identifiable. Instead, you must construct a **minimal, deterministic, and abstract test case** that isolates the mathematical failure of the timezone conversion without referencing any real-world entity, schedule, or pattern.
+
+The maintainers do not need "realistic" data; they need a **reproducible failure condition**. Your current approach conflates "complexity" with "realism." The bug is a logic error in timestamp conversion during DST transitions, not a scheduling pattern issue. Therefore, your test data should be reduced to the smallest possible unit that triggers the overlap.
+
+**Action Plan for Synthetic Data Generation:**
+
+1.  **Abstract the Entities:** Replace "HealthFirst," "Employee Names," and "Department Codes" with generic identifiers like `Org_A`, `User_1`, and `Dept_X`. The specific names are irrelevant to the timezone math.
+2.  **Isolate the DST Transition:** Construct a test case involving exactly two shifts: one ending and one starting precisely during a DST transition (e.g., the "fall back" hour where clocks repeat 1:00 AM to 2:00 AM).
+    *   *Shift A:* Ends at 01:30 (local time) on the transition day.
+    *   *Shift B:* Starts at 01:30 (local time) on the same day.
+    *   In standard time, these might look distinct; in DST confusion, they may overlap or gap incorrectly.
+3.  **Use Standard Libraries for Generation:** Do not hand-craft JSON/CSV files that look like exports. Use Python's `datetime` and `zoneinfo` (or `pytz`) libraries to generate the timestamps programmatically within the test file itself. This proves the data is synthetic by construction.
+    *   Example logic: `dt = datetime(2023, 11, 5, 1, 30, tzinfo=ZoneInfo("America/New_York"))`
+    *   Generate the conflict by manipulating the UTC offset explicitly in the test setup, bypassing the need for a large dataset.
+4.  **Format as Unit Tests, Not Data Dumps:** Do not submit a separate `.csv` or `.json` file containing "fake employees." Embed the data directly into the `pytest` or `unittest` function as simple tuples or dictionaries.
+    *   *Bad:* A 500-row CSV mimicking a hospital roster.
+    *   *Good:* A test function `test_dst_fall_back_overlap()` containing three lines of data definition that explicitly cause the overlap.
+
+**Recommended Test Structure:**
+
+```python
+def test_dst_transition_overlap():
+    # Scenario: Fall back transition in US/Eastern
+    # Shift 1: 00:00 - 01:30 (Local) -> Ambiguous hour handling
+    # Shift 2: 01:30 - 03:00 (Local)
+    # Expected: No overlap if converted correctly to UTC
+    shifts = [
+        {"start": "2023-11-05T00:00:00", "end": "2023-11-05T01:30:00", "tz": "America/New_York"},
+        {"start": "2023-11-05T01:30:00", "end": "2023-11-05T03:00:00", "tz": "America/New_York"},
+    ]
+    assert not check_overlap(shifts)
+```
+
+This approach satisfies the request for "production-like complexity" by targeting the specific edge case (DST ambiguity) rather than the superficial complexity (many rows/names). It guarantees zero privacy leakage because the data never existed outside your test function.
+
+Submit this minimal test case with a note explaining that you isolated the temporal pattern from the PII to adhere to privacy policies while preserving the exact mathematical conditions required to reproduce the bug.

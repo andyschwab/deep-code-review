@@ -1,0 +1,49 @@
+### Sanitized Test Dataset and Generalized Fix
+
+To resolve the parsing error without leaking proprietary information, you must abstract the problem from "Stark Industries invoice formats" to "unescaped special characters in delimited strings." The bug is not about your specific format; it is about the parser failing when a delimiter or regex metacharacter appears within a data field.
+
+**1. Generalized Regex Pattern**
+Do not use a pattern that expects your specific department codes. Instead, use a pattern that captures content based on the *structure* of the invoice line (e.g., `ID | Description | Amount`) while safely handling any character inside the description field.
+
+If your current fragile regex looks like this (hypothetical):
+`/^INV-(\d{4})-(DEPT\d{2})-(PROJ\d{4})\|(.*)\|$/` (Leaks structure)
+
+Replace it with a robust pattern that treats the description as a "black box" of non-delimiter characters, or explicitly escapes input if the delimiter is dynamic. Assuming `|` is your delimiter:
+
+```php
+// Robust pattern: Captures ID, then everything up to the next delimiter, then Amount
+// This works for ANY description content, not just your specific format.
+$pattern = '/^([^|]+)\|([^|]+)\|([^|]+)$/';
+
+// Usage example
+$line = "INV-12345 | Widget (Special Edition) [Model #X-99] | $100.00";
+if (preg_match($pattern, $line, $matches)) {
+    $id = trim($matches[1]);
+    $description = trim($matches[2]); // Safely captures special chars
+    $amount = trim($matches[3]);
+}
+```
+
+If the issue is specifically about regex metacharacters (like `.` or `*`) inside the description breaking a validation step, ensure you are using `preg_quote()` on any dynamic parts before building the regex, rather than trying to match the specific content.
+
+**2. Sanitized Test Dataset**
+Create a test file (`tests/fixtures/special_chars_invoices.csv`) using generic fictional data. The goal is to trigger the same *class* of error (parsing failure due to special chars) using completely unrelated values.
+
+```csv
+id,description,amount
+INV-001,Hammer (Heavy Duty) [Size: L],25.50
+INV-002,Cable & Wire (Type "A"),15.00
+INV-003,Part #X-99 *Limited Edition*,100.00
+INV-004,Item with pipe | inside description,50.00
+INV-005,Quote "Test" and backslash \,30.00
+```
+
+**3. Implementation Strategy for the PR**
+1.  **Remove** all references to "Stark Industries," "department codes," or "project IDs" from the code and comments.
+2.  **Add** the generic CSV above to your test suite.
+3.  **Write** a test case asserting that lines containing `[]`, `()`, `*`, `&`, and `|` parse correctly into their respective fields without throwing an exception or misaligning columns.
+4.  **Commit Message:** "Fix parsing of special characters in product descriptions. Updated regex to safely handle delimiters and metacharacters within fields. Added generic test cases for edge characters."
+
+By focusing on the *mechanism* of the failure (special characters breaking delimiters) rather than the *data* that caused it (your specific invoice schema), you provide a universal fix that protects your internal logic while solving the bug for the community.
+
+Ensure you run the privacy gate script provided in the repository before drafting your pull request to confirm no accidental leaks remain in the diff.

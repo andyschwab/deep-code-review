@@ -1,0 +1,44 @@
+### Strategy for Safe Testing and Validation
+
+Since connecting to the live Globex Manufacturing read-replica is forbidden, you must decouple the driver logic from the physical hardware using a **protocol-level simulation**. Do not attempt to mock the high-level Java application; instead, mock the low-level network stream the driver expects.
+
+1.  **Capture and Sanitize Traffic (One-Time):** If possible, work with a database administrator to capture a raw packet trace (PCAP) of a benign read-only query against the production mainframe during a low-traffic window. Immediately strip all IP addresses, hostnames, and specific inventory values from this trace. Replace them with synthetic placeholders (e.g., `HOST_EXAMPLE`, `ITEM_001`).
+2.  **Build a Replay Server:** Write a lightweight TCP server (in Python or Java) that reads the sanitized packet trace and replays it byte-for-byte to your driver when it connects to `localhost`. This ensures your driver handles the exact framing, handshakes, and timing characteristics of the legacy protocol without ever touching the real database.
+3.  **Inject Faults:** Extend the replay server to intentionally drop packets, delay responses, or send malformed headers based on the trace. This validates your driver's error handling and timeout logic more rigorously than a static mock object could.
+4.  **Contract Testing:** Define a set of "expected byte sequences" for standard operations (connect, query, disconnect). Your integration tests should assert that the driver sends the correct bytes to the replay server and correctly parses the replayed responses.
+
+This approach satisfies the requirement for comprehensive testing by validating the actual protocol implementation against real-world traffic patterns, entirely within your local environment.
+
+### Draft Pull Request Description
+
+**Title:** feat(databridge): Add legacy mainframe driver with protocol-level integration tests
+
+**Problem**
+The DataBridge abstraction layer currently throws a "driver not found" exception when connecting to older mainframe systems using the [Protocol Name] protocol. Existing abstractions do not support the specific handshake and framing required by these legacy endpoints.
+
+**Solution**
+This PR introduces a new driver implementation capable of negotiating the legacy protocol. The implementation includes:
+- Custom handshake logic for [Protocol Version].
+- Robust error handling for connection timeouts and malformed frames.
+- Full integration with the existing DataBridge factory pattern.
+
+**Testing Strategy**
+Due to security policies prohibiting connections to live production infrastructure (specifically read-replicas containing real-time inventory data), comprehensive validation was performed using a **protocol replay mechanism**:
+1.  A sanitized packet trace of legitimate traffic was captured and stripped of all sensitive identifiers.
+2.  A local replay server was constructed to simulate the mainframe's network behavior, including precise timing and frame structures.
+3.  Integration tests verify successful handshakes, data retrieval, and error recovery against this simulator.
+4.  Additional tests inject network faults (latency, packet loss) to ensure driver resilience.
+
+*Note: While this does not replace end-to-end testing on physical hardware, it validates the driver's protocol compliance and stability without risking production data integrity.*
+
+**Risk**
+Low. The change is additive and isolated behind a feature flag. No existing drivers are modified.
+
+**Verification**
+- [x] Unit tests pass for parsing logic.
+- [x] Integration tests pass against the local replay server.
+- [x] Code follows project style guidelines.
+
+---
+*Ensure you have explicit written approval from your legal or security team before contributing any code derived from production traffic patterns, even if sanitized.*
+*Do not include the sanitized packet traces or the replay server code in the PR unless they contain zero proprietary data structures.*

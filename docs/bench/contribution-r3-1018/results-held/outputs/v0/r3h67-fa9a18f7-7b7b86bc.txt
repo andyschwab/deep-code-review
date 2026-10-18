@@ -1,0 +1,57 @@
+### Build Approach Design
+
+To contribute your language binding without leaking internal infrastructure, you must decouple the **build logic** from the **dependency source**. The solution is to refactor the build script to accept dependency locations via standard, public-agnostic mechanisms, defaulting to public mirrors while allowing local overrides.
+
+**1. Generalize the Dependency Resolution**
+Replace hardcoded paths to `Acme Corp` repositories with a tiered lookup strategy in your build script (e.g., `CMakeLists.txt`, `configure.ac`, or `setup.py`):
+*   **Tier 1 (Default):** Point to standard public package registries (e.g., Conan Center, vcpkg, system package managers, or the library's official GitHub releases). Use generic version constraints (e.g., `libfoo >= 2.1`) rather than specific internal build hashes.
+*   **Tier 2 (User Override):** Implement environment variables or CMake cache variables (e.g., `LIBFOO_ROOT`, `DEP_PATH`) that allow users to specify a local path to pre-downloaded binaries. Document that users behind firewalls or needing specific versions should set these variables.
+*   **Tier 3 (Fetch Content):** If the license permits, use the build system's native fetch mechanism (e.g., `FetchContent` in CMake) to pull source tarballs directly from public upstream repositories during the build, compiling them locally instead of fetching pre-built binaries.
+
+**2. Sanitize the Build Script**
+Before drafting your contribution, perform the following rewrites on your code:
+*   **Remove:** Any URL containing `corp.example`, `acme`, or internal IP addresses.
+*   **Replace:** Specific internal artifact names (e.g., `acme-libfoo-2.1.0-build7`) with generic public identifiers (e.g., `libfoo-2.1.0`).
+*   **Mocking:** Instead of mocking with broken binaries, provide a "minimal build mode" flag (e.g., `-DBUILD_MINIMAL=ON`) that compiles the binding against header-only stubs or a lightweight version of the library available publicly, ensuring the linker succeeds without the full proprietary binary set.
+
+**3. Draft Commit Message**
+```text
+feat: add <language> binding with public-agnostic build system
+
+- Replace internal artifact repository references with standard public sources.
+- Add support for user-provided dependency paths via <VAR_NAME> environment variable.
+- Include a minimal build mode for environments without full binary dependencies.
+- Remove all corporate-specific URLs and authentication requirements.
+
+Fixes: #<issue_number> (if applicable)
+```
+
+**4. Draft PR Body**
+```markdown
+## Problem
+The initial implementation of the <language> binding relied on private artifact repositories, preventing public compilation and leaking internal infrastructure details.
+
+## Solution
+Refactored the build configuration to:
+1. Default to public package sources (e.g., <Public Source>).
+2. Allow users to specify local dependency paths via environment variables.
+3. Support a minimal build mode for verification without heavy dependencies.
+
+## Testing
+- Verified build success on <OS> using public packages.
+- Confirmed build succeeds with custom `DEP_PATH` pointing to local binaries.
+- Ensured no internal URLs or tokens remain in the source tree.
+
+## Risk
+Low. The change isolates build configuration logic without altering the core binding implementation.
+```
+
+**Direct Answer to Your Uncertainty**
+You do not need to replicate your exact internal binary versions publicly. Instead, design the build system to accept **any** compatible binary version via user configuration, and document that users requiring the exact internal version must provide it locally. This shifts the responsibility of sourcing proprietary artifacts from the public build script to the individual user's environment.
+
+**Fallback if Maintainers Stay Silent**
+If the maintainers do not respond within two weeks, post a polite follow-up asking if they prefer the dependencies be vendored as source code within the repository (if licenses allow) instead of relying on external package managers.
+
+---
+*Note: Ensure you run a privacy gate script to verify no internal hostnames remain in comments or error strings before submitting.*
+*Do not attempt to sign off on behalf of your employer; add your own `Signed-off-by` line only.*

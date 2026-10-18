@@ -1,0 +1,12 @@
+You cannot and must not submit a reproduction script derived from internal billing logs, even if sanitized, because the specific timing patterns themselves constitute proprietary data that could reveal business volume, peak transaction times, or customer behavior profiles. Since synthetic timestamps fail to trigger the race condition, the bug is likely dependent on a specific structural sequence of events or a clock-skew magnitude rather than the absolute values of the timestamps themselves.
+
+To satisfy the maintainers without leaking data, you must abstract the reproduction mechanism away from "real" time injection entirely. Instead of injecting specific timestamp values, modify your local test harness to expose a hook that allows the test to manually advance the internal clock by arbitrary deltas or to force a specific state transition (e.g., "simulate a backward clock jump of X milliseconds immediately after item Y is enqueued").
+
+Your contribution should include:
+1.  **A Unit Test using Mock Time:** Write a test that uses this hook to deterministically force the exact race condition state (e.g., `clock.advance(-500ms)` or `clock.force_skew()`). The test values should be simple integers (like `100`, `200`) that have no relation to your production logs but mathematically satisfy the race condition logic.
+2.  **The Fix:** The code change that resolves the race condition when this mock time sequence is executed.
+3.  **Explanation:** A description stating, "The race condition triggers when the system clock jumps backward by any amount greater than the processing latency. This test forces such a jump using a mock clock interface to deterministically reproduce the drop."
+
+If the current codebase does not allow injecting a mock clock, your upstream contribution must first include a small refactoring to decouple the system clock from the queue logic (e.g., passing a `Clock` trait instead of calling `std::time::now()` directly). This refactoring is a valid, non-sensitive improvement that enables the test. If you absolutely cannot reproduce the bug without the exact proprietary timing patterns, the issue is likely too specific to your environment's hardware or OS scheduler behavior and may not be a generalizable bug suitable for an upstream fix; in that case, keep the fix local to your fork.
+
+**Note:** Do not attempt to "anonymize" the log-derived timestamps; the pattern of intervals is the secret. If you cannot create a mock that triggers the bug with arbitrary numbers, the reproduction is not minimal or generalizable.

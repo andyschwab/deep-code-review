@@ -1,0 +1,43 @@
+### Sanitized Bug Report Draft
+
+**Title:** Log rotation fails when disk threshold exceeded with long service identifiers; causes crash
+
+**Summary:**
+When disk usage exceeds the configured threshold, the log rotation mechanism fails to trigger if the service identifier length exceeds 24 characters. Instead of rotating or truncating, the application attempts to write to a full disk, resulting in an unhandled `IOException` and immediate crash. This appears to be a buffer miscalculation or path-length validation error in the rotation logic.
+
+**Sanitized Configuration Example:**
+The following configuration reproduces the issue. The critical factor is the `service-id` length and structure, not the specific naming semantics.
+
+```yaml
+logging:
+  # Use a generic but structurally identical identifier (28 chars)
+  service-id: "svc-generic-dept-code-0001"
+  appender:
+    type: RollingFile
+    policy:
+      type: SizeBased
+      max-file-size: 10MB
+      max-history: 5
+      # Threshold triggering the failure
+      disk-threshold-percent: 90
+    file-name-pattern: "logs/${service-id}.%i.log"
+  # Critical: Failure occurs only when service-id length > 24 chars
+  # and disk-threshold-percent is breached simultaneously.
+```
+
+**Reproduction Steps:**
+1. Deploy the service with the sanitized `service-id` above (28 characters).
+2. Fill the disk partition to 91% capacity.
+3. Generate log volume exceeding `max-file-size`.
+4. **Observed:** Application crashes with `java.io.IOException: No space left on device` despite rotation policy.
+5. **Control Test:** Changing `service-id` to "short-svc" (12 chars) allows successful rotation under identical disk pressure.
+
+**Hypothesis:**
+The rotation logic likely calculates the required temporary buffer size based on the final file path. With longer service identifiers, this calculation may overflow a fixed-size buffer or fail a hidden path-length check, bypassing the rotation trigger entirely.
+
+**Security Note:**
+The original internal service names have been replaced with generic placeholders that preserve the exact character count and hyphenated structure required to reproduce the bug. No internal department codes or security clearance patterns are exposed in this snippet.
+
+---
+
+**Note:** This draft isolates the technical trigger (string length) while removing sensitive semantic data. Ensure you verify the character count of your placeholder matches your internal names exactly before submitting.

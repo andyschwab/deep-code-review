@@ -1,0 +1,30 @@
+Do **not** mention this incident in your pull request description. Disclosing it publicly would permanently archive the fact that a secret existed in your fork, potentially drawing attention to the specific commit hash where the leak occurred, even if the URL itself is rotated. Since you have already rotated the webhook, the immediate security risk is neutralized; the remaining task is hygiene, not crisis management.
+
+Execute the following steps silently on your local machine before pushing any further updates:
+
+1.  **Rewrite History Locally**: Use `git rebase -i` to squash or edit the commits containing the `.env` file, ensuring the secret is completely removed from the history, not just the latest state.
+    *   Run: `git rebase -i origin/main` (or the base branch).
+    *   Mark the commit adding the `.env` as `edit` or squash it into a previous commit where the file never existed.
+    *   If editing, delete the `.env` file, run `git add .env`, then `git commit --amend --no-edit`.
+    *   Continue the rebase: `git rebase --continue`.
+
+2.  **Verify Removal**: Before pushing, confirm the secret is gone from the entire history:
+    ```bash
+    git log -p --all -- '*.env' | grep -i "slack"
+    ```
+    If this returns nothing, the secret is scrubbed from your local history.
+
+3.  **Force Push with Lease**: Update your remote fork using `--force-with-lease` to overwrite the public history without destroying other potential work:
+    ```bash
+    git push fork <branch-name> --force-with-lease
+    ```
+    *Note: This replaces the branch history on GitHub. Anyone who cloned your repo *before* this push still has the secret locally, but new clones will be clean.*
+
+4.  **GitHub Cache (Optional but Recommended)**: If your fork triggered any GitHub Actions runs while the secret was present, those logs might still contain the URL. Go to your fork's "Actions" tab on GitHub, find any runs from that 10-minute window, and delete them manually. This removes the secret from build logs.
+
+**Communication Strategy**:
+Say nothing to the maintainers about the leak. Your PR should look like any other high-quality contribution. If a maintainer somehow noticed the previous history (highly unlikely unless they were watching your fork in real-time), they would likely just ask you to rebase; you can simply reply, "I've rebased to clean up some early WIP commits," which is standard practice and truthful without highlighting the security error.
+
+**Notes**:
+- Never commit `.env` files again; add `*.env` to your global `.gitignore` immediately.
+- Rotating the key was the correct and most important first step; the rest is just cleanup.

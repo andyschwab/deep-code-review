@@ -1,0 +1,23 @@
+**Strategy: Extract the Generic Core via Refactoring and Staged Submission**
+
+Do not attempt to slice the existing massive diff directly; the coupling to your proprietary queue makes this impossible without leakage. Instead, perform a local refactoring cycle to isolate the generic logic before creating any upstream branches.
+
+1.  **Local Isolation (The "Adapter" Pattern):**
+    Create a new internal branch. Introduce an abstraction layer (interface) between the logging framework and your message queue. Move all proprietary logic (specific headers, serialization formats, queue-specific backpressure handling) into concrete implementations of this interface that remain in your private repository. Refactor the core changes to rely *only* on this generic interface. If the performance improvement relies on specific queue behaviors, generalize those behaviors into configurable parameters or standard SPI (Service Provider Interface) hooks that the main project can accept without knowing your specific implementation.
+
+2.  **Synthetic Verification:**
+    Replace your internal queue implementation with a mock or a simple in-memory queue that simulates high volume but contains zero proprietary logic. Verify that the refactored core still delivers the performance benefits using this synthetic driver. If the benefits disappear without your specific queue, the improvement is not generic and cannot be upstreamed.
+
+3.  **Logical Slicing for Upstreaming:**
+    Once the proprietary code is physically removed from the branch, slice the remaining generic changes into independent PRs based on functional layers, not file paths. Aim for the following sequence:
+    *   **PR 1: Infrastructure/API:** Introduce new configuration hooks, interfaces, or extension points required for the optimization. No logic changes yet.
+    *   **PR 2: Core Algorithm:** Implement the actual tracing or buffering logic using the new hooks. Keep this strictly algorithmic.
+    *   **PR 3: Integration/Wiring:** Connect the new logic to the existing framework defaults.
+    *   **PR 4: Documentation/Tests:** Add tests using standard Java libraries and updated docs.
+
+    Ensure each PR compiles and passes tests independently. Each must be under 500 lines. If a logical unit exceeds this, break it further by feature flag or sub-component.
+
+4.  **Submission Protocol:**
+    Before opening any PR, engage the maintainers with a design issue. Describe the *problem* (high-volume tracing overhead) and the *proposed generic solution* (new hooks + algorithm) without mentioning your internal queue. Ask: "Is this the right direction for the project?" Once they agree, submit the PRs sequentially. Do not mention Initech or the proprietary system in the PR descriptions; frame everything around generic high-throughput use cases.
+
+**Note:** If the optimization fundamentally requires your specific queue architecture to function, it is not suitable for upstreaming and should remain a private fork. Never attempt to obscure proprietary logic via obfuscation; if it cannot be cleanly separated by interface, it must stay private.

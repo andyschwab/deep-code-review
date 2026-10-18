@@ -1,0 +1,28 @@
+You cannot upstream this specific patch as currently written. The core constraint is that your "generic performance improvements" are inextricably linked to proprietary logic. Submitting code that relies on closed-source interfaces will cause the build to fail for maintainers, leading to an immediate rejection regardless of size. Furthermore, a 10,000-line diff violates the project's explicit social contract (500-line limit), signaling a lack of respect for the maintainers' time.
+
+To succeed, you must execute a **Logical Extraction Strategy** rather than a simple code split. Do not attempt to hide your proprietary logic within the PR; instead, remove it entirely and replace it with standard, extensible hooks that the main project can accept.
+
+**Step 1: Define the Generic Abstraction (The "Hook" PR)**
+Identify the specific extension points your patch uses (e.g., custom buffer flushers, async appenders, or trace-context injectors). Create a new PR that introduces these as *empty* or *default-implementation* interfaces within the logging framework.
+*   **Scope:** Only add the interfaces and configuration hooks. Do not include your Initech implementation.
+*   **Narrative:** "Add extension points for high-volume distributed tracing to allow custom backends."
+*   **Size:** This should be well under 500 lines. It solves a generic problem for the community, not just Initech.
+
+**Step 2: Implement Generic Optimizations (The "Core" PR)**
+Once the hooks are merged, submit the actual performance improvements that do *not* depend on your message queue.
+*   **Scope:** Algorithmic improvements, memory layout changes, or lock-free structures that work with the new hooks but rely on no external proprietary systems.
+*   **Narrative:** "Implement low-latency buffering strategies using the new extension points."
+*   **Constraint:** If an optimization *requires* your message queue to function, it cannot be upstreamed. You must keep that logic in your private fork. Upstreaming requires the code to be runnable by anyone using the standard library.
+
+**Step 3: Maintain the Private Fork**
+Your 10,000-line patch belongs in your private repository.
+*   Keep your proprietary `InitechMessageQueueAppender` in your internal fork.
+*   Have your internal fork depend on the upstream project + your new "Hook" and "Core" PRs.
+*   This ensures you get the benefit of community maintenance on the core logic while keeping your secret sauce private.
+
+**Critical Warning:** Do not attempt to obfuscate the proprietary logic or submit "stubbed" versions that look like real code but fail at runtime. Maintainers view this as technical debt and will reject it. The only acceptable path is to upstream the *mechanism* (the API) while keeping the *policy* (your specific queue integration) private.
+
+If the performance gain is strictly tied to your queue and offers no value to users without it, the honest answer is that this work is not suitable for upstreaming. You should instead document the architecture in a blog post or conference talk (sanitized of secrets) to show how others might build similar integrations, while keeping the code in your private repo.
+
+Note: Before writing code, open a GitHub Issue proposing the "Extension Points" design to gauge maintainer interest.
+Do not submit a PR until the design is explicitly approved in the issue thread.

@@ -1,0 +1,18 @@
+You cannot and must not use real customer transaction IDs in a public pull request, even if they are the only known way to reproduce the bug. Doing so would violate data privacy laws and your company's security policies. The strategy is to reverse-engineer the *properties* of the IDs that cause the collision, not the IDs themselves.
+
+Here is your step-by-step plan:
+
+1.  **Analyze the Collision Properties Locally**: Inside your secure firewall, analyze the specific customer IDs that trigger the deadlock. Identify the mathematical or structural characteristics causing the hash collision. Does it require specific bit patterns? A certain length? A particular distribution of characters? A specific modulo result? Document these *rules*, not the data.
+2.  **Build a Synthetic Generator**: Write a small, local script that generates fake transaction IDs adhering strictly to the rules identified in step 1. The output should be random strings that satisfy the collision conditions but bear no resemblance to real customer data.
+3.  **Verify the Reproduction**: Run your test suite using these synthetic IDs within your private environment. Confirm that the deadlock still occurs. If it does, you have successfully decoupled the bug reproduction from sensitive data.
+4.  **Commit Only the Generator and Synthetic Data**: In your PR, include the test fixture containing the *synthetic* IDs and the generator script (or just the static synthetic values if a script is overkill). Add a comment in the test code explaining: "These synthetic IDs are crafted to trigger a specific hash collision pattern [describe pattern briefly, e.g., 'where the lower 16 bits match'] known to cause a deadlock under high concurrency."
+5.  **Draft the PR Description**: Clearly state that the test uses synthetic data engineered to reproduce the specific collision properties observed in production, ensuring no real customer data is exposed.
+
+**Direct Answer to Your Uncertainty**: You do not need to describe the exact data characteristics in the public PR if you fear it reveals too much about your internal data structure. Instead, simply state: "The included test uses synthetic transaction IDs specifically crafted to reproduce the hash collision scenario leading to the deadlock." The code itself (the synthetic IDs) serves as the proof. If maintainers ask for more detail, you can explain the *type* of collision (e.g., "a boundary condition in the hash map resizing logic") without revealing your data schema.
+
+**Fallback**: If maintainers reject the synthetic data claiming it doesn't feel "real" enough, offer to walk them through the logic of how the synthetic IDs were derived in a private discussion or a screen-share session, proving the correlation without transferring data. Never compromise on sending real data.
+
+**Stop Check**: Before proceeding, ensure your employer's legal team approves open-sourcing this fix, as deadlock issues in database drivers can sometimes touch on proprietary concurrency control mechanisms.
+
+**Note**: The key is shifting the focus from "replicating the exact data" to "replicating the exact conditions."
+**Note**: If the collision relies on a secret salt or internal algorithm not visible in the open-source code, the bug may be specific to your fork, not the upstream project.
