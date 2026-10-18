@@ -30,8 +30,10 @@ human clears it and opens the PR. Default OFF.
 (default `ask`: a draft needs `--approve`; `off`: nothing), `scripts/share_learning.py`
 generalizes one lesson, runs `scripts/prefile_check.sh`, dedupes against open and closed
 upstream issues, and files an **issue** (default upstream: this repository; override with
-`--repo` or `$PERUN_UPSTREAM`), logging each outcome to `.perun/shared-learnings.jsonl`.
-It never opens a PR or pushes, and a privacy-gate failure refuses the share.
+`--repo` or `$PERUN_UPSTREAM`, plus `--allow-repo OWNER/NAME` for any other target). In
+`auto` it files only with `--send` (else a dry run), at most 3 a day per machine, and logs
+each outcome to `.perun/shared-learnings.jsonl`. It never opens a PR or pushes, and a
+privacy-gate failure refuses the share.
 
 ## Answer shape
 
@@ -50,7 +52,8 @@ drafted contribution is being handed off.
    (use the project's private channel, never a public issue).
 2. **Generalize.** Reduce the change to the defect class and fix shape that reproduces
    on an unrelated stack. A quirk that exists only in the contributor's setup is not
-   an upstream change: keep it local. Rebuild the repro from synthetic input
+   an upstream change: keep it local (imprint it in `AGENTS.md` via
+   `deep-code-review` Phase 6). Rebuild the repro from synthetic input
    (minimal, invented values); never attach a customer file, log or dump.
 3. **Strip** third-party identifiers from the patch, tests, commit messages, PR text
    and attachments, using before/after rewrites:
@@ -63,7 +66,7 @@ drafted contribution is being handed off.
    (`git log -p`): `bash scripts/ci-gates.sh privacy --banlist .banlist.txt .`. Any hit blocks. For issue or
    comment text run `bash .claude/skills/contribution/scripts/prefile_check.sh <title-file> <body-file>`.
    Then name what the gate cannot see: paraphrased facts, structural tells, roadmap or timing.
-5. **Draft the PR** (follow the project's template; fill only the boxes that apply):
+5. **Draft the PR** (follow the project's template):
    title, problem with one number or error, the change, how it was tested, risk. Claim
    only what the notes state: a test result, CI status or "fails before, passes after"
    appears only if it was run, else write `[paste test output]`. Scope to the described
@@ -71,14 +74,13 @@ drafted contribution is being handed off.
    gap, never filled with an invented entry.
 6. **Hand off.** When a drafted contribution goes to the human, attach the provenance and
    risk block (below), kept out of the public text. The human re-reads it, clears the residual
-   risk, and opens the PR.
+   risk, and opens the PR per `CONTRIBUTING.md`.
 7. **After it is open**, keep replies privacy-safe too: explain behavior, not the
    employer's architecture. Silence: one polite follow-up after about two weeks, then
    stop or ask where else to raise it. Disagreeing on a review comment: thank, give the
    reason in one line, offer the alternative.
 
-Depth: `references/contribution-procedure.md` (worked generalization, leak
-examples, the filled block). **Read it when** a lesson is borderline or the leak is subtle.
+Depth: `references/contribution-procedure.md`. **Read it when** a lesson is borderline or the leak is subtle.
 
 ## Provenance and risk block (the human signs this)
 
@@ -91,7 +93,7 @@ MECHANICAL SCRUB: <privacy-gate result at the drafted SHA>
 DRAFTED BY: <agent/skill version>
 ```
 
-`NONE` with no reason is rejected: the block exists to make the human check.
+`NONE` without a reason is rejected.
 
 ## Rules that do not bend
 
@@ -109,10 +111,8 @@ DRAFTED BY: <agent/skill version>
 - **Never delete an existing instrument** (gate, eval, rule) to make room for an addition.
 - **No unsupervised consolidation loop** that writes to the shared skillset; triaging
   candidate lessons locally is fine, an autonomous upstream writer is not.
-- Optional scripts, run by hand: `scripts/learning_to_pr.py` (one lesson to a local
-  patch and PR body under `.perun/upstream-drafts/`; refuses on any gate hit) and
-  `scripts/share_learning.py` (a generalized lesson as an issue, per `share_learnings`
-  in `.perun/policy.json`).
+- Optional, by hand: `scripts/learning_to_pr.py` (one lesson to a local patch and PR
+  body under `.perun/upstream-drafts/`; refuses on any gate hit).
 
 ## Verification
 
