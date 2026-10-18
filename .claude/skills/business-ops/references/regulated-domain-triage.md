@@ -3,9 +3,9 @@
 **Read this when** a product is being designed or is about to enter a new
 market, and you need to know *which regimes might apply before the architecture
 hardens* — the most expensive rework class is discovering a regime binds after
-building. This is the operational decision tree for **Lane R**: it runs the
-triage at design time and **names + routes**; it does not restate Lane R's
-asymmetric boundary (see `SKILL.md`) and it never concludes that a regime binds.
+building. This is the operational decision tree for **the routed part**: it runs the
+triage at design time and **names + routes**; it does not restate the
+asymmetric routing boundary (see `SKILL.md`) and it never concludes that a regime binds.
 
 ## Boundary (name and route — never determine that a regime binds)
 
@@ -15,7 +15,7 @@ asymmetric boundary (see `SKILL.md`) and it never concludes that a regime binds.
   market or starts handling a new data type.
 - **Out of scope — route to a licensed professional:** whether a regime
   **actually binds** this business, its thresholds, its deadlines, and what
-  compliance requires. That is a legal determination (Lane R → counsel), never
+  compliance requires. That is a legal determination (→ counsel), never
   concluded here.
 - **No fabrication.** Regimes are named **by name only**; no article numbers, no
   dollar/record thresholds, no deadlines, no "this applies to you" — those stay
@@ -98,7 +98,7 @@ can fire at once — a product can be in multiple regimes.
 - **Money movement beyond your own product's sale?** (holding, transmitting, or
   moving other parties' funds) → money-transmission / financial-services
   regulation → leads: this is rarely a build-first domain. Route to counsel
-  early; cross-ref Lane R (fundraising/securities is a separate Lane-R crossing).
+  early; fundraising/securities is a separate routed question.
 - **Selling to enterprises / security posture demanded?** → buyer-driven
   frameworks like **SOC 2** or **ISO 27001** (not law, but contractual
   obligations that shape architecture) → leads: access control, logging, change
