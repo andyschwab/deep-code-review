@@ -4,9 +4,9 @@
 
 | Skill | Rival | Bench dir (`docs/bench/`) | Judge | n | Win rate [95% CI] | Verdict |
 |---|---|---|---|---|---|---|
-| agentic-ceo | Superpowers (using-superpowers) | `confirm-v2-1017` | GLM-5.1, both orders | 60 | 0.733 [0.642, 0.825] (36 W / 16 T / 8 L) | **Win** |
-| positioning | deanpeters positioning-statement | `confirm-v2-1017` | GLM-5.1, both orders | 60 | 0.650 [0.550, 0.742] (29 / 20 / 11) | **Win** |
-| product-discovery | phuryn pm-skills | `confirm-v2-1017` | GLM-5.1, both orders | 60 | 0.692 [0.592, 0.783] (34 / 15 / 11) | **Win** |
+| agentic-ceo | Superpowers (using-superpowers) | `wins-rep-1018` (replication), `confirm-v2-1017` (first run) | GLM-5.1, both orders | 150; 60 | Replication, preregistered, fresh set: 0.637 [0.577, 0.697] (70 W / 51 T / 29 L; judge slot-1 rate 0.583). First run: 0.733 [0.642, 0.825] (36 / 16 / 8) | **Win** (replicated: lower bound 0.577 above 0.5). The replication point estimate is lower than the first run's and outside its interval; the arm is the shipped text at the replication base, which differs from the first run's by one wording-only commit |
+| positioning | deanpeters positioning-statement | `wins-rep-1018` (replication), `confirm-v2-1017` (first run) | GLM-5.1, both orders | 150; 60 | Replication, preregistered, fresh set: 0.737 [0.680, 0.790] (90 W / 41 T / 19 L; judge slot-1 rate 0.507). First run: 0.650 [0.550, 0.742] (29 / 20 / 11) | **Win** (replicated: lower bound 0.680 above 0.5; arm byte-identical to the first run's) |
+| product-discovery | phuryn pm-skills | `wins-rep-1018` (replication), `confirm-v2-1017` (first run) | GLM-5.1, both orders | 150; 60 | Replication, preregistered, fresh set: 0.690 [0.633, 0.747] (77 W / 53 T / 20 L; judge slot-1 rate 0.563). First run: 0.692 [0.592, 0.783] (34 / 15 / 11) | **Win** (replicated: lower bound 0.633 above 0.5; arm byte-identical to the first run's) |
 | agentic-delivery | Superpowers | `delivery-sup-1018` | DeepSeek-V4-Flash, GLM-5.2, gpt-oss_120b; strict agreement, then majority | 150 | 0.550 [0.507, 0.593] (31 W / 103 T / 16 L; shipped text, unedited) | **Win** by the preregistered rule (lower bound above 0.5), but narrow and the fourth look at one claim: earlier non-wins were `delivery-r2-1017` (n=40, 0.562 [0.487, 0.637]) and `delivery-r3-1018` (n=60, 0.517 [0.450, 0.583]); 103 of 150 tickets are 0.5 under strict agreement. The round-1 figures are withdrawn (`delivery-r1-1017/ERRATA.md`) |
 | idea-critic | gstack plan-ceo-review (the round READMEs say only "the rival") | `idea-critic-r5-1017` | GLM-5.1, GLM-5.2, gpt-oss_120b; strict agreement, then majority | 40 | 0.575 [0.450, 0.700] (17 / 12 / 11) | **Parity, not a win** |
 | idea-critic | same | `idea-critic-r6-1017` | same | 40 | 0.475 [0.362, 0.588] (10 / 18 / 12) | **Parity, not a win** (a different fresh set; not pooled with r5) |
@@ -30,7 +30,7 @@ Verified 2026-10-15 (rival pages, skill pairs, routing, delivery, secrets), 2026
 
 ## Head-to-head results (measured 2026-10-15)
 
-**Superseded skill verdicts (2026-10-17).** The H1 to H1g skill rows below are the earlier n=10 and n=20 runs and are kept as history. Where the table at the top has a newer n≥40 row, that row is the current verdict: positioning and product-discovery are now confirmed wins there, so the H1 "not re-tested" and "loss" labels and the H1d reading that none of those skills is shown superior describe the earlier runs only.
+**Superseded skill verdicts (2026-10-17).** The H1 to H1g skill rows below are the earlier n=10 and n=20 runs and are kept as history. Where the table at the top has a newer n≥40 row, that row is the current verdict: positioning and product-discovery are now confirmed wins there, so the H1 "not re-tested" and "loss" labels and the H1d reading that none of those skills is shown superior describe the earlier runs only. The three wins (agentic-ceo, positioning, product-discovery) were each replicated on a fresh preregistered n=150 set on 2026-10-18 (`wins-rep-1018`, same rivals, same judge, one generator family, synthetic scenarios, a second look at each claim); all three lower bounds stayed above 0.5.
 
 ### H1. Skills against rival skills, held-out set (primary)
 

@@ -17,8 +17,12 @@ SHINGLES = None
 
 
 def corpus():
+    """The corpus as it stood at this bench's freeze: a later bench (wins-rep-1018) is left out, because its 450 scenarios jointly
+    cover more than 10% of an older scenario's shingles without any one of them copying it."""
     global SHINGLES
-    SHINGLES = SHINGLES or c.corpus_shingles()
+    later = REPO / "docs/bench/wins-rep-1018"
+    skip = {p.read_text(errors="ignore").replace("\\n", " ") for p in later.rglob("*") if p.is_file() and p.suffix in (".json", ".txt", ".md", ".py", ".jsonl")}
+    SHINGLES = SHINGLES or c.corpus_shingles([t for t in c.corpus_text() if t not in skip])
     return SHINGLES
 
 

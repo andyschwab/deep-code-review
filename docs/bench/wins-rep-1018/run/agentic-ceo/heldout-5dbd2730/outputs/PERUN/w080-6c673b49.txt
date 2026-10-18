@@ -1,0 +1,35 @@
+**Decision: Do not attempt a single "big bang" cutover; execute a phased migration with a 12-hour validation buffer.**
+
+The math does not support a full cutover at the deadline. At 12 TB/hour, moving 850 TB requires 70.8 hours. You have only 36 hours before the billing reset. Even if you started immediately, you would finish with only ~0.2 hours of margin, leaving zero time for the required pointer switch and validation before the charge hits. The only viable path is to migrate the bulk data *now* (pre-cutover) while the old system is still active, then perform a final delta sync and pointer switch within the 36-hour window.
+
+**Figures:**
+*   Total Data: 850 TB
+*   Transfer Rate: 12 TB/hour
+*   Time Required for Full Copy: 850 / 12 = 70.8 hours
+*   Time Available: 36 hours
+*   Deficit: 70.8 - 36 = 34.8 hours short
+*   Corrected Strategy: Migrate 432 TB (36 hours worth) immediately as "Batch 1" to clear the majority of the load before the deadline, leaving the remaining 418 TB for a post-deadline completion or a rushed delta sync if the provider allows prorated billing during transfer. *Correction:* If the charge applies to *any* data remaining at the reset second, you must move 100% of the data before the reset. Since 70.8 > 36, **you will incur the $45,000 charge unless you can increase bandwidth.**
+*   Required Bandwidth to succeed: 850 TB / 36 h = **23.6 TB/hour**. You are currently at 12 TB/hour (51% of required speed).
+
+**Immediate Actions & Batch Strategy:**
+
+1.  **Initial Diagnostic (Run Now):**
+    *   **Action:** Run a sustained 15-minute throughput test to a temporary bucket on the new provider using the full team's aggregate connection.
+    *   **Goal:** Confirm if the 12 TB/hour average is a hard ceiling or if bursting to 24 TB/hour is possible by aggregating the 5 data engineers' and 2 network specialists' connections in parallel. If the test shows <20 TB/hour aggregate, the $45k charge is unavoidable without purchasing temporary bandwidth upgrades.
+
+2.  **Optimal Batch Sizes:**
+    *   **Strategy:** Parallel Streams, not Sequential Batches.
+    *   **Execution:** Split the 850 TB into 7 distinct streams (one per available specialist). Do not use small file batches; assign entire directory trees or object prefixes to each engineer to minimize coordination overhead.
+    *   **Target:** Each stream must sustain 3.4 TB/hour to hit the 23.6 TB/hour aggregate goal.
+
+3.  **Validation Steps (No Sign-off Required):**
+    *   **Checksum Verification:** Engineers must run SHA-256 hash comparisons on every completed stream immediately upon transfer finish.
+    *   **File Count & Size Audit:** Automated scripts to compare object counts and total byte sizes between source and destination prefixes.
+    *   **Read-Access Test:** Random sampling of 0.1% of migrated files to ensure they open correctly from the new provider.
+    *   **Constraint:** Engineers **cannot** flip the access pointers. This remains the single point of failure requiring your explicit sign-off only after 100% of checksums and read-tests pass.
+
+**Risk Mitigation:**
+If the diagnostic confirms you cannot reach 23.6 TB/hour, immediately contact the current provider to negotiate a one-time grace period or a prorated charge based on the percentage of data moved, using the transfer logs as proof of intent. Do not flip pointers until the new location holds 100% verified data.
+
+*Note: This plan assumes the $45k charge is triggered by data presence at a specific timestamp. If the charge is based on peak usage during the cycle, the strategy changes.*
+*No external tools were used; calculations are based strictly on provided figures.*

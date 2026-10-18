@@ -1,0 +1,30 @@
+**Deployment Session Plan: Emergency Department Bed Availability Model**
+
+**1. Immediate First Action: Baseline Current Performance**
+Before processing any new data or training chunks, capture the current system state. Run the existing heuristic rules against the most recent 7 days of historical data (approx. 2,800 visits). Record the mean absolute error (MAE) for bed availability predictions at 1-hour, 12-hour, and 24-hour horizons. This establishes the performance floor; the new model must demonstrably beat these specific metrics on validation sets before any dashboard update is considered.
+
+**2. Data Chunk Validation Order**
+Given the 36-month window (120,000 visits) and memory constraints, process the 12 monthly chunks in **reverse chronological order** (Month 36 down to Month 1).
+*   **Rationale:** Emergency department dynamics change rapidly due to seasonal trends, policy shifts, and post-pandemic behaviors. Recent data (last 6–12 months) is most predictive of the next 48 hours. Validating recent chunks first ensures that if the model fails on current patterns, you discover it within the first two hours of the six-hour window, leaving time to abort before the irreversible deadline.
+*   **Procedure:** Train on chunks 36, 35, and 34 first. Validate immediately against a holdout set from the last 30 days. Only proceed to older chunks (33–1) if recent performance exceeds the baseline.
+
+**3. Monitoring Tasks for Junior Staff**
+Delegate the following repetitive, non-decision-heavy tasks to the four junior data scientists to maximize your oversight capacity:
+*   **Data Integrity Checks:** Verify null values, outlier ranges, and schema consistency for each incoming chunk before training begins.
+*   **Resource Monitoring:** Track server memory usage and training job duration per chunk to ensure we stay within the six-hour window. Alert immediately if a single chunk exceeds 25 minutes.
+*   **Metric Logging:** Record training loss and validation MAE for every chunk into a shared log. Do not ask them to interpret trends; their role is strictly accurate transcription of numbers.
+*   **Drift Detection:** Run statistical tests (e.g., Kolmogorov-Smirnov) comparing the distribution of input features in the current chunk versus the baseline month. Flag only if the p-value is < 0.01.
+
+**4. Error Rate Threshold for Halting Rollout**
+The rollout must halt immediately, requiring your personal decision to proceed or abort, if the new model's validation MAE on the **most recent 30-day holdout set** exceeds the current heuristic baseline by **more than 5%**.
+*   **Critical Nuance:** Even if the aggregate error is lower, halt if the error spike occurs specifically during **peak triage hours** (e.g., 6:00 PM – 2:00 AM) or if the model under-predicts bed availability by >10 beds in any single 4-hour window. Under-prediction causes patient boarding; over-prediction causes idle staff. Under-prediction is the higher risk in an ED setting.
+
+**5. Execution Timeline (6-Hour Window)**
+*   **Hour 0–0.5:** Baseline current heuristics (Action #1).
+*   **Hour 0.5–2.5:** Process/Validate Chunks 36, 35, 34 (Recent Data). *Go/No-Go Decision Point.*
+*   **Hour 2.5–5.0:** Process/Validate Chunks 33–1 (Historical Data) *only if* recent data passes.
+*   **Hour 5.0–5.5:** Final integration test on full 36-month aggregate.
+*   **Hour 5.5–6.0:** Final review. If metrics pass, update live dashboard. If not, maintain old heuristics.
+
+**Note:** Do not delete the old heuristic code from the repository until the new model has run successfully in production for 72 hours, even if the dashboard logic overwrites the active rules.
+**Note:** Ensure the junior staff knows that "memory cap" errors are critical path blockers; they must pause all other jobs on the server during this window.

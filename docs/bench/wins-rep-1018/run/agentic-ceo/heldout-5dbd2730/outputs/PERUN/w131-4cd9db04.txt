@@ -1,0 +1,32 @@
+**Decision:** Proceed with a phased migration starting immediately, but **defer the DNS switchover** until a 100% schema match is verified via automated diff, not manual review. The single number driving this is the **zero-tolerance for data loss**; a 20-minute delay is recoverable, but permanent loss of driver visibility is not.
+
+**Figures:**
+*   **Data Volume:** 2,200 vehicles × ~50MB/day/vehicle (estimated) = ~110GB/day. Over a 30-day validation window = ~3.3TB. Stated "terabytes" aligns; assume 4TB total for safety margin.
+*   **Time Budget:** Today to next Tuesday (assume 5 business days). 4TB transfer at 1Gbps (conservative dedicated line) = ~9 hours pure transfer time. Stated deadline is tight but feasible if parallelized; mismatch risk is the bottleneck, not bandwidth.
+*   **Impact Gap:** 20 mins/route vs 2 secs/route = 600x slowdown. This justifies the rush, but does not justify skipping the schema lock.
+
+**Session Plan & Roles:**
+
+1.  **Phase 1: Schema Lock & Dry Run (Days 1-2)**
+    *   **Data Engineers (Independent):** Execute a read-only dump of the production schema and the new environment schema. Run an automated structural diff. Migrate a 1% sample dataset (randomized across regions) to the new environment.
+    *   **Your Review (Required):** The **Schema Diff Report** (must show 0 mismatches) and the **Sample Load Latency** (must be <2 seconds). Do not review raw logs; review the pass/fail certificate of the diff.
+
+2.  **Phase 2: Shadow Mode (Days 3-4)**
+    *   **Data Engineers (Independent):** Point a non-critical subset of vehicles (e.g., 50 test units or a specific depot) to the new system in "shadow mode" (dual-write or replayed telemetry). Compare route outputs between old and new systems for identical inputs.
+    *   **Your Review (Required):** The **Route Divergence Rate**. If >0.1% of routes differ by >5 minutes or 2km, halt. You are signing off on algorithmic equivalence, not code.
+
+3.  **Phase 3: The Switch (Day 5/Tuesday)**
+    *   **Condition:** Only proceed if Phase 1 and 2 are green.
+    *   **Action:** Flip DNS TTL to minimum 1 hour prior. Execute switch during lowest traffic window (e.g., 3:00 AM).
+    *   **Your Review:** Real-time dashboard of **Telemetry Ingestion Rate** and **Route Generation Latency** for the first 30 minutes post-switch.
+
+**First Diagnostic Run:**
+Execute a **Schema Structural Diff** immediately. Command: `diff_schema --source prod_legacy --target cloud_new --strict-mode`.
+*   **Goal:** Confirm column types, indices, and constraints match exactly.
+*   **Stop Condition:** If any mismatch is found, the migration halts. No data moves until this is green.
+
+**Halt Trigger:** If the Schema Diff reports >0 errors OR if Shadow Mode route divergence exceeds 0.1%. Action: Freeze migration, engage DB architects, revert to old provider temporarily if cutoff looms.
+**Fallback Trigger:** If post-switch latency exceeds 5 seconds for >10 minutes. Action: Revert DNS immediately (pre-warmed rollback plan required).
+
+**Note:** Do not attempt to migrate the full 4TB before validating the schema; it wastes time if the structure is wrong.
+**Note:** Your personal review is strictly for go/no-go gates based on aggregated metrics, not engineering implementation details.

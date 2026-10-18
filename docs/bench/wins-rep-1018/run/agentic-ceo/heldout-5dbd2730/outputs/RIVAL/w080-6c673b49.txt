@@ -1,0 +1,28 @@
+### Migration Work Session Structure
+
+**1. Optimal Batch Sizes**
+To balance transfer efficiency with risk mitigation, divide the 850 TB into **17 batches of 50 TB each**.
+*   **Rationale:** At 12 TB/hour, each batch takes approximately 4.17 hours to transfer. This allows for roughly 8 full batches within the 36-hour window if run sequentially, but you have 7 team members (5 engineers + 2 specialists) to parallelize operations.
+*   **Execution Strategy:** Run **3 batches concurrently** (150 TB total in flight). This utilizes the dedicated line effectively while leaving headroom for bandwidth fluctuation. Three concurrent streams at ~4 hours each means you can complete roughly 6 batches (300 TB) every 4-5 hours. With 17 batches, you need roughly 12-14 hours of pure transfer time in this parallel model, leaving a 20+ hour buffer for validation and pointer switching. This margin is critical for handling the "risky step" of flipping access pointers without rushing.
+
+**2. Validation Steps Requiring No Sign-off**
+The data engineers can autonomously execute the following validations immediately upon the completion of each 50 TB batch:
+*   **Checksum Verification:** Compare SHA-256 hashes of source and destination files for every object in the batch. Any mismatch triggers an automatic re-transfer of that specific object.
+*   **File Count and Size Audit:** Verify that the total object count and aggregate byte size of the destination batch match the source manifest exactly.
+*   **Spot-Read Integrity Test:** Randomly select 0.1% of files within the batch, attempt to open/read them from the new provider, and verify header integrity.
+*   **Metadata Preservation Check:** Confirm that critical metadata (timestamps, permissions, tags) has been preserved on the migrated objects.
+
+*Constraint:* Engineers must **halt** and escalate if more than 2% of objects in a batch fail checksum verification or if spot-read failures exceed 0.5%, as this indicates systemic corruption rather than isolated transfer errors.
+
+**3. Immediate Diagnostic Check**
+Before committing to the full migration path, run a **sustained throughput stress test** immediately:
+*   **Action:** Initiate a dummy transfer of a representative 500 GB dataset (containing a mix of file sizes similar to the cold storage profile) to the new provider.
+*   **Measurement:** Monitor the transfer rate every 5 minutes for 30 minutes.
+*   **Success Criteria:** The average speed must remain stable at or above 12 TB/hour (approx. 3.33 GB/s) with no dips below 10 TB/hour for longer than 2 minutes.
+*   **Purpose:** This confirms not just peak bandwidth, but stability under load, ensuring the dedicated line can sustain the required velocity for the 36-hour duration without thermal throttling, ISP shaping, or routing issues.
+
+If the stress test fails to meet the stability criteria, the migration plan must be paused to troubleshoot network configuration before any actual data movement begins.
+
+---
+*Note: Ensure tape backup retrieval processes are pre-staged (paperwork/approvals) now, even though retrieval takes 3 days, to minimize delay if restoration becomes necessary.*
+*Do not flip access pointers until all 17 batches have passed the autonomous validation steps and a final manual audit of the total 850 TB is complete.*

@@ -1,0 +1,37 @@
+**Decision:** Proceed with a **Phased Pilot Migration** tonight, targeting only 50 records to validate the translation key before processing the full backlog. The single number driving this plan is **0**: zero permanent changes to the production database until the pilot passes a 100% match rate on patient IDs.
+
+**Figures:**
+*   **Total Records:** 8,200 historical + 40 upcoming = 8,240 total.
+*   **Window:** 8 PM to 5 AM = 9 hours available.
+*   **Capacity:** 3 analysts × 9 hours = 27 analyst-hours.
+*   **Pilot Scope:** 50 records (approx. 1 hour total for setup, run, and verify).
+*   **Remaining Capacity:** 26 hours reserved for full migration *only after* pilot sign-off.
+
+**Migration Plan for Tonight**
+
+**Phase 1: Translation Key Verification (8:00 PM – 9:30 PM)**
+*   **Action:** Extract a deterministic sample of 50 historical records covering all known patient ID formats (e.g., legacy alphanumeric, numeric-only, special characters).
+*   **Independent Work:** Analyst A runs the mapping script on this subset in a sandbox environment. Analyst B manually calculates the expected new IDs for these 50 records using the mapping logic. Analyst C prepares the validation query to compare Script Output vs. Manual Calculation.
+*   **Your Review:** You must personally review the **Comparison Report** for these 50 records. Do not proceed if even one ID mismatch exists.
+
+**Phase 2: Parallel Historical Migration (9:30 PM – 4:00 AM)**
+*   **Data Segmentation:** Split the remaining 8,150 historical records into three distinct batches based on **Date Ranges** (e.g., Batch 1: 2018–2019, Batch 2: 2020–2021, Batch 3: 2022–Present). This ensures no overlap and allows independent verification.
+*   **Execution:** Each analyst takes one batch. They must run the migration in "Write-Ahead Log" mode (or equivalent transactional safety) so changes can be rolled back instantly if an error is detected mid-stream.
+*   **Validation:** Automated checksums run immediately after each batch completes. Any checksum failure halts the entire operation.
+
+**Phase 3: Upcoming Procedures & Final Sync (4:00 AM – 5:00 AM)**
+*   **Action:** Migrate the 40 upcoming procedures separately as a high-priority batch.
+*   **Verification:** Cross-reference the 40 new IDs against the surgical schedule for Monday morning.
+
+**Critical Validation Samples for Your Review**
+Before committing to the full run, you must personally inspect:
+1.  **The "Edge Case" Matrix:** A table showing how the translation key handled the 5 most complex legacy ID formats found in the pilot.
+2.  **The Rollback Test Proof:** Confirmation that the 50 pilot records were successfully deleted/rolled back from the sandbox, proving reversibility.
+3.  **The Checksum Signature:** The hash value of the source subset vs. the migrated subset.
+
+**First Concrete Step to Verify Integrity**
+**Run a "Round-Trip" Test on 5 Records Immediately.**
+Take 5 known patient IDs from the legacy system. Run them through the translation script to generate new IDs. Then, run a reverse-lookup function (if available) or manually apply the inverse logic to see if you can derive the original ID from the new one. If the reverse derivation does not match the original exactly, the translation key is non-deterministic and must be fixed before processing any further data.
+
+**Halt Trigger:** If the pilot phase reveals >0 mismatches in patient IDs, stop all work at 9:30 PM. Do not attempt to "fix on the fly."
+**Fallback Trigger:** If the migration is not 100% complete by 4:30 AM, abort the remaining historical batches and prioritize only the 40 upcoming procedures to ensure Monday's schedule is safe.

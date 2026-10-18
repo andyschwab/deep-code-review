@@ -1,0 +1,24 @@
+### Work Session Plan: Dangerous Goods Automation Build
+
+**1. Optimal Workflow Sequence**
+Given the irreversible nature of the deployment and the zero-tolerance requirement for shipping halts, the workflow must prioritize validation safety over speed of completion.
+*   **Phase A: Logic Sandbox & Parallel Run (Days 1–12):** Develop the validation engine in an isolated environment. Do not connect to live shipment data yet. Instead, feed historical data from the last 6 months into the new logic to simulate outcomes. Compare automated decisions against the original manual entries to identify false positives (blocks) and false negatives (missed errors).
+*   **Phase B: Shadow Mode Deployment (Days 13–17):** Deploy the code to production infrastructure but keep the "override switch" disabled. The system processes real shipments in the background, logging what it *would* have done without actually blocking anything. This validates performance against live, edge-case data.
+*   **Phase C: Staged Rollout with Circuit Breaker (Days 18–20):** Enable the logic for only 5% of traffic (or a specific low-risk lane). If the error rate exceeds the pre-set tolerance, the system automatically reverts to manual mode. Once stable for 24 hours, increase to 50%, then 100%.
+
+**2. Risk Tolerance Parameters**
+You must define these thresholds before writing a single line of code:
+*   **False Positive Threshold (Block Rate):** Set at **0.0%**. Since the system overrides manual input, any legitimate shipment blocked is a total halt. The tolerance for blocking valid shipments is zero; if the system is unsure, it must default to "Manual Review Required" rather than "Blocked."
+*   **False Negative Threshold (Missed Error Rate):** Set at **<0.5%**. While fines are costly ($5,000), a total shipping halt is existential. Accept a calculated risk of missing 1 in 200 errors if it guarantees flow continuity, provided those missed errors are caught by a secondary human spot-check process during the transition.
+*   **Rollback Trigger:** Automatic reversion to manual mode if >3 shipments are incorrectly blocked within any 1-hour window.
+
+**3. Immediate Actions for Today**
+To begin the build phase safely within the 20-day window:
+*   **Action 1: Data Freezing & Sanitization.** Extract the last 6 months of shipment data (approx. 3,600 records). Anonymize customer details but retain all hazardous material codes, weights, and destination fields. This is your test corpus.
+*   **Action 2: Define the "Safe Fail" State.** Architect the system so that if the automation logic throws an exception or returns an "unknown" confidence score, the default action is **Queue for Manual Review**, not **Reject**. Hardcode this fail-safe before building the validation rules.
+*   **Action 3: Team Role Assignment.** Split the eight-person team:
+    *   *Group A (3 people):* Map current regulatory rules to pseudo-code logic.
+    *   *Group B (3 people):* Build the ingestion pipeline and the "Shadow Mode" logging infrastructure.
+    *   *Group C (2 people):* Develop the automated test suite that runs the historical data against Group A's logic continuously.
+
+**Note:** The "Shadow Mode" phase is non-negotiable; skipping it to save time invites the total shipping halt you cannot afford. Ensure the "Manual Review" queue is staffed during the staged rollout to handle edge cases the logic flags as uncertain.

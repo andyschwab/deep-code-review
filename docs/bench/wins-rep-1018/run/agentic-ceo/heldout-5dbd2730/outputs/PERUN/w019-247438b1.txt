@@ -1,0 +1,36 @@
+**Decision:** Execute a parallel preparation followed by a single, gated cutover window. The one number this rests on is **45 minutes**: every minute of the cutover plan must be accounted for to stay under the SLA breach threshold.
+
+**Figures:**
+*   **Volume:** 15,000 reports/day ≈ 625 reports/hour ≈ 10.4 reports/minute.
+*   **Risk Window:** 45 minutes max downtime = ~470 reports potential backlog.
+*   **Constraint:** 1 major schema migration allowed.
+*   **Team:** 4 engineers (1 Lead/You, 3 Junior/Support).
+
+**Sequence of Operations & Delegation:**
+
+1.  **Preparation Phase (Parallel – Immediate Start):**
+    *   **You (Lead):** Draft the irreversible cutover script and the specific "Go/No-Go" criteria based on data integrity checks. Define the exact rollback trigger (e.g., if data stream validation fails within 5 minutes of switch).
+    *   **Engineer A (Junior):** Set up the new notification system environment and run dry-run schema migrations on a fresh clone of production data (not the live cluster) to validate timing and syntax.
+    *   **Engineer B (Junior):** Write the data validation scripts that will compare record counts and checksums between the old queue and the new system post-migration.
+    *   **Engineer C (Junior):** Prepare the communication templates for hospital partners in case the 45-minute window is exceeded, and set up real-time monitoring dashboards for the cutover.
+
+2.  **Review & Freeze (T-minus 2 hours):**
+    *   Consolidate Engineer A's dry-run results. If the migration takes >30 minutes in dry-run, abort and simplify the schema immediately.
+    *   You review and approve the final cutover script. No changes allowed after this point.
+
+3.  **Execution Window (The 45-Minute Gate):**
+    *   **Step 1:** Stop the old notification service (Start Timer).
+    *   **Step 2:** Execute the single schema migration on the live cluster.
+    *   **Step 3:** Switch the live data stream to the new system (Irreversible Point).
+    *   **Step 4:** Run Engineer B's validation scripts immediately.
+    *   **Step 5:** If validation passes, restart the new service. If validation fails or timer hits 40 minutes, execute rollback immediately.
+
+4.  **Verification:**
+    *   Confirm the first successful delivery of a test report through the new system.
+    *   Monitor the backlog clearance rate to ensure the ~470 pending reports are processed without new delays.
+
+**First Concrete Action Right Now:**
+**Instruct Engineer A to immediately clone the production database to a staging environment and start the dry-run schema migration.** This is the critical path; if the migration exceeds 30 minutes in a controlled environment, the entire plan fails, and you need to know this in the first 15 minutes to adjust the schema strategy before touching the live cluster.
+
+**Halt Trigger:** If the dry-run migration exceeds 30 minutes or shows data corruption, stop all work and reconvene to simplify the schema.
+**Fallback Trigger:** If live validation fails 5 minutes after the stream switch, revert the DNS/Stream pointer to the old queue immediately (assuming the old queue was paused but not purged until confirmation).

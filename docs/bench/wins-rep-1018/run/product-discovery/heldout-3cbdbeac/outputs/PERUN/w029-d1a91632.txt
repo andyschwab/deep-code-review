@@ -1,0 +1,29 @@
+**Assessment: Feasibility of Crisis Line Integration on Current Infrastructure**
+
+**Verdict:** The proposed integration carries **unacceptable safety risks** under current infrastructure assumptions. The 2% volume estimate is a dangerous simplification that ignores correlation during outages, and the system lacks defined latency thresholds for life-critical handoffs.
+
+**1. The "2% Volume" Fallacy (Correlation Risk)**
+Your assumption that crisis traffic will remain a flat 2% of total volume is the primary failure point. Crisis events are not randomly distributed; they correlate with external stressors and platform instability.
+*   **Failure Scenario:** During the 45-minute East Coast outage, user anxiety likely spiked. If standard messaging failed, users may have simultaneously flooded the crisis line.
+*   **Capacity Breach:** If total traffic drops to 3,000 rpm due to the outage, but crisis attempts surge to 20% of that volume (600 rpm) while retry logic pushes effective requests higher, you risk exceeding the *processing* capacity of the handoff logic, even if raw API calls stay under 5,000. More critically, if the outage causes a "thundering herd" retry storm upon recovery, the instantaneous spike could exceed the 5,000 rpm limit, dropping critical packets first if not prioritized.
+
+**2. Latency vs. Throughput (The Hidden Killer)**
+Your API limit (5,000 rpm) measures throughput, not latency. A crisis line fails if the *handoff time* exceeds human tolerance (seconds), not just if the pipe is full.
+*   **Failure Point:** During the recent 45-minute outage, what was the p99 latency for non-critical messages? If standard traffic saturates the queue, crisis requests face the same queue depth unless explicitly prioritized.
+*   **Safety Gap:** Without a dedicated "fast lane" (priority queue) for crisis tags, a surge in standard traffic during a partial outage will delay crisis handoffs. A 30-second delay in a crisis context is a safety incident. Your current data does not prove the system can maintain <5 second handoff times during the degradation patterns seen last month.
+
+**3. Single Point of Failure (API Provider Limit)**
+Relying on a single API provider limit (5,000 rpm) for a safety-critical feature violates basic redundancy principles.
+*   **Failure Point:** If a regional DDoS attack or a viral event drives total traffic to 4,900 rpm of standard chat, you have only 100 rpm headroom for crises. If the crisis volume exceeds 100 rpm (just 20 users per minute globally), the API rejects the connection.
+*   **Result:** Users attempting to reach help receive a generic "rate limit exceeded" error, which is legally and ethically catastrophic for a mental health feature.
+
+**Required Actions Before Proceeding:**
+1.  **Reject the 2% Assumption:** Model a "worst-case" scenario where crisis traffic represents 20-50% of total volume during an incident.
+2.  **Implement Priority Queuing:** Architect a separate, reserved capacity lane for crisis tags that bypasses standard traffic limits.
+3.  **Define Latency SLOs:** Establish a strict Service Level Objective (e.g., "99.9% of crisis handoffs must occur within 10 seconds") and test if the current infrastructure meets this during simulated outages.
+4.  **Fail-Safe Routing:** Design a fallback mechanism (e.g., immediate redirect to a static, hosted phone number page) if the API queue depth exceeds a safe threshold.
+
+**Conclusion:** Do not integrate using the current "best effort" architecture. The cost of false negatives (dropped crisis calls) outweighs the engineering effort required to build redundant, prioritized pathways.
+
+*Note: This assessment relies solely on the traffic patterns and outage details provided; actual legal compliance requires counsel review of duty-of-care statutes in your operating regions.*
+*Immediate next step: Run a chaos engineering test simulating the East Coast outage pattern with a 10x spike in tagged "crisis" requests.*

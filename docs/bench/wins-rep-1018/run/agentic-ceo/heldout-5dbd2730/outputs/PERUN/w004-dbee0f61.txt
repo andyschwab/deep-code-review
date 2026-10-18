@@ -1,0 +1,28 @@
+**Decision:** Proceed with a "Validate-then-Stagger" migration strategy rather than a single 12-hour cutover. The single-block downtime creates an unacceptable risk of missing the November 15 deadline if corruption is detected post-transfer.
+
+**Figures:** 4 PB at typical research network speeds (10 Gbps effective) requires ~37 days of continuous transfer; even at 100 Gbps, it requires ~3.7 days. A 12-hour window is only viable for metadata synchronization and final delta sync, not the full payload. The stated "12-hour offline" assumption is unrealistic for the full volume and must be corrected to a "12-hour final cutover" following weeks of background replication.
+
+**Critical Path & Session Plan:**
+The critical path is **Background Replication → Integrity Verification → Staged Cutover**. You must intervene immediately to authorize the *start* of background replication, not the downtime. Downtime authorization is only required for the final delta sync (hours, not days).
+
+**Optimal Integrity Validation Sequence:**
+1.  **Pre-Move (Now):** Generate cryptographic checksums (SHA-256) for source data manifests, not every file individually (too slow). Delegate to Data Engineering to implement streaming checksums during the initial background copy.
+2.  **During Move:** Use cloud-provider native verification tools (e.g., AWS S3 Integrity, Azure MD5) which validate data in-flight. Delegate this monitoring to Data Engineering.
+3.  **Post-Move (Before Cutover):** Perform statistical sampling validation on the target region. Run small-scale analysis jobs on the new data to ensure usability, not just bit-perfect storage.
+4.  **Final Cutover (The 12-hour window):** Re-calculate checksums only for data changed since the background copy started (the "delta"). This is the only step requiring full cluster downtime.
+
+**Delegation vs. Owner Intervention:**
+*   **Delegate to Data Engineering:** Scripting the background replication, setting up the streaming checksum pipeline, configuring cloud-side verification, and running the statistical sampling tests.
+*   **Owner Intervention Required:**
+    1.  **Immediate:** Authorize the provisioning of the target cloud environment and the initiation of the weeks-long background replication.
+    2.  **One Week Pre-Deadline:** Approve the specific 12-hour maintenance window date based on the background copy progress report.
+    3.  **Go/No-Go:** Authorize the final DNS/endpoint switch only after sampling validation passes.
+
+**First Concrete Step:**
+Instruct the Data Engineering team to **calculate the current daily change rate (delta) of the 4 PB dataset** and **provision a test transfer of 10 TB** to the new region today to establish the actual achievable throughput. Do not plan the 12-hour window until the real throughput is measured.
+
+**Halt Trigger:** If the test transfer reveals throughput below 40 Gbps effective, halt the current plan and immediately request a grant extension or temporary storage bridge, as the math will not close by November 15.
+**Fallback Trigger:** If the daily data change rate exceeds the nightly transfer capacity, switch to a "read-only source" mode 48 hours before the deadline instead of 12 hours.
+
+*Note: This plan assumes the cloud provider accepts large-scale data shipments (physical drive courier) as a fallback if network transfer fails; verify this contract clause immediately.*
+*No files were accessed; bandwidth calculations are estimates based on standard high-performance research network constraints.*
