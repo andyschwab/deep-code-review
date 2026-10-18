@@ -1,0 +1,27 @@
+**Do not describe theoretical consumption alone, and do not share the full exploit script.** Theoretical descriptions are often rejected as unverified, while sharing a scalable DoS script in a public issue violates safety policies and risks immediate abuse.
+
+Instead, provide a **safe, non-destructive proof of concept (PoC)** that demonstrates the *mechanism* of the leak without triggering the actual denial of service. Follow these steps:
+
+1.  **Instrument the Code Locally:** Modify your local copy of the message queue server (not the cloud staging environment) to expose internal metrics for file descriptor (FD) usage via a debug endpoint or log line. Do not commit these changes yet.
+2.  **Create a "Micro-Scale" Reproducer:** Write a minimal client script that opens only enough connections (e.g., 10–50) to show a *monotonic increase* in FD usage that does not decrease after the connections are closed.
+    *   *Goal:* Show the trend (the leak), not the crash (the DoS).
+    *   *Safety:* This consumes negligible resources and cannot violate cloud ToS.
+3.  **Capture Evidence Locally:** Run the micro-scale reproducer against your local instrumented server. Capture a screenshot or log snippet showing:
+    *   Connection count rising.
+    *   FD count rising correspondingly.
+    *   FD count *failing* to return to baseline after connections close.
+4.  **Draft the Security Report:**
+    *   **Title:** "Resource Leak: File descriptors not released after client disconnect."
+    *   **Description:** Explain the logic error (e.g., "Handles are allocated on connect but the cleanup routine fails on error path X").
+    *   **Evidence:** Attach the log/screenshot from Step 3. State clearly: "A full-scale DoS test was omitted for safety; however, the attached micro-test confirms the underlying resource leak mechanism which scales linearly to exhaustion."
+    *   **Remediation Hint:** If known, suggest the fix (e.g., "Ensure `defer close()` is called in the error handler").
+5.  **Submit via Private Channel:** Use the project's designated security reporting method (e.g., `security@` email, GitHub Private Vulnerability Reporting, or HackerOne). Explicitly state in your cover note: "I have a scalable PoC available for verified maintainers upon request, but have provided a safe micro-PoC here to demonstrate the leak without risking infrastructure."
+
+**Direct Answer to Your Uncertainty:**
+You should validate the *leak mechanism* at a tiny scale locally, not the *exhaustion event* in the cloud. Maintainers need to see that resources are not reclaimed, not that the server actually crashes. This satisfies the need for reproducibility while adhering to all safety and policy constraints.
+
+**Fallback if Maintainers Insist on Full Scale:**
+If they demand proof of total exhaustion, offer to run the full script on a local machine you control via a screen-shared session or a recorded video call, where they can witness the crash in real-time without you ever uploading the exploit code or running it on shared infrastructure.
+
+**Note:** Never attach the full "thousands of connections" script to a public or semi-public ticket before a fix is merged.
+**Note:** If the project has no private security channel, send the micro-PoC and ask for a temporary private repository to share the full details.

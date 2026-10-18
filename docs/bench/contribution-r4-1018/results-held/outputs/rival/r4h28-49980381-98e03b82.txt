@@ -1,0 +1,62 @@
+### PR Description Strategy & Synthetic Test Construction
+
+**1. Problem Description (The "Why")**
+Do not mention Wayne Enterprises, financial reports, or specific revenue figures. Frame the issue purely as a numerical stability problem observable at scale.
+
+*   **Title:** `fix(numerical): resolve precision loss in cumulative summation for large N`
+*   **Summary:** "Current implementation accumulates floating-point rounding errors when summing large datasets with high cardinality. In scenarios involving >10^6 transactions with cent-scale precision, this results in systematic drift (approx. 1e-4 per transaction). The fix implements [Kahan summation / double-double arithmetic / specific algorithm] to guarantee deterministic precision regardless of input magnitude."
+
+**2. Constructing the Synthetic Dataset (The "How")**
+You do not need real financial data to prove floating-point failure. You need data that triggers the same **mathematical conditions**: large magnitude differences between added values and a high volume of operations.
+
+Create a test case using **deterministic, generated values** that mimic the statistical properties of your real data without containing any real secrets:
+
+*   **Magnitude:** If your real data sums to billions, generate random floats in the range of `1e9` to `1e10`.
+*   **Precision:** Ensure values have exactly two decimal places (e.g., `123456789.12`) to mimic currency.
+*   **Volume:** Generate a loop of 10,000 to 100,000 items.
+*   **The Trigger:** The bug likely appears when adding small numbers to a large running total. Construct the array so it alternates between large base values and small fractional adjustments.
+
+**Example Test Logic (Fortran-style pseudocode):**
+```fortran
+! Generate synthetic data mimicking high-volume financial ledgers
+real(8), allocatable :: transactions(:)
+integer :: i, n
+real(8) :: expected_sum, actual_sum, error
+
+n = 100000
+allocate(transactions(n))
+
+! Seed random generator for reproducibility (critical for CI)
+call random_seed(put=[12345])
+
+do i = 1, n
+    ! Create large base values + small cent variations
+    transactions(i) = 1000000.0d0 + (mod(i, 100) - 50) * 0.01d0
+end do
+
+! Calculate expected sum using high-precision logic or known mathematical property
+expected_sum = <calculate analytically or via reference implementation>
+
+! Run the library function
+actual_sum = sum_transactions(transactions)
+
+! Assert the discrepancy exists in 'main' and is fixed in this branch
+error = abs(actual_sum - expected_sum)
+if (error > 1.0e-6) then
+    print *, "FAIL: Precision loss detected: ", error
+    stop 1
+end if
+```
+
+**3. PR Test Plan Section**
+In your PR description, explicitly state:
+> "Test data is synthetically generated to reproduce the magnitude and cardinality conditions required to trigger floating-point drift. No proprietary or real-world financial data is included. The test uses a fixed random seed to ensure deterministic CI results."
+
+**4. AI-Assisted Disclosure**
+Since you are using AI to help structure the disclosure and test strategy, add the required footer if the project's `CONTRIBUTING.md` mandates it:
+> "AI tools were used to assist in designing the synthetic test data generator and drafting the disclosure text. All numerical logic, the fix implementation, and the verification of results against the mathematical model were performed and verified by me."
+
+This approach validates the fix using rigorous mathematical reproduction rather than confidential data, satisfying both open-source transparency and corporate security.
+
+*Note: Ensure the synthetic data range strictly matches the order of magnitude where your bug manifests; if the bug only happens at $1B scale, do not test at $1M scale.*
+*Verify that the fixed random seed produces the exact same failing numbers on both Linux and Windows CI runners to avoid flaky tests.*

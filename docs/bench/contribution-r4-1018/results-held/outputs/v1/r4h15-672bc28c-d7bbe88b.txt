@@ -1,0 +1,47 @@
+### Stop Checks Before Proceeding
+1.  **Employer IP/Legal Approval:** You must obtain explicit written approval from Hooli's legal or open-source office before submitting any code derived from internal work, even if generalized.
+2.  **Credential Rotation:** Since hardcoded credentials were present in the script that triggered the bug, you must assume they are compromised if the script was ever committed to a repo or shared. Rotate these keys immediately before any external discussion.
+3.  **Sign-off Authority:** Ensure you are authorized to sign the Developer Certificate of Origin (DCO) or CLA for this specific contribution on behalf of your employment context.
+
+### Generalized Bug Report & PR Description
+
+**Title:** Fix image corruption when resizing with specific aspect ratio flags (`--mode=X --scale=Y`)
+
+**Problem**
+When invoking the tool with a specific sequence of resizing flags (e.g., `tool --resize --mode=fit --scale=0.75`), images with aspect ratios near 1:1.33 suffer from silent data corruption in the output buffer. The issue stems from an integer overflow in the stride calculation when the internal buffer alignment does not match the requested output dimensions.
+
+**Reproduction Steps (Synthetic)**
+No proprietary data or internal scripts are required. The bug reproduces on any standard Linux environment with the following synthetic command:
+```bash
+# Generate a synthetic test image (1920x1440)
+dd if=/dev/urandom of=test_input.raw bs=1 count=8294400
+
+# Trigger the bug using generic flags
+./target/debug/image-tool --input test_input.raw --output out.raw --width 1024 --height 768 --mode=fit
+```
+*Expected:* `out.raw` contains valid resized data.
+*Actual:* `out.raw` contains corrupted bytes starting at offset 4096.
+
+**The Change**
+This PR modifies `src/resizer.rs` to correctly calculate the buffer stride before allocation, ensuring alignment padding is accounted for regardless of the aspect ratio.
+- Added a bounds check for `stride * height` against `usize::MAX`.
+- Updated the buffer allocation logic to use `checked_mul` to prevent overflow.
+
+**Testing**
+- Verified fix against the synthetic reproduction case above.
+- Added a new unit test `test_aspect_ratio_stride_overflow` using randomized dimensions to ensure robustness.
+- CI passes on all supported targets.
+
+**Risk**
+Low. The change is isolated to the buffer allocation path. Existing tests cover standard aspect ratios; the new test covers the edge case.
+
+---
+
+### Direct Answer to Your Uncertainty
+You do **not** need to explain the discovery context (the internal wrapper, Hooli, or the specific workflow) to make the fix credible. Maintainers care about **reproducibility** and **correctness**. By providing the synthetic command and the specific flag sequence that triggers the math error, you provide full credibility. Any mention of "internal automation strategies" or "wrapper scripts" is unnecessary noise that increases security risk.
+
+### Fallback Strategy
+If maintainers ask for more context regarding the "specific sequence of flags," reply only with: "The flag combination stresses the stride calculation logic when the target aspect ratio differs significantly from the source. The provided synthetic test case isolates this mathematical condition without requiring external workflow context." If they remain silent for two weeks, send one polite follow-up asking if the reproduction steps are sufficient, then disengage.
+
+**Note:** Ensure your git commit author email is set to a personal or noreply address, not your corporate email, before committing.
+**Note:** Run a privacy gate script locally to verify no accidental copy-pastes of internal paths remain in the diff.

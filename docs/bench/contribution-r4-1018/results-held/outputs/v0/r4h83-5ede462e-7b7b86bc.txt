@@ -1,0 +1,39 @@
+### Strategy: Decouple Verification from Secret Exposure
+
+Do not share credentials, logs containing secrets, or request that maintainers "trust" local results without evidence. Instead, restructure your contribution to separate the **logic change** from the **secret-dependent execution**.
+
+**1. Refactor for Interface-Based Testing (Immediate Action)**
+Modify the code to introduce or utilize an interface for the cloud provider client.
+*   **Implementation:** Create a concrete implementation for the real Azure-like API (using your secrets) and a **mock implementation** for testing.
+*   **Test Suite Update:** Update the unit tests to use the mock implementation. These tests should verify that your code correctly calls the expected methods (e.g., `CreateInstance`, `GetStatus`) with the correct parameters, without needing a real network call.
+*   **Benefit:** This allows the public CI to run 100% of the logic verification without any secrets.
+
+**2. Provide a "Bring Your Own Credentials" Integration Harness**
+For the integration tests that strictly require a real environment:
+*   **Scripting:** Add a test script (e.g., `test_integration_azure.sh`) that checks for specific environment variables (e.g., `DEPLOYFAST_AZURE_TEST_KEY`). If missing, the script exits with a "skipped" status rather than a failure.
+*   **Documentation:** In your PR, explicitly state: *"Integration tests are skipped in public CI due to missing credentials. Maintainers with access to an Azure-like environment can run these locally by setting the required env vars."*
+*   **Evidence:** Do not paste logs. Instead, record a short, sanitized screen-capture or provide a signed commit hash where you ran the tests locally, offering to walk a maintainer through the results on a call if they require deeper validation.
+
+**3. Communication Template for the PR**
+Use this structure for your Pull Request description to address the gap professionally:
+
+> **Testing Strategy**
+> *   **Unit Tests:** Fully covered via new mock interfaces; passing in public CI.
+> *   **Integration Tests:** Requires real cloud credentials. Added a skip-logic harness for public CI.
+> *   **Local Verification:** I have verified end-to-end functionality against a private staging cluster.
+>     *   *Command used:* `DEPLOYFAST_AZURE_TEST_KEY=*** go test ./providers/azure -tags=integration`
+>     *   *Result:* All 14 integration scenarios passed.
+>     *   *Offer:* I am available to demo this live or provide a sanitized trace log upon request.
+
+**Direct Answer to Your Uncertainty**
+Do not ask maintainers to blindly trust you; this creates friction. Instead, **prove the logic works via mocks** (which they can verify instantly) and **offer transparent, on-demand validation** for the integration part. This shifts the burden from "trusting a stranger" to "verifying a mechanism."
+
+**Fallback Plan**
+If maintainers insist on full CI passing before review:
+1.  Ask if the project has a "trusted contributor" program where you can be granted temporary access to a shared, sandboxed test account they control.
+2.  If no such program exists, propose merging the code behind a feature flag that is disabled by default, allowing the community to adopt the provider gradually while you arrange a secure verification channel.
+
+***
+
+*Note: Ensure your local git history is scrubbed of any accidental secret commits before pushing, even if they were reverted.*
+*Never commit `.env` files or credential placeholders that resemble real patterns.*

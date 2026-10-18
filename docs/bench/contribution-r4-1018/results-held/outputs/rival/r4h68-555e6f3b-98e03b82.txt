@@ -1,0 +1,30 @@
+Do **not** submit the patch yet, and do **not** hide the incident. Submitting a clean patch without disclosure violates the trust required for security-conscious projects and leaves the maintainers unable to assess if the leak reached their infrastructure (e.g., via CI logs or hooked scripts).
+
+Follow this exact sequence:
+
+1.  **Scrub Your Local History Immediately**
+    Before doing anything else, ensure the secret is not in your git history. If you committed it even once, `git push` will send it to your fork permanently.
+    *   Run `git log --all --full-history -- <file>` to check if the secret exists in any commit.
+    *   If found, you must rewrite history using `git filter-branch` or `git filter-repo` to remove the secret from *every* commit, not just the latest one.
+    *   Verify with `git log -p --all | grep "<partial_secret>"` to ensure zero traces remain locally.
+
+2.  **Contact Maintainers Privately First**
+    Do not open a public Issue or PR yet. Security teams at organizations like Umbrella Corp typically have a `SECURITY.md` file or a designated security email (e.g., `security@umbrella-corp.com`).
+    *   Send a concise, factual report: "I inadvertently exposed a rotated AWS key in a local diff while preparing a fix for [Issue X]. The key was never pushed to any remote repository, but I want to confirm you have no automated hooks that might have captured local env vars during my clone/setup. I have rotated the key. May I submit the sanitized PR?"
+    *   This demonstrates professional responsibility. Hiding it risks them finding the leak later in your fork's history (which is public) and viewing your contribution as malicious or negligent.
+
+3.  **Prepare the Sanitized Patch**
+    *   Create a fresh branch from upstream `main`.
+    *   Re-apply *only* the logic fix for the configuration parsing bug. Ensure no environment variables, even dummy ones, are hardcoded in the diff.
+    *   Run your linters and tests to confirm the fix works without the leaked data.
+
+4.  **Submit the PR with Transparent Disclosure**
+    Once you have explicit or implicit approval (or if 24-48 hours pass without a security hold):
+    *   Open the PR with the clean code.
+    *   In the **PR Description**, under a "Security Note" section, state: "During development, a local AWS key was accidentally included in a private diff but was rotated immediately and never pushed to any remote. History has been scrubbed. This PR contains only the logic fix."
+    *   This creates an immutable record that you acted ethically, protecting you if the old fork (with the leak) is ever scanned by third-party tools.
+
+**Why this approach:**
+Security teams prefer controlled disclosure over accidental discovery. By reporting it, you allow them to check their own audit logs for your IP address or username just in case. Hiding it turns a honest mistake into a potential cover-up if discovered later.
+
+**Note:** Never commit `.env` files or secrets, even temporarily. Use tools like `git-secrets` or pre-commit hooks to prevent this in the future.

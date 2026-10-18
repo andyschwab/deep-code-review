@@ -1,0 +1,43 @@
+You cannot submit this fix upstream in its current form. Because your fix relies on a regular expression pattern matching a format "used exclusively by your employer," the change is **not generalizable**. Upstream projects cannot accept code that only solves a problem specific to one organization's internal data structure. If the regex fails on generic data, it is not a valid fix for the public project; it is a local configuration override.
+
+To proceed, you must separate the **parsing logic bug** from the **data format specificity**.
+
+### Steps to Resolve
+
+1.  **Isolate the Defect Class**: Determine if the bug is truly about "malformed dates" or if it is strictly about the invoice number format.
+    *   If the parser crashes on *any* malformed date regardless of the invoice number, strip the employer-specific regex entirely. Write a test using generic malformed dates (e.g., `2023-13-45`, `null`, `string`) that triggers the crash on the upstream codebase.
+    *   If the parser *only* crashes when the specific employer invoice format is present, this is not an upstream bug. It is a local edge case. Do not open a PR. Instead, document this in your local `AGENTS.md` or internal wiki as a known limitation requiring a local patch.
+
+2.  **Generate Synthetic Data (If the bug is general)**:
+    If you identify a general parsing flaw (e.g., the code throws an unhandled exception on any invalid date string), create synthetic data that mimics the *structure* of an error without mirroring your *content*.
+    *   **Bad (Private)**: `INV-CYB-2023-8842-X` (Reveals client coding structure).
+    *   **Good (Synthetic)**: `INV-TEST-0000-9999-Z` or `MALFORMED_DATE_ENTRY_1`.
+    *   **Regex for Test**: Use a pattern that matches the *error condition*, not your specific format. For example, if the bug is triggered by non-numeric characters in a date field, your test data should simply be `2023-AB-CD`.
+
+3.  **Draft the Commit Message (Template)**:
+    ```text
+    Fix: Handle malformed date strings in invoice parser
+
+    Problem: Parser throws unhandled exception when encountering non-standard
+    date formats in invoice fields.
+
+    Change: Added validation to gracefully handle invalid date structures
+    before regex processing.
+
+    Test: Added test case with synthetic malformed date '2023-AB-CD' which
+    previously caused a crash. Verified generic date formats still parse correctly.
+    ```
+
+4.  **Handle Maintainer Silence**:
+    Since maintainers have been silent on synthetic data, assume they expect **standard** synthetic data (random strings, standard invalid dates). Do not ask again. If your fix requires explaining your private format to make sense, the fix is not ready for upstream.
+
+### Direct Answer to Your Uncertainty
+You cannot validate the fix upstream without mirroring your private format because **the fix itself is tied to that private format**. You must either:
+*   Refactor the fix to handle *all* malformed dates generically (removing the employer-specific regex dependency), or
+*   Keep the fix local as a downstream patch.
+
+### Fallback
+If you cannot generalize the regex to catch the error using standard invalid inputs (like `null`, empty strings, or obviously wrong dates), **do not submit a PR**. Apply the patch locally in your project's `patches/` directory or maintain a fork. Submitting a PR that only works for "Cyborg Dynamics" invoice numbers will be rejected and may inadvertently leak structural information about your internal systems even if you try to mask the specific values.
+
+**Note**: Never include real transaction volumes or client coding logic in test cases, even if obfuscated.
+**Note**: If the bug is strictly about your unique format, it is a feature request for your local instance, not a bug for the upstream library.

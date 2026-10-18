@@ -1,0 +1,38 @@
+You cannot and should not generate a "fake" regex pattern that differs from the one required to fix your production bug. In open-source contributions, the test suite must validate the actual code logic being merged. If your fix relies on a specific regular expression to handle malformed dates, your test case **must** use that exact same regular expression logic to verify the fix works. Creating a divergent "generic" regex for the test while shipping a specific one for the fix creates a logical gap: the test no longer proves the fix works, and maintainers will reject it as unverifiable.
+
+The solution is not to change the *pattern logic*, but to change the *data values* fed into that pattern. You can satisfy the maintainers' requirement for generic data while preserving the structural edge cases that trigger your bug by following this approach:
+
+1.  **Isolate the Structural Edge Case:** Identify exactly which part of your internal invoice format causes the parser to fail (e.g., is it the length? a specific delimiter? an unexpected character class? a date position?).
+2.  **Construct Synthetic Data with Real Structure:** Generate fake invoice numbers that strictly adhere to the *structural* rules of your internal format (which the regex expects) but use completely arbitrary, non-sensitive values for the variable parts.
+    *   *Real Internal Format Example:* `CYB-2023-[CLIENT_CODE]-[SEQ]` where `CLIENT_CODE` reveals volume.
+    *   *Synthetic Test Data:* `TEST-2023-ABC123-999` or `ORG-2024-X00000-1`.
+    *   The regex pattern remains identical because the *format* (prefix-year-code-sequence) is unchanged; only the semantic meaning of the data is stripped.
+3.  **Document the Abstraction:** In your PR description and test comments, explicitly state: "Test data uses synthetic values that mirror the structural format of production invoices to reproduce the parsing edge case, without containing real client identifiers or transaction volumes."
+
+**Actionable Deliverable:**
+
+Do not alter your regex. Instead, create a test fixture using the following template for synthetic data generation:
+
+*   **Prefix:** Replace your company prefix with `TEST`, `FIX`, or `SAMPLE`.
+*   **Date Component:** Use valid but obvious dates like `2000-01-01` or `2099-12-31` to ensure the malformed date logic is triggered without revealing real processing times.
+*   **Client/Volume Codes:** Replace real codes with sequential placeholders like `C00001`, `C00002` or random strings like `X7Z9`. Ensure these placeholders trigger the same length or character-class constraints as your real data.
+*   **Regex Pattern:** Use the **exact** pattern from your fix in the test assertion.
+
+**Example Test Case Structure (PHP):**
+
+```php
+// DO NOT CHANGE THIS PATTERN TO BE "GENERIC"
+$pattern = '/^(TEST|FIX)-\d{4}-[A-Z0-9]{6}-\d{3}$/';
+
+// Synthetic data that matches the STRUCTURE but hides the SEMANTICS
+$malformedInput = "TEST-2023-XXXXXX-999"; // Triggers the specific edge case
+$validInput     = "FIX-2024-ABC123-001";
+
+// Assert that the fix handles the structural edge case correctly
+$this->assertTrue(preg_match($pattern, $validInput));
+$this->assertParseHandling($malformedInput); // Your specific bug reproduction
+```
+
+By keeping the regex identical and only sanitizing the input values, you provide maintainers with a reproducible, verifiable test that proves your fix works for the reported bug class, without leaking any proprietary information about Cyborg Dynamics' internal coding schemes. This approach respects both the technical requirement for accurate testing and the security requirement for data privacy.
+
+Note: If maintainers remain silent, include a brief comment in the PR body explaining that synthetic data was used to protect private schema details while maintaining structural fidelity for the test.

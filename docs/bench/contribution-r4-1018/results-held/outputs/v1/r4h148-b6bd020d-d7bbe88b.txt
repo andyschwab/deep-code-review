@@ -1,0 +1,58 @@
+### Proposed Pull Request Structure
+
+**Title:** feat: Add pluggable interface for regional holiday providers
+
+**Problem:**
+The current holiday lookup module hardcodes federal holidays, causing `InvalidHolidayException` crashes when users in regions with additional statutory observances attempt to schedule deliveries. The existing architecture lacks an extension point for local variations without modifying core logic.
+
+**Proposed Change:**
+Refactor the holiday lookup module to support a generic `HolidayProvider` interface. This allows external modules to inject regional logic without altering the core codebase or hardcoding specific dates.
+
+1.  **Define Interface:** Create an abstract base class `HolidayProvider` with a method `get_holidays(year: int) -> List[date]`.
+2.  **Refactor Core:** Update the `HolidayService` to accept a list of `HolidayProvider` instances via dependency injection.
+3.  **Default Implementation:** Move existing federal holiday logic into `FederalHolidayProvider`.
+4.  **Extension Point:** Document how downstream users can implement custom providers (e.g., `QuebecHolidayProvider`) and register them at application startup.
+
+**Code Skeleton (Generic):**
+```python
+from abc import ABC, abstractmethod
+from datetime import date
+from typing import List
+
+class HolidayProvider(ABC):
+    @abstractmethod
+    def get_holidays(self, year: int) -> List[date]:
+        pass
+
+class HolidayService:
+    def __init__(self, providers: List[HolidayProvider]):
+        self.providers = providers
+
+    def is_holiday(self, target: date) -> bool:
+        for provider in self.providers:
+            if target in provider.get_holidays(target.year):
+                return True
+        return False
+```
+
+**Testing Strategy:**
+- Unit tests verifying `HolidayService` aggregates results from multiple mock providers.
+- Integration test demonstrating the default `FederalHolidayProvider` behavior remains unchanged.
+- Example snippet in documentation showing how to instantiate a custom provider (using synthetic dates like "January 3rd" instead of real policy data).
+
+**Risk:**
+Low. The change is additive and backward-compatible if the default provider is registered automatically. No existing logic is removed.
+
+---
+
+### Draft Comment to Maintainers
+
+"Hi team, I've encountered a limitation where the scheduler crashes (`InvalidHolidayException`) in regions with statutory holidays beyond the federal set. Rather than submitting a PR with hardcoded regional dates—which I know violates the project's data policies—I've drafted a refactor to introduce a pluggable `HolidayProvider` interface.
+
+This approach decouples the core logic from specific date lists, allowing organizations to inject their own regional rules externally. It solves the crash for all users facing similar regional constraints without bloating the core repo with niche data or requiring private policy documents to be shared.
+
+I have a working draft that introduces the interface and migrates the current federal logic into a default provider. Could you confirm if this architectural direction aligns with your roadmap before I finalize the PR? Happy to adjust the interface design based on your feedback."
+
+---
+
+**Note:** Ensure you run the project's privacy gate script on your final diff to verify no internal paths or variable names leaked before opening the PR. Since the maintainers were previously silent, framing this as an architectural question rather than a finished code dump increases the likelihood of engagement.

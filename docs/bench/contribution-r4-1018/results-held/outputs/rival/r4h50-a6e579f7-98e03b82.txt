@@ -1,0 +1,13 @@
+Do not submit your proprietary schema, even in a PR description or as a private attachment. Instead, construct a **minimal synthetic reproduction** that isolates the structural trigger without revealing business logic.
+
+Follow this protocol to create a secure test case:
+
+1.  **Abstract the Entities:** Replace specific table names (e.g., `lexcorp_employee_benefits`) with generic placeholders (e.g., `table_a`, `table_b`, `join_table_c`). The ORM cares about cardinality (one-to-many, many-to-many) and foreign key depth, not semantic meaning.
+2.  **Preserve Only the Topology:** Map your real schema's join graph to the synthetic one. If the bug requires a specific chain of five joins with a self-referential loop, replicate that exact graph structure using generic names. Remove all columns unrelated to the join keys or the specific filters causing the slowdown.
+3.  **Sanitize Data Volume, Not Structure:** The bug likely depends on row counts or index selectivity, not actual data content. Generate random strings or integers for cell values. Ensure the row counts in your synthetic dataset match the order of magnitude of your production data (e.g., if the slow join happens at 100k rows, seed your synthetic table with 100k random rows).
+4.  **Verify the Regression:** Run your synthetic script against the *current* upstream ORM version. Confirm it produces the slow SQL (>10s equivalent or explain plan showing full scans). Then run it against your fixed branch to confirm the efficient SQL (<100ms equivalent).
+5.  **Submit as a Standard Test:** Include this synthetic script in the PR's test suite (e.g., `tests/regression/test_issue_1234.py`). In your PR description, state: "Includes a synthetic regression test reproducing the join-topology trigger using generic entities."
+
+**Why this works:** Maintainers need to verify the *mechanical* failure of the query planner, not the business context. A generic schema that triggers the same inefficient execution plan is scientifically sufficient and legally safe. If you cannot reduce the schema to generic terms without losing the bug, the issue may lie in specific data statistics or proprietary extensions rather than the ORM core, which changes the nature of the report.
+
+Note: If the bug strictly requires proprietary database extensions (e.g., specific PostgreSQL plugins you use), mention this limitation in the PR and offer to walk a maintainer through the explain-plan logs via a secure, ephemeral channel instead of sharing the schema.

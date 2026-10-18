@@ -1,0 +1,45 @@
+### Sanitized Reproduction Case
+
+Create a file named `repro-manifest.yaml` with the following synthetic data. This preserves the structural failure (missing label causing indefinite 'Pending' state) while stripping all Globex-specific identifiers.
+
+```yaml
+# repro-manifest.yaml
+# Synthetic reproduction case for scheduler label-check failure
+# No production data or internal topology included
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sample-workload
+  namespace: default
+  labels:
+    app: generic-service
+spec:
+  containers:
+  - name: worker
+    image: example/busybox:latest
+    command: ["sleep", "3600"]
+  nodeSelector:
+    # The scheduler fails if this specific label key is missing from the node,
+    # leaving the pod in 'Pending' state indefinitely instead of retrying or failing fast.
+    topology.kubernetes.io/zone: us-east-1a
+  # Note: In the bug scenario, the node lacks the required label entirely.
+```
+
+### Description for Maintainers
+
+Use this text for your PR body or issue comment. It explains the severity without revealing your architecture:
+
+> **Problem:** The scheduler enters an indefinite 'Pending' state when a required node label is missing, rather than failing fast or triggering a re-evaluation.
+>
+> **Context:** Observed in a high-volume deployment environment where nodes occasionally lose labels during maintenance windows. The current behavior causes silent liveness failures; pods remain stuck indefinitely instead of being rescheduled to healthy nodes or raising an actionable error.
+>
+> **Reproduction:** The attached `repro-manifest.yaml` uses synthetic values to demonstrate the condition. Apply this to a cluster where the target node lacks the `topology.kubernetes.io/zone` label. The pod will hang in 'Pending'.
+>
+> **Fix:** The patch adds an explicit check for the label existence before attempting assignment, ensuring the scheduler either finds a valid node or returns a clear scheduling error.
+
+### Critical Pre-Submission Checks
+
+Before handing this off to a human to open the PR, you must manually verify:
+1.  **Employer Approval:** Confirm you have legal or managerial clearance to contribute this fix upstream, as it derives from internal work.
+2.  **Residual Risk:** Ensure the "synthetic" label key (`topology.kubernetes.io/zone`) does not inadvertently reveal your specific cloud provider strategy if that is confidential; if it does, replace it with a completely generic key like `sched/example-label`.

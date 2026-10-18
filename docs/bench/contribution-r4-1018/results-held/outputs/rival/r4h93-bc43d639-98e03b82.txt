@@ -1,0 +1,11 @@
+Do not submit a PR without a failing test. The maintainers' requirement is a standard quality gate for concurrency bugs, not a bureaucratic hurdle; a race condition fix without a reproducible test is indistinguishable from a guess and will almost certainly be rejected or closed.
+
+Instead of asking for an exception, construct a **deterministic simulation** that models the latency profile without using real CloudScale data. You can achieve this in Go without violating data sovereignty policies by:
+
+1.  **Injecting Artificial Delays:** Modify the test to use a mock network layer or dependency injection where you explicitly introduce `time.Sleep()` durations that match the *relative* timing ratios of your us-west-2 issue (e.g., "lock request latency is 1.5x the heartbeat interval"). You do not need real millisecond-accurate logs; you only need the mathematical relationship between the race participants.
+2.  **Stress Testing with `goleak` and `-race`:** Use Go's built-in race detector (`go test -race`) combined with a loop that runs the test thousands of times with randomized, small delays. Often, simply increasing contention and iteration count triggers the race even without perfect latency matching.
+3.  **Abstracting the Environment:** Describe the condition in the PR as "a specific window where network latency exceeds the lock timeout threshold by X%," rather than citing "us-west-2" or specific CloudScale metrics. This protects your infrastructure details while providing the maintainers with the logical constraints needed to understand the bug.
+
+Draft your PR description to explicitly state: "This test synthesizes the race condition by injecting deterministic delays that replicate the timing window observed in production, avoiding the need for proprietary network traces. The test fails consistently on the current main branch and passes with the proposed fix."
+
+If you cannot construct such a simulation, open an issue first with a detailed logical explanation of the race and ask the maintainers if they accept a "theoretical reproduction" strategy, but expect that code changes will still require a test before merging.

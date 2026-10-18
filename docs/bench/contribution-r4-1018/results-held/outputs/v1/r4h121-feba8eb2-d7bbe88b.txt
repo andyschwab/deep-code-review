@@ -1,0 +1,51 @@
+**Stop Checks Required**
+Before proceeding, you must clear the following internal constraints:
+1.  **Employer IP Approval:** Confirm with Northwind Corp legal or your manager that contributing a fix derived from internal crash data is permitted under your employment agreement.
+2.  **Contributor Agreement:** Ensure you can personally sign the project's DCO (Developer Certificate of Origin) or CLA, attesting the code is yours to give.
+3.  **Security Channel:** If `ERR_HEAP_LIMIT` suggests a denial-of-service vulnerability triggered by specific plugin inputs, verify if the project requires reporting via a private security channel rather than a public PR.
+
+**Generalized Analysis & Fix Proposal**
+The `ERR_HEAP_LIMIT` crash in a large JavaScript codebase during plugin initialization typically indicates an unbounded recursion or a massive object allocation loop, not necessarily a proprietary CMS path issue. Hardcoded file paths in stack traces usually appear as strings in the error message, not as the cause of heap exhaustion.
+
+*   **Defect Class:** Unbounded recursion or infinite loop in the plugin connector's initialization phase.
+*   **Generalized Fix:** Wrap the plugin initialization logic in a try-catch block with a recursion depth guard or a memory usage check before allocating large buffers.
+*   **Sanitization Strategy:** Do not include the raw stack trace. Reconstruct the error using synthetic data (e.g., `at PluginConnector.init (src/plugins/connector.js:10)`). Remove all references to "Northwind," "CMS," or specific internal file paths like `/home/user/northwind-config`.
+
+**Draft Commit Message**
+```text
+fix: prevent heap limit exceeded error during plugin initialization
+
+Adds a guard to the plugin connector to prevent unbounded recursion
+or excessive memory allocation during startup. This resolves an immediate
+crash (ERR_HEAP_LIMIT) when the plugin system is enabled with minimal
+configuration.
+
+- Implements a depth check in the connector initialization loop.
+- Adds a test case verifying graceful failure under high-load simulation.
+```
+
+**Draft Pull Request Description**
+```markdown
+## Problem
+Enabling the plugin system causes the application to crash immediately with `ERR_HEAP_LIMIT`, even with only the base connector active. This suggests an unbounded allocation or recursion loop in the initialization phase.
+
+## Change
+This PR introduces a safety guard in the plugin connector to detect and halt excessive memory usage or recursion depth during startup.
+
+## Testing
+- Created a synthetic test case that simulates high-frequency initialization calls.
+- Verified the application fails gracefully with a controlled error message instead of crashing.
+- Confirmed normal operation with standard plugin configurations.
+
+## Risk
+Low. The change adds a conditional check before allocation. No existing APIs are modified.
+```
+
+**Addressing Your Uncertainty**
+Regarding your stack trace: If the trace contains lines like `at Object.loadConfig (/internal/northwind/cms/path.js:42)`, those are hardcoded paths that **must** be removed. However, the `ERR_HEAP_LIMIT` itself is a generic Node.js/V8 error. You do not need to share the full log. Instead, describe the error type and the condition (plugin enabled) in the PR, and provide a minimal reproduction script using dummy data rather than your actual logs.
+
+**Fallback Plan**
+If the maintainers request more details, offer to run a specific diagnostic script they provide on your end and share only the aggregated numerical results (e.g., "memory grew by 2GB in 50ms"), never the raw logs or file paths.
+
+*Note: I cannot verify your specific stack trace content as I have no access to your files; you must manually scrub it using the rules above.*
+*Ensure you run the project's specific privacy gate scripts (if available) before finalizing the PR.*

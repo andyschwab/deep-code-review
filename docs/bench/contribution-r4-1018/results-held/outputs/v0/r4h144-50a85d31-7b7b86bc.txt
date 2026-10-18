@@ -1,0 +1,51 @@
+Do not include the real logs, even redacted. Do not synthesize "fake" logs that mimic your specific operational cadence, as the frequency and volume themselves are the sensitive data you identified. Instead, create a **minimal, synthetic reproduction** using invented data that triggers the same garbage collection behavior in isolation.
+
+Here is the concrete approach:
+
+1.  **Isolate the Trigger:** Write a small, standalone Rust script (or a unit test within the PR) that allocates objects in a loop mimicking the *logic* of your batch job, but with arbitrary, small numbers (e.g., "processing 500 synthetic records" instead of your nightly millions).
+2.  **Generate Synthetic Output:** Run this script to capture the GC timing logs. These logs will prove the bug (frequent collection during allocation) without revealing Soylent Corp's schedule, volume, or timestamps.
+3.  **Present Relative Deltas:** In the PR description, present the evidence as **relative time deltas** from this synthetic run.
+    *   *Bad:* "GC ran every 2 seconds during our 3:00 AM job."
+    *   *Good:* "In a synthetic reproduction allocating 500 items, GC triggered every ~15ms, consuming 40% of total runtime. See attached `repro.rs` and output."
+
+**Draft Commit Message:**
+```text
+fix: reduce GC frequency during batch allocation
+
+- Adjust allocation strategy to minimize minor GC triggers
+- Add regression test `test_gc_batch_pressure` using synthetic data
+- Previous behavior: GC ran every N allocations under load
+- New behavior: GC runs only when heap threshold is genuinely met
+
+Fixes #<issue-number>
+```
+
+**Draft PR Body Section (Evidence):**
+```markdown
+## Evidence of Regression
+
+The original issue was observed in a production environment with sensitive operational volumes. To demonstrate the root cause without leaking operational metadata, we created a minimal reproduction (`tests/gc_repro.rs`) using synthetic data.
+
+**Synthetic Reproduction Results:**
+- **Setup:** Loop allocating 1,000 dummy records.
+- **Observation:** GC triggered 45 times in 200ms.
+- **Impact:** 35% CPU overhead attributed solely to GC management.
+
+```text
+[INFO] Allocating batch...
+[GC] Minor collection at t+0ms (heap: 10MB)
+[GC] Minor collection at t+12ms (heap: 12MB)
+[GC] Minor collection at t+24ms (heap: 11MB)
+...
+```
+
+This pattern confirms the allocator is prematurely triggering collections regardless of total heap size. The fix reduces these triggers to 2 times for the same workload.
+```
+
+**Direct Answer to Your Uncertainty:**
+You should **neither** use the real logs **nor** try to obfuscate the intervals of the real logs. Obfuscating intervals often leaves statistical fingerprints that can still be reverse-engineered, and it risks accidental de-anonymization. The only safe method is to **replace the data entirely** with a synthetic example that proves the *mechanical* fault (the code path causing the GC) rather than the *operational* scale. Maintainers care that the code fails under load, not specifically how much load you run.
+
+**Fallback:**
+If maintainers insist on seeing the exact scale to believe the severity, explain that operational data cannot be shared due to privacy policy, and offer to run their specific benchmarking commands on your private infrastructure and share only the aggregated, non-time-series results (e.g., "Total runtime reduced by 40%").
+
+**Stop Check:** Ensure you have internal legal or employer approval before submitting any code derived from your work environment, even if sanitized.

@@ -1,0 +1,25 @@
+To ensure the client name "Blue Ocean Industries" and their specific requirements are completely removed from the public history, you **cannot** rely on a standard interactive rebase squash alone if you simply edit the final message. You must rewrite the history of the specific commits containing the sensitive data before or during the squash process.
+
+Here is the exact procedure to sanitize your branch:
+
+1.  **Start an interactive rebase** against the upstream main branch:
+    ```bash
+    git rebase -i origin/main
+    ```
+2.  **Identify the sensitive commits.** In the editor that opens, locate the two commits mentioning the client.
+    *   If you are squashing everything into one commit anyway: Change `pick` to `squash` (or `s`) for all commits except the first one. When the editor opens for the combined commit message, **delete all text** referencing the client and write a generic, framework-focused message.
+    *   **Crucial Step:** If you want to be absolutely certain no metadata lingers in intermediate steps during the rebase operation, change the `pick` command for those two specific commits to `reword` (or `r`) first. When prompted, replace the message with a generic placeholder (e.g., "fix: address routing edge case") before squashing them into the final commit.
+3.  **Save and exit.** Git will rewrite the history. If you used `reword`, it will pause for you to edit those specific messages before proceeding to the squash.
+4.  **Verify the cleanup locally.** Before pushing, search the entire new history to ensure the string is gone:
+    ```bash
+    git log -p --all | grep -i "Blue Ocean"
+    ```
+    If this returns nothing, the text is removed from the commit messages and diffs.
+5.  **Force push with lease.** Since you are rewriting public history (even if only on your fork), you must force push. Use `--force-with-lease` to ensure you don't overwrite unexpected changes:
+    ```bash
+    git push fork <branch-name> --force-with-lease
+    ```
+
+**Why this works:** Git commits are immutable. When you rebase and change a message (or squash), Git creates *new* commit objects with new SHA hashes. The old commits (with the client name) become dangling objects. Once you force push, your remote branch points only to the new, clean commits. The old commits will eventually be garbage collected by GitHub and are no longer part of the branch history.
+
+**Note:** If you previously pushed the branch and others might have pulled it, inform them they need to reset their local branches. Ensure no other branches in your fork reference these old commits, or they will prevent garbage collection.

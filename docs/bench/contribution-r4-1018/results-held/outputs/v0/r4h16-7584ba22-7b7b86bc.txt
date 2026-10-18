@@ -1,0 +1,42 @@
+### Sanitized Crash Summary Template
+
+**Title:** Query Planner Memory Corruption Leading to Engine Crash on Complex Join Patterns
+
+**Problem Description:**
+The database engine crashes with a segmentation fault during the execution of specific multi-table join queries involving nested subqueries and aggregate functions. The crash occurs in the query planner phase when optimizing join order for tables exceeding a certain cardinality threshold. Analysis of the failure mode indicates a memory corruption issue where a pointer is dereferenced after being freed during plan node restructuring.
+
+**Sanitized Stack Trace Summary:**
+*(Note: Replace the bracketed placeholders with generalized values derived from your analysis. Do not use real IPs, hostnames, or internal IDs.)*
+
+```text
+#0  0x00007f... in planner_restructure_join_node (node=0x[REDACTED_PTR], ctx=0x[REDACTED_PTR])
+    at src/query/planner/join_order.c:[LINE_NUMBER]
+#1  0x00007f... in optimize_join_sequence (plan=0x[REDACTED_PTR], stats=0x[REDACTED_PTR])
+    at src/query/planner/optimizer.c:[LINE_NUMBER]
+#2  0x00007f... in create_execution_plan (query=0x[REDACTED_PTR])
+    at src/query/executor.c:[LINE_NUMBER]
+...
+Signal: SIGSEGV (Segmentation Fault)
+Address: 0x[REDACTED_ADDRESS] (Use-after-free detected)
+```
+
+**Reproduction Steps (Synthetic):**
+1. Initialize a database with three tables: `T1` (1M rows), `T2` (500k rows), `T3` (2M rows).
+2. Execute a query joining all three tables with a nested subquery filtering on `T3` and grouping by `T1`.
+3. Observe immediate crash during the planning phase before execution begins.
+   *SQL Pattern:* `SELECT T1.a, COUNT(*) FROM T1 JOIN (SELECT * FROM T2 WHERE ...) AS sub ON T1.id = sub.id JOIN T3 ... GROUP BY T1.a;`
+
+**Root Cause Analysis:**
+During the reordering of join nodes, the planner frees a temporary statistics object associated with a subquery plan node. However, a dangling reference to this object persists in the parent context. When the optimizer attempts to recalculate costs for a alternative join path, it accesses the freed memory, leading to corruption and a subsequent crash.
+
+**Proposed Fix:**
+The fix ensures the statistics object lifecycle is extended until the full plan generation is complete, or that the reference is nullified immediately upon freeing. A guard clause has been added to verify pointer validity before dereferencing in the `planner_restructure_join_node` function.
+
+**Verification:**
+- The crash is reproducible with the synthetic data pattern above on the unpatched version.
+- The patch resolves the crash for the reported pattern and passes existing regression tests for join optimization.
+- *Attachment:* A minimal patch file (`fix_join_order_uaf.patch`) and a synthetic test case (`test_join_crash.sql`) are included. Raw core dumps and production logs have been omitted due to containing sensitive infrastructure identifiers; the provided synthetic test case isolates the logic error without requiring proprietary data.
+
+---
+
+**Note:** Before submitting, ensure you run a local privacy check script to verify no hidden metadata remains in the patch file headers. If maintainers insist on the original core dump, offer to provide it via a secure, private channel established by the project's security team rather than public attachment.

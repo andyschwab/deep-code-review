@@ -1,0 +1,49 @@
+**Deliverable: Upstream Contribution Strategy**
+
+Do not submit code containing your organization's CA details. Instead, propose a generic "Bring Your Own Trust Store" feature that allows any user to inject custom certificate chains via environment variables or configuration flags, without hardcoding specific paths or certificates.
+
+**1. Generalize the Fix**
+Refactor the TLS initialization logic to accept an optional list of additional CA certificates from a user-defined source (e.g., `EXTRA_CA_CERTS` environment variable or a `--custom-ca-path` flag). The code should merge these with the system default pool. This solves your problem and helps any other user needing private PKI support (e.g., enterprise proxies, internal services) without mentioning Globex or your specific infrastructure.
+
+**2. Strip Identifiers (Before/After Rewrites)**
+*   **Code Comments:** Change `// Fix for Globex internal broker chain` to `// Allow injection of additional CA certificates for private PKI environments`.
+*   **Paths:** Change `/opt/globex/certs/intermediate.pem` to `<user-provided-path>`.
+*   **Error Messages:** Change `Globex CA missing` to `custom CA certificate load failed`.
+*   **Test Data:** Generate a synthetic, self-signed CA pair specifically for the test suite. Do not use redacted versions of real keys; create entirely new, dummy credentials that serve only to verify the loading mechanism works.
+
+**3. Draft Commit Message**
+```text
+feat: support custom CA certificate injection via config
+
+Users operating in environments with private PKI or intermediate CAs
+not present in the system trust store now have a mechanism to inject
+additional root certificates.
+
+- Add support for EXTRA_CA_CERTS environment variable.
+- Add --custom-ca-path CLI flag.
+- Merge user-provided certs with system pool during TLS handshake.
+- Add integration test using synthetic self-signed CA.
+
+This change contains no private certificates or hardcoded trust anchors.
+```
+
+**4. Draft PR Body**
+**Problem:** The client currently fails handshakes when servers present certificates signed by private or intermediate CAs not included in the OS default trust store.
+**Solution:** Implemented dynamic loading of additional CA certificates from user-specified sources.
+**Testing:** Verified against a local server using a synthetic self-signed CA. The client successfully validates the chain when the custom CA is provided and fails appropriately when omitted.
+**Risk:** Low. The change is additive and defaults to existing behavior if no custom path is provided.
+
+**5. Addressing Your Uncertainty**
+You are unsure how to propose this without endorsing your private CA. The solution is to make the *mechanism* generic. You are not contributing "support for Globex CA"; you are contributing "support for *any* user-provided CA." The maintainer merges the capability; you configure it locally.
+
+**6. Fallback Plan**
+If maintainers remain silent after two weeks:
+1.  Post a polite follow-up asking if the approach aligns with project goals.
+2.  If still no response, fork the project and maintain the patch downstream, documenting the usage in your internal `AGENTS.md` or runbook rather than forcing an upstream merge.
+
+**Stop Checks Required Before Sending:**
+*   Confirm no corporate IP policy forbids contributing TLS-related modifications.
+*   Ensure no "Contributor License Agreement" conflicts with your employment terms.
+*   Verify no existing open issues/PRs already address custom CA loading to avoid duplicates.
+
+*Note: Run the project's privacy gate script on your diff before handing off to a human. Never sign the commit with a corporate email address; use a personal or noreply address.*

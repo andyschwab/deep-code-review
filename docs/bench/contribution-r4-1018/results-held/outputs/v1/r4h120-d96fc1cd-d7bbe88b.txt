@@ -1,0 +1,32 @@
+### Technical Description of Race Condition
+
+**Issue:** Non-atomic read-modify-write sequence in distributed cache client under high concurrency.
+
+**Abstract Characterization:**
+The `Winterfell Distributed Cache` client exhibits a time-of-check to time-of-use (TOCTOU) race condition during concurrent updates to a single key. When multiple threads or nodes simultaneously invoke an update operation (e.g., `increment`, `merge`, or `put-if-present`), the client performs a local read of the current value, applies a transformation, and issues a write-back without an atomic compare-and-swap (CAS) guarantee or server-side locking mechanism.
+
+Under low concurrency, the window between read and write is negligible. However, as the rate of concurrent requests approaches the network latency bound (high contention), the probability of overlapping execution paths increases. Specifically:
+1.  Thread A reads value $V_0$.
+2.  Thread B reads value $V_0$ before Thread A's write completes.
+3.  Thread A writes $V_0 + \Delta_A$.
+4.  Thread B writes $V_0 + \Delta_B$, overwriting Thread A's update.
+
+The final state reflects only Thread B's change, resulting in lost updates and data inconsistency. This behavior suggests the client relies on optimistic concurrency without retry logic or fails to utilize atomic primitives provided by the underlying storage protocol. The issue is deterministic given sufficient thread contention, regardless of the specific business logic driving the request volume.
+
+---
+
+### Proposal for Collaborative Debugging Session
+
+To validate this hypothesis without transferring proprietary assets, I propose a live, screen-shared debugging session with the following constraints:
+
+1.  **Environment:** The session will run entirely within our isolated staging environment. No code, scripts, or logs will leave our network.
+2.  **Observation Only:** Maintainers will observe the behavior via screen share. We will execute a sanitized, generic load generator (provided by us, containing no business logic) that simply hammers a single key with random integer increments.
+3.  **Metrics:** We will display only the cache's final counter value versus the expected sum of increments. The delta will demonstrate the lost updates.
+4.  **Logs:** If log inspection is required, we will stream logs to a local viewer, redacting any payload data or IP addresses in real-time before they appear on screen. We will focus solely on timestamped thread IDs and operation types (READ/WRITE) to illustrate the interleaving.
+
+**Next Step:** Please propose three time slots for a 45-minute session. We will provide a temporary guest link to our screen-sharing tool that requires no installation.
+
+---
+
+**Note:** Do not mention "Northwind Traders," "Black Friday," or specific request counts (50k) in public issues; use "high contention" and "lost updates" only.
+**Note:** Ensure your legal team approves the screen-sharing protocol before inviting external maintainers into your staging environment.

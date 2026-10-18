@@ -1,0 +1,35 @@
+### Proposed Contribution Strategy
+
+**1. Stop Check: Employer IP Approval**
+Before drafting any text, you must obtain explicit written approval from Hooli's legal or IP department to release a performance optimization derived from proprietary work. Even generalized code can be considered a derivative work of trade secrets if the optimization logic relies on specific, non-public data structures unique to Hooli's trading patterns. Do not proceed without this clearance.
+
+**2. Generalize the Defect and Fix**
+The core contribution is not the dataset, but the *algorithmic adaptation* to specific memory access patterns. You must decouple the "what" (30% speedup) from the "why" (Hooli's specific data).
+*   **Action:** Refactor the optimization to detect or accept parameters describing the data layout (e.g., block size, stride, sparsity threshold) rather than hardcoding assumptions derived from Hooli's data.
+*   **Result:** The code becomes a general tool for "structured sparse matrices with non-uniform distribution," applicable to physics simulations or graphics, not just finance.
+
+**3. Solve the Benchmark Dilemma: Synthetic Data with Statistical Mimicry**
+Do not describe the data statistically in the PR text alone; maintainers cannot verify it. Do not use pure random matrices; they fail to prove your point.
+*   **Solution:** Write a **generator script** (included in the PR) that creates a synthetic dataset matching the *statistical properties* of your proprietary data without containing any actual trading information.
+*   **Implementation:**
+    *   Analyze your private data locally to extract non-sensitive metrics: e.g., "average row sparsity of 0.04," "cluster size distribution following a power law," or "temporal locality window of 128 entries."
+    *   Hardcode these *aggregate statistics* (not the data itself) into a C++ or Python generator included in the `benchmarks/` directory.
+    *   The generator outputs a matrix file (`synthetic_hooli_like.dat`) that triggers the same cache behavior because it mimics the *structure*, not the *content*.
+*   **Verification:** The PR includes this generator. Maintainers run `make benchmark`, which generates the data and runs the test. They see the 30% speedup on their own machines using safe, generated data.
+
+**4. Draft the PR Content**
+*   **Title:** "Optimize matrix multiplication for structured, non-uniform sparse distributions"
+*   **Problem:** Standard libraries assume uniform randomness or dense blocks, missing cache opportunities in data with specific clustering patterns common in [general domain, e.g., time-series analysis].
+*   **Change:** Added block-prefetching logic tuned for high-locality clusters.
+*   **Testing:** Included `scripts/generate_structured_sparse.cpp` which synthesizes data matching target statistical profiles (sparsity ~0.04, cluster power-law $\alpha$=1.5). Benchmark shows 30% improvement on generated data vs. baseline.
+*   **Risk:** None. No external data included; all benchmarks are reproducible via the included generator.
+
+**5. Direct Answer to Your Uncertainty**
+**Generate the dummy dataset.** Describing statistics textually is insufficient for a performance claim; the maintainers need to *run* the code to see the speedup. A generator script is the standard, accepted solution in open source for validating performance on sensitive data patterns without leaking the data itself. It proves the mechanism works on the *shape* of the data, which is what matters for CPU cache optimization.
+
+**6. Fallback**
+If the maintainers reject the synthetic generator as "not real-world enough," ask if they would accept a link to a public, non-financial dataset that shares similar mathematical properties (e.g., a specific graph theory dataset or image processing matrix set) to run the benchmark against. If they refuse both, the optimization may be too specialized for their upstream goals; keep it as a local patch documented in your internal `AGENTS.md`.
+
+---
+*Note: Ensure the generator script itself contains no magic numbers derived directly from Hooli's raw data dumps; derive them only from aggregated, anonymized statistics.*
+*Remember: The human must open the PR; do not attempt to push this directly.*

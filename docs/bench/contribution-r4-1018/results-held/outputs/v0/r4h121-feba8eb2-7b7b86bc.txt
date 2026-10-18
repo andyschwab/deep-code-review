@@ -1,0 +1,71 @@
+### Stop Checks and Immediate Actions
+Before proceeding, you must clear three specific barriers:
+1.  **Employer IP Approval:** Verify with Northwind Corp's legal or security team that contributing a fix derived from an internal crash is permitted, even if sanitized.
+2.  **Contributor Agreement:** Ensure you can personally sign the project's DCO or CLA without conflicting with your employment contract.
+3.  **Privacy Verification:** You stated uncertainty about the stack trace containing private paths. **Do not proceed** until you manually confirm the log contains no internal hostnames (e.g., `northwind-internal`), file paths (e.g., `/cms/config`), or proprietary module names. If any exist, they must be removed before any draft is created.
+
+### Generalized Problem and Fix Strategy
+The issue is a **heap limit exhaustion** triggered by the plugin initialization sequence, likely due to a circular reference or unbounded recursion in the base connector, rather than proprietary CMS logic. To generalize:
+*   **Defect Class:** Uncontrolled memory growth during plugin registration.
+*   **Fix Shape:** Implement a guard in the plugin loader to detect recursive initialization or limit the depth of the dependency resolution graph.
+*   **Reproduction:** Create a synthetic test case using dummy plugins that reference each other cyclically, causing the `ERR_HEAP_LIMIT` without any real CMS data.
+
+### Proposed Code Change (Conceptual)
+Locate the plugin initialization routine (likely `plugin-loader.js` or similar). Insert a check to prevent re-entrant initialization or cap the recursion depth.
+
+*Draft Logic:*
+```javascript
+// Before
+function initializePlugins(plugins) {
+  plugins.forEach(p => p.init());
+}
+
+// After (Generalized Fix)
+function initializePlugins(plugins) {
+  const initializing = new Set();
+  for (const p of plugins) {
+    if (initializing.has(p.id)) {
+      console.warn(`Circular dependency detected in plugin: ${p.id}`);
+      continue; // Prevent infinite recursion/heap blowup
+    }
+    initializing.add(p.id);
+    try {
+      p.init();
+    } finally {
+      initializing.delete(p.id);
+    }
+  }
+}
+```
+*Note: This is a conceptual patch. You must verify the exact API of the target project.*
+
+### Draft Pull Request Description
+
+**Title:** Fix `ERR_HEAP_LIMIT` crash caused by circular plugin initialization
+
+**Problem:**
+Enabling the plugin system triggers an immediate `ERR_HEAP_LIMIT` crash. This occurs when plugins form a circular dependency chain during the initialization phase, leading to unbounded recursion and memory exhaustion.
+
+**Change:**
+Added a recursion guard in the plugin loader to detect and skip plugins that are already in the process of initializing. This prevents the infinite loop that exhausts the heap.
+
+**Testing:**
+*   Created a synthetic test case with two dummy plugins referencing each other.
+*   **Before fix:** Application crashes with `ERR_HEAP_LIMIT`.
+*   **After fix:** Application logs a warning about the circular dependency and starts successfully.
+*   Verified no regression in standard linear plugin loading.
+
+**Risk:**
+Low. The change only affects the initialization order of malformed plugin sets; valid configurations behave identically.
+
+---
+
+**Provenance and Risk Block (For your internal review only – DO NOT include in PR):**
+SOURCE: Northwind Corp internal crash log.
+GENERALIZED-AWAY: All references to "Northwind," "CMS," specific plugin names, and internal file paths.
+RESIDUAL RISK: The structural pattern of the crash might hint at the complexity of the internal plugin graph, but no specific architecture is revealed.
+MOSAIC CHECK: None; this is a standalone memory safety fix.
+MECHANICAL SCRUB: Pending manual run of `scripts/ci-gates.sh privacy` on your local machine.
+DRAFTED BY: Assistant (no tools/files accessed).
+
+**Final Note:** You must manually run the project's privacy gate scripts on your local machine before opening any issue or PR. Do not paste the raw stack trace anywhere until you have verified it line-by-line.

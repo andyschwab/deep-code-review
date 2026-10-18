@@ -1,0 +1,30 @@
+To demonstrate the improvement without exposing confidential data, construct a benchmark scenario using **parameterized synthetic workloads** that model *classes* of network behavior rather than specific metrics. Your PR should include a deterministic seed-based generator that allows maintainers to reproduce your exact results while keeping your internal data private.
+
+Simulate the following three specific network conditions, which are standard in distributed systems literature and cover the failure modes your backoff strategy likely addresses:
+
+1.  **The "Tail Latency" Spike (Jitter Simulation):**
+    *   **Scenario:** Simulate a baseline latency (e.g., 50ms) with occasional, severe spikes (e.g., 2000ms+) occurring at a low frequency (e.g., 1% of requests).
+    *   **Why it matters:** Aggressive backoffs often overreact to single spikes, causing unnecessary long pauses that degrade throughput. Your new strategy should show resilience here by distinguishing between transient spikes and sustained congestion.
+    *   **Synthetic Data:** Use a log-normal distribution for latency, which naturally produces realistic "long tails" without needing your specific percentiles.
+
+2.  **The "Congestion Collapse" Pattern (Burst Failure):**
+    *   **Scenario:** Simulate periods of high packet loss (e.g., 10-30%) lasting for 5–10 seconds, followed by recovery.
+    *   **Why it matters:** This tests if your backoff ramps up quickly enough to stop hammering a struggling server but recovers gracefully once the network stabilizes.
+    *   **Synthetic Data:** Use a step-function or sine-wave modulation on the failure rate parameter.
+
+3.  **The "High-Latency Floor" (Geographic Distance):**
+    *   **Scenario:** Simulate a consistently high baseline latency (e.g., 300ms+) with low jitter, mimicking cross-region or satellite links.
+    *   **Why it matters:** Aggressive strategies often assume low baseline latency and time out too early. Your fix should demonstrate stable throughput even when the "normal" round-trip time is high.
+    *   **Synthetic Data:** A simple constant offset plus minor Gaussian noise.
+
+**Implementation Strategy for the PR:**
+
+*   **Create a `benchmark/scenarios.ts` file:** Define these three scenarios as configurable objects (e.g., `{ type: 'tail-latency', spikeProbability: 0.01, spikeMagnitude: 2000 }`).
+*   **Provide a "Reproduction Script":** Include a script (e.g., `pnpm run benchmark:compare`) that runs both the old and new backoff strategies against these synthetic scenarios side-by-side.
+*   **Visualize the Delta:** The script should output a comparison table or ASCII chart showing metrics like "Total Request Time," "Retry Count," and "Success Rate" for both strategies.
+*   **The "Sanitized" Evidence:** In your PR description, present the *ratio* of improvement (e.g., "New strategy reduces total retry time by 40% under Tail Latency scenarios") rather than absolute millisecond values. This proves the algorithmic superiority without revealing that your internal baseline is 45ms vs 2100ms.
+
+By focusing on the *shape* of the network conditions rather than the *magnitude* of your specific numbers, you provide mathematically rigorous proof that your algorithm is robust, satisfying the maintainer's need for evidence while strictly preserving your confidentiality.
+
+Note: Ensure your synthetic generator uses a fixed random seed so maintainers can verify your exact output logs.
+Do not claim the synthetic data matches your internal stats; explicitly state it models "representative failure classes."

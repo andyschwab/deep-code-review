@@ -1,0 +1,118 @@
+Here is a generic load test script structure that isolates the concurrency bug using synthetic data and placeholder domains, ensuring no proprietary information is leaked.
+
+### Generic Load Test Script (`load_test.go`)
+
+This script uses Go's standard `net/http` and `sync` packages to simulate high concurrency against a configurable target. It replaces internal endpoints with a generic path and uses randomized synthetic payloads.
+
+```go
+package main
+
+import (
+	"bytes"
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"net/http"
+	"sync"
+	"time"
+)
+
+func main() {
+	// Configuration flags: defaults are generic placeholders
+	targetURL := flag.String("target", "http://localhost:8080/api/resource", "Target URL to stress test")
+	concurrency := flag.Int("concurrency", 100, "Number of concurrent workers")
+	requests := flag.Int("requests", 1000, "Total requests to send")
+	timeout := flag.Duration("timeout", 5*time.Second, "Request timeout")
+	flag.Parse()
+
+	if *targetURL == "" {
+		log.Fatal("Target URL cannot be empty")
+	}
+
+	client := &http.Client{Timeout: *timeout}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, *concurrency)
+
+	// Counters for results
+	var success, dropped, failed int64
+	var mu sync.Mutex
+
+	start := time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for i := 0; i < *requests; i++ {
+		sem <- struct{}{} // Acquire semaphore
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			defer func() { <-sem }() // Release semaphore
+
+			// Generate synthetic payload (no internal structures)
+			payload := []byte(fmt.Sprintf(`{"id": "synthetic-%d", "data": "%s"}`, id, randomString(32)))
+
+			req, err := http.NewRequestWithContext(ctx, "POST", *targetURL, bytes.NewBuffer(payload))
+			if err != nil {
+				mu.Lock(); failed++; mu.Unlock()
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			// Use generic User-Agent
+			req.Header.Set("User-Agent", "load-test-client/1.0")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				// Distinguish between network errors and dropped connections if possible
+				mu.Lock(); dropped++; mu.Unlock()
+				return
+			}
+			defer resp.Body.Close()
+
+			// Drain body to ensure connection reuse behavior is tested
+			io.Copy(io.Discard, resp.Body)
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				mu.Lock(); success++; mu.Unlock()
+			} else {
+				mu.Lock(); failed++; mu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	fmt.Printf("Test Completed in %v\n", duration)
+	fmt.Printf("Success: %d | Dropped/Errors: %d | Failed (Non-2xx): %d\n", success, dropped, failed)
+
+	if dropped > 0 {
+		fmt.Println("WARNING: Connection drops detected. This may indicate the race condition.")
+	}
+}
+
+func randomString(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
+}
+```
+
+### How to Use This for Upstream Contribution
+
+1.  **Generalize the Target**: Run the script against `localhost` or a public sandbox instance of the library, never against `northwind-traders-internal` or any corporate hostname.
+2.  **Synthetic Data**: The script generates random JSON payloads. Do not modify it to echo real request bodies from your production logs.
+3.  **Reproducibility**: Include this script in your PR's `testdata/` or `examples/` directory. In your PR description, state: "Run `go run load_test.go -target <your-server> -concurrency 100` to reproduce the drop rate before the fix and verify stability after."
+
+### Critical Privacy & Safety Checks
+
+Before drafting your PR, you must manually verify that no internal artifacts remain. The script above contains no references to "Northwind Traders," internal IPs, or specific API routes beyond a generic `/api/resource`.
+
+**Stop Check**: Ensure your employer's IP policy allows open-sourcing this specific fix. If the race condition stems from a proprietary extension you added to the library rather than the core library itself, this fix belongs in your private fork, not upstream. Only contribute if the bug exists in the public version of the library.
+
+**Residual Risk**: While the script is clean, ensure your commit history does not contain earlier versions of the file that referenced internal endpoints. If you edited the file in place, rewrite your git history (`git rebase -i`) to squash or fixup those commits before pushing your draft branch.

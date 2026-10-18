@@ -1,0 +1,126 @@
+Here is a generic, reproducible load test script structure using Go's standard `net/http/httptest` and `sync` packages. This approach eliminates external dependencies, proprietary URLs, and network variability by running the server and clients entirely in-memory within a single binary. This ensures maintainers can run it immediately with `go test` without needing access to your internal infrastructure.
+
+```go
+package concurrency_test
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// TestConnectionPoolRace simulates high-concurrency requests to stress the connection pool.
+// It uses httptest.NewServer to run the target handler locally, avoiding any external network calls.
+func TestConnectionPoolRace(t *testing.T) {
+	// 1. Setup: Create a local test server using the library's main handler.
+	// Replace 'yourLibrary.NewHandler()' with the actual constructor from the library.
+	handler := yourLibrary.NewHandler()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	const (
+		concurrentClients = 100 // Number of simultaneous goroutines
+		requestsPerClient = 50  // Requests per goroutine
+		timeoutDuration   = 2 * time.Second
+	)
+
+	var (
+		successCount atomic.Int64
+		errorCount   atomic.Int64
+		dropCount    atomic.Int64 // Track specific "request dropped" errors if applicable
+		wg           sync.WaitGroup
+	)
+
+	client := &http.Client{
+		Timeout: timeoutDuration,
+		// Ensure the client reuses connections to stress the pool specifically
+		Transport: &http.Transport{
+			MaxIdleConns:        concurrentClients,
+			MaxIdleConnsPerHost: concurrentClients,
+			DisableCompression:  true,
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 2. Execution: Launch concurrent workers
+	for i := 0; i < concurrentClients; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < requestsPerClient; j++ {
+				if ctx.Err() != nil {
+					return
+				}
+
+				// Generate synthetic payload: random bytes to simulate real traffic load
+				payload := []byte(fmt.Sprintf("synthetic-data-client-%d-req-%d", id, j))
+
+				req, err := http.NewRequest("POST", server.URL+"/stress-endpoint", io.NopCloser(io.NopCloser(nil)))
+				if err != nil {
+					errorCount.Add(1)
+					continue
+				}
+
+				// Add headers to mimic production traffic patterns
+				req.Header.Set("Content-Type", "application/octet-stream")
+				req.ContentLength = int64(len(payload))
+
+				resp, err := client.Do(req)
+				if err != nil {
+					// Distinguish between timeout/network error and explicit server drop
+					if err.Error() == "context deadline exceeded" || err.Error() == "connection reset by peer" {
+						dropCount.Add(1)
+					} else {
+						errorCount.Add(1)
+					}
+					continue
+				}
+
+				// Ensure body is fully read and closed to return connection to pool
+				_, _ = io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+
+				if resp.StatusCode == http.StatusOK {
+					successCount.Add(1)
+				} else {
+					// Track non-200 responses as potential drops depending on library semantics
+					errorCount.Add(1)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// 3. Validation: Assert results
+	totalRequests := int64(concurrentClients * requestsPerClient)
+	t.Logf("Total Requests: %d", totalRequests)
+	t.Logf("Success: %d", successCount.Load())
+	t.Logf("Errors: %d", errorCount.Load())
+	t.Logf("Drops/Timeouts: %d", dropCount.Load())
+
+	// Define acceptance criteria:
+	// Before fix: dropCount should be > 0 under high load.
+	// After fix: dropCount should be 0 (or within an acceptable negligible margin).
+	if dropCount.Load() > 0 {
+		t.Errorf("Concurrency issue detected: %d requests were dropped or timed out under load", dropCount.Load())
+	}
+
+	// Optional: Fail if error rate exceeds a threshold (e.g., > 1%)
+	errorRate := float64(errorCount.Load()) / float64(totalRequests)
+	if errorRate > 0.01 {
+		t.Errorf("Error rate %.2f%% exceeds threshold of 1%%", errorRate*100)
+	}
+}
+```
+
+**Note:** Replace `yourLibrary.NewHandler()` with the actual entry point of the HTTP server you are fixing.
+**Note:** This script uses `httptest` to ensure zero network leakage; all traffic stays within the test process memory.

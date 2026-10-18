@@ -1,0 +1,53 @@
+### Proposed Solution: Generic CA Bundle Injection via Environment Variable
+
+To satisfy the maintainers' strict policy against bundling private certificates while solving your SSL handshake error, you must implement a **generic, user-provided CA bundle loader**. This approach shifts the trust anchor injection from the codebase to the runtime environment, ensuring zero traces of Globex's specific CA appear in the PR.
+
+#### 1. Code Modification Strategy
+Modify the Go client's TLS configuration initialization to check for a specific environment variable (e.g., `MQ_EXTRA_CA_CERTS`). If present, the code should read the file path(s) listed in this variable, parse the PEM blocks, and append them to the system's default certificate pool.
+
+**Key Implementation Details:**
+*   **No Hardcoded Paths:** Do not reference any specific directory or filename associated with Globex.
+*   **No Embedded Data:** Do not include any certificate strings, base64 blobs, or hex dumps in the source code or comments.
+*   **Fallback Behavior:** If the environment variable is unset, the client must behave exactly as it does today (using only the system trust store). This ensures backward compatibility.
+*   **Error Handling:** If the path is invalid or the file contains no valid certificates, log a warning but allow the application to continue (or fail gracefully depending on existing error policies), rather than crashing immediately.
+
+**Conceptual Logic:**
+```go
+// Pseudocode for the modification
+rootCAs, err := x509.SystemCertPool()
+if err != nil {
+    // Handle system pool failure per existing project standards
+}
+
+if caPath := os.Getenv("MQ_EXTRA_CA_CERTS"); caPath != "" {
+    customCAs, err := os.ReadFile(caPath)
+    if err != nil {
+        log.Printf("Warning: Could not read extra CA certs from %s: %v", caPath, err)
+    } else {
+        if !rootCAs.AppendCertsFromPEM(customCAs) {
+            log.Printf("Warning: No valid certificates found in %s", caPath)
+        }
+    }
+}
+
+// Use rootCAs in tls.Config
+```
+
+#### 2. PR Description & Scope Contract
+Your PR description must explicitly frame this as a **generic feature for all users**, not a fix for Globex.
+
+*   **Title:** `feat(config): support user-provided CA bundles via environment variable`
+*   **Summary:** "Adds support for injecting additional trusted CA certificates at runtime via the `MQ_EXTRA_CA_CERTS` environment variable. This enables deployment in private cloud environments with internal PKI without modifying the system trust store or bundling certificates in the binary."
+*   **Motivation:** "Many enterprise users operate behind internal CAs. Currently, they must rebuild the binary or modify host OS trust stores. This change provides a standard, secure mechanism for dynamic trust injection."
+*   **Security Considerations:** Explicitly state: "This feature does not add any default certificates. Trust is only extended if the deploying user explicitly configures the environment variable to point to a file they control. No private keys or specific CA details are included in this repository."
+*   **Test Plan:**
+    1.  Verify client connects to public brokers without the env var set (baseline).
+    2.  Generate a self-signed CA and certificate pair in the test suite.
+    3.  Run a local mock broker with the self-signed cert.
+    4.  Set `MQ_EXTRA_CA_CERTS` to the self-signed CA and verify successful handshake.
+    5.  Verify failure when the env var points to an invalid file.
+
+#### 3. Addressing Maintainer Silence
+Since maintainers have been silent on similar issues, this PR succeeds by **removing the burden of decision** from them. You are not asking "Can we add our CA?"; you are providing a tool that allows *any* user to solve this class of problem themselves. By making the implementation generic and the default behavior unchanged, you reduce the risk surface to near zero, making it harder to reject on policy grounds.
+
+Ensure your branch contains only the logic for loading the file and the tests proving it works with *dummy* certificates. The actual Globex certificate remains strictly on your local machine and production servers, never entering the git history.

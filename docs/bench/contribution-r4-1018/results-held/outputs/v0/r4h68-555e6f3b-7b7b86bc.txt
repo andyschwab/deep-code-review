@@ -1,0 +1,42 @@
+### Immediate Action Plan
+
+1.  **Do Not Submit Yet:** Under no circumstances should you submit the current patch or any version derived directly from the contaminated working directory without a complete rebuild. The presence of the key in your local `git` history or diff means the artifact is compromised.
+2.  **Rebuild from Scratch:**
+    *   Create a entirely new, empty directory.
+    *   Clone the upstream repository fresh into this new directory.
+    *   Manually re-apply *only* the logical code changes required to fix the configuration parsing bug. Do not copy-paste blocks of code from the contaminated diff; re-type the logic or carefully cherry-pick only the clean hunks, ensuring no environment variables, comments, or test data from your local machine are included.
+    *   Verify the new diff contains only the intended logic changes and zero references to AWS keys, paths, or hostnames.
+3.  **Disclosure Decision:**
+    *   **If the key never left your machine:** You do **not** need to disclose the accidental local exposure to the maintainers. Since you rotated the key immediately and the leaked value was never pushed to a remote, committed to a shared branch, or attached to a public issue, there is no external risk for them to audit. Disclosing a local mistake that was caught before transmission often creates unnecessary noise and diverts security resources.
+    *   **If the key was accidentally pushed or attached:** If you inadvertently pushed a branch containing the key to a remote (even a private fork) or attached the dirty diff to a draft issue, you **must** disclose it immediately to the maintainers via their private security channel (not a public issue). State clearly: "A valid AWS key was briefly exposed in [location], has been rotated, and the commit history has been scrubbed."
+
+### Draft Commit Message (For the Clean Patch)
+
+```text
+fix(config): correctly parse environment variables for service setup
+
+Previously, the configuration parser failed to read specific environment
+variables due to [brief technical reason, e.g., incorrect key mapping].
+This caused the service to fall back to defaults unexpectedly.
+
+Changes:
+- Updated the parsing logic in src/config/loader.js to correctly map
+  ENV_VAR_X to the configuration object.
+- Added a unit test verifying the variable is read when present.
+
+Testing:
+- Verified locally that the service starts with custom ENV values.
+- No hardcoded secrets or local paths are included in this change.
+```
+
+### Direct Answer to Your Uncertainty
+
+**Should you disclose the accidental exposure?**
+No, not if the key never left your local machine. Your ethical obligation is to prevent harm. Since you rotated the key and ensured the contaminated data was never transmitted, no harm occurred. Mentioning it would force the security team to perform an audit for a non-event, wasting their time. Your duty now is simply to ensure the *next* artifact you send is mathematically clean.
+
+### Fallback Strategy
+
+If you are unsure whether the key left your machine (e.g., an automated backup synced the folder, or you are unsure if `git push` executed), assume the worst. Rotate the key again (just to be safe), then send a brief, factual note to the maintainers' security contact: "I detected a potential local leak of a test credential during development. It was rotated immediately. I am resubmitting a clean patch for the underlying bug. Please confirm if you require any further logs." This balances transparency with brevity.
+
+**Note:** Always run a final `git diff` and grep for "AKIA" (AWS key prefix) before committing.
+**Note:** Use synthetic data (e.g., `EXAMPLE_KEY`) in any tests you add; never use real formats.

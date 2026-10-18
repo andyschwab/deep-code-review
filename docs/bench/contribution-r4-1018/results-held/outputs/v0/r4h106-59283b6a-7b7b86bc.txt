@@ -1,0 +1,66 @@
+### Proposed Solution: Generic Cache Hook System
+
+Do not propose the header-based logic, even as a configurable option with defaults. Defaulting to non-standard headers creates "slop" (confusion for users who don't have those headers) and implicitly documents your internal architecture. Instead, generalize the lesson into a **Generic Cache Hook System**. This allows any user (including yourself) to inject custom validity logic without the library assuming specific protocols.
+
+#### 1. Generalization Strategy
+*   **Remove:** All references to "OmniGlobal," specific header names (e.g., `X-Omni-Cache-TTL`), and any default behavior that inspects headers.
+*   **Replace:** Hardcoded header inspection with a user-provided `isCacheValid(response, request)` callback function.
+*   **Default Behavior:** The library defaults to standard HTTP caching (e.g., respecting `Cache-Control` headers) or simple time-based expiration if no hook is provided.
+*   **Value Proposition:** Users can now implement custom invalidation logic for *any* proprietary gateway, CDN, or edge case without modifying the library source.
+
+#### 2. Code Structure Changes
+Refactor the caching layer to accept an optional configuration object:
+
+```javascript
+// Before (Conceptual - Do not use)
+const client = new ApiClient({
+  cacheHeaders: ['X-Omni-Cache-TTL'] // Leaks internal logic
+});
+
+// After (Proposed)
+const client = new ApiClient({
+  cache: {
+    ttl: 30000, // Standard time-based fallback
+    isValid: (response) => {
+      // User-defined logic: Inspect custom headers, body content, or external state
+      const ttl = response.headers['x-custom-ttl'];
+      return ttl && Date.now() < ttl;
+    }
+  }
+});
+```
+
+#### 3. Draft Commit Message
+```text
+feat: add configurable cache validation hook
+
+Introduces an optional `isValid` callback in the cache configuration to support
+custom cache invalidation strategies beyond standard HTTP headers.
+
+- Adds `cache.isValid` function option for user-defined validity checks
+- Defaults to standard HTTP cache semantics if no hook is provided
+- Removes hardcoded assumptions about non-standard headers
+- Includes unit tests demonstrating custom header usage without bundling specific keys
+
+This enables integration with proprietary gateways while keeping the core library protocol-agnostic.
+```
+
+#### 4. Draft PR Body
+**Title:** feat: Add generic cache validation hook for custom strategies
+
+**Problem:** High-throughput scenarios often require custom cache invalidation logic (e.g., proprietary gateway headers) that standard HTTP caching cannot address. Hardcoding support for specific non-standard headers limits the library's generality and confuses users without those infrastructure components.
+
+**Change:** Refactored the caching layer to accept a user-defined `isValid` callback. This allows consumers to inject arbitrary logic for determining cache freshness while maintaining a sensible default (standard HTTP headers or time-based TTL).
+
+**Testing:**
+- Verified default behavior remains unchanged when no hook is provided.
+- Added test cases showing how to implement custom header inspection via the hook.
+- Confirmed no performance regression in standard caching paths.
+
+**Risk:** Low. The change is additive and backward compatible. No existing functionality is altered.
+
+---
+
+**Stop Checks & Privacy Notes:**
+1.  **Employer Approval:** Ensure your legal team approves open-sourcing the *concept* of your caching strategy, even if code is sanitized.
+2.  **Residual Risk:** While header names are removed, the mere existence of a hook optimized for high-throughput gateway patterns might hint at your scale; ensure the PR description frames this as a general utility for *any* custom infrastructure, not just high-scale gateways.

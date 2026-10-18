@@ -1,0 +1,62 @@
+### Steps to Create a Privacy-Safe Reproduction
+
+1.  **Construct Synthetic Data**: Create a new CSV file using invented SKU identifiers (e.g., `SKU-0001`, `SKU-0002`) and arbitrary quantities. Do not use real Acme warehouse data.
+2.  **Mimic the Edge Condition**: Arrange the synthetic data so that duplicate SKUs appear in the exact specific order that triggers your off-by-one error. The logic error depends on the *sequence* and *duplication*, not the specific values.
+3.  **Verify the Failure**: Run the library against your synthetic file locally to confirm it produces the incorrect stock level.
+4.  **Verify the Fix**: Apply your proposed code fix and confirm the synthetic file now processes correctly.
+5.  **Draft the Issue**: Write the bug report using only the synthetic file and generic terms (e.g., "a retail warehouse" instead of "Acme").
+
+### Minimal Reproduction Case (Example)
+
+Create a file named `test_bulk_import.csv` with this content:
+
+```csv
+sku,quantity
+SKU-ALPHA,10
+SKU-BETA,5
+SKU-ALPHA,20
+SKU-GAMMA,15
+SKU-BETA,5
+```
+
+*Note: Replace `SKU-ALPHA` etc., with any random strings. The critical factor is that `SKU-ALPHA` and `SKU-BETA` appear twice, separated by other entries, mimicking your specific failure order.*
+
+### Commit Message Draft
+
+```text
+fix: correct off-by-one error in bulk import aggregation for duplicate SKUs
+
+The aggregation logic incorrectly calculates stock levels when duplicate SKUs
+appear in a specific non-contiguous order within a bulk import file.
+
+This change ensures the accumulator resets or merges correctly regardless of
+row ordering.
+
+Tested with synthetic data containing duplicate SKUs in varying orders.
+```
+
+### PR Body Draft
+
+**Problem**
+When processing bulk imports via CSV, the library produces incorrect stock totals if a SKU appears multiple times in a specific interleaved order. This is an off-by-one error in the aggregation loop.
+
+**Reproduction**
+1. Use the attached `test_bulk_import.csv` (contains synthetic data only).
+2. Run the import command.
+3. Observe that the final count for `SKU-ALPHA` is incorrect.
+
+**Fix**
+Modified the aggregation logic in `[insert filename.go]` to handle duplicate entries correctly regardless of their position in the stream.
+
+**Testing**
+- Added `test_bulk_import.csv` as a test case.
+- Verified failure on main branch; verified success with this patch.
+- No real-world data was used; all test values are invented.
+
+### Addressing Your Uncertainty
+You do not need to mimic your real data "perfectly" in terms of values. You only need to mimic the **structural condition** that causes the crash: the specific ordering of duplicate keys. If your invented data triggers the same math error, it is a valid reproduction. The maintainers care about the logic flaw, not your product catalog.
+
+### Fallback Plan
+If the maintainers claim they cannot reproduce the issue with your synthetic data, politely ask if they require a specific file size or a different distribution of duplicates. Do not offer real data. If they insist on real data, decline citing your security policy and ask if a private security advisory channel is available for sensitive verification.
+
+**Stop Check**: Ensure your employer's IP policy allows submitting patches to open-source projects before proceeding. If legal approval is required, obtain it before drafting the PR.

@@ -1,0 +1,44 @@
+### Safe Contribution Strategy
+
+**1. Isolate and Sanitize the Fix**
+Do not commit your local workaround directly. The hard-coded selectors containing API keys and warehouse IDs must be stripped. Instead, refactor the parsing logic to accept the selector pattern as a configurable parameter or derive it dynamically from the DOM structure rather than static strings. Commit only the generic logic fix.
+
+**2. Construct a Safe Live Test**
+Since the maintainers require a live test but you cannot expose internal secrets:
+*   **Create a Minimal Reproduction Script:** Write a test script that hits the public-facing Apex Retail product listing page (not your internal authenticated endpoints).
+*   **Mock the Sensitive Context:** If the parsing failure only occurs when specific internal metadata is present, do not send real metadata. Instead, modify the test to inject *synthetic* headers or data attributes that mimic the structure of your internal logs without containing actual keys or IDs.
+*   **Verify Public Access:** Ensure the URL used in the test is publicly accessible without authentication. If the target page requires login, you cannot provide a live test without violating security; in this case, record a HAR file (network log) of the failure, sanitize it thoroughly, and attach it to the PR as evidence, noting in the description that a live test is impossible due to auth walls.
+
+**3. Draft the Pull Request Description**
+Use the following template. It addresses the "live test" rule by explaining the sanitization and provides the necessary technical context without leaking data.
+
+```markdown
+## Summary
+Fixes `NodeNotFound: table#inventory` error when parsing Apex Retail product listings by updating the selector logic to handle dynamic DOM structures.
+
+## What Changed
+- Refactored `apex_retail_parser.py` to decouple selector patterns from hardcoded strings.
+- Added logic to fallback on alternative structural identifiers when the primary table ID is missing.
+- **Sanitization:** All proprietary internal identifiers (API keys, warehouse IDs) have been removed from the codebase.
+
+## Test Plan
+- **Live Test:** Included `test_apex_retail_public_listing.py` which targets the public Apex Retail catalog. This reproduces the parsing failure on the current main branch and passes with this fix.
+- **Sensitive Data Handling:** The original failure involved authenticated internal routes. To comply with security policies, the live test uses synthetic data mimicking the internal structure. A sanitized HAR file demonstrating the original error flow is attached as `evidence_sanitized.har`.
+- **Local Verification:** Ran `pytest tests/test_apex_retail.py` successfully.
+
+## Backward Compatibility
+No breaking changes. Existing parsers for other retailers remain unaffected.
+
+## Related Issue
+Addresses the scenario described in Issue #<Number> (pending maintainer response).
+
+## AI-Assisted Disclosure
+Code was drafted with AI assistance for selector optimization; all logic and security sanitization were manually reviewed and verified by the author.
+```
+
+**4. Follow-Up Message for Maintainers**
+Post this comment on your existing issue ticket to nudge them without sounding demanding:
+
+> "Hi team, I've prepared a fix for the Apex Retail `NodeNotFound` error. Since the issue involves sensitive internal routing data, I've sanitized the reproduction case to use public endpoints and synthetic data while preserving the failure mode. I'm ready to open a PR with the live test and sanitized evidence, or adjust the testing strategy if you prefer a different approach. Please let me know if you'd like to review the proposal before I submit."
+
+**Note:** Never commit raw logs, even if you think you've redacted enough; assume any pattern matching your internal ID format is a leak. If the public site behaves differently than your internal one, explicitly state that divergence in the PR description.

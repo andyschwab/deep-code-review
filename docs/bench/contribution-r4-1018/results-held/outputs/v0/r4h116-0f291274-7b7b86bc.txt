@@ -1,0 +1,21 @@
+You cannot upstream this fix in its current form. The requirement to include real customer PII or a specific private byte sequence that cannot be synthesized directly violates the project's rule on public data fixtures and standard confidentiality policies. Submitting a PR with private data, even described via hex patterns, constitutes a data leak. Fabricating a file that does not reproduce the bug fails the correctness requirement.
+
+To proceed, you must generalize the defect and synthesize a safe reproduction locally before any upstream interaction:
+
+1.  **Stop and Isolate:** Do not draft a PR or share the hex pattern yet. Your legal team's confirmation that the data cannot be altered means the *specific customer data* is the trigger, but the *bug* is likely a generic encoding mismatch (e.g., assuming UTF-8 when the input is Shift-JIS or GBK).
+2.  **Generalize the Defect:** Identify the encoding mismatch abstractly. If the crash happens because a specific Asia-Pacific character sequence is misinterpreted, find a **publicly available** character or standard test file (e.g., from Unicode consortium test data or public domain literature) that triggers the same *class* of error in your local environment. The bug is "incorrect encoding detection," not "Acme Corp's specific invoice format."
+3.  **Synthesize a Fixture:** Create a minimal, synthetic file containing only the public characters that reproduce the `0x8007000B` error. If no public character sequence triggers it, the issue may be environmental or specific to a corrupted stream state unique to your internal pipeline, making it unsuitable for an upstream fix.
+4.  **Draft the Fix Locally:** Implement the stream reader initialization fix using the synthetic fixture. Ensure the test passes with the public data and fails without your fix.
+5.  **Prepare the PR Description (Template):**
+    *   **Title:** Fix text encoding corruption in stream reader for non-UTF8 inputs
+    *   **Problem:** Special characters from certain regions cause error 0x8007000B during parsing due to incorrect encoding assumption.
+    *   **Change:** Update stream reader initialization to explicitly detect or handle [Specific Encoding] instead of defaulting to [Wrong Encoding].
+    *   **Test:** Added regression test using synthetic public Unicode characters that reproduce the failure condition before the fix and pass after.
+    *   **Risk:** Low; limits scope to encoding detection logic.
+
+**Direct Answer:** You must not describe the private hex pattern or use the private file. If you cannot reproduce the bug with public/synthetic data, the fix is not generalizable and should remain a local patch documented in your internal `AGENTS.md` or runbook, not an upstream contribution.
+
+**Fallback:** If maintainers remain silent or reject the synthetic reproduction, close the loop internally by documenting the workaround in your private knowledge base.
+
+**Note:** Never attempt to bypass privacy gates by claiming a "special exception" for regression tests; the rule exists to prevent exactly this scenario.
+**Note:** If the bug truly relies on a private byte sequence that cannot be mimicked publicly, it indicates a fragility in the upstream code's ability to handle valid but diverse inputs, which is best reported as a feature request for robustness rather than a specific bug fix with private data.

@@ -1,0 +1,27 @@
+Do not merge the PR with the current placeholder note; a regression test that cannot run on CI or for other contributors will almost certainly be rejected. Instead, refactor your test strategy using one of the following three approaches, ranked by preference in open-source graphics communities:
+
+**1. The "Golden Image" Approach (Recommended)**
+Remove the dependency on the live font file entirely. Render the specific problematic glyph sequence once using your private setup, capture the resulting pixel buffer (the "golden image"), and commit only that binary data (e.g., as a PNG or raw byte array) to the repository.
+*   **Implementation:** Modify the test to load this pre-rendered golden image and compare it against the output of your fixed renderer given the same input metrics.
+*   **Benefit:** This proves the regression exists and is fixed without requiring the font file, the font name, or any licensed assets. The test becomes fully reproducible because the expected output is now part of the codebase.
+
+**2. The "Mock Metrics" Approach**
+If the bug is strictly about font metrics (kerning, advance width, bounding box) rather than specific glyph shapes, extract the exact numerical metrics from the licensed font that trigger the bug.
+*   **Implementation:** Create a synthetic "dummy" font within the test suite that hardcodes *only* those specific problematic metric values. You do not need the actual glyph outlines; you only need the data structure that the rasterizer reads.
+*   **Benefit:** This isolates the mathematical edge case without distributing any part of the font file or revealing the typeface name.
+
+**3. The "Skip with Vector" Approach (Last Resort)**
+If the above are impossible, implement the test but mark it to skip by default in CI, while providing a clear, documented path for maintainers to run it locally if they have access to similar assets.
+*   **Implementation:** Use the testing framework's skip annotation (e.g., `@pytest.mark.skipif`). In the skip message, explicitly state: "Requires specific font metrics found in licensed assets. To run locally, place a font with [X, Y, Z] metrics at path `test/assets/custom.ttf`."
+*   **Crucial:** You must still provide a separate, non-skipped unit test that verifies the *logic* of your fix using mocked data, so the CI suite still validates your code changes even if the full integration test is skipped.
+
+**Regarding the Typeface Name:**
+Scrub all comments referencing the internal typeface name immediately. Replace them with generic descriptors like "licensed sans-serif family" or "specific glyph set A." Revealing internal project names via open-source contributions can violate corporate IP policies even if the font file itself isn't shared.
+
+**Action Plan:**
+1.  Generate the golden image or extract the specific metrics today.
+2.  Rewrite the test to depend solely on these new, license-free assets.
+3.  Update the PR description to explicitly state: "Refactored regression test to use [golden images/mocked metrics] to ensure reproducibility without licensed asset dependencies."
+4.  Tag the maintainer noting the constraint has been resolved.
+
+This approach demonstrates respect for both the project's reproducibility standards and your employer's licensing constraints.

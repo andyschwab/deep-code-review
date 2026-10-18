@@ -1,0 +1,33 @@
+To contribute this feature safely, you must separate the **core tracing logic** from the **formatting strategy**. The maintainers almost certainly expect a pluggable format; hardcoding a specific ID structure (especially one revealing topology) is generally rejected in distributed systems libraries.
+
+Here is your step-by-step plan:
+
+1.  **Refactor for Abstraction (Local Work)**
+    Create a `TraceIdFormatter` interface in your Java code. Move your current "Acme-specific" logic into a class named `AcmeClusterTopologyFormatter` that implements this interface. Then, create a `StandardRandomFormatter` (using generic UUIDs or W3C Trace Context formats) that also implements the interface.
+    *   *Action:* Ensure the default configuration in the library points to `StandardRandomFormatter`.
+    *   *Action:* Make the `AcmeClusterTopologyFormatter` optional, loadable only via a specific system property or explicit configuration file that you **do not** commit to the upstream repository.
+
+2.  **Sanitize Artifacts**
+    *   **Code:** Remove all references to "Acme," "Globex" (if it's an internal product name), and specific cluster topology prefixes from the main source files.
+    *   **Tests:** Rewrite unit tests to use synthetic data. Instead of asserting that an ID starts with `acme-prod-us-east-`, assert that the ID matches a generic regex (e.g., `^[a-f0-9]{32}$`) or conforms to the W3C standard.
+    *   **Documentation:** Replace screenshots or log snippets showing your internal observability platform with generic examples. Describe the *capability* ("supports custom formatters") rather than your specific implementation ("links to Acme Dashboard").
+
+3.  **Draft the Contribution**
+    *   **Title:** "feat: add pluggable TraceIdFormatter interface with default random implementation"
+    *   **Problem:** "Current implementation assumes a fixed trace ID format, preventing adoption in environments with different observability standards or privacy requirements."
+    *   **Solution:** "Introduces a `TraceIdFormatter` SPI (Service Provider Interface). The default implementation generates standard random IDs. Custom formats (e.g., legacy compatibility, specific topology encoding) can be injected via configuration."
+    *   **Testing:** "Added unit tests verifying the interface contract and the default random generation. Verified that custom implementations can be loaded without modifying core logic."
+    *   **Risk:** "Low. The change is additive and backward compatible if the previous behavior is wrapped as a legacy formatter (optional)."
+
+4.  **Address Your Specific Uncertainty**
+    You asked if maintainers expect a generic implementation. **Yes.** Libraries intended for broad use must not enforce specific infrastructure assumptions. By providing an interface, you actually *increase* the value of your contribution because it allows other users to plug in their own proprietary formats without forking the library. Your "Acme" logic becomes a private, downstream plugin rather than upstream baggage.
+
+5.  **Final Privacy Gate Check (Manual)**
+    Before handing this off to a human to open the PR, verify:
+    *   Does `git diff` contain any string like "acme", "corp", or specific IP/hostname patterns?
+    *   Do the commit messages mention your internal tools?
+    *   Is the "default" behavior completely neutral?
+
+**Deliverable Summary:** Submit a PR that adds the *interface* and a *generic default*, keeping your specific topology logic entirely out of the upstream codebase. Document how users *can* write their own formatter, but do not provide your company's specific one.
+
+**Note:** If your internal tools strictly require the specific format to function, you must maintain the `AcmeClusterTopologyFormatter` in your private fork or a separate internal library that depends on the upstream version. Do not attempt to hack the upstream tests to pass with your private format.

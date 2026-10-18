@@ -1,0 +1,53 @@
+### Steps to Create a Privacy-Safe Reproduction
+
+1.  **Construct Synthetic Data**: Create a new CSV file using invented values that mimic the *structure* of your data without revealing the *content*.
+    *   Replace real SKUs (e.g., `ACME-9921`) with generic placeholders (e.g., `SKU-001`, `SKU-002`).
+    *   Replace real quantities with small, arbitrary integers (e.g., `10`, `5`, `15`) that are sufficient to trigger the math error but reveal no sales volume.
+    *   Ensure the specific order of duplicate SKUs that triggers the bug is preserved in this synthetic dataset.
+2.  **Verify the Bug Locally**: Run your local version of the library against this synthetic CSV. Confirm it produces the incorrect stock level (the off-by-one error).
+3.  **Verify the Fix Locally**: Apply your proposed fix to the library code and run it against the same synthetic CSV. Confirm it now produces the correct stock level.
+4.  **Draft the Test Case**: Add the synthetic CSV and a Go test function to the project's test suite. The test should assert the expected correct total, failing on the current main branch and passing with your fix.
+5.  **Sanitize Commit History**: Ensure no real data ever enters your git history. If you accidentally committed real data, you must rewrite the branch history (`git rebase`) and rotate any potentially exposed secrets before proceeding.
+
+### Draft Commit Message
+
+```text
+test: add regression case for bulk import aggregation error
+
+Adds a synthetic CSV fixture and test case reproducing an off-by-one
+error in stock aggregation when duplicate SKUs appear in a specific
+sequence.
+
+The fixture uses invented SKU identifiers and quantities to ensure
+reproducibility without exposing private data.
+
+Fixes the aggregation logic to correctly handle duplicate entries
+regardless of input order.
+```
+
+### Draft PR Body
+
+**Problem**
+Processing bulk imports with duplicate SKUs in a specific order causes an off-by-one error in total stock calculation.
+
+**Reproduction**
+A new test case (`testdata/bulk_import_duplicates.csv`) triggers the failure using synthetic data.
+- **Before fix**: Test fails (incorrect total).
+- **After fix**: Test passes (correct total).
+
+**Change**
+Corrects the loop index handling in `import.go` during aggregation.
+
+**Risk**
+Low. The change is scoped to the import aggregation logic. Existing tests pass.
+
+### Addressing Your Uncertainty
+You do not need to mimic the *content* of your real export perfectly; you only need to mimic the *conditions* that trigger the bug. The "perfect" dummy data is simply the smallest possible dataset (e.g., 3-4 rows) that contains duplicate SKUs in the problematic order and causes the math to fail. Real SKU numbers and actual sales volumes are irrelevant to the logic error and must be excluded entirely.
+
+### Fallback Plan
+If the maintainers request more complex data to reproduce the issue, ask them specifically which structural attribute is missing (e.g., "Do you need more duplicate groups or a larger file size?"). Generate new synthetic data matching that structural request, never real data. If they remain silent after two weeks, send one polite follow-up asking if the synthetic test case was sufficient, then pause.
+
+***
+
+**Note**: Before submitting, ensure your employer's IP policy allows this contribution and that you have not inadvertently included any real paths or hostnames in the test file comments.
+**Note**: Do not sign the commit with a corporate email if the project policy or your employer requires a personal or noreply address for open-source contributions.

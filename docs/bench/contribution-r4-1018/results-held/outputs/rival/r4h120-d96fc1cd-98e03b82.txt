@@ -1,0 +1,39 @@
+### Technical Characterization of Race Condition
+
+**Issue:** Non-atomic read-modify-write sequence in `DistributedCacheClient.putIfAbsent()` (or equivalent update method) under high contention.
+
+**Abstract Concurrency Model:**
+The failure mode manifests as a lost-update anomaly when the following interleaving occurs across $N \geq 2$ nodes:
+1.  **Node A** reads value $V_0$ for key $K$.
+2.  **Node B** reads value $V_0$ for key $K$ (before A's write propagates).
+3.  **Node A** computes $V_A = f(V_0)$ and issues write $W_A(K, V_A)$.
+4.  **Node B** computes $V_B = f(V_0)$ and issues write $W_B(K, V_B)$.
+5.  **Result:** The final state is $V_B$, effectively discarding the mutation from Node A. The library fails to enforce linearizability or atomic compare-and-swap (CAS) semantics during the update window.
+
+**Trigger Conditions (Abstracted):**
+The race is probabilistic and requires a contention window where the network propagation delay ($\Delta_{net}$) exceeds the local computation time ($\Delta_{comp}$) for concurrent updates to the same key. This condition is statistically negligible under low load but becomes deterministic when the request rate ($\lambda$) for a specific key shard exceeds the inverse of the consistency window ($1/\Delta_{net}$). Our staging reproduction confirms this via synthetic high-frequency access patterns to a single key, independent of specific business logic payloads.
+
+**Evidence Available for Review:**
+*   Thread dumps showing multiple threads stuck in the "write" phase while holding stale read values.
+*   Log sequences demonstrating the $Read(V_0) \rightarrow Read(V_0) \rightarrow Write(V_A) \rightarrow Write(V_B)$ interleaving without version checks.
+*   Memory snapshot showing the final state mismatch against expected atomic accumulation.
+
+---
+
+### Proposal for Collaborative Debugging Session
+
+To validate this without transferring proprietary scripts or data:
+
+1.  **Sanitized Log Replay:** We will extract the raw network packet capture (PCAP) or application logs surrounding the race condition, stripping all payload data (values) and retaining only timestamps, node IDs, key hashes, and operation types (READ/WRITE). This proves the interleaving sequence without exposing business data.
+2.  **Live Screen-Share Stress Test:** We invite a maintainer to a scheduled video session where we:
+    *   Share our screen showing the staging environment metrics.
+    *   Run our proprietary load generator locally (code never leaves our machine).
+    *   Demonstrate the live data inconsistency in the dashboard as the load spikes.
+    *   Allow the maintainer to direct the run (e.g., "focus on Key X," "increase thread count") in real-time.
+3.  **Minimal Repro Harness:** We will provide a generic Java JUnit test using `CountDownLatch` and `ExecutorService` that simulates $N$ threads hammering a single key with dummy strings. This isolates the library's concurrency bug from our specific traffic patterns, running entirely within a standard CI environment.
+
+**Next Steps:**
+We request a 45-minute window next week for the live session and will prepare the sanitized log sequence and minimal harness beforehand. This approach verifies the library's atomicity guarantees without compromising our intellectual property.
+
+*Note: The abstract model above replaces your specific "50k requests" metric with the theoretical contention window, making the bug reproducible conceptually by the maintainers.*
+*The "Minimal Repro Harness" is your strongest asset; it shifts the burden from "trust our logs" to "run this standard test."*

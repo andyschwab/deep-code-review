@@ -1,0 +1,32 @@
+**Deliverable: Upstream Contribution Sanitization Checklist**
+
+1.  **Stop & Verify Authority**: Before proceeding, confirm you have explicit written approval from Wayne Enterprises legal/IP counsel to release this code. No agent can authorize this; only your employer can. Check the target library's `CONTRIBUTING.md` for rules on "issue-first" workflows or specific CLA requirements.
+2.  **Generalize the Logic**: Strip all context specific to "Wayne Enterprises." If the rate limiter uses a specific algorithm tweak for your internal traffic patterns (e.g., "burst handling for Gotham peak hours"), revert to the standard algorithm or make the strategy fully configurable via flags. The code must solve a generic problem, not your specific instance of it.
+3.  **Sanitize Identifiers (Search & Replace)**:
+    *   **Hostnames/Endpoints**: Replace `api.wayne-enterprises.corp` or `monitoring.internal` with generic placeholders like `example.com` or remove them entirely if the module should be agnostic of specific backends.
+    *   **Paths**: Change `/opt/wayne/go/src/...` to standard Go module paths or relative imports.
+    *   **Comments/Docs**: Remove any mention of "Wayne," "Gotham," internal ticket numbers (e.g., "WE-1024"), or specific internal team names.
+    *   **Metrics**: If the module exports metrics, ensure label names are generic (e.g., `http_requests_total` instead of `wayne_api_gateway_requests`). Remove any hardcoded internal dashboard IDs.
+4.  **Synthetic Reproduction**: Create a test file (`rate_limit_test.go`) that uses purely synthetic data (e.g., `test-user-1`, `192.0.2.1`). Do not include logs, stack traces, or config dumps from your production environment. Ensure tests pass on a clean machine with no access to internal networks.
+5.  **Mechanical Privacy Gate**: Run a grep-based scan on the entire diff to catch leftovers:
+    ```bash
+    git diff --cached | grep -iE "wayne|gotham|corp|internal|secret|key_"
+    ```
+    If this returns any hits, the submission is blocked until resolved. Note that this script cannot catch paraphrased secrets (e.g., "our proprietary backoff strategy"); those require manual review.
+6.  **Draft the Pull Request**:
+    *   **Title**: "feat: add configurable rate-limiting middleware"
+    *   **Body**: Describe the generic problem (high concurrency throttling) and the solution. State clearly: "Tests included with synthetic data." Do not claim performance benchmarks unless you can reproduce them publicly; otherwise, write "[Benchmarks available upon request/run locally]."
+    *   **Risk Flag**: Explicitly note if you removed any "optimizations" that were specific to your hardware, as maintainers may ask about them.
+7.  **Human Handoff**: Do not push or open the PR yourself via automation. Generate the patch and PR text, then attach the following **Provenance and Risk Block** for your human reviewer to sign before they open the PR:
+
+    ```text
+    SOURCE (internal only): Wayne Enterprises API Gateway
+    GENERALIZED-AWAY: Internal hostnames, specific traffic shaping rules for Gotham peaks, proprietary monitoring hooks.
+    RESIDUAL RISK I COULD NOT RULE OUT: Potential structural similarity to unreleased internal algorithms; timing of release relative to internal product launches.
+    MOSAIC CHECK: None (first contribution from this source to this project).
+    MECHANICAL SCRUB: Passed grep scan at commit <SHA>.
+    DRAFTED BY: Assistant (no execution capabilities).
+    ```
+
+**Note**: If the target maintainers require an issue first, file the issue using the sanitized title and description, waiting for feedback before submitting code.
+**Note**: Never modify the target project's CI gates or test thresholds to make your contribution pass; this is an automatic rejection.

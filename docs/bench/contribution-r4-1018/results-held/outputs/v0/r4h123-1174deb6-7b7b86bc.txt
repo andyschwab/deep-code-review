@@ -1,0 +1,48 @@
+You cannot submit a valid bug report or patch for this specific issue to the upstream project yet. The core constraint of open-source contribution is that the maintainers must be able to reproduce the defect using only public interfaces or synthetic data that accurately mimics the failure mode without relying on undisclosed logic. Since your crash depends on a specific sequence in a closed-source wrapper that you cannot share, and you have not yet reproduced it via the public API, the defect is currently classified as "non-generalizable" and specific to your private environment.
+
+**Immediate Action Plan:**
+
+1.  **Stop the Upstream Submission:** Do not draft a PR or issue containing references to your internal wrapper, its method names, or the specific sequence it uses. Submitting a report that says "this crashes when combined with our secret code" is not actionable for maintainers and risks leaking architectural details (e.g., how your wrapper interacts with the logger).
+2.  **Isolate the Root Cause Locally:** You must determine *why* the wrapper triggers the null pointer. Is it passing `None` where an object is expected? Is it calling a method before initialization? Is it a race condition in the logger's state?
+3.  **Construct a Synthetic Repro:** Once you identify the mechanical cause (e.g., "calling `log()` on an uninitialized handler"), write a standalone Python script using **only** the open-source project's public API that forces that same state.
+    *   *Bad:* `def my_secret_wrapper(): ...` (Do not include this).
+    *   *Good:* `# Simulates a race condition where handler is None` followed by direct calls to the library's public methods that result in `handler = None`.
+4.  **Verify the Crash:** Run this synthetic script against the upstream code. If it crashes, you have a valid, generalizable bug report. If it does not crash, the bug is likely in your wrapper's implementation, not the upstream library, and should be fixed internally.
+
+**Draft Commit Message (Only use if Step 4 succeeds):**
+
+```text
+fix: handle null handler in logging utility under concurrent access
+
+A null pointer exception occurs when the logging handler is accessed
+before initialization during high-concurrency scenarios. This patch
+adds a guard clause to check for None before invoking handler methods.
+
+Reproduction:
+A synthetic test case (`test_null_handler_race.py`) demonstrates the
+failure by directly manipulating the internal state via public APIs
+to simulate a race condition where the handler is unset.
+
+Signed-off-by: [Your Name] <your.personal.email@example.com>
+```
+
+**Draft PR Body Section:**
+
+```markdown
+## Problem
+Under heavy load, a `NullPointerException` (or `AttributeError` in Python) crashes the application when the logging handler is unexpectedly `None`.
+
+## Reproduction
+The issue is reproduced using a synthetic script that simulates concurrent access patterns leading to an uninitialized handler state. No third-party wrappers are required to trigger this behavior.
+
+## Testing
+- Added `test_null_handler_race.py` which fails on the current main branch.
+- Verified the fix resolves the crash in the synthetic test.
+- [Paste output of your synthetic test run here]
+```
+
+**Direct Answer to Your Uncertainty:**
+Do not simulate the behavior with dummy functions that mimic your private wrapper's *names* or *logic*. Instead, simulate the **state** or **input** that causes the crash using only the library's public API. If you cannot achieve the crash state without your private code, the bug is not in the upstream library, and filing a report would be incorrect.
+
+**Fallback:**
+If you cannot isolate the root cause to a public API interaction after reasonable effort, fix the issue within your private wrapper (e.g., add guards in your wrapper to prevent the bad sequence) and document the lesson internally in your `AGENTS.md` or engineering logs as a "private imprint." Do not send anything upstream.

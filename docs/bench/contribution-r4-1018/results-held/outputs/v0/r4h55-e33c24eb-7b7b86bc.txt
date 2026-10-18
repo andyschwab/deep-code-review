@@ -1,0 +1,53 @@
+Do not hardcode the public IP address owned by Umbrella Corp. Doing so would leak confidential infrastructure topology and violate the project's self-contained rule. Instead, refactor the test to use the operating system's ephemeral port allocation mechanism, which guarantees a free port without requiring a specific IP or hardcoded value.
+
+**Concrete Steps:**
+
+1.  **Modify the Test Binding:** Change the test setup to bind to `127.0.0.1` (localhost) on port `0`. In almost all networking stacks, specifying port `0` instructs the OS to assign an available ephemeral port automatically.
+    *   *Before:* `socket.bind(('127.0.0.1', 8080))` or specific public IP.
+    *   *After:* `socket.bind(('127.0.0.1', 0))`
+
+2.  **Retrieve the Assigned Port:** Immediately after binding, query the socket for the actual port number assigned by the OS.
+    *   *Snippet:* `assigned_port = socket.getsockname()[1]`
+
+3.  **Use the Dynamic Port:** Pass `assigned_port` to the client side of your test or any subsequent assertions. This ensures the client connects to the exact port the server is listening on, eliminating the race condition entirely without relying on external state or specific IPs.
+
+4.  **Verify Locally:** Run the test loop locally (e.g., 100 iterations) to confirm the flakiness is resolved. The race condition you observed on CI regarding "occupied ports" disappears because the OS never assigns an occupied port when you request `0`.
+
+**Commit Message Draft:**
+```text
+test: stabilize flaky network test by using ephemeral port allocation
+
+Replaces hardcoded port binding with OS-assigned ephemeral ports (port 0).
+This eliminates race conditions caused by port contention on CI servers
+without requiring specific IP addresses or external dependencies.
+
+- Bind to 127.0.0.1:0
+- Retrieve actual port via getsockname()
+- Update client connection to use dynamic port
+```
+
+**PR Body Draft:**
+```markdown
+## Problem
+The network test fails intermittently on CI due to port contention when binding to a specific port. Hardcoding a specific infrastructure IP to avoid this would leak confidential topology details and violate the self-contained test policy.
+
+## Solution
+Refactor the test to bind to port `0` on `127.0.0.1`. This instructs the OS to assign a guaranteed-free ephemeral port. The test then retrieves this assigned port and uses it for the client connection.
+
+## Testing
+- Verified locally with 100+ consecutive runs; no failures observed.
+- No external dependencies or specific IP addresses required.
+- Fully self-contained and reproducible on any machine.
+
+## Risk
+Low. This is a standard pattern for isolated network testing. Logic remains unchanged; only the binding mechanism is updated.
+```
+
+**Direct Answer to Your Uncertainty:**
+You do not need to mock the entire network layer or use reserved documentation IPs. Using `127.0.0.1` with port `0` is the sanctioned, standard approach for this exact scenario. It mimics your setup sufficiently for a unit/integration test (verifying the library's logic) without needing the specific staging topology that causes the race condition only when ports are statically defined.
+
+**Fallback:**
+If maintainers request evidence of the fix, provide the local loop run count (e.g., "Passed 500 iterations locally") rather than CI logs containing infrastructure details. If they remain silent after two weeks, send one polite follow-up asking if the ephemeral port approach aligns with their testing guidelines.
+
+**Note:** Ensure no logs or error messages in the test output accidentally print the resolved IP if it were ever to differ in other environments, though `127.0.0.1` is safe.
+**Note:** Do not attempt to generalize this into a "lesson" about Umbrella Corp's specific CI race conditions; the fix is universal to socket programming.

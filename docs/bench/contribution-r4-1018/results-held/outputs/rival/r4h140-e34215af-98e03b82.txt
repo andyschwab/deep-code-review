@@ -1,0 +1,31 @@
+Do not submit your current implementation. Submitting code containing Acme Corp's proprietary trace ID format, cluster topology prefixes, or links to your internal observability platform violates open-source contribution norms and likely the project's license regarding confidential information. Even if you believe the maintainers might accept it, embedding private architectural details in a public repository creates an immediate security and legal liability for both you and the project.
+
+To contribute this feature safely and effectively, you must decouple the *mechanism* of trace ID generation from the *format* of the IDs. Your goal is to upstream a generic, extensible tracing SPI (Service Provider Interface) while keeping Acme's specific implementation private.
+
+**1. Refactor for Pluggability (The "Upstream" Strategy)**
+Most mature Java frameworks (like Micrometer, OpenTelemetry, or Spring Cloud Sleuth) rely on interfaces rather than concrete implementations for cross-cutting concerns.
+*   **Define an Interface:** Create a `TraceIdGenerator` interface in the core module with a method like `String generateTraceId()`.
+*   **Provide a Default Implementation:** Implement a standard, generic generator (e.g., using UUIDs or standard W3C Trace Context formats) that becomes the default bean. This ensures the framework works out-of-the-box for the community without any Acme-specific logic.
+*   **Enable Configuration:** Ensure the framework allows users to override this bean via dependency injection or a configuration property. This is how Acme Corp will use it internally: you will provide your proprietary `AcmeTraceIdGenerator` implementation in your *private* internal libraries, which overrides the public default at runtime.
+
+**2. Sanitize Your Contribution**
+Before writing the PR:
+*   **Scrub History:** If you have already committed Acme-specific strings, you must rewrite your git history (`git rebase -i`) to remove them entirely. Do not just add a new commit that "removes" the secrets; the sensitive data will still exist in the git history.
+*   **Check Tests:** Ensure your unit tests do not assert against Acme-specific prefix patterns. Tests should verify that *a* valid ID is generated and that the interface can be overridden, not that the ID matches your internal topology.
+*   **Documentation:** Write docs explaining how to *customize* the trace ID format, using neutral examples (e.g., "example-service-123") rather than your internal cluster names.
+
+**3. Verify Project Expectations**
+Before coding further, check the project's `CONTRIBUTING.md` and existing issues:
+*   Look for existing discussions on "pluggable tracing," "custom trace IDs," or "SPI."
+*   If the project currently hardcodes a format, your proposal should be framed as "Adding support for custom TraceIdGenerator implementations" rather than "Adding Acme's tracing."
+*   If no such extension point exists, open a GitHub Issue first titled "Proposal: Pluggable Trace ID Generation SPI." Describe the *generic* use case (e.g., "Teams often need to align trace IDs with legacy systems or specific compliance formats") and ask if the maintainers are open to an interface-based approach. Do not mention Acme's specific topology in the issue.
+
+**4. The "Local Testing" Dilemma**
+You mentioned that genericizing the format breaks your local tools. This is expected and correct. Your local development environment at Acme should simulate the production environment by including your private overrides.
+*   Do not pollute the open-source codebase with hooks required only for your internal tooling.
+*   Instead, ensure your internal build process injects the Acme-specific implementation and configuration when building for Acme environments. The open-source version should remain clean and generic.
+
+By upstreaming the *capability* to customize tracing rather than your *specific* customization, you provide value to the community (who may have their own legacy formats) while strictly protecting Acme's intellectual property. This approach aligns with how major Java ecosystems handle similar extensibility requirements.
+
+Note: If you have already pushed code containing these identifiers to a public fork, delete that fork immediately and create a new one after scrubbing your local history.
+Note: Always run `git log -p` to visually confirm no sensitive strings remain in any commit before pushing.

@@ -1,0 +1,40 @@
+Do not synthesize fake logs. Fabricating data, even to illustrate a pattern, violates the trust required for open-source contributions and risks being rejected as misleading evidence. Instead, you must transform the real data to preserve the **relative timing deltas** (which prove the frequency issue) while destroying the **absolute timestamps** (which reveal your operational schedule).
+
+Use the **Relative Delta Obfuscation** method. This approach shifts the timeline to an arbitrary zero point and normalizes the intervals, allowing maintainers to see the "storm" of garbage collection events without knowing when your actual nightly jobs run.
+
+**Step-by-Step Transformation:**
+
+1.  **Identify $T_0$:** Take the timestamp of the first log entry in your excerpt and designate it as `T+0.000s`.
+2.  **Calculate Deltas:** For every subsequent log entry, calculate the time difference relative to $T_0$.
+3.  **Redact Absolute Values:** Replace the original timestamps (e.g., `2023-10-27 02:15:03.123`) with the calculated relative offset (e.g., `[+1.450s]`).
+4.  **Normalize Volume Indicators:** If the log count itself reveals batch size (e.g., exactly 5,000 lines implies a 5k record batch), truncate the excerpt to a representative window (e.g., "Showing 15 of 4,892 similar events") or replace specific record counts with ranges (e.g., `batch_size=~5k`).
+
+**Example Transformation:**
+
+*Original (Sensitive):*
+```text
+2023-10-27 02:00:00.000 INFO Starting nightly batch for Soylent Corp
+2023-10-27 02:00:00.120 WARN GC run started (heap: 400MB)
+2023-10-27 02:00:00.180 WARN GC run started (heap: 450MB)
+2023-10-27 02:00:00.210 WARN GC run started (heap: 480MB)
+... (500 more lines over 30 seconds)
+```
+
+*Obfuscated (Safe for PR):*
+```text
+[RELATIVE TIMING EVIDENCE - Absolute times redacted for operational security]
+T+0.000s INFO Starting batch operation
+T+0.120s WARN GC run started (heap: 400MB)
+T+0.180s WARN GC run started (heap: 450MB)
+T+0.210s WARN GC run started (heap: 480MB)
+... (497 similar events occurring within T+0.210s to T+30.500s)
+```
+
+**PR Description Wording:**
+Include a brief note in your "Test Plan" or "Evidence" section:
+> "Logs below show relative time deltas ($T+0$) to demonstrate the GC frequency regression. Absolute timestamps and specific batch volumes have been redacted to protect internal operational schedules. The pattern of 500+ collections within 30 seconds confirms the regression severity."
+
+This method provides the maintainers with the exact mathematical proof of the regression (the frequency and clustering) while mathematically guaranteeing that your production schedule cannot be reverse-engineered from the data.
+
+Note: If the repository has a security policy, consider sending the full unredacted logs privately to a maintainer first, then reference that private communication in the public PR.
+Always verify that heap sizes or other numeric metrics in the logs do not also inadvertently reveal proprietary data scales.

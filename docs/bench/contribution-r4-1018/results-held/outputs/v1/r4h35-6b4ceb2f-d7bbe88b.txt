@@ -1,0 +1,55 @@
+### Immediate Action Plan
+
+**1. Stop and Verify History**
+Do not push or open the PR yet. Since you mentioned the bucket name (`acme-corp-private-data-prod`) and dataset (`Project-Titan`) existed in previous commits, a standard file edit will not remove them; they remain in the `git` history.
+*   **Action:** Run `git log -p | grep -E "acme-corp|Project-Titan"` locally. If this returns any lines, your branch is not clean.
+*   **Fix:** You must rewrite history. Use `git filter-repo` (preferred) or `git filter-branch` to scrub these strings from every commit in your branch.
+    *   *Command concept:* `git filter-repo --replace-text <(echo "acme-corp-private-data-prod==>host.example"; echo "Project-Titan==>Synthetic-Dataset")`
+    *   **Warning:** This changes commit hashes. You will need to force-push (`git push --force-with-lease`) after cleaning.
+
+**2. Sanitize Benchmark Artifacts**
+Maintainers require reproducibility with public data. Raw logs from your internal run are unsafe to attach even if edited, as metadata or hidden headers might leak paths.
+*   **Action:** Do not attach raw `.log` files.
+*   **Alternative:** Re-run the benchmark locally using the public dataset you selected. Capture *only* the final summary statistics (e.g., mean latency, standard deviation, sample count) into a new, clean markdown table or a freshly generated CSV that contains no file paths.
+*   **If re-running is impossible:** Manually transcribe the specific latency numbers into the PR description. Explicitly state: "Raw logs omitted to prevent accidental leakage of internal infrastructure paths; summary statistics provided below."
+
+**3. Draft the Commit Message & PR Body**
+Use the following templates. They generalize the fix and explicitly address the data sanitization without revealing the secret names.
+
+**Commit Message:**
+```text
+fix: resolve 15% query latency regression in SwiftBench
+
+- Identified and fixed the bottleneck causing increased latency in recent releases.
+- Replaced internal benchmark data sources with public equivalents to ensure reproducibility.
+- Scrubbed all infrastructure-specific paths and dataset identifiers from history and artifacts.
+- Verified performance improvement using synthetic public datasets.
+
+Tested: Benchmarks run against [Name of Public Dataset]; latency reduced to baseline.
+```
+
+**PR Description Section (Performance Numbers):**
+```markdown
+## Performance Validation
+The regression resulted in a 15% increase in query latency. This fix restores performance to baseline levels.
+
+| Metric | Before Fix (vX.X) | After Fix (This PR) | Dataset |
+| :--- | :--- | :--- | :--- |
+| Mean Latency | [Insert Value] ms | [Insert Value] ms | [Public Dataset Name] |
+| 95th Percentile | [Insert Value] ms | [Insert Value] ms | [Public Dataset Name] |
+| Samples | [Count] | [Count] | N/A |
+
+*Note: Raw benchmark logs containing internal paths have been excluded. Results are reproducible using the public dataset linked above.*
+```
+
+### Direct Answer to Your Uncertainty
+**Yes, your commit history almost certainly still leaks the original bucket name.** Simply replacing the file content in the latest commit does not erase the string from previous commits where you ran the benchmarks. You **must** rewrite the git history using `git filter-repo` or equivalent tools before pushing. If you push without rewriting history, the sensitive strings will be public forever, even if you add a later commit that "deletes" them.
+
+### Fallback Strategy
+If the maintainers insist on seeing raw logs for verification and you cannot safely provide them:
+1.  Offer to run the benchmark on a CI pipeline triggered by the PR (if the repo supports it), so the logs are generated in a clean, public environment.
+2.  Propose a temporary, private verification method where a maintainer can pull your branch, run the public dataset test themselves, and verify the numbers match your summary, without you ever sending the internal logs.
+
+---
+*Ensure you run the project's specific privacy gate script (e.g., `scripts/ci-gates.sh privacy`) on your final branch before handing off to a human.*
+*Never sign off on behalf of the author; the human opener must attest to the accuracy of the scrub.*

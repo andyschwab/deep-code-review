@@ -1,0 +1,60 @@
+### Strategy: Replace External Dependency with Deterministic Simulation
+
+Do not submit a test that relies on the specific public DNS record used by Helix Corp, nor a test that skips execution based on local firewall rules. Both approaches violate the requirement for reliability on standard infrastructure and risk leaking structural details about your internal network topology.
+
+**Recommended Approach: Mock the Resolver**
+Refactor the test to inject a custom DNS resolver rather than relying on the system's default network stack. This allows you to simulate the specific response data (the "coverage" you need to preserve) without making actual network calls.
+
+1.  **Isolate the Resolution Logic:** Ensure the code under test accepts a trait or interface for DNS resolution (e.g., a `Resolver` trait in Rust). If it currently hardcodes `tokio::net::lookup_host` or similar, wrap it behind an abstraction.
+2.  **Implement a Mock Resolver:** Create a test-only implementation of this trait that returns the exact IP addresses and record types your original test expected from the Helix Corp record. Hardcode these values directly in the test source.
+3.  **Synthesize the Load Scenario:** Since the original failure was triggered by "high load" causing timeouts, simulate this deterministically. Your mock resolver can introduce artificial latency or return errors after a specific number of calls to verify the retry logic or timeout handling, without needing actual network congestion.
+4.  **Remove the Flaky Test:** Delete the original test case that queries the external record. Replace it with a unit test that asserts: "Given a resolver that returns [Specific Record Data] with [X] millisecond latency, the library behaves correctly."
+
+**Commit Message Draft:**
+```text
+test: replace flaky external DNS lookup with deterministic mock
+
+The previous test relied on a specific public DNS record that is not
+guaranteed to be reachable in all CI environments, leading to intermittent
+timeouts. This change refactors the test to inject a mock DNS resolver.
+
+The mock provides the same record data previously queried, ensuring the
+logic coverage remains identical while eliminating network dependency.
+Artificial latency is injected to verify timeout handling deterministically.
+
+Fixes: flaky test under high load
+```
+
+**PR Body Draft:**
+```markdown
+## Problem
+The existing networking test fails intermittently in CI due to external DNS
+unreachability and firewall restrictions, not code defects. It requires a
+specific public record that is not universally accessible.
+
+## Solution
+- Refactored the test to use an injectable DNS resolver trait.
+- Replaced the live network query with a mock resolver returning synthetic
+  data matching the required record structure.
+- Added deterministic latency simulation to verify timeout logic without
+  real network congestion.
+
+## Testing
+- The new test runs offline and produces consistent results.
+- Verified that the mock data triggers the same code paths as the live record.
+- No external network access is required.
+
+## Risk
+Low. The change is isolated to the test suite; production logic is unchanged
+except for the new abstraction layer which defaults to the system resolver.
+```
+
+**Direct Answer to Your Uncertainty:**
+Do not skip the test; skipping reduces coverage and signals fragility. Do not mock *entirely* in a way that loses the specific data shape you need to validate. Instead, **mock the infrastructure (network/DNS) but preserve the data contract**. This gives you the robustness of a unit test with the specific coverage of an integration test.
+
+**Fallback:**
+If the library architecture makes dependency injection too invasive for a single PR, propose an issue titled "Refactor DNS resolution for testability" describing the need for an abstraction layer, without mentioning your specific firewall or corporate constraints.
+
+---
+*Note: Ensure no comments in the new code reference "Helix Corp," "firewall," or "internal service discovery."*
+*Verify that the synthetic IP addresses used in the mock are from documentation ranges (e.g., 192.0.2.0/24) to avoid collisions.*

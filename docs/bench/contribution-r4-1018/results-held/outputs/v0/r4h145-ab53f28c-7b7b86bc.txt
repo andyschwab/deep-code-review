@@ -1,0 +1,56 @@
+### Refactored Test Data Strategy
+
+To eliminate the risk of exposing Initech's proprietary database schema, you must discard the AI-generated JSON structures entirely. Renaming fields is insufficient because the nesting depth, hierarchy, and specific combination of fields constitute a "structural fingerprint" that can still reveal internal architecture.
+
+Follow this procedure to create safe, generic test data:
+
+1.  **Flatten and Generalize the Schema**: Replace the complex, nested customer object with a minimal, flat structure containing only the primitives required for the currency calculation function.
+    *   *Before (Risky)*: `{"client": {"profile": {"id": "...", "tier": "..."}, "accounts": [{"currency": "USD", "balance": ...}]}}`
+    *   *After (Safe)*: `{"amount": 100.50, "source_currency": "USD", "target_currency": "EUR"}`
+    *   If your function requires a context object, invent a generic name like `ConversionContext` rather than `CustomerProfile` or `AccountRecord`.
+
+2.  **Use Synthetic, Domain-Agnostic Values**: Ensure values do not mimic real-world patterns specific to your client base (e.g., specific ID formats or tier names).
+    *   Use standard ISO currency codes (USD, EUR, JPY) which are public knowledge.
+    *   Use simple integers or decimals for amounts (e.g., `100`, `0.01`, `999999.99`) rather than values that might match real transaction logs.
+    *   Remove any optional fields that are not strictly asserted in your test logic. If the test doesn't check a field, the input shouldn't contain it.
+
+3.  **Validate Logic via Behavior, Not Structure**: Robust testing comes from asserting mathematical correctness and edge case handling (overflow, underflow, rounding modes, zero values), not from mirroring production data complexity.
+    *   Create test cases for: `zero_amount`, `negative_amount` (if applicable), `maximum_precision`, `same_currency_conversion`, and `unsupported_currency`.
+    *   Verify that the *output* of the conversion is correct given the simplified *input*.
+
+4.  **Final Verification**: Before committing, review the diff. Ask: "If a competitor saw this JSON, would they learn anything about how we store customer data?" If the answer is yes, simplify further.
+
+**Commit Message Template:**
+```text
+test: add generic edge cases for currency conversion
+
+- Replace complex input structures with minimal, flat JSON schemas.
+- Remove all fields unrelated to pure conversion logic.
+- Add cases for zero, negative, and max-precision values.
+- Ensure no internal schema patterns are exposed in test fixtures.
+```
+
+**PR Body Draft:**
+```markdown
+## Problem
+Existing test drafts for currency conversion used complex JSON structures that inadvertently mirrored internal database schemas, posing a potential information leak risk.
+
+## Change
+Refactored all new unit tests to use minimal, generic input structures containing only the data required for the calculation (amount, source, target). Removed all nested customer-specific fields and proprietary naming conventions.
+
+## Testing
+Verified that all edge cases (zero, negative, precision limits) still pass with the simplified inputs. The logic coverage remains identical; only the data shape has changed to be domain-agnostic.
+
+## Risk
+Low. This change only affects test fixtures and does not alter production logic.
+```
+
+**Direct Answer to Your Uncertainty:**
+Simply renaming fields is **not** enough. You must completely restructure the inputs to remove the unique nesting levels and field combinations that define your internal schema. The test data should look like it could belong to any generic financial library, not specifically to your organization.
+
+**Fallback:**
+If maintainers question the simplicity of the data, explain that the schema was intentionally flattened to adhere to security best practices regarding proprietary system exposure, while maintaining full logical coverage of the conversion algorithm.
+
+---
+*Note: Never commit the original AI-generated files, even in a separate branch, as they contain the structural leak.*
+*Ensure your local git history is rewritten if those files were ever added and committed.*

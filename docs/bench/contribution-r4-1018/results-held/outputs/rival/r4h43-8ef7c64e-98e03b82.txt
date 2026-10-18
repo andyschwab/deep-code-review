@@ -1,0 +1,29 @@
+Do not obfuscate the real data further, and do not use fake addresses that fail to reproduce the bug. Instead, construct a **synthetic minimal reproduction case** that isolates the specific character sequence causing the `NullPointer` error without using any real-world location context.
+
+Your goal is to strip the input down to the smallest possible string that triggers the crash. If the bug is caused by a specific special character (e.g., an apostrophe, hyphen, or non-ASCII symbol) in a specific position, your test case should look like this:
+
+```go
+// Bad: Reveals private customer data
+input := "1234 Oak Street, Springfield, IL 62704" // Real customer address
+
+// Bad: Fake data that doesn't trigger the bug
+input := "100 Main St"
+
+// Good: Synthetic minimal reproduction
+input := "A'B"
+// Or if context matters:
+input := "Street, A'B, City"
+```
+
+**Action Plan:**
+
+1.  **Isolate the Trigger:** Analyze your failing real-world example to identify the exact character or sequence responsible for the panic. Is it the apostrophe itself? A double hyphen? A specific Unicode character?
+2.  **Construct Abstract Inputs:** Create a test input using random letters or generic terms combined *only* with the problematic characters. The semantic meaning (e.g., that it looks like a street name) is irrelevant to the parser; only the byte sequence matters.
+    *   *Example:* If "O'Malley's Pub" crashes, test `"X'Y"`. If "St. Jean-René" crashes, test `"A-B"`.
+3.  **Verify the Crash:** Ensure your synthetic input triggers the exact same `NullPointer` error in the unpatched code. If it does, it is a valid test case.
+4.  **Document the Origin (Optional):** In the test comment or PR description, you may state: "This input is derived from a real-world edge case observed in production but has been sanitized to contain no actual PII or location data."
+
+**Why this works:**
+Maintainers care about **reproducibility**, not realism. A test case like `"A'B"` is superior to a real address because it removes noise, making the root cause obvious. It proves the library cannot handle that specific character combination regardless of whether it appears in Illinois or on Mars. Using fake addresses that don't crash defeats the purpose of the test, while using real addresses violates privacy policies and may get your PR closed immediately for security reasons.
+
+Submit the PR with the synthetic test case. It satisfies the requirement for a robust, failing test while guaranteeing zero leakage of Initech's private customer data.

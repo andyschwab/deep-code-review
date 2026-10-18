@@ -1,0 +1,35 @@
+**Strategy: Abstract the Locking Pattern, Not the Data**
+
+Do not send real customer transaction IDs, even if they are the only way you have found to reproduce the deadlock. Sending them would violate privacy regulations and the project's likely contribution guidelines regarding sensitive data. Instead, your strategy must be to **reverse-engineer the specific state conditions** that the real data accidentally creates, and then construct a minimal, synthetic test case that forces those exact conditions.
+
+Here is the step-by-step approach to satisfy the maintainers while protecting private data:
+
+1.  **Analyze the Root Cause, Not the Input:**
+    The real transaction IDs are merely a vehicle to create a specific sequence of lock acquisitions (e.g., Thread A locks Row 1 then Row 2; Thread B locks Row 2 then Row 1). The deadlock is caused by this *ordering conflict*, not the specific numeric values of the IDs. Analyze your production logs internally to identify the exact abstract pattern:
+    *   Which resources (tables, rows, keys) are being locked?
+    *   In what order are they requested by concurrent transactions?
+    *   What specific timing or isolation level allows the circular wait to occur?
+
+2.  **Construct a Deterministic Synthetic Fixture:**
+    Once you have identified the abstract pattern (e.g., "two transactions attempting to update rows in reverse alphabetical order"), create a test fixture using completely fake, hardcoded values that explicitly enforce this pattern.
+    *   *Instead of:* Using real IDs `TXN_998877` and `TXN_112233` which happen to trigger the race.
+    *   *Do this:* Create fake IDs `TXN_A` and `TXN_B`. Hardcode the test logic so that Transaction 1 explicitly locks `TXN_A` then `TXN_B`, while Transaction 2 explicitly locks `TXN_B` then `TXN_A`.
+    *   If the deadlock relies on hash collisions or specific page splits caused by data distribution, create a small set of synthetic strings/numbers that you have verified *internally* produce the same structural effect (e.g., same hash bucket or page index) without resembling real customer data.
+
+3.  **Document the Abstraction in the PR:**
+    In your pull request description and commit message, clearly state:
+    *   **The Problem:** "A deadlock occurs when concurrent transactions acquire locks on resources in conflicting orders."
+    *   **The Reproduction:** "This test synthesizes two transactions with IDs 'synth-1' and 'synth-2' that deterministically force the conflicting lock order observed in production."
+    *   **The Privacy Note:** "Real production data was analyzed to identify the locking pattern, but no customer data is included in this test. The fixture uses synthetic values to reproduce the specific state transition."
+
+4.  **Address the "Valid Data" Requirement:**
+    Maintainers ask for "valid data" to ensure the test isn't flaky. Your synthetic data is valid if it correctly exercises the code paths. If the driver validates ID formats, ensure your synthetic IDs match the expected regex or structure (e.g., correct length, character set) but use obviously fake prefixes (like `TEST-` or `DEADLOCK-`).
+
+**Direct Answer to Your Uncertainty:**
+Do not describe the locking pattern in vague detail without a reproducer, as maintainers will likely reject a "trust me" bug report. Conversely, do not create a mock dataset based on statistical properties if it doesn't *guarantee* the deadlock. You must create a **minimal, deterministic, synthetic test case** that hardcodes the specific resource contention sequence. This satisfies the requirement for a deterministic test that triggers the behavior without leaking any private information.
+
+**Fallback:**
+If you absolutely cannot synthesize a dataset that triggers the deadlock (e.g., it relies on a hardware-specific timing window impossible to simulate), open an issue instead of a PR. Describe the abstract pattern in detail, offer to share the sanitized locking sequence diagram, and ask if the maintainers accept a flaky test marked with a skip flag or if they have a preferred mechanism for reporting non-deterministic concurrency bugs.
+
+*Note: Ensure your internal legal team approves the abstraction logic before submitting, confirming that the derived pattern itself contains no proprietary trade secrets.*
+*Remember to run the project's standard linting and testing tools on your synthetic test case before drafting the PR.*

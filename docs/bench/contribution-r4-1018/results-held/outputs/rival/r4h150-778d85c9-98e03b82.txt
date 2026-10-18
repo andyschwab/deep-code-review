@@ -1,0 +1,27 @@
+Do not describe the theoretical consumption alone; maintainers need empirical proof to prioritize and fix the issue, but you must decouple the *proof of concept* from the *denial-of-service scale*.
+
+**1. Isolate and Downscale the Repro**
+Refactor your script to target a local, containerized instance of the message queue rather than the public staging environment. Use Docker to run the server on `localhost` with strict resource limits (e.g., `--ulimit nofile=1024`). Modify your script to spawn only enough connections to hit this artificial ceiling (e.g., 50–100 connections), which is sufficient to demonstrate the file descriptor leak without consuming cloud resources or violating ToS. This proves the *mechanism* of the DoS without executing the *impact* at a disruptive scale.
+
+**2. Implement a "Kill Switch" and Safety Guards**
+Hardcode a maximum connection count and a hard timeout into the script so it physically cannot exceed safe bounds, even if misconfigured. Add a check that aborts execution immediately if the target host is not `localhost` or a specific private IP range. This prevents accidental execution against production or staging environments.
+
+**3. Share via Private, Time-Limited Channels**
+Do not commit the script to the public repository yet. Instead:
+*   **Option A (Preferred):** Create a private gist or a private temporary repository containing the sanitized, downscaled repro script. Share the link only with the maintainers via their preferred secure channel (e.g., HackerOne, private email, or a maintainer-only Slack channel).
+*   **Option B:** Encrypt the script with the lead maintainer's PGP key and attach it to the security advisory ticket.
+*   **Option C:** If the project uses GitHub Security Advisories, upload the repro directly to the private advisory workspace where only triage team members have access.
+
+**4. Provide a "Dry Run" Evidence Package**
+Since you cannot run the full-scale attack, provide a hybrid evidence package:
+*   **The Code:** The sanitized, downscaled script described above.
+*   **The Local Proof:** A screen recording or log output showing the local Docker container hitting the file descriptor limit and the server failing to accept new connections.
+*   **The Math:** A brief calculation in your report: "At X connections per second, the server exhausts Y file descriptors in Z seconds. On your production instance with limit L, this translates to a full outage in T minutes." This bridges the gap between your small-scale local test and the real-world impact without requiring you to execute the latter.
+
+**5. Explicitly State the Containment**
+In your report, explicitly state: "This script is capped at N connections and restricted to localhost to prevent accidental DoS. It demonstrates the resource leak mechanism; scaling to production impact requires multiplying connections by factor F, which was not performed to adhere to safety policies."
+
+This approach gives maintainers the runnable code they need to verify the bug instantly on their own machines, satisfies the requirement for empirical evidence, and completely eliminates the risk of cloud policy violations or public exposure of the exploit.
+
+*Note: Ensure your local test uses a fresh container instance for each run to avoid residual state affecting results.*
+*Note: If the maintainers insist on a larger scale test, offer to screen-share a live run on your local machine instead of sending the script.*

@@ -1,0 +1,44 @@
+### Proposed Contribution Strategy
+
+**1. Immediate Stop Check**
+Before drafting any text, you must clear your employer's IP legal team. Even statistical descriptions of trading patterns can constitute a disclosure of trade secrets if they reveal proprietary strategies. Do not proceed until you have explicit written approval to share *any* characterization of the Hooli dataset.
+
+**2. The Solution: Algorithmic Synthetic Data**
+Do not describe the data statistically in the PR text, and do not attempt to mimic the specific distribution of the proprietary data. Both approaches risk leaking intellectual property or failing the "reproducibility" requirement if the synthetic data doesn't perfectly match the secret characteristics.
+
+Instead, generalize the fix to the **structural property** that triggers the optimization, not the financial context.
+*   **Identify the Trigger:** Isolate the specific memory access pattern, alignment, or sparsity structure in your real data that causes the 30% speedup (e.g., "block-aligned non-zero clusters" or "stride-X access patterns").
+*   **Generate a Mechanistic Generator:** Write a small, deterministic C++ generator included in the repository that constructs matrices with *only* that specific structural property using random values.
+    *   *Bad:* "Data mimics Hooli's tech-sector volatility."
+    *   *Good:* "Generator creates matrices with 15% density, clustered in 64-byte aligned blocks with stride-8 access."
+*   **The Benchmark:** Modify the test harness to use this generator. The benchmark now proves: "If input has Structure X, the new algorithm yields 30% speedup." This is a reproducible, mathematical claim independent of Hooli's secrets.
+
+**3. Draft PR Content**
+
+**Title:** `perf: optimize matrix multiplication for block-aligned sparse patterns (+30% on structured inputs)`
+
+**Body:**
+> **Problem**
+> Current matrix multiplication performs sub-optimally on inputs exhibiting specific block-aligned sparsity patterns, common in large-scale linear algebra applications.
+>
+> **Change**
+> Refactors the inner loop to exploit cache locality when non-zero elements are clustered in 64-byte aligned blocks.
+>
+> **Reproduction & Verification**
+> Added `tests/bench_structured_sparse.cpp` which includes a deterministic generator (`gen_structured_sparse`) creating synthetic matrices with the target topology.
+> *   **Before:** 450 ops/sec on generated structured input.
+> *   **After:** 585 ops/sec on generated structured input.
+> *   **Command:** `./run_bench --mode structured_sparse`
+>
+> *Note: Real-world datasets exhibiting these structural properties show similar gains, but this PR validates the mechanism using fully synthetic, reproducible data.*
+
+**4. Addressing Your Uncertainty**
+You asked whether to describe data statistically or generate a dummy dataset. **Choose the generator.** Statistical descriptions in text are hard to verify and risky; a code-based generator is executable proof that reveals nothing about the original source values. If the maintainers argue that "random" matrices don't show the speedup, your response is: "The optimization targets a specific *structure*, not randomness. The included generator creates that structure deterministically so you can verify the gain without needing external data."
+
+**5. Fallback Plan**
+If the maintainers reject the synthetic generator as "not representative," do not concede ground on the data. Instead, ask them to define a **structural predicate** (e.g., "show us the exact matrix topology you require"). You can then adjust your generator to meet that abstract topological requirement without ever touching real financial data. If they insist on real-world data they cannot provide, politely withdraw the performance claim from the PR and submit only the code correctness changes, noting the performance benefit as an anecdotal observation in a separate discussion thread.
+
+***
+
+*Ensure your legal team approves the specific structural description (e.g., "block-aligned") before committing, as even topology can sometimes be proprietary.*
+*Run the privacy gate script on your final diff to ensure no comments or variable names accidentally reference "Hooli," "finance," or "trading."*

@@ -1,0 +1,25 @@
+Do not submit the test in its current form; it will be rejected immediately because it fails on standard public infrastructure, violating the maintainers' explicit requirement. Since you cannot share internal DNS details or modify the corporate firewall, you must decouple the test from the specific external dependency while preserving the logic verification.
+
+**Recommended Strategy: Mock the DNS Resolution Layer**
+
+The most robust solution accepted by upstream Rust projects is to mock the DNS resolution entirely rather than skipping the test. Skipping tests (using `#[ignore]`) is generally discouraged for core functionality unless the feature is platform-specific or requires heavy resources, and "corporate firewall" is not a valid reason for an upstream ignore flag.
+
+1.  **Introduce an Abstraction:** If the code currently calls `tokio::net::lookup_host` or `std::net::ToSocketAddrs` directly, refactor the component to accept a generic resolver trait (e.g., `trait Resolver { async fn resolve(&self, host: &str) -> Result<Vec<IpAddr>>; }`).
+2.  **Inject a Mock in Tests:** In your test case, inject a mock implementation that returns a hardcoded, stable IP address (e.g., `127.0.0.1` or a documentation IP like `192.0.2.1`) instantly. This verifies your library's handling of the resolution result and timeout logic without touching the network.
+3.  **Preserve Coverage:** You can still test the "high load" or "timeout" behavior by making the mock resolver artificially delay or return errors based on test parameters, proving your logic handles those cases without needing a real flaky network.
+
+**Alternative: Use a Stable Public Record (Only if Mocking is Impossible)**
+
+If refactoring to inject a mock is out of scope for this PR, replace the internal Helix Corp record with a universally stable public record owned by a major provider (e.g., `dns.google` or `1.1.1.1`). However, this is less ideal because it still relies on external network conditions. Given your description of "high load" flakiness, mocking is superior because it eliminates the network variable entirely, making the test deterministic and fast.
+
+**PR Narrative for Submission**
+
+When you open the PR, frame the change as an improvement in test reliability:
+*   **Summary:** "Refactor DNS test to use injected mock resolver, eliminating flaky network dependencies."
+*   **Motivation:** "The previous test relied on a specific external DNS record that caused intermittent timeouts in diverse CI environments. This change ensures the test verifies the library's logic deterministically without requiring network access."
+*   **No Disclosure Needed:** Do not mention Helix Corp, firewalls, or internal restrictions. The upstream project only cares that the test now passes reliably on their CI. The internal reason for the original failure is irrelevant to them and revealing it might complicate the review.
+
+By mocking the dependency, you satisfy the maintainer's requirement for standard infrastructure compatibility, remove the environmental flakiness, and avoid any need to disclose sensitive corporate network details.
+
+Note: Ensure your mock implementation is placed in a `tests/` or `benches/` module if it adds significant dev-dependencies, to keep the main crate lightweight.
+Note: If the project uses `mockall` or similar crates already, leverage those patterns for the resolver trait.

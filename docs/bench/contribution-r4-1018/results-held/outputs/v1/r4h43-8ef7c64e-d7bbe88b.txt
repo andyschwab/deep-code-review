@@ -1,0 +1,35 @@
+You must **not** use real customer addresses, even if obfuscated. Obfuscation (e.g., changing "123 Main St" to "124 Main St") often fails to remove structural identifiers and risks violating privacy policies if the original pattern remains unique to a client.
+
+Instead, construct a **synthetic, minimal reproduction** that isolates the specific technical trigger (the special character handling) without relying on real-world semantic meaning. The bug is caused by how the parser handles specific characters, not by the geographic validity of the address.
+
+**Steps to create a safe test case:**
+
+1.  **Isolate the Character:** Identify the exact special character(s) causing the `NullPointer` (e.g., an apostrophe `'`, an ampersand `&`, or a non-ASCII unicode character).
+2.  **Invent Nonsense Input:** Create a completely fake string that includes *only* the necessary components to trigger the bug.
+    *   *Bad:* "4520 Oak Ridge Ln, Springfield, IL" (Real structure, potentially real combination).
+    *   *Good:* "Test'Address", "Foo&Bar St", or "Ünit 123".
+3.  **Verify the Trigger:** Run your local test using this nonsense string. If the `NullPointer` occurs with "Foo&Bar St", you have proven the bug exists without referencing any real location. The geocoding library does not need to resolve "Foo&Bar St" to a valid coordinate to prove the *crash* is fixed; it only needs to stop crashing and return a graceful error or null result.
+4.  **Document the Edge Case:** In your PR description, state: "The parser crashes on input containing [character]. This test uses synthetic input 'X' to reproduce the crash."
+
+**Draft Commit Message:**
+```text
+fix: handle special characters in address parser without panic
+
+The address parser previously threw a NullPointer exception when encountering
+specific special characters (e.g., '&', ''') in the input string.
+
+This change adds a nil check before accessing the parsed token stream.
+
+Test: Adds a unit test using synthetic input "Foo&Bar" to verify the parser
+returns a graceful error instead of panicking. No real-world address data is used.
+```
+
+**Draft PR Body Section (Test Data):**
+> **Testing:**
+> The included test case uses purely synthetic strings (e.g., `"Test'Street"`) designed solely to trigger the parsing logic failure. These inputs do not correspond to real locations and contain no customer data. The fix ensures the library returns a controlled error rather than crashing for any input containing these characters.
+
+**Direct Answer to Your Uncertainty:**
+Do not obfuscate real data; **replace it entirely with nonsense.** The maintainers only need to see that the *code path* triggered by the special character is handled safely. The semantic meaning of the address is irrelevant to fixing a `NullPointer` exception.
+
+**Fallback:**
+If you absolutely cannot reproduce the crash with invented strings (which suggests the bug might depend on external data state rather than just the string content), do not open a PR with real data. Instead, open an **issue** describing the crash scenario abstractly (e.g., "Parser panics on Unicode category X") and ask the maintainers if they have a preferred method for sharing private reproduction cases, such as a private gist or direct email, adhering to their security policy.

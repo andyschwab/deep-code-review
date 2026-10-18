@@ -1,0 +1,38 @@
+### Safe Contribution Strategy
+
+**1. Generalize and Sanitize (Do Not Commit Logs)**
+Do not manually sanitize logs containing API keys; the risk of residual leakage is too high. Instead, **rewrite the test entirely using mock data**.
+*   **Action:** Create a synthetic HTML fixture that reproduces the `NodeNotFound: table#inventory` error without referencing "Apex Retail," "Northwind," or any real URLs.
+*   **Fix Scope:** Isolate the parsing logic failure. Your local tweaks to headers/retries are likely specific to your network environment and should remain local (documented in your internal `AGENTS.md`), not upstreamed. The upstream fix should only address the selector logic or parser robustness.
+*   **Verification:** Ensure your new test fails on the current main branch and passes with your fix, using only the synthetic HTML string.
+
+**2. Draft Pull Request Description**
+*Note: Replace bracketed placeholders with your specific technical details.*
+
+**Title:** fix(parser): handle missing inventory table nodes gracefully to prevent NodeNotFound crashes
+
+**Problem:**
+The parser currently raises an unhandled `NodeNotFound: table#inventory` exception when product listing pages omit the expected inventory table structure. This causes the entire extraction job to fail rather than returning an empty result or skipping the malformed entry.
+
+**Change:**
+*   Updated the selector logic in `[file_path.py]` to check for node existence before access.
+*   Added a fallback return value (`None` or empty list) when the target structure is absent.
+*   Included a new unit test using a synthetic HTML fixture that mimics the missing-node scenario.
+
+**Testing:**
+*   **Unit Test:** Added `test_missing_inventory_table` in `[test_file.py]`.
+    *   *Before fix:* Test raises `NodeNotFound`.
+    *   *After fix:* Test passes, returning expected empty set.
+*   **Scope:** This change is limited to error handling within the parser; no network logic or retry delays were modified.
+
+**Risk:**
+Low. The change adds a defensive check without altering existing successful parse paths.
+
+**3. Polite Follow-Up Message**
+Since it has been three weeks, a single polite nudge is appropriate. Do not mention your internal workarounds or proprietary data.
+
+> "Hello @maintainer, I wanted to gently bump this PR regarding the `NodeNotFound` crash on missing inventory tables. I've included a reproducible unit test with synthetic data that demonstrates the failure and the fix. Please let me know if any additional context is needed or if the approach aligns with the project's direction. Thanks!"
+
+### Critical Compliance Notes
+*   **Stop Check:** You mentioned the maintainers require a "live test case against the target site." If this rule is strict, your mock-data PR may be rejected. You must explicitly ask in the PR body if a synthetic test is acceptable given the inability to test live due to rate limits or legal constraints, rather than ignoring the rule.
+*   **Privacy Gate:** Before opening the PR, run a local search (e.g., `grep -r "Northwind\|Apex\|API_KEY" .`) on your feature branch to guarantee no identifiers exist in the commit history. If any were previously committed, you must rewrite the branch history (`git rebase`) before pushing.

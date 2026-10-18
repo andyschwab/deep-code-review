@@ -1,0 +1,17 @@
+Do not hardcode the public IP address. Doing so would leak confidential infrastructure topology and likely violate the project's self-contained test rule by introducing an external dependency on a specific network environment.
+
+Instead, refactor the test to use **ephemeral port allocation** combined with **loopback isolation**. The flakiness stems from port contention, not the IP address itself. Modify the test setup to request port `0` from the operating system, which automatically assigns an available free port. Capture this assigned port and use it for the client connection within the same test process. This eliminates the race condition without requiring a fixed port or external IP.
+
+To address the "race condition does not reproduce on localhost" concern: if the failure is truly due to port contention, ephemeral ports on `127.0.0.1` will solve it. If the failure persists only with external IPs, the test is likely coupling to network interface behavior that should be mocked. In that case, introduce a **network abstraction layer** (e.g., an interface for `bind` and `connect` operations) and inject a mock implementation for the test suite. This allows you to simulate latency, packet loss, or specific binding behaviors deterministically without touching real network interfaces.
+
+If you must simulate a specific IP topology for validation, use **reserved documentation IPs** (e.g., `192.0.2.0/24` per RFC 5737) in conjunction with a local network namespace or containerized test environment. However, for unit tests, mocking is superior as it remains self-contained and fast.
+
+**Implementation Steps:**
+1.  Change the server binding logic in the test to listen on `127.0.0.1:0`.
+2.  Retrieve the actual bound port from the server socket after initialization.
+3.  Configure the client to connect to `127.0.0.1:<retrieved_port>`.
+4.  If specific network conditions are required, wrap the socket operations in an interface and provide a test double that simulates the desired behavior.
+
+This approach satisfies the self-contained requirement, prevents port collisions, and protects confidential infrastructure details.
+
+Note: Hardcoding any public IP, even one owned by your employer, in a public repository is a security anti-pattern. Always prioritize abstraction over configuration in test code.

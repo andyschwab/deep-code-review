@@ -1,0 +1,37 @@
+Subject: Re: Flaky test in timeout handler – Reproduction strategy and sanitized test case
+
+Dear Maintainers,
+
+Thank you for the quick triage of the flaky test issue in the C message-queue client. I have successfully isolated the race condition to the timeout handler logic, specifically involving the interaction between the retry backoff and the connection reset signal under high concurrency.
+
+As requested, I am providing a reproduction strategy. However, the failure mode at Northwind Logistics manifests only under a specific network latency profile present in our internal load-testing cluster (processing ~50k messages/minute). This profile depends on proprietary infrastructure topology and load scripts that contain sensitive data regarding our distribution network. Consequently, I cannot share the exact cluster configuration files or the raw load scripts due to company data policies.
+
+To bridge this gap without leaking internal architecture, I propose the following two-part submission:
+
+**1. Sanitized Synthetic Load Generator**
+I have drafted a standalone C program (`test_race_synthetic.c`) that simulates the *timing characteristics* of the failure without relying on our specific network topology. Instead of replaying our private traffic, this tool uses `nanosleep` with randomized jitter to artificially inject the specific latency windows that trigger the race condition.
+*   **What it proves:** It demonstrates that the timeout handler enters an invalid state when acknowledgments arrive within a narrow window after a retry timer fires.
+*   **Safety:** It contains zero references to Northwind IPs, hostnames, or routing logic. It runs entirely on `localhost` using loopback interfaces.
+
+**2. Failure Mode Description**
+The bug occurs when:
+*   Thread A triggers a timeout and schedules a retry.
+*   Thread B receives a delayed ACK from the kernel just as Thread A executes the retry logic.
+*   The handler attempts to free a context object that Thread B is still referencing, leading to a use-after-free or double-free depending on memory layout.
+*   In our environment, this happens roughly once every 20 million messages; the synthetic generator accelerates this to ~1 failure per 10,000 runs by tightening the sleep windows.
+
+**Proposed Next Steps**
+1.  I will open a Pull Request containing the sanitized `test_race_synthetic.c` and the specific fix for the timeout handler (guarding the context lifecycle with an atomic reference count).
+2.  The PR description will include instructions on how to tune the synthetic jitter parameters if maintainers wish to adjust the failure frequency.
+3.  If the synthetic test does not reproduce the issue on your CI hardware within 24 hours, I am happy to hop on a call to walk through the logic of the race condition manually, describing the sequence of events without sharing screen captures of our internal dashboards.
+
+This approach ensures you have a reproducible, deterministic test case to verify the fix while strictly adhering to our security constraints regarding infrastructure topology.
+
+Best regards,
+
+[Your Name]
+Northwind Logistics
+
+---
+*Note: The synthetic test relies on standard POSIX timers and requires no external dependencies beyond the project's existing build chain.*
+*If the atomic guard approach conflicts with the project's C standard requirements (e.g., C99 vs C11), I can refactor to use the project's existing mutex primitives.*

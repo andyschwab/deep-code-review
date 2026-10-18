@@ -1,0 +1,41 @@
+Do not submit the current implementation. A caching layer that defaults to or assumes the existence of non-standard headers like `X-Omni-Cache-TTL` violates the maintainers' explicit requirement for configurability and protocol neutrality. Submitting code with these defaults, even if configurable, signals that the feature was built for a specific internal environment rather than the general community, which often leads to immediate rejection or requests for a total rewrite.
+
+Instead, re-architect the proposal around a **generic caching strategy interface** that decouples the *mechanism* of caching from the *policy* of validation. Your code changes should follow this structure:
+
+1.  **Define a Neutral Default:** The default caching strategy must be strictly time-based (e.g., standard `Cache-Control` headers or a simple TTL). It must not inspect or reference any custom headers. This ensures immediate safety for all existing users.
+2.  **Implement a Pluggable Hook:** Expose an option (e.g., `cacheValidator` or `cacheKeyGenerator`) that accepts a user-defined function. This function receives the response object and returns a boolean or a TTL value.
+3.  **Isolate Your Logic:** Move your OmniGlobal-specific header inspection logic entirely out of the library core. In your PR description, provide a **code snippet** in the "Usage Examples" section showing how a user *could* implement custom header validation using the new hook.
+
+**Example Implementation Pattern:**
+
+```typescript
+// ❌ Reject: Hardcoded or default reliance on custom headers
+interface CacheOptions {
+  useOmniHeaders?: boolean; // Do not do this
+}
+
+// ✅ Accept: Generic hook with neutral defaults
+interface CacheOptions {
+  ttl?: number; // Standard time-based default
+  validateCache?: (response: Response) => boolean | number; // Generic hook
+}
+
+// In your PR description, show the customization like this:
+/*
+// Advanced Usage: Custom Header Validation
+const client = new ApiClient({
+  cache: {
+    ttl: 60000,
+    validateCache: (res) => {
+      // Users can inject their own logic here
+      const ttl = res.headers.get('X-Custom-TTL');
+      return ttl ? parseInt(ttl) : false;
+    }
+  }
+});
+*/
+```
+
+By presenting the feature as a flexible hook system with a safe, standard default, you satisfy the maintainers' requirement for configurability without leaking internal architecture. You are no longer asking them to accept "OmniGlobal's cache"; you are giving them a "pluggable cache system" that happens to solve your specific problem via configuration. This shifts the narrative from "special-purpose code" to "general-purpose extensibility," significantly increasing the likelihood of acceptance.
+
+Note: Ensure your unit tests only cover the standard default behavior; place tests for custom header logic in a separate "integration" or "example" file to avoid implying the library depends on them.

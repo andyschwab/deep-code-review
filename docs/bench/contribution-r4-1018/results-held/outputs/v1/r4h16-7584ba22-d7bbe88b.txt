@@ -1,0 +1,54 @@
+### Sanitized Crash Summary and Bug Report Draft
+
+**Title:** Query Planner Memory Corruption Leading to Engine Crash on Complex Join Predicates
+
+**Problem Description:**
+The database engine crashes with a segmentation fault during the optimization phase of queries containing specific nested join predicates with non-equi conditions. The crash occurs in the query planner's cost estimation routine when handling deeply nested subqueries combined with range filters. This is a reproducible memory corruption issue that affects stability under workloads utilizing complex analytical queries.
+
+**Sanitized Stack Trace Summary:**
+*Note: All hostnames, internal service names, build identifiers, and cluster IDs have been replaced with generic placeholders. The structural flow of the crash remains intact.*
+
+```text
+#0  0x00007f... in planner_estimate_cost (plan=0x55..., ctx=0x7f...) at src/planner/cost_estimator.cc:142
+#1  0x00007f... in generate_join_order (rels=0x55..., nrels=8, ctx=0x7f...) at src/planner/join_optimizer.cc:89
+#2  0x00007f... in optimize_query (query=0x55..., options=0x7f...) at src/planner/optimizer.cc:205
+#3  0x00007f... in execute_plan (plan=0x55...) at src/executor/runner.cc:56
+#4  0x00007f... in handle_client_request (conn=0x55...) at src/network/server.cc:310
+...
+```
+
+**Root Cause Analysis:**
+The crash stems from an out-of-bounds memory access in the cost estimation logic. When the planner encounters a specific pattern of nested joins with range predicates, it miscalculates the required buffer size for intermediate statistics, leading to a heap overflow. This corrupts adjacent memory structures, causing a segfault during subsequent access.
+
+**Reproduction Steps (Synthetic):**
+1. Initialize a database with three tables: `T1` (1M rows), `T2` (500k rows), `T3` (200k rows).
+2. Execute a query joining all three tables with a nested subquery and a range filter on a non-indexed column.
+3. Observe immediate crash during the planning phase.
+
+*Example Query:*
+```sql
+SELECT * FROM T1
+JOIN (SELECT * FROM T2 WHERE val BETWEEN 100 AND 500) AS sub
+ON T1.id = sub.id
+JOIN T3 ON sub.id = T3.id
+WHERE T1.timestamp > '2023-01-01';
+```
+
+**Proposed Fix:**
+The fix involves adding a bounds check in `src/planner/cost_estimator.cc` before allocating the statistics buffer. If the calculated size exceeds the safe limit, the planner now falls back to a conservative estimation strategy instead of proceeding with corrupted data.
+
+**Testing Verification:**
+- The provided patch prevents the crash on the synthetic reproduction case.
+- Existing regression tests pass without modification.
+- No performance degradation observed on standard benchmark suites.
+
+**Note to Maintainers:**
+Raw logs and full core dumps containing proprietary infrastructure details (hostnames, cluster IDs, internal service names) cannot be shared due to security policies. However, the sanitized stack trace and synthetic reproduction case provided above fully demonstrate the issue. We are happy to verify any additional test cases privately if needed.
+
+---
+
+**Direct Answer to Your Uncertainty:**
+You do not need to provide the raw logs if you supply a minimal, synthetic reproduction case and a sanitized stack trace that preserves the function call sequence and line numbers. Maintainers prioritize reproducibility over raw data; if they can crash their own instance using your synthetic example, the raw logs become optional.
+
+**Fallback Plan:**
+If maintainers insist on raw data, offer to run their specific debugging scripts on your isolated environment and share only the *output* of those scripts (after a final privacy scan), rather than the raw core dump itself.

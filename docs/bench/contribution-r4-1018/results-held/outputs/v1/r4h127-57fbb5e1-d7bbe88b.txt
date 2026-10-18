@@ -1,0 +1,63 @@
+**Stop: Do not send this contribution upstream yet.**
+
+Your current approach violates the project's core policy against build scripts that fail for external contributors. A binding that is "useless" without proprietary dependencies cannot be merged into the main branch. The solution is not to hide internal URLs in the shared code, but to re-architect the build so the core binding works with public mocks or stubs, while your private configuration remains entirely local to your environment.
+
+Here is the generalized fix and documentation strategy:
+
+### 1. Generalize the Build Logic
+Refactor the build script to treat dependencies as **optional** and **pluggable**. The upstream code must build and pass tests using only public, open-source artifacts (or synthetic stubs).
+
+**Rewritten Build Logic Concept (CMake/Make example):**
+Instead of hardcoding or failing on missing vars, use a fallback mechanism:
+
+```cmake
+# Check for user-provided config first
+if(DEFINED ENV{WAYNE_PRIVATE_REPO_URL})
+    # Internal build: fetch from private artifact store
+    set(DEP_SOURCE "$ENV{WAYNE_PRIVATE_REPO_URL}")
+    message(STATUS "Configured for private enterprise build")
+else()
+    # Community build: use public packages or build from source
+    set(DEP_SOURCE "https://public-repo.example.com/stubs")
+    message(STATUS "Configured for community build with public stubs")
+endif()
+
+# Critical: The build must NOT fail here if private deps are missing.
+# If the specific proprietary library is missing, link against a "null" or "mock" implementation
+# that satisfies the linker but throws runtime errors only if those specific functions are called.
+find_library(PROPRIETARY_LIB NAMES wayne_analytics_core PATHS ${DEP_SOURCE})
+if(NOT PROPRIETARY_LIB)
+    message(WARNING "Proprietary analytics core not found. Building with limited functionality stubs.")
+    add_definitions(-DUSE_MOCK_ANALYTICS)
+    # Link mock library instead of failing
+    target_link_libraries(binding PUBLIC mock_analytics_core)
+else()
+    target_link_libraries(binding PUBLIC ${PROPRIETARY_LIB})
+endif()
+```
+
+### 2. Documentation Note (Upstream Safe)
+Add this to the `README.md` or `BUILDING.md`. It explains the capability without revealing your internal infrastructure.
+
+> **Optional Enterprise Extensions**
+> This binding supports optional high-performance backends. By default, it builds with public stubs suitable for development and testing. To enable proprietary features:
+> 1. Obtain the enterprise artifacts from your licensed vendor.
+> 2. Set the `WAYNE_PRIVATE_REPO_URL` environment variable to your local artifact mirror.
+> 3. Re-run the build script.
+> *Note: The maintainers do not provide access to proprietary binaries. External contributors should use the default stubbed build.*
+
+### 3. Internal Configuration (Do Not Commit)
+Your specific internal URLs and credentials must **never** appear in the repository, even in comments.
+*   Create a local file `.gitignore`d as `build.local.conf`.
+*   Source this file in your local shell before building.
+*   Document in your *internal* wiki (not the repo) how Wayne Engineers set up this local file.
+
+### Direct Answer to Your Uncertainty
+You cannot structure the shared code to "allow" private artifacts directly. You must structure the shared code to **succeed without them**. The private integration happens exclusively via environment variables and local, uncommitted configuration files on your machines. If the binding is truly useless without the private lib, it is not ready for upstreaming; you must first implement the "mock/stub" layer so the community can at least compile and run basic tests.
+
+### Fallback
+If the maintainers reject the stubbed approach as too complex, keep the binding in a separate, private fork or a distinct `contrib/enterprise` folder that is explicitly excluded from the main build distribution, rather than compromising the main build flow.
+
+---
+*Ensure your local `.gitignore` excludes any file containing `WAYNE_PRIVATE_REPO_URL`.*
+*Run a privacy gate check to verify no internal URLs leaked into commit history before drafting any PR.*

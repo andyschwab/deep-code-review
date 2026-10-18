@@ -1,0 +1,111 @@
+Here is a generic load test script structure that isolates the concurrency bug using synthetic data and placeholder endpoints, ensuring no proprietary information leaks.
+
+### Generic Load Test Script (`load_test.go`)
+
+```go
+package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+// CONFIGURATION: Replace with the local address of the library under test.
+// Do not use internal hostnames or IPs.
+const targetURL = "http://localhost:8080/api/generic-resource"
+
+// Synthetic payload: generic JSON that mimics structure without revealing schema.
+const syntheticPayload = `{"id": "synthetic-123", "action": "update", "data": "placeholder"}`
+
+func main() {
+	concurrency := 50        // Number of parallel workers
+	requestsPerWorker := 100 // Requests per worker
+	timeout := 5 * time.Second
+
+	var wg sync.WaitGroup
+	var successCount, failCount int64
+
+	client := &http.Client{Timeout: timeout}
+
+	fmt.Printf("Starting load test: %d workers, %d requests each against %s\n",
+		concurrency, requestsPerWorker, targetURL)
+
+	start := time.Now()
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for j := 0; j < requestsPerWorker; j++ {
+				req, err := http.NewRequestWithContext(
+					context.Background(),
+					http.MethodPost,
+					targetURL,
+					bytes.NewBufferString(syntheticPayload),
+				)
+				if err != nil {
+					atomic.AddInt64(&failCount, 1)
+					continue
+				}
+
+				// Set generic headers; avoid internal auth tokens or custom routing headers
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("User-Agent", "load-test-agent/1.0")
+
+				resp, err := client.Do(req)
+				if err != nil {
+					atomic.AddInt64(&failCount, 1)
+					continue
+				}
+
+				// Drain body to reuse connection
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+					atomic.AddInt64(&successCount, 1)
+				} else {
+					atomic.AddInt64(&failCount, 1)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	duration := time.Since(start)
+
+	fmt.Printf("\n--- Results ---\n")
+	fmt.Printf("Total Requests: %d\n", concurrency*requestsPerWorker)
+	fmt.Printf("Success: %d\n", successCount)
+	fmt.Printf("Failed/Dropped: %d\n", failCount)
+	fmt.Printf("Duration: %v\n", duration)
+
+	if failCount > 0 {
+		fmt.Println("CONCURRENCY ISSUE DETECTED: Requests were dropped or failed under load.")
+	} else {
+		fmt.Println("STABILITY VERIFIED: No requests dropped under load.")
+	}
+}
+```
+
+### How to Use This for the PR
+
+1.  **Reproduce the Bug:** Run this script against the *unpatched* version of the library running on `localhost`. You should see non-zero "Failed/Dropped" counts or connection errors indicating the race condition.
+2.  **Validate the Fix:** Run the same script against the *patched* version. The output should show zero failures (or a statistically insignificant amount due to network noise, not logic drops).
+3.  **Include in PR:** Attach this script to your Pull Request. In the PR description, paste the "Before" and "After" output logs generated from your local run.
+
+### Critical Privacy & Contribution Checks
+
+Before handing this to a human to open the PR, ensure the following:
+*   **Stop Check:** Verify your employer's IP policy allows open-sourcing bug fixes and test harnesses. If your employment contract requires legal sign-off for external contributions, obtain it first.
+*   **Generalization:** The script above uses `localhost` and generic JSON. Ensure you have not accidentally left any comments referencing "Northwind," internal ticket numbers, or specific internal API paths.
+*   **Residual Risk:** While the script is clean, be aware that the *timing* of your contribution might hint at internal incidents. The PR description should focus strictly on the technical race condition, not the production incident that triggered the investigation.
+
+**Note:** Do not run this against any internal staging environments; only use a local instance of the open-source library to generate the proof-of-fix logs.
+**Note:** If the maintainers request a specific benchmarking tool (like `wrk` or `hey`), adapt the target URL and payload logic similarly using synthetic data.

@@ -1,0 +1,30 @@
+### Recommended Action Plan
+
+1.  **Stop and Verify Constraints**: Do not push the current draft. Including comments with the internal typeface name or placeholders implying a specific licensed asset violates the "strip third-party identifiers" rule. Your employer's licensing restriction is a valid "Stop check" that prevents distributing the exact font, but it does not prevent contributing a fix if the bug can be generalized.
+
+2.  **Generalize the Defect**: The bug is not about "Globex Font X"; it is about a specific geometric or metric condition in the rasterizer (e.g., a specific ratio of ascender to descender, a zero-width glyph followed by a wide glyph, or a specific contour winding order).
+    *   Analyze *why* the specific glyphs trigger the bug. Is it the kerning pair values? The outline complexity? The EM square size?
+    *   Create a **synthetic font file** (using tools like `fontforge` via script) that programmatically generates glyphs with those *exact mathematical properties* without copying the visual design or name of the proprietary font. Name this font `TestRegressionFont.ttf` and license it under the project's standard test asset license (usually MIT/CC0).
+
+3.  **Strip Identifiers**:
+    *   **Before**: `// Fails on Globex Sans Bold, glyph ID 402`
+    *   **After**: `// Fails on synthetic font when glyph advance width < 10 units and contour has self-intersection`
+    *   Remove all references to "Globex," internal project names, or specific licensed font families from the commit message, PR body, and code comments.
+
+4.  **Draft the PR Content**:
+    *   **Title**: "Fix text alignment regression when rendering glyphs with [specific metric condition]"
+    *   **Problem**: "The rasterizer miscalculates alignment when a glyph meets condition [X]. This was observed with proprietary fonts but is reproducible with the included synthetic test asset."
+    *   **Change**: "Added logic to handle [edge case]. Added `tests/assets/TestRegressionFont.ttf` generated to match these metrics."
+    *   **Testing**: "New test `test_alignment_edge_case` fails on base, passes on head using the synthetic font." (Do not claim you tested with the real font unless you can say so without revealing secrets; focus on the synthetic reproduction).
+
+5.  **Address the Maintainer**: In the PR discussion, explain: "Due to licensing, I cannot include the original font. However, I have reverse-engineered the specific metric conditions that cause the failure and generated a minimal, license-free font file that triggers the exact same code path. This ensures the test is reproducible for all contributors."
+
+### Direct Answer to Your Uncertainty
+Do not mock the font loading process entirely if the bug lies within the actual rasterization logic; mocking might bypass the code you are trying to fix. Instead, **generate a minimal, synthetic font file** that mathematically replicates the triggering conditions. This is the standard approach in open source for licensed asset dependencies: replace the proprietary trigger with a minimal, open-licensed equivalent that exercises the same logic.
+
+### Fallback
+If you cannot isolate the specific metric properties to create a synthetic font, you cannot safely upstream this test without risking the leakage of proprietary information via the "mosaic effect" (where combining the test data with other public info reveals the secret). In this case, keep the fix local or discuss the *abstract* algorithmic issue in an issue tracker without providing a failing test case, asking if the maintainers accept a fix based on code inspection alone.
+
+---
+*Note: Ensure your synthetic font generation script is included in the repo so others can verify how the test asset was created.*
+*Remember: The human must run the privacy gate on the final diff before opening the PR.*

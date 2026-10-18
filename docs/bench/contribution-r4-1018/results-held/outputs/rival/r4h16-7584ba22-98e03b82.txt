@@ -1,0 +1,47 @@
+### Sanitized Crash Summary Template
+
+**Title:** `[CRITICAL] Query Planner Memory Corruption on Complex Join with Aggregation`
+
+**Environment:**
+- **Engine Version:** [Upstream Version Number, e.g., v2.4.1]
+- **OS/Arch:** Linux x86_64 (Kernel 5.15+)
+- **Deployment:** Distributed Cluster (3+ nodes)
+
+**Issue Description:**
+The database engine crashes with a segmentation fault (SIGSEGV) when executing a specific class of queries involving nested sub-queries, outer joins, and aggregate functions. The crash occurs consistently in the query planner phase during cost estimation, specifically when handling statistics for tables with high cardinality skew.
+
+**Root Cause Analysis (Sanitized):**
+Analysis of the core dump indicates a use-after-free error in the `query_planner::estimate_cost` module.
+1.  **Trigger:** The planner incorrectly frees a statistics buffer associated with a temporary table created during sub-query expansion.
+2.  **Failure Point:** Subsequent access to this freed memory occurs when calculating join selectivity for the outer query.
+3.  **Evidence:** The stack trace confirms the fault address lies within the planner's cost estimation loop, immediately following a memory deallocation call in the temporary table cleanup routine.
+
+**Sanitized Stack Trace Excerpt:**
+*(Note: Full raw logs containing internal infrastructure identifiers have been redacted per security policy. The following excerpt isolates the relevant engine frames.)*
+
+```text
+#0  0x00007f... in query_planner::estimate_cost (...) at src/planner/cost.rs:142
+#1  0x00007f... in query_planner::optimize_join (...) at src/planner/join.rs:89
+#2  0x00007f... in query_engine::compile (...) at src/engine/compile.rs:204
+#3  0x00007f... in server::execute_query (...) at src/server/handler.rs:55
+...
+[Frames redacted: Internal service orchestration and cluster management layers]
+```
+
+**Reproduction Steps (Generic):**
+1.  Create a table with >1M rows and highly skewed distribution on Column A.
+2.  Execute a query joining this table with a derived sub-query that filters on Column A and performs a `COUNT(DISTINCT ...)` aggregation.
+3.  Observe immediate crash during planning phase before execution begins.
+
+**Proposed Fix:**
+The fix involves deferring the deallocation of the statistics buffer until the completion of the entire cost estimation pass for the current query block. A patch is attached (`fix_planner_uaf.patch`) which:
+-   Moves the `drop()` call for the stats buffer to the end of the `optimize_join` scope.
+-   Adds a regression test case simulating high-cardinality skew to prevent recurrence.
+
+**Security Note on Attached Data:**
+Attached logs and stack traces have been sanitized to remove proprietary service names, internal build metadata, and cluster identifiers. The provided excerpts retain all necessary symbol information and memory addresses relative to the engine binary to verify the root cause and the efficacy of the patch. Full raw dumps are available under NDA if required by the security team.
+
+---
+
+**Note:** This template isolates the technical fault while stripping all Umbrella Corporation-specific metadata.
+**Note:** Ensure the attached patch file itself contains no hardcoded internal paths or comments referencing the unreleased service.

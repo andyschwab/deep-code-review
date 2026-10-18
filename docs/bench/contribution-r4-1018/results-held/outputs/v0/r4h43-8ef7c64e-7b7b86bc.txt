@@ -1,0 +1,53 @@
+You must **not** use real customer addresses, even if obfuscated. Obfuscating real data (e.g., changing "123 Main St" to "124 Main St") often retains structural patterns that can be re-identified or violates privacy policies regarding the derivation of public artifacts from confidential sources.
+
+Instead, you must **synthesize** a minimal, artificial input that triggers the specific *character sequence* causing the bug, without relying on real-world semantic validity. The bug is caused by special characters, not by the geographic reality of the address.
+
+Here is the procedure to construct your test case:
+
+1.  **Isolate the Trigger:** Identify the exact string of special characters causing the `NullPointer`. Is it an apostrophe? A hyphen? A non-ASCII character? A specific sequence like `O'Reilly` or `St. Louis`?
+2.  **Construct Synthetic Input:** Create a completely fake address string that contains *only* the necessary characters to reproduce the crash. Use generic placeholders for the rest.
+    *   *Bad (Real-derived):* "4402 N Oak Trfy, Gladstone, MO" (even if you change the number).
+    *   *Good (Synthetic):* "123 Example O'Reilly Blvd, Test City, 00000" or simply the raw string `"O'Reilly"` if the parser accepts partial inputs.
+    *   *Better (Minimal):* If the bug triggers on a specific unicode sequence, use a string like `"Test-–-String"` using the exact bytes found in the error analysis, attached to a dummy label like `"Address"`.
+3.  **Verify Reproducibility:** Run your test with this synthetic data. If the bug reproduces, the data is sufficient. If it does not, your hypothesis about the trigger is incomplete, and you must analyze the code logic further rather than mining more real data.
+4.  **Draft the Test Case:** Write the Go test using these synthetic values. Ensure no comments reference "Initech," "Midwest," "customer," or "production."
+
+**Commit Message Draft:**
+```text
+fix: handle special characters in address parser to prevent NullPointer
+
+The address parser previously panicked when encountering specific special
+characters (e.g., apostrophes, en-dashes) in input strings, returning a
+NullPointer error instead of a graceful failure or valid coordinate.
+
+This change adds a nil check before accessing the parsed token stream and
+normalizes input encoding.
+
+Added test case using synthetic input strings containing problematic character
+sequences to verify the fix without relying on real-world PII.
+
+Fixes #<issue-number-if-applicable>
+```
+
+**PR Body Draft:**
+```markdown
+## Problem
+The geocoding parser panics with a `NullPointer` exception when processing addresses containing certain special characters (specifically [list characters, e.g., ', –, &]).
+
+## Solution
+Added a defensive check to ensure the token stream is valid before dereferencing. Also normalized input handling for non-ASCII characters.
+
+## Testing
+- Added unit tests using synthetic strings that replicate the specific character sequences causing the crash.
+- Verified that the parser now returns a valid error or coordinate instead of panicking.
+- Confirmed no regression on standard ASCII inputs.
+
+## Privacy Note
+All test data is synthetically generated and contains no real-world addresses or PII.
+```
+
+**Direct Answer to Your Uncertainty:**
+Do not obfuscate real data; **replace it entirely with synthetic data** that isolates the technical trigger (the special characters). If synthetic data fails to trigger the bug, the issue lies in your understanding of the root cause, not in the lack of real data. Analyze the code path to find the exact byte sequence required, then hardcode that sequence into a dummy string.
+
+**Fallback:**
+If you absolutely cannot isolate the trigger without real data, do not open a PR. Instead, open an **issue** describing the crash conditions abstractly (e.g., "Parser crashes on input containing Unicode category X") and ask the maintainers for guidance on constructing a reproducible test case, explicitly stating you are withholding specific examples due to privacy constraints.
