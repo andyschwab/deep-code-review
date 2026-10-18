@@ -1,0 +1,55 @@
+# Onboarding Drop-Off Analysis Plan: SecureWallet
+
+**North Star Metric:** Weekly Active Users successfully funding their wallet (Value Delivered).
+*Input Metrics:* Seed Phrase Creation Rate, Identity Verification Pass Rate, Time-to-Fund.
+
+## 1. Diagnostic Framework (Retention-First)
+Do not acquire more users until the leakage at the seed phrase step (60% drop) is understood. The current funnel is leaking value before activation. We will analyze existing data to distinguish between **confusion** (UX), **fear** (trust), and **failure** (bugs).
+
+## 2. Event Taxonomy & Questions
+Instrument or query only these specific events to answer named questions. Do not add generic tracking.
+
+| Event Name | Properties to Capture | Question Answered |
+| :--- | :--- | :--- |
+| `onboarding_step_view` | `step_name`, `device_os`, `app_version`, `session_id` | Is traffic skewed to a specific buggy OS version? |
+| `seed_phrase_action` | `action_type` (copy/download/write), `time_spent_seconds`, `exit_point` | Are users lingering (confusion/fear) or leaving instantly (bug/friction)? |
+| `identity_verification_attempt` | `provider_response_code`, `failure_reason`, `retry_count` | Is the drop-off due to hard technical failures or user abandonment? |
+| `session_rage_click` | `element_id`, `coordinates` | Are users repeatedly tapping non-interactive security tooltips? |
+
+## 3. Analysis Method: Triangulating the Cause
+Combine quantitative logs with qualitative session recordings to isolate the root cause for the security and compliance teams.
+
+### A. Distinguish Bugs vs. Behavior (The "Technical" Check)
+*   **Query:** Filter `seed_phrase_action` by `device_os` and `app_version`.
+*   **Signal:** If drop-off is >80% on a specific OS/version but <50% on others, this is a **technical bug**.
+*   **Action:** Route immediately to engineering for a hotfix. No policy change needed.
+
+### B. Distinguish Fear vs. Confusion (The "Human" Check)
+*   **Query:** Calculate `time_spent_seconds` on the seed phrase screen for users who dropped off.
+*   **Signal (Fear):** High time spent + no interaction. Users are reading warnings but hesitate to proceed.
+    *   *Session Recording Check:* Look for users reading security text repeatedly without copying.
+*   **Signal (Confusion):** High time spent + erratic clicks or immediate exit after viewing.
+    *   *Session Recording Check:* Look for users attempting to click non-clickable text or scrolling in circles.
+*   **Signal (Friction):** Low time spent + immediate exit. The step feels too long or intrusive.
+
+### C. Identity Verification Specifics
+*   **Query:** Correlate `identity_verification_attempt` failure codes with drop-offs.
+*   **Signal:** If `failure_reason` is "document_unreadable" with high `retry_count` followed by drop-off, the issue is **usability of the camera flow**, not compliance strictness.
+*   **Signal:** If users drop off *before* the attempt, the requirement itself is the friction point.
+
+## 4. Decision Matrix for Stakeholders
+Present findings using this logic to resolve the Security vs. Compliance conflict:
+
+| Finding | Interpretation | Recommended Action | Owner |
+| :--- | :--- | :--- | :--- |
+| **High drop-off on iOS 15 only** | Technical Bug | Fix crash/rendering issue. No security compromise. | Engineering |
+| **High dwell time, zero clicks** | Fear/Trust Deficit | Add "Why this matters" micro-copy; do not remove steps. | Product/Security |
+| **High retry count on ID upload** | UX Failure | Improve camera guidance; keep compliance rules. | Product/Compliance |
+| **Uniform drop-off across devices** | Process Friction | Test splitting the flow (save seed now, verify ID later). | Product |
+
+## 5. This-Week Steps
+1.  **Run the OS Segmentation Query:** Isolate the 60% drop-off by `device_os` and `app_version` today. If a specific version spikes, halt other analysis and fix the bug.
+2.  **Watch 10 Session Recordings:** Select 5 users who dropped off at the seed phrase step and 5 at identity verification. Categorize behavior as "Rage Click," "Long Read," or "Instant Quit."
+3.  **Define the Hypothesis:** Based on the above, draft one A/B test (e.g., "Adding a 'Verified Secure' badge reduces fear-based drop-off") with a pre-committed sample size before running it.
+
+*Note: All metrics must be compared against your internal baseline; no external "good" retention benchmarks exist for crypto onboarding. If session recordings are unavailable, prioritize implementing the `session_rage_click` event immediately.*

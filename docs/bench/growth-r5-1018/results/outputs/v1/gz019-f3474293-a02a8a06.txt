@@ -1,0 +1,44 @@
+### Diagnostic Data Capture Plan (Sprint 1)
+
+To distinguish between technical friction and term confusion, instrument the following three events immediately. Do not track generic pageviews; these must answer specific questions.
+
+1.  **Event: `contract_step_abandonment`**
+    *   **Question:** Is the drop-off uniform across all steps or isolated to the legal review?
+    *   **Properties:** `step_name` (e.g., "legal_review"), `time_on_step_seconds`, `browser_user_agent` (critical to verify your plugin hypothesis), `device_type`, `exit_trigger` (e.g., "page_close", "back_button", "timeout").
+    *   **Action Rule:** If >80% of abandonments at "legal_review" show non-standard browsers or plugin-error logs in `exit_trigger`, the issue is technical. If browser mix matches your successful 92% baseline, the issue is content/confusion.
+
+2.  **Event: `signature_field_interaction`**
+    *   **Question:** Are users attempting to sign but failing, or avoiding the field entirely?
+    *   **Properties:** `interaction_type` ("click", "hover_no_click", "plugin_load_attempt"), `load_success_boolean`, `error_code` (if any).
+    *   **Action Rule:** High "hover_no_click" suggests confusion over terms. High "plugin_load_attempt" with `load_success_boolean: false` confirms the technical barrier.
+
+3.  **Event: `form_completion_attempt`**
+    *   **Question:** What is the real-time conversion rate post-instrumentation?
+    *   **Properties:** `client_segment` (e.g., enterprise_tier), `days_in_pipeline`.
+    *   **Baseline:** Your pre-August 5th baseline is 92%. Current verified baseline is 64%. Do not invent industry benchmarks.
+
+**Identifier Seam:** Ensure these events tie to a stable `prospect_id` to follow the user across sessions, distinct from internal server logs. Route any PII captured in `browser_user_agent` or contract metadata to your privacy compliance review.
+
+### Experiment Structure: "Simplified Legal Flow"
+
+Do not run a standard A/B test yet if the traffic volume (210 clients/quarter ≈ 2.3 clients/day) is too low for statistical significance within a short window. Instead, use a **sequential rollout (canary)** with a pre-committed stop rule.
+
+*   **Hypothesis:** Removing the plugin requirement (replacing with click-to-sign + email audit trail) will increase completion from 64% back toward 92% without increasing legal disputes.
+*   **Primary Metric:** `contract_completion_rate` at the "legal_review" step.
+*   **Guardrail Metric:** `post_signing_legal_query_rate` (ensure simplification doesn't cause downstream legal ambiguity).
+*   **Design:**
+    1.  **Group A (Control):** Current plugin-based flow (50% of incoming traffic).
+    2.  **Group B (Treatment):** Simplified click-to-sign flow (50% of incoming traffic).
+*   **Pre-committed Rules:**
+    *   **Duration:** Run for 6 weeks (approx. 30 clients per group) to gather sufficient signal given your low volume.
+    *   **Stop Tripwire:** If Group B's completion rate exceeds Group A by 15 percentage points (hitting ~79%) after 20 clients per group, early graduate the treatment.
+    *   **Fail Condition:** If Group B's `post_signing_legal_query_rate` exceeds Group A by >10%, halt immediately regardless of completion gains.
+*   **Analysis:** Do not peek at daily results. Compare aggregates at the 3-week and 6-week marks only.
+
+### This Week's Steps for Cian's Board Prep
+
+1.  **Deploy Instrumentation:** Ship the `contract_step_abandonment` event with `browser_user_agent` by Friday. This alone validates or kills the "plugin" hypothesis before the experiment starts.
+2.  **Build Treatment Variant:** Develop the simplified "click-to-sign" version removing the plugin dependency.
+3.  **Board Narrative:** Present the 64% drop as a "diagnosable friction point" rather than a market rejection. Commit to the 6-week sequential test, projecting that resolving the technical barrier could recover ~$X revenue (calculate: 28% recovery of 210 clients × avg deal size).
+
+*Note: All metrics above are `UNVERIFIED` until the instrumentation code is merged and data flows to your analytics platform. Do not estimate the current plugin failure rate without the `browser_user_agent` data.*

@@ -1,0 +1,43 @@
+**To:** Elena, CTO, NeonTides
+**From:** Growth Lead
+**Date:** [Current Date]
+**Subject:** Action Plan: Isolating Bot Traffic vs. Legitimate High-Frequency Play
+
+**Objective:** Distinguish botnet farming from legitimate play to stabilize server costs before the Sept 25 qualifier, ensuring the investor update reflects true user value.
+
+**1. Immediate Behavioral Signals to Instrument (Implement within 24h)**
+Do not rely on IP geo-tagging alone; bots rotate IPs. Instead, instrument these three specific event properties on the `session_start` and `pearl_earned` events to create a "Bot Probability Score":
+
+*   **Action Interval Variance:** Calculate the standard deviation of time between `pearl_earned` events per session.
+    *   *Hypothesis:* Scripts execute actions at fixed intervals (variance ≈ 0). Humans have natural variance.
+    *   *Threshold:* Flag sessions where interval variance is < 50ms over 20+ actions.
+*   **Input Entropy:** Measure mouse/touch coordinate diversity during the "race start" sequence.
+    *   *Hypothesis:* Bots often teleport or follow identical paths; humans have unique trajectories.
+    *   *Threshold:* Flag sessions with < 10 unique coordinate clusters per minute.
+*   **Session Duration vs. Value Ratio:** Plot `session_duration` against `pearls_earned_per_minute`.
+    *   *Hypothesis:* Farming bots maximize yield per second and disconnect immediately upon reaching a cap, unlike humans who linger or vary intensity.
+    *   *Threshold:* Flag sessions in the top 1% of yield/min that end within 5 seconds of the last action.
+
+**2. Validation Strategy: The "Canary" Cohort**
+To ensure we do not ban legitimate high-frequency gamers (our "Whales" or pro racers):
+*   **Action:** Create a read-only "Shadow Ban" list based on the thresholds above. Do not block these users yet.
+*   **Verification:** Cross-reference this list against two known legitimate cohorts: (a) Users with prior purchase history (credit card verified), and (b) Users who completed the tutorial manually in the last 30 days.
+*   **Decision Rule:** If >2% of known purchasers fall into the "Shadow Ban" list, the thresholds are too aggressive. Relax the variance threshold by 10% increments until false positives are <0.5%.
+
+**3. Execution Timeline & Investor Update Prep**
+*   **Today (Sept [Date]):** Deploy event property tracking for Interval Variance and Input Entropy. Begin logging "Shadow Ban" candidates.
+*   **Sept 20:** Analyze the overlap between "Shadow Ban" candidates and the 65% server cost spike. Confirm if the cost correlates with the flagged high-yield/low-variance sessions.
+*   **Sept 22:** Implement the hard filter for confirmed bot signatures. Monitor server cost trajectory for 24h.
+*   **Sept 24 (Pre-Update):** Finalize the report.
+    *   *Metric to Report:* "Adjusted DAU" (Total DAU minus confirmed bot sessions).
+    *   *Narrative:* "Organic growth is stable; the 28% spike was 90% non-human traffic. Server costs are projected to normalize by Sept 26 post-filter."
+*   **Sept 25:** Tournament qualifier begins with clean infrastructure.
+
+**Reading Rules for the Data:**
+*   If the spike persists after filtering, the issue is not bots but a viral loop with poor monetization (re-evaluate Pearl economy).
+*   If server costs drop but "Adjusted DAU" falls below baseline, we over-filtered; restore the top 0.5% of flagged users manually.
+
+**Next Step:** Approve the engineering ticket to add `input_entropy` and `action_interval_stddev` properties to the analytics pipeline by EOD today.
+
+*Note: All metrics above must be calculated against NeonTides' own baseline data from August; no external industry benchmarks for "bot behavior" are used as they vary by game engine.*
+*Any user flagged but lacking sufficient history for validation remains "UNVERIFIED" and should be rate-limited, not banned, until the tournament concludes.*

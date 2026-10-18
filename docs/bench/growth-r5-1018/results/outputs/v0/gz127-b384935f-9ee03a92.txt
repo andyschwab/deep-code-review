@@ -1,0 +1,42 @@
+### Instrumentation Plan: Saborea Review Flow Optimization
+
+**Objective:** Validate whether photo uploads increase review helpfulness and determine the optimal timing for review prompts (immediate post-payment vs. next-day) without degrading checkout completion.
+
+**1. Core North Star & Input Metrics**
+*   **North Star:** *Booking Conversion Rate driven by High-Quality Reviews.* (We measure if photo-rich reviews actually lead to more bookings, not just higher "helpfulness" scores).
+*   **Input Metrics:** Review Completion Rate, Photo Attachment Rate, Average Helpfulness Score per Review, Checkout Drop-off Rate.
+
+**2. Event Taxonomy (What to Tag)**
+Instrument only these specific events to answer the named questions. Do not tag generic clicks.
+
+| Event Name | Trigger Point | Properties to Capture | Question Answered |
+| :--- | :--- | :--- | : |
+| `checkout_step_completed` | Final payment success screen | `timestamp`, `user_id` (pseudonymous), `restaurant_id` | Baseline for funnel entry; ensures checkout integrity. |
+| `review_prompt_shown` | Moment prompt appears | `timing_strategy` ("immediate" vs "delayed"), `session_id` | Does the prompt appear correctly for both cohorts? |
+| `review_prompt_dismissed` | User closes prompt without action | `timing_strategy`, `time_since_checkout` | **Friction:** Does immediate prompting cause higher dismissal? |
+| `review_submission_started` | User types first character or opens camera | `timing_strategy`, `has_photo_intent` (bool) | Activation: Are users engaging with the new flow? |
+| `photo_upload_attempted` | User selects/takes a photo | `source` ("camera" vs "gallery"), `file_size_kb` | **Friction:** Is the upload mechanism failing or too slow? |
+| `review_submitted` | Final success confirmation | `has_photo` (bool), `timing_strategy`, `rating_value`, `text_length_chars` | **Quality:** Does the "immediate" cohort attach fewer photos? |
+| `review_helpfulness_voted` | Another user clicks "Helpful" | `target_review_id`, `voter_user_id`, `target_has_photo` (bool) | **Hypothesis Check:** Do photo reviews get 2x more votes? |
+| `booking_initiated_from_listing` | User clicks "Book" on a restaurant page | `listing_review_mix` (% of visible reviews with photos), `restaurant_id` | **North Star:** Do listings with more photo reviews drive more bookings? |
+
+**3. Experiment Design & Reading Rules**
+*   **Design:** A/B Test (50/50 split).
+    *   **Control:** Prompt shown 24 hours post-meal (current behavior).
+    *   **Variant:** Prompt shown immediately after `checkout_step_completed`.
+*   **Guardrail Metric:** `checkout_step_completed` rate. If the variant shows a statistically significant drop (>1%) in successful checkouts due to UI interference, **stop immediately**.
+*   **Primary Metric:** `review_submitted` rate segmented by `has_photo`.
+*   **Reading Rule:** Do not peek at results before reaching 5,000 completed reviews per cohort (approx. 5 days at 10% baseline). A difference observed on Day 1 is `UNVERIFIED`.
+
+**4. Specific Signals for Photo Influence**
+To determine if photos influence future booking decisions, correlate `booking_initiated_from_listing` with the `listing_review_mix`.
+*   **Signal:** Compare booking conversion rates for restaurants where >30% of recent reviews have photos vs. those with <10%.
+*   **Threshold:** If listings with high photo density show a >2% lift in booking conversion, the hypothesis is validated.
+
+**This Week's Steps:**
+1.  **Implement Tags:** Deploy the 8 events above by Nov 14th; verify `user_id` persistence across sessions for cohort tracking.
+2.  **Launch Test:** Activate the A/B test on Nov 15th with a hard stop rule if checkout completion drops by >1%.
+3.  **Baseline Check:** Query current `review_helpfulness_voted` rates for photo vs. text-only reviews to establish the pre-test baseline (currently assumed, needs verification).
+
+*Note: All user identifiers must be pseudonymized before storage to comply with privacy standards; raw PII remains in the secure auth service.*
+*If the "immediate" cohort shows high dismissal but low photo attachment, pivot to a "delayed but incentivized" strategy before the holiday rush.*

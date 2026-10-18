@@ -1,0 +1,35 @@
+### Event Taxonomy: Video Intro Engagement
+
+**Audience:** Mobile Engineering (Lyon) & Chief Product Officer
+**Goal:** Validate if video playback drives match requests or if users skip content, informing the Q3 mandatory upload decision.
+**Privacy Constraint:** All events must use a pseudonymous session/user ID. No event property shall reveal the specific identity of the viewer to the profile owner or store PII in analytics logs.
+
+#### 1. Proposed Events
+Instrument only these three events to answer the specific engagement questions. Do not instrument "just in case."
+
+| Event Name | Trigger Condition | Properties | Question Answered |
+| :--- | :--- | :--- | : |
+| `video_intro_loaded` | Video player initializes and the first frame is rendered on screen for a specific profile view. | `profile_id` (hashed), `viewer_cohort` (e.g., new/returning), `connection_type`, `load_latency_ms` | **Reach:** How many users are technically capable of seeing the video? (Filters out network failures vs. skips). |
+| `video_intro_played_3s` | Video plays continuously for ≥ 3 seconds. | `profile_id` (hashed), `viewer_cohort`, `seconds_watched` (value: 3) | **Activation:** Did the user engage beyond a accidental tap or immediate skip? (Validates the "attention" threshold). |
+| `video_intro_completed` | Video reaches 100% duration or the user watches the final 5 seconds. | `profile_id` (hashed), `viewer_cohort`, `total_duration_ms`, `completion_rate` (value: 1.0) | **Depth:** Is high-quality content actually consumed? (Correlates completion with match rates). |
+
+#### 2. Analysis Logic & Decision Rules
+To determine if video quality drives matches, correlate these events with the existing `swipe_right` event using the pseudonymous ID.
+
+*   **Metric A (Skip Rate):** `(video_intro_loaded - video_intro_played_3s) / video_intro_loaded`
+    *   *If > 70%:* Users are skipping. Making uploads mandatory in Q3 will likely degrade UX without lifting matches. **Action:** Redesign player UI or auto-play logic before mandating.
+*   **Metric B (Completion Lift):** Compare `swipe_right` rate for profiles where `video_intro_completed` = true vs. profiles where `video_intro_loaded` but not `played_3s`.
+    *   *If Lift < 10%:* The hypothesis that "video quality drives matches" is weak. **Action:** Do not make mandatory; investigate if text profiles perform equally well.
+    *   *If Lift ≥ 50% (confirms assumption):* Strong signal. **Action:** Proceed with Q3 mandatory rollout plan.
+
+#### 3. Implementation Notes for Engineering
+*   **Identifier Seam:** Use a stable, pseudonymous `session_user_id` to link these events to `swipe_right` actions across sessions. Do not use high-cardinality PII labels.
+*   **Timing:** Begin collection immediately upon deployment. Ensure the `video_intro_loaded` event fires even if the user swipes away instantly, to accurately calculate the denominator for skip rates.
+
+#### 4. This-Week Steps
+1.  **Engineering:** Implement the three events above with pseudonymous IDs by Friday; verify data flow in the staging environment.
+2.  **Analytics:** Build a temporary dashboard showing the "Skip Rate" and "Completion-to-Match Correlation" segmented by user cohort.
+3.  **CPO Decision Gate:** Schedule a review for March 1st. If the "Skip Rate" is >70% or "Completion Lift" is <10%, halt the mandatory upload initiative and pivot to optimizing the text-first experience.
+
+*Note: Baseline match rates for text-only profiles must be pulled from your existing analytics to calculate the specific lift percentages; no external benchmarks are used.*
+*Unknowns regarding current server-side load latency are `UNVERIFIED` until the `video_intro_loaded` event is live.*

@@ -1,0 +1,52 @@
+# PayGuard ML Model Tracking Plan
+
+## Overview
+To measure the impact of the new ML model launching March 1st, you must instrument events that distinguish between automated decisions, manual interventions, and final outcomes. This plan focuses on calculating the trade-off between fraud loss and review operational costs without generating excessive noise.
+
+## Critical Events to Log
+
+Log these four specific events. Do not log every score calculation; only log when a decision threshold is crossed or a human intervenes.
+
+| Event Name | Trigger | Critical Properties |
+| :--- | :--- | :--- |
+| `ml_decision_made` | Model processes a transaction and returns a final decision (Allow/Block/Review). | `transaction_id`, `amount`, `currency`, `decision` (allow/block/review), `risk_score` (0-100), `model_version`, `is_high_value` (boolean) |
+| `manual_review_started` | A transaction flagged for review enters the analyst queue. | `transaction_id`, `queue_time`, `analyst_id` (if assigned), `flag_reason` |
+| `manual_review_completed` | An analyst makes a final determination on a flagged transaction. | `transaction_id`, `resolution` (approved/declined), `review_duration_seconds`, `analyst_id`, `override_reason` |
+| `fraud_confirmed` | A transaction is definitively identified as fraud (post-transaction or via chargeback). | `transaction_id`, `fraud_type`, `loss_amount`, `detection_source` (ml_block/manual_review/chargeback) |
+
+## Essential Data Fields for Evaluation
+
+To calculate the true cost of fraud versus the cost of manual review, your data warehouse must capture these specific fields within the events above:
+
+1.  **Financial Context**: `amount`, `currency`, and `merchant_category`. High-value transfers require separate segmentation to validate your 15% volume hypothesis.
+2.  **Decision Lineage**: `model_version` and `risk_score`. You must be able to replay decisions if the model drifts or if you need to tune thresholds later.
+3.  **Operational Cost Drivers**: `review_duration_seconds` and `analyst_id`. Multiply duration by your fully loaded analyst hourly rate to get the cost of friction.
+4.  **Outcome Truth**: `resolution` and `fraud_confirmed` status. This allows you to calculate the new False Positive Rate (legitimate transactions blocked or delayed) and False Negative Rate (fraud allowed).
+
+## Measurement Logic
+
+**1. Calculate Operational Cost:**
+Sum the `review_duration_seconds` for all `manual_review_completed` events where `resolution` = "approved". Multiply by the cost per second of analyst time. Compare this against the baseline cost of reviewing 5% of 200 daily transactions.
+
+**2. Calculate Fraud Cost:**
+Sum `loss_amount` from `fraud_confirmed` events where `detection_source` was *not* `ml_block`. This represents your leakage.
+
+**3. Measure Friction Impact (Your 15% Hypothesis):**
+Filter `ml_decision_made` where `decision` = "allow" AND `is_high_value` = true. Compare the daily count and total volume of these transactions pre-March 1st vs. post-launch. If volume increases but `manual_review_started` events for high-value transactions do not spike disproportionately, the model is successfully reducing friction.
+
+**4. Noise Reduction Strategy:**
+Do not alert analysts on `ml_decision_made`. Only trigger queue notifications on `manual_review_started`. To prevent overwhelming the team, set a dashboard alert only if the rate of `manual_review_started` exceeds 120% of the baseline for more than 4 hours.
+
+## Compliance Presentation Checklist
+
+For your Tuesday meeting, prepare a table showing:
+*   **Total Transactions Processed**
+*   **Auto-Blocked Count & Value** (Prevented Loss)
+*   **Manual Review Count & Avg Duration** (Operational Cost)
+*   **False Positive Rate** (Approved after review / Total Reviewed)
+*   **High-Value Allow Rate** (To prove the 15% volume lift)
+
+Ensure all logs strip PII (card numbers, names) before storage to meet compliance standards, retaining only tokenized IDs for linking events.
+
+*Note: Validate that `review_duration_seconds` captures only active work time if possible, or note that queue wait time is included in your cost model.*
+*Ensure `model_version` is immutable; do not allow overwrites if the model updates mid-day.*

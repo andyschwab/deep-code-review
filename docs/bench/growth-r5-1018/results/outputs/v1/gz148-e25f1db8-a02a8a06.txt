@@ -1,0 +1,42 @@
+### Investigation Plan: Balancing Checkout Speed and Revenue
+
+**Primary Directive:** Do not revert the update yet. The 13-point gain in completion rate (35% → 48%) likely outweighs the 20% drop in Average Order Value (AOV), but this must be verified by **Revenue Per Visitor (RPV)**, not isolated metrics.
+
+**1. The North Star Metric: Revenue Per Visitor (RPV)**
+Stop optimizing for "completion rate" or "AOV" individually. Calculate RPV for the pre-launch baseline vs. post-launch current state:
+*   **Baseline RPV:** 35% completion × ₹650 AOV = **₹227.50 per visitor**.
+*   **Current RPV:** 48% completion × ₹520 AOV = **₹249.60 per visitor**.
+*   **Verdict:** If these numbers hold, the update is already generating ~9.7% more revenue per user despite the lower basket size. The decision to revert is likely incorrect unless the AOV drop worsens or the completion rate was inflated by a specific segment that doesn't repeat.
+
+**2. Funnel Diagnostics: Where is the Value Leaking?**
+To confirm *why* AOV dropped and ensure it isn't a retention time-bomb, instrument these three specific events immediately. Do not track generic "scroll depth"; track actions tied to revenue decisions.
+
+*   **Event A: `addon_view_rate` vs. `addon_click_rate`**
+    *   *Question:* Are users not seeing the suggestions, or seeing them and ignoring them?
+    *   *Measurement:* Percentage of users who render the add-on module vs. percentage who click an add-on.
+    *   *Reading Rule:* If `view_rate` is stable but `click_rate` dropped, the friction is in the *offer* (price/relevance), not the UI speed. If `view_rate` dropped, the new 4-click flow is hiding the module too aggressively.
+
+*   **Event B: `cart_review_duration` (Time between Cart Open and Checkout Click)**
+    *   *Question:* Is "rushing" actually happening?
+    *   *Measurement:* Median time spent on the cart/summary screen.
+    *   *Reading Rule:* Compare the median time pre- and post-launch. If time decreased by >50% and correlates directly with lower AOV, users are skipping deliberation. If time is unchanged, the AOV drop is due to layout visibility, not speed.
+
+*   **Event C: `coupon_abandonment_rate`**
+    *   *Question:* Did removing friction remove the incentive to hunt for deals (which often increases basket size to meet thresholds)?
+    *   *Measurement:* % of sessions where a coupon field is expanded but no code is applied, leading to checkout.
+    *   *Reading Rule:* A spike here suggests users want to save money but can't find codes quickly, causing them to checkout with smaller baskets rather than building the basket to meet a threshold.
+
+**3. Decision Matrix for Operations & Marketing**
+Present this table to stakeholders. The action depends entirely on the RPV calculation and the `addon_view_rate`.
+
+| Scenario | Metric Signal | Financial Impact | Recommended Action |
+| :--- | :--- | :--- | : |
+| **Win-Win** | RPV > ₹227.50 AND `addon_view_rate` stable | Net revenue up; efficiency up. | **Ship.** Optimize add-on relevance later. |
+| **False Economy** | RPV < ₹227.50 AND `addon_view_rate` dropped sharply | Visibility loss outweighs speed gain. | **Tweak.** Re-insert add-ons earlier in the 4-click flow; do not revert. |
+| **Retention Risk** | RPV > ₹227.50 BUT `cart_review_duration` < 5 seconds | Users rushing may miss errors, causing support tickets/returns. | **Monitor.** Add a "Review Order" micro-interaction (no full page) to force a 2-second pause. |
+
+**This Week's Step:**
+Calculate the exact RPV for the last 7 days segmented by device (mobile vs. desktop). If mobile RPV is up but desktop is down, the 4-click flow may be too aggressive for larger screens. Based on that split, either roll out the design fully (if both up) or A/B test a "sticky add-on" module on desktop only.
+
+*Note: All benchmarks above are derived strictly from your provided baseline (35%/₹650) and current (48%/₹520) figures; no external industry averages were used.*
+*Ensure user IDs are pseudonymized when logging `cart_review_duration` to comply with privacy standards.*

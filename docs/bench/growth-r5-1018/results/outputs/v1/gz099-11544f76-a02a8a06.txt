@@ -1,0 +1,40 @@
+# Investigation Plan: Procurement Cycle Time Diagnosis
+
+**Objective:** Isolate the root cause of the 2-day cycle time increase (3 to 5 days) to restore baseline performance before the CEO presentation.
+
+**Current Data Gap:** We have start (Order Creation) and end (Final Approval) timestamps, but no visibility into intermediate states. We cannot yet distinguish between vendor documentation delays and finance queue backlogs.
+
+### Phase 1: Immediate Triage (Days 1–3)
+*Goal: Segment the existing data to identify patterns without new instrumentation.*
+
+1.  **Segment by Value Threshold:** Split the 1,200 orders into two cohorts: ≤$10k and >$10k.
+    *   *Hypothesis Check:* If the average time for ≤$10k orders remains near 3 days while >$10k orders jumped to 7+ days, the bottleneck is confirmed within the high-value approval path. If both cohorts increased equally, the issue is systemic (e.g., overall team capacity or a shared system outage).
+2.  **Vendor Concentration Analysis:** Identify the top 20 vendors by order volume. Calculate their specific average cycle times.
+    *   *Action:* If 3–5 specific vendors show averages >7 days while others remain at 3 days, the delay is likely external (missing documentation).
+3.  **Temporal Heatmap:** Plot order volume vs. approval date for the last 30 days.
+    *   *Action:* Look for spikes in submission volume that correlate with the slowdown. A sudden volume increase without a corresponding staff increase indicates a queue backlog.
+
+### Phase 2: Targeted Instrumentation (Days 4–10)
+*Goal: Instrument only the events needed to answer specific questions.*
+
+Do not instrument every click. Add timestamps for exactly two intermediate events to the workflow system:
+1.  **"Docs Received" Event:** Triggered when all required vendor documents are uploaded/verified.
+    *   *Question Answered:* Is the delay *Vendor Wait Time* (Creation to Docs Received) or *Internal Processing Time* (Docs Received to Final Approval)?
+2.  **"Finance Queue Entry" Event:** Triggered when an order >$10k enters the finance reviewer's queue.
+    *   *Question Answered:* Is the delay due to *Queue Wait Time* (Entry to Review Start) or *Review Duration* (Review Start to Approval)?
+
+### Phase 3: Decision Matrix & Actions
+*Goal: Define actions based on the data retrieved from Phase 2.*
+
+| Diagnostic Result | Interpretation | Immediate Action |
+| :--- | :--- | :--- |
+| **Delay is pre-"Docs Received"** | Vendors are slow or docs are rejected repeatedly. | Implement a vendor portal checklist; auto-reject incomplete submissions immediately rather than waiting for manual review. |
+| **Delay is "Queue Entry" to "Review Start"** | Finance team is overloaded; work is sitting idle. | Temporarily raise the auto-approval threshold (e.g., to $15k) or assign a dedicated reviewer for the backlog. |
+| **Delay is "Review Start" to "Approval"** | Individual reviews are taking too long. | Audit the complexity of recent orders; simplify approval criteria or provide additional training/tools to reviewers. |
+
+### This-Week Steps
+1.  **Run the Value Segmentation Query today:** Compare average cycle times for orders ≤$10k vs. >$10k using existing timestamps. Report the delta to Thomas Greer by EOD tomorrow.
+2.  **Define the Two Events:** Draft the technical spec for the "Docs Received" and "Finance Queue Entry" events, ensuring they capture a stable Order ID for cohort tracking.
+3.  **Set the Baseline:** Calculate the current average cycle time for the top 5 vendors to establish if the issue is concentrated or widespread.
+
+*Note: All metrics must be compared to BuildRight's own historical baseline; do not use industry averages as they are unavailable and potentially misleading. If the segmentation in Phase 1 shows no difference between cohorts, the assumption regarding the $10k threshold is incorrect, and the investigation must pivot to systemic capacity issues.*

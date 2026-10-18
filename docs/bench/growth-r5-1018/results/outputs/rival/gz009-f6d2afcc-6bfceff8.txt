@@ -1,0 +1,58 @@
+# FitVerse Multiplayer Raid Mode: Event Tracking Specification
+
+## Executive Summary
+To balance cost and analytical depth, implement a **Hybrid Fidelity Strategy**. Do not stream every interaction event. Instead, categorize events into three tiers: **Critical Events** (100% retention, individual level), **Diagnostic Events** (10% stratified sampling, individual level), and **Aggregated Metrics** (client-side summarization, session level).
+
+## 1. Event Tier Definitions
+
+### Tier A: Critical Events (100% Retention)
+*Store every instance. Essential for revenue, progression, and core balance.*
+*   **Session Lifecycle:** `raid_started`, `raid_ended` (with win/loss status, duration, boss_id).
+*   **Economy/Progression:** `loot_awarded`, `xp_gained`, `currency_spent`.
+*   **Critical State Changes:** `player_downed`, `player_revived`, `raid_failed_team_wipe`.
+*   **Ability Usage (Ultimates):** Casting of cooldown-heavy "Ultimate" abilities only (e.g., `ability_cast` where `ability_tier` = "ultimate").
+
+**Schema Properties:** `session_id`, `user_id`, `timestamp`, `boss_id`, `team_composition`, `outcome`.
+
+### Tier B: Diagnostic Events (10% Stratified Sampling)
+*Sample 10% of users per session. Essential for debugging specific balance issues (e.g., "Is the dodge mechanic too strong against Boss X?").*
+*   **Defensive Actions:** `dodge_successful`, `block_active`, `interrupt_executed`.
+*   **Standard Ability Usage:** All non-ultimate ability casts (`ability_cast`).
+*   **Movement Spikes:** `dash_used`, `teleport_used`.
+*   **Healing/Shielding:** `heal_applied`, `shield_deployed`.
+
+**Sampling Logic:** Assign a random float (0.0–1.0) to each `user_id` at session start. If value < 0.10, flag session for full Tier B logging. Ensure sampling is consistent per user across the session to maintain action sequences.
+
+### Tier C: Aggregated Metrics (Client-Side Computation)
+*Do not send individual events. Compute totals on the client and send a single `session_summary` object upon `raid_ended`.*
+*   **Basic Attacks:** Total count of auto-attacks, total damage dealt via auto-attacks.
+*   **Damage Taken:** Total damage received, broken down by damage type (physical, magic, fire).
+*   **Healing Received:** Total HP healed by others.
+*   **Positioning Data:** Average distance from boss, max distance reached (do not stream coordinate streams).
+*   **Status Effects:** Count of times afflicted by "stun," "slow," or "burn."
+
+**Output Schema (`session_summary`):**
+```json
+{
+  "session_id": "uuid",
+  "user_id": "uuid",
+  "metrics": {
+    "auto_attack_count": 145,
+    "auto_attack_damage_total": 3200,
+    "damage_taken_total": 1500,
+    "healing_received_total": 800,
+    "status_effect_counts": {"stun": 2, "burn": 5}
+  }
+}
+```
+
+## 2. Implementation Guidelines
+
+1.  **Buffering:** Client must buffer Tier A and sampled Tier B events locally and batch-send every 30 seconds or upon session end to reduce network overhead.
+2.  **Sampling Consistency:** The sampling decision must be deterministic per `user_id` to allow replaying specific user sessions for debugging without needing 100% of the population.
+3.  **Balance Debugging Protocol:** If a specific balance issue arises (e.g., a boss is unbeatable), temporarily increase the Tier B sampling rate to 100% for that specific `boss_id` via a remote config flag, rather than changing the global architecture.
+
+## 3. Recommended Property Standardization
+For all tracked events, include: `client_version`, `platform` (Quest/PCVR), `region`, and `frame_rate_avg` to correlate performance with gameplay outcomes.
+
+This architecture reduces data volume by approximately 90-95% while preserving the granular sequences needed to tune combat mechanics.

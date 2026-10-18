@@ -1,0 +1,65 @@
+# Event Tracking Specification for FitVerse Multiplayer Raid Mode
+
+**Objective:** Balance cloud storage costs against the need for high-fidelity data to debug game mechanics and balance issues.
+**Constraint:** Beta test begins December 1st; pipeline must handle hundreds of events/minute/user without a "firehose" cost explosion.
+
+## 1. Core Principle: Instrument Only What Answers a Named Question
+Do not track every interaction. Every event stored must answer a specific design question. If you cannot name the question, do not instrument the event.
+
+## 2. Event Taxonomy: High Fidelity vs. Aggregated
+
+### A. High-Fidelity Events (Store Individual Records)
+*Track these at the individual event level with properties. These are essential for debugging balance, latency, and "aha" moments.*
+
+| Event Name | Question Answered | Key Properties |
+| :--- | :--- | :--- |
+| `raid_started` | Are teams forming and starting raids? | `team_id`, `boss_id`, `player_level`, `region` |
+| `raid_completed` | Did they finish? What was the outcome? | `team_id`, `boss_id`, `result` (win/loss/time_limit), `duration_sec` |
+| `ability_cast` | Is a specific ability over/under-performing? | `ability_id`, `target_type` (boss/player), `hit_miss`, `damage_heal_value` |
+| `player_state_change` | Are players dying too fast or healing too much? | `state` (downed, revived, shielded), `source_ability_id` |
+| `session_abandon` | Where are users dropping out of the raid? | `exit_point` (lobby, mid-fight, boss_phase_2), `reason_code` |
+
+**Note on Volume:** Even with hundreds of actions, `ability_cast` and `state_change` are the only high-volume events likely needed for balance. If volume exceeds budget, apply **stratified sampling** (e.g., 100% of events for new users or new bosses, 10% for veteran users on farm runs) rather than blind aggregation.
+
+### B. Aggregated Metrics (Compute Client-Side or Server-Side Summary)
+*Do not store individual records for these. Compute totals/averages per session and store one summary record per `raid_completed`.*
+
+*   **Movement/Dodging:** Unless a specific "dodge" mechanic exists with cooldowns/i-frames, do not track individual dodges. Aggregate to `total_distance_moved` or `dodge_count_per_minute` in the session summary.
+*   **Passive Damage/DoT:** Do not log every tick of damage-over-time. Log the `total_dot_damage_applied` in the final summary.
+*   **UI Interactions:** Menu clicks, inventory opens, or emote usage should be aggregated to counts per session unless a specific UX friction point is being investigated.
+*   **Frame Rate/Latency:** Aggregate to `avg_fps`, `min_fps`, and `avg_latency_ms` per session. Only log individual spikes if they exceed a threshold (e.g., `frame_drop_event` where fps < 20).
+
+## 3. Schema Design Guidelines
+
+### The Session Summary Record
+Create a single `raid_session_summary` object stored upon `raid_completed`. This replaces hundreds of raw events for non-critical data.
+```json
+{
+  "session_id": "uuid",
+  "team_id": "uuid",
+  "boss_id": "string",
+  "start_time": "timestamp",
+  "end_time": "timestamp",
+  "outcome": "win",
+  "total_damage_dealt": 15400,
+  "total_healing_done": 4200,
+  "ability_usage_counts": { "fireball": 12, "heal": 5, "shield": 3 },
+  "player_contributions": [ { "user_id": "u1", "dps": 450, "hps": 120 } ]
+}
+```
+
+### The Identifier Seam
+Ensure a stable `user_id` (pseudonymous) links all events to track retention and progression across sessions. Do not use high-cardinality session IDs alone for long-term analysis. Route any PII handling to the privacy compliance protocol.
+
+## 4. Implementation Rules for the Lead Engineer
+1.  **Pre-Commit Questions:** Before beta, list the top 5 balance questions (e.g., "Is the Healer class underpowered in Phase 2?"). Verify the schema above answers them. If not, add the specific event.
+2.  **No Vanity Metrics:** Do not track "total clicks" or "time in menu" unless a specific UX hypothesis exists.
+3.  **Sampling Strategy:** If `ability_cast` volume threatens the budget, implement server-side sampling: log 100% of casts for the first 20% of beta users (to establish baseline variance) and 10% thereafter, tagging sampled events with `is_sampled: true` for statistical correction.
+4.  **Guardrails:** Define a "cost per session" limit. If the average event payload size × event count exceeds this, truncate non-essential properties (e.g., remove `position_xyz` unless debugging collision).
+
+## This Week's Steps
+1.  **Finalize the Top 5 Questions:** Meet with the game design lead to confirm the exact balance questions this data must answer.
+2.  **Prototype the Summary Schema:** Implement the `raid_session_summary` JSON structure and test aggregation logic for one ability type.
+3.  **Define Sampling Thresholds:** Calculate the break-even point where raw event storage costs exceed the value of the data, and set the sampling rate accordingly.
+
+*Note: This specification assumes no prior baseline data exists; all thresholds must be validated during the first week of beta. Do not invent retention or balance benchmarks.*

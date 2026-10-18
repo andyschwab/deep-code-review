@@ -1,0 +1,43 @@
+### Event Taxonomy for Conversational Interface Friction Analysis
+
+To diagnose the 30% abandonment rate before the May 1st release, instrument the following events. Each event answers a specific question to isolate whether the failure is in Natural Language Understanding (NLU), latency, or script flow.
+
+**1. `chat_intent_received`**
+*   **Question:** Do users successfully submit an intent, or do they drop off before sending?
+*   **Properties:** `session_id`, `input_method` (voice/text), `input_length_chars`, `timestamp`.
+*   **Action:** If the ratio of `chat_started` to this event is low, the initial prompt is confusing or the input field is broken.
+
+**2. `nlu_confidence_score`** (Logged immediately after intent receipt)
+*   **Question:** Is the model failing to understand user inputs?
+*   **Properties:** `session_id`, `intent_category` (e.g., "balance", "dispute"), `confidence_score` (0.0–1.0), `fallback_triggered` (boolean).
+*   **Action:** If abandonment spikes when `confidence_score` < 0.6 or `fallback_triggered` is true, the NLU model requires retraining on specific phrases before launch.
+
+**3. `response_latency_measured`**
+*   **Question:** Is system slowness causing users to quit?
+*   **Properties:** `session_id`, `latency_ms` (time from intent received to first token rendered), `error_code` (if timeout).
+*   **Action:** If drop-offs correlate with `latency_ms` > 2000ms, optimize backend queries or implement "typing..." indicators immediately.
+
+**4. `conversation_step_completed`**
+*   **Question:** At which specific step in the dialogue do users leave?
+*   **Properties:** `session_id`, `step_name` (e.g., "auth_verify", "select_transaction", "confirm_dispute"), `step_sequence_number`.
+*   **Action:** Identify the exact script node with the highest exit rate. If users leave at "select_transaction," the list format may be too long for mobile.
+
+**5. `chat_abandoned`**
+*   **Question:** Did the user leave without resolving their issue?
+*   **Properties:** `session_id`, `last_step_name`, `time_in_session_seconds`, `resolution_status` (resolved/unresolved/abandoned).
+*   **Action:** Calculate the abandonment rate per `step_name`. This is your primary metric for Friday's review.
+
+**6. `fallback_to_human_requested`**
+*   **Question:** When the bot fails, do users successfully escape to an agent?
+*   **Properties:** `session_id`, `trigger_reason` (user_requested/system_timeout), `wait_time_seconds`.
+*   **Action:** Ensure this path is frictionless; high abandonment here indicates a broken safety net.
+
+**Implementation Notes for Engineering:**
+*   **Identifier Seam:** Ensure all events include a pseudonymous `user_id` to track cohorts across sessions, distinct from operational log IDs.
+*   **Scope:** Do not instrument raw message text (PII risk); only log structured metadata and intent categories.
+
+**This Week's Steps:**
+1.  **Deploy** these six events to the beta environment by Wednesday to ensure data accumulation before Friday's review.
+2.  **Query** the `conversation_step_completed` vs. `chat_abandoned` funnel on Friday; if >40% of drop-offs occur at a single step with low NLU confidence, prioritize script rewriting for that node over latency fixes.
+
+*Note: No benchmark for "good" abandonment is asserted here; compare Friday's results against the current 30% baseline to measure iteration success.*

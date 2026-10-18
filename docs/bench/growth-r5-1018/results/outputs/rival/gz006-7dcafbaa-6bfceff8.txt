@@ -1,0 +1,46 @@
+# Data Cleansing and Validation Strategy for HomeSync Thermostat Events
+
+## Executive Summary
+To preserve the integrity of energy-saving reports for retail partners, we will adopt a conservative cleansing strategy that prioritizes data accuracy over volume. We will **not impute** missing 'source' values for the existing 10,000 affected events, as heuristic inference (e.g., based on timestamps) introduces unquantifiable bias that could invalidate energy-saving claims. Instead, we will segment the data to isolate high-fidelity metrics while implementing strict validation gates for future firmware.
+
+## Phase 1: Immediate Data Cleansing (Historical Data)
+
+**1. Segmentation, Not Imputation**
+Do not guess the source for the 20% of events missing the property. Imputing values based on timestamp patterns (e.g., assuming night-time changes are manual dial usage) creates false confidence in specific channel performance.
+*   **Action:** Tag the 10,000 records with `source = "unknown_offline"`.
+*   **Reporting Strategy:** Calculate energy savings using two distinct figures:
+    *   *Verified Savings:* Derived only from the 40,000 events with explicit source tags.
+    *   *Total Observed Savings:* Includes the "unknown" segment but explicitly noted as "source-unverified."
+*   **Rationale:** Retail partners require auditable data. Presenting a single, inflated number based on guessed sources risks credibility if the logic is later challenged.
+
+**2. Pattern Analysis for Context (Internal Only)**
+While we will not alter the raw data, perform an offline analysis to understand the gap:
+*   Correlate `unknown_offline` events with firmware version 2.4 and connectivity status logs.
+*   Determine if these events cluster around specific geographic regions or usage times.
+*   Use this analysis solely to inform the retail partners about the *nature* of the missing data, not to fill it.
+
+## Phase 2: Prevention and Validation (Future Firmware)
+
+**1. Firmware Logic Update (v2.5+)**
+The root cause is a logging gap in offline mode. The fix must be deterministic, not probabilistic.
+*   **Default Value Enforcement:** Modify the event generation logic to require a `source` field before writing to the local buffer. If the interaction source cannot be determined by the hardware abstraction layer, the event should either:
+    *   Assign a specific, honest value (e.g., `local_dial_default`) if the hardware interrupt confirms physical interaction.
+    *   Drop the event entirely if the context is truly ambiguous, rather than logging incomplete data.
+*   **Schema Validation:** Implement a local schema check on the device. Events missing required properties (`source`, `timestamp`, `temperature_delta`) are flagged as errors locally and not queued for transmission.
+
+**2. Pipeline Validation Gates**
+Update the ingestion pipeline to reject or quarantine non-compliant events before they enter the main warehouse.
+*   **Hard Stop:** Configure the ETL process to move any event missing critical properties to a "Quarantine" table rather than the production `events` table.
+*   **Alerting:** Set up automated alerts if the rate of quarantined events exceeds 0.1% for any given firmware version.
+
+## Phase 3: Reporting Integrity for Retail Partners
+
+When presenting energy savings:
+1.  **Transparency:** Explicitly disclose the 20% data gap in the methodology section. State that these events are excluded from channel-specific breakdowns but included in total energy impact calculations with a caveat.
+2.  **Confidence Intervals:** If statistical modeling is used to estimate the *total* market impact, apply a confidence interval that accounts for the missing 20%, rather than presenting a single point estimate derived from imputed data.
+3.  **Forward-Looking Statement:** Commit to a revised data quality SLA for Q3, guaranteeing <1% missing critical properties for all devices running firmware v2.5+.
+
+This approach ensures that while the current dataset has limitations, the conclusions drawn from it remain defensible, accurate, and trustworthy for external stakeholders.
+
+*Note: This strategy assumes the 'source' property is technically determinable at the hardware interrupt level; if the hardware itself cannot distinguish the source in offline mode, the "drop event" protocol is the only valid option.*
+*Ensure the analytics director reviews the "Verified" vs. "Total" metric definitions with legal counsel before partner presentation.*

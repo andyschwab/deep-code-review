@@ -1,0 +1,40 @@
+### Investigation Plan: Balancing Checkout Speed and Revenue
+
+**Primary Directive:** Do not revert the update yet. The 13-point gain in completion rate (35% → 48%) likely generates more total revenue despite the lower Average Order Value (AOV), but this must be verified with **Revenue Per Visitor (RPV)** before any decision.
+
+**1. The North Star & Guardrail**
+*   **North Star:** **Revenue Per Visitor (RPV)** at the checkout entry.
+    *   *Calculation:* (Completion Rate × AOV).
+    *   *Current Snapshot:* Old flow ≈ 227 INR RPV (0.35 × 650); New flow ≈ 249 INR RPV (0.48 × 520).
+    *   *Verdict:* If this snapshot holds across cohorts, the new flow is already winning by ~10% in total value, even with the lower AOV.
+*   **Guardrail Metric:** **Attach Rate of High-Margin Add-ons**. We must ensure we aren't sacrificing profitable items for low-margin volume.
+
+**2. Specific Funnel Metrics to Instrument**
+Stop measuring generic "time on page." Instrument these three specific events to locate the leakage:
+
+*   **Event A: `add_on_view` vs. `add_on_click`**
+    *   *Question:* Are users not seeing the suggestions, or seeing and ignoring them?
+    *   *Action:* If `view` is low, the UI change hid the section (scroll depth issue). If `view` is high but `click` is low, the friction removal made users less receptive to upsells.
+*   **Event B: `cart_review_duration` (Bucketed: <5s, 5-15s, >15s)**
+    *   *Question:* Is "rushing" correlated with lower AOV?
+    *   *Action:* Segment AOV by duration bucket. If users spending >10s still have low AOV, the issue is not speed; it's the placement or relevance of the add-ons.
+*   **Event C: `coupon_abandonment_rate`**
+    *   *Question:* Did removing clicks also remove the cue to search for discounts?
+    *   *Action:* If coupon application dropped significantly, users might be paying full price more often (good for margin) or abandoning because they can't find codes (bad for conversion).
+
+**3. How to Read the Data (The Decision Matrix)**
+Analyze the data by **User Cohort** (New vs. Returning) to isolate behavior changes:
+
+| Scenario | Diagnosis | Action |
+| :--- | :--- | :--- |
+| **RPV Up, Add-on Attach Down** | Users buy faster but skip extras. | **Tweak:** Re-introduce add-ons *after* the "Place Order" click (post-purchase upsell) or on the success page. Do not revert. |
+| **RPV Down, `add_on_view` Low** | The new UI hides premium items completely. | **Tweak:** Adjust CSS/layout to make add-ons visible without adding clicks. |
+| **RPV Down, `cart_review_duration` <5s** | Users are accidentally skipping steps or confused. | **Revert/Rollback:** The speed gain is causing errors or confusion, not efficiency. |
+| **RPV Flat, Completion Up** | Volume increased, value per user dropped. | **Hold:** Monitor retention. If these "fast" users return next week, the strategy is working. |
+
+**4. This-Week Steps**
+1.  **Compute RPV by Cohort:** Immediately calculate RPV for users exposed to the Jan 20 update vs. the pre-update baseline. If RPV is higher, present this to the Operations Head as the primary success metric.
+2.  **Segment AOV by `cart_review_duration`:** Run a query to see if AOV collapses only for users spending <5 seconds. If AOV remains stable for users spending >10 seconds, the solution is design (nudging attention), not process (reverting clicks).
+3.  **Define the "Break-Even" AOV:** Calculate the exact AOV where the new flow breaks even with the old one (~479 INR). Since current AOV (520 INR) is above this, the burden of proof is on those claiming long-term brand damage, not on the current numbers.
+
+*Note: All metrics above rely on your existing analytics; no external benchmarks are used. Ensure user IDs are pseudonymous when tracking session duration.*

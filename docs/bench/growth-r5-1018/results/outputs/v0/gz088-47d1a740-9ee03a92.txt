@@ -1,0 +1,36 @@
+### Event Taxonomy & Measurement Plan for StreamHub Live Beta
+
+**North Star Metric:** 48-Hour Return Rate of "Active Participators" (users who send ≥1 comment).
+*Rejects vanity metrics like total watch time or peak concurrents for this specific hypothesis, as they do not isolate the causal link between commenting and retention.*
+
+#### 1. Required Event Instrumentation
+To validate your hypothesis without tracking message content, instrument exactly these three events. Do not add others "just in case."
+
+| Event Name | Trigger Condition | Properties to Capture | Question This Answers |
+| :--- | :--- | :--- | : |
+| `live_stream_viewed` | User enters a live stream player. | `session_id`, `stream_id`, `entry_timestamp`, `is_chat_window_open` (boolean) | Did the user expose themselves to the chat interface? (Differentiates passive viewers from those who at least looked). |
+| `chat_comment_sent` | User successfully submits a comment. | `session_id`, `stream_id`, `timestamp`, `time_since_entry_seconds` | Did the user cross the "active participation" threshold? (This defines your treatment group). |
+| `live_stream_returned` | User enters *any* live stream within 48h of a previous session. | `user_id` (pseudonymous), `previous_session_id`, `time_delta_hours` | Did the user retain? (The outcome variable for your 35% hypothesis). |
+
+**Identifier Seam:** Ensure `user_id` is stable across sessions to track the 48-hour return, but keep it pseudonymous. Route PII handling to your privacy compliance protocol; do not store message text.
+
+#### 2. Analysis Logic: Validating the Hypothesis
+Do not measure "total watch time" yet; it is a vanity metric in this context. Instead, construct two cohorts from Day 1 data:
+1.  **Passive Viewers:** Triggered `live_stream_viewed` but NOT `chat_comment_sent`.
+2.  **Active Participators:** Triggered `chat_comment_sent`.
+
+**The Calculation:**
+$$ \text{Retention Rate} = \frac{\text{Count of Active Participators who triggered } live\_stream\_returned \le 48h}{\text{Total Count of Active Participators}} $$
+
+Compare this result against your 35% hypothesis. If the rate is <35%, the hypothesis fails regardless of total watch time. If you need to decide between "toggling chat open" vs. "sending comment" as the predictor, run the same calculation for users who only toggled the window open. The metric with the higher correlation to return rate is your leading indicator.
+
+#### 3. Infrastructure & Staffing Implications
+*   **Backend Scalability:** The `chat_comment_sent` event volume will be significantly lower than `live_stream_viewed`. Size your write-throughput for the comment event based on a 5–10% conversion rate from viewers, not 100%. This prevents over-provisioning.
+*   **Moderator Staffing:** Staffing must align with `chat_comment_sent` velocity, not concurrent viewers. If the hypothesis holds, a spike in comments predicts a spike in 48h retention, justifying higher moderator density during beta launch windows to protect the "active" experience.
+
+#### 4. This-Week Steps
+1.  **Define Schema:** Finalize the JSON schema for the three events above with the backend team by July 5th; explicitly exclude message content fields.
+2.  **Baseline Check:** Run a query on existing DAU data to estimate the raw pool of potential beta users, but mark the specific "comment-to-return" rate as **UNVERIFIED** until July 11th (first full day of data).
+3.  **Pre-commit Threshold:** Agree that if the Day 7 retention rate for commenters is <25%, the feature requires a friction-reduction iteration before expanding beyond beta.
+
+*Note: Do not peek at significance before the 48-hour window closes for the first cohort; early reads are noise. No external benchmarks were used; success is defined strictly by your 35% internal target.*

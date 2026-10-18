@@ -1,0 +1,41 @@
+# Technical Brief: Inferred Network Health & Satisfaction Strategy (OutbackNet Pilot)
+
+**North Star Metric:** Weekly Active Households Maintaining >95% Uptime During Severe Weather Windows.
+*Rejects vanity metrics like "Total Signups" or "Raw Data Transferred," which rise regardless of service quality.*
+
+### 1. Event Taxonomy: Inferring Health Without Intrusive Monitoring
+Since direct CPE diagnostics are limited, we instrument **behavioral proxies** that answer specific questions about stability versus hardware failure. Every event below maps to a decision.
+
+| Event Name | Properties | Question Answered | Inference Logic |
+| :--- | :--- | :--- | : |
+| `session_interrupt` | `timestamp`, `duration_since_last_packet`, `weather_alert_active` (bool) | Is the drop correlated with external weather? | If `weather_alert_active` is true across >60% of interrupts in a region, infer **Signal Loss**. If false, infer **Local/Hardware Issue**. |
+| `reconnect_attempt` | `time_to_reconnect`, `success_bool`, `attempt_count` | Is the user stuck or recovering? | High `attempt_count` + low `success_bool` indicates **Hardware Failure** or persistent obstruction. Rapid success suggests transient **Signal Fade**. |
+| `support_ticket_created` | `category` (self-selected), `time_since_last_interrupt` | Did the outage drive churn risk? | Correlate ticket volume with `session_interrupt` spikes. A lag >2 hours suggests users tolerate weather; immediate spikes suggest critical failure. |
+| `daily_throughput_cap_hit` | `time_of_day`, `remaining_quota` | Is performance perceived as poor due to throttling? | Distinguishes network congestion from physical outages. |
+
+**Identifier Seam:** Use a pseudonymous `household_id` to track sessions across days without exposing PII. Route consent handling to privacy compliance protocols.
+
+### 2. Diagnostic Logic: Signal vs. Hardware
+To distinguish causes without intrusive checks, apply this **Regional Cohort Analysis**:
+*   **Signal Loss Pattern:** `session_interrupt` spikes simultaneously across multiple `household_id`s in the same geographic cluster during `weather_alert_active` windows.
+    *   *Action:* NOC triggers satellite beam power adjustment; Support sends proactive SMS: "Weather impacting service, expected restore in X hours."
+*   **Hardware/Local Pattern:** `session_interrupt` occurs for a single `household_id` while neighbors remain stable, specifically when `weather_alert_active` is false.
+    *   *Action:* Support queues a "Connection Troubleshooting" call; flag for potential CPE replacement if `reconnect_attempt` fails >3 times.
+
+### 3. Retention-First Funnel (AARRR)
+Do not pour marketing into acquisition until the pilot proves retention.
+1.  **Retention (Primary):** % of pilot households active in Week 2, 4, and 8. *If this leaks, pause acquisition.*
+2.  **Activation:** % of households completing a continuous 2-hour session in the first 48 hours.
+3.  **Acquisition:** New connections (only scaled if Retention >85% of baseline).
+
+### 4. Experiment Rigor & Guardrails
+*   **Pre-commitment:** Define the "Severe Weather Stability Threshold" before August 1. Example: "Service is stable if <10% of households disconnect for >15 mins during a Level 3 weather alert."
+*   **Guardrail Metric:** `support_ticket_volume_per_100_users`. If this rises >20% week-over-week during non-weather periods, halt any network configuration changes immediately.
+*   **No Peeking:** Do not declare the pilot a success based on Week 1 data alone. Read the retention cohort only at the pre-committed 30-day and 90-day marks.
+
+### 5. This-Week Steps (Pre-Launch)
+1.  **Instrumentation:** Implement `session_interrupt` and `reconnect_attempt` logging on the gateway with the specified properties. Verify `household_id` persistence.
+2.  **Baseline Setup:** Establish the "normal" interrupt rate for clear-weather days in the NT pilot zone to serve as the internal benchmark.
+3.  **Playbook Draft:** NOC and Support to draft the specific response scripts for the two inferred patterns (Regional Signal vs. Local Hardware) based on the logic above.
+
+*Note: All benchmarks must be derived from your pilot data; no external "industry standard" uptime figures will be used to judge success. If telemetry is missing for a specific event, mark the analysis as UNVERIFIED rather than estimating.*

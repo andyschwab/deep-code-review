@@ -1,0 +1,42 @@
+**Technical Brief: OutbackNet Pilot Measurement Strategy (NT Launch)**
+
+**North Star Metric:** Weekly Active Households Maintaining >95% Uptime During Severe Weather Windows.
+*Rejects vanity metrics like "total connections" or "raw signal strength," which rise regardless of user value. This metric only increases when users successfully retain service during the specific stressor (severe weather) identified as the primary churn risk.*
+
+**Inference Strategy: The "Silent Failure" Taxonomy**
+Since intrusive CPE monitoring is restricted, we infer root cause by correlating **aggregate gateway telemetry** with **support ticket timing** and **regional weather data**. We instrument only three events that answer specific diagnostic questions:
+
+1.  **Event:** `region_signal_dropout_cluster`
+    *   **Question:** Is this a satellite beam issue or isolated hardware failure?
+    *   **Properties:** `region_id`, `timestamp`, `affected_household_count`, `weather_severity_flag`.
+    *   **Logic:** If >10% of households in a `region_id` drop simultaneously during a `weather_severity_flag`, classify as **Signal Loss**. If a single household drops while neighbors remain stable, classify as **Hardware/Local**.
+2.  **Event:** `reconnect_latency_post_outage`
+    *   **Question:** Did the user experience a "hard" failure requiring manual intervention?
+    *   **Properties:** `household_id` (pseudonymous), `outage_duration_seconds`, `reconnect_success_bool`.
+    *   **Logic:** Reconnects >15 minutes post-weather event suggest user intervention was needed (high churn risk). Automatic reconnects <2 minutes indicate resilient hardware despite signal loss.
+3.  **Event:** `support_contact_proximity`
+    *   **Question:** Did the outage trigger a support ticket (churn precursor)?
+    *   **Properties:** `ticket_category`, `time_since_last_dropout_minutes`.
+    *   **Logic:** Correlate tickets filed within 60 minutes of a `region_signal_dropout_cluster`. High correlation confirms user-perceived degradation; low correlation suggests tolerance or lack of awareness.
+
+**Funnel Diagnosis (Retention First)**
+Do not focus on acquisition numbers for the pilot. Read the funnel bottom-up:
+*   **Retention:** Are households staying connected through the next weather event after the first outage? (Measure via `reconnect_latency_post_outage`).
+*   **Activation:** Did the household complete the initial handshake and sustain 24 hours of uptime?
+*   **Acquisition:** Only analyze if retention is stable. Pouring users into a region with unresolved signal loss accelerates churn.
+
+**Experiment & Action Plan (First 90 Days)**
+*   **Pre-commitment:** Define a "Severe Weather Window" using Bureau of Meteorology data. Compare uptime in these windows against clear-sky baselines for the same regions. Do not peek at daily fluctuations; analyze weekly cohorts.
+*   **Guardrail Metric:** Support Ticket Volume per 1,000 Households. If this spikes while "Signal Loss" is low, the issue is likely hardware installation quality, not satellite capacity.
+*   **Actionable Thresholds:**
+    *   If `region_signal_dropout_cluster` affects >20% of a zone: Trigger NOC beam reallocation protocol immediately.
+    *   If single-household dropouts exceed 5% of the pilot base: Dispatch targeted hardware replacement kits to those specific `region_id` zones before scaling.
+    *   If `support_contact_proximity` is low despite high dropout: Users are tolerating outages; prioritize stability over proactive outreach to avoid drawing attention to minor glitches.
+
+**This Week's Steps:**
+1.  **NOC:** Configure aggregation rules to flag `region_signal_dropout_cluster` when >3 households in a 50km radius disconnect within 10 minutes.
+2.  **Support:** Tag all incoming tickets with `weather_event_flag` based on the caller's location and time, enabling the correlation query.
+3.  **Strategy:** Establish the pseudonymous `household_id` mapping to link gateway logs with support tickets without exposing PII.
+
+*Note: All benchmark thresholds (e.g., the 10% cluster rule) are initial hypotheses to be validated against the August 1 pilot baseline; no external industry benchmarks are applied.*
+*Unknowns regarding specific hardware failure modes remain `UNVERIFIED` until the first weather event generates local data.*

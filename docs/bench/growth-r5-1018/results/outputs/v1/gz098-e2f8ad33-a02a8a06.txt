@@ -1,0 +1,32 @@
+**To:** Omar Hassan, Lead Engineer
+**From:** Growth Analytics
+**Subject:** Core Event Schema for WanderAI Launch (Code Freeze: Friday)
+
+Per the constraint to avoid data overload and answer specific product questions before the May 15th launch, instrument **only** the following four events. This schema targets the MVP stage: validating the "save-to-book" assumption and resolving the location friction debate without collecting unnecessary PII.
+
+### 1. `itinerary_suggested`
+*   **Question Answered:** What is the volume of AI output being generated? (Denominator for conversion).
+*   **Properties:** `session_id`, `suggestion_id` (UUID), `destination_count`, `has_real_time_location` (boolean: true if user allowed location access for this specific suggestion).
+*   **Why:** Allows you to segment performance by whether location data was present, directly testing the personalization hypothesis without tracking continuous coordinates.
+
+### 2. `itinerary_saved`
+*   **Question Answered:** Is the "save" action a valid proxy for intent?
+*   **Properties:** `session_id`, `suggestion_id`, `time_to_save_seconds` (latency from view), `device_type`.
+*   **Why:** This is your primary activation metric. High save rates with low booking rates will invalidate the assumption that "save = likely book."
+
+### 3. `booking_initiated`
+*   **Question Answered:** Do users book immediately or return later?
+*   **Properties:** `session_id`, `suggestion_id`, `is_returning_user` (boolean), `hours_since_save` (integer, null if same session), `partner_id`.
+*   **Why:** The `hours_since_save` property explicitly resolves the "immediate vs. later" uncertainty. If the median is >24 hours, you must build re-engagement emails; if <10 minutes, optimize the immediate checkout flow.
+
+### 4. `booking_completed`
+*   **Question Answered:** What is the actual revenue conversion rate?
+*   **Properties:** `session_id`, `suggestion_id`, `booking_value_aed`, `partner_id`.
+*   **Why:** The North Star input. Comparing `booking_completed` to `itinerary_saved` gives the true conversion rate, replacing the current assumption with data.
+
+### Implementation Constraints & Notes
+*   **Location Data:** Do **not** instrument continuous real-time location streams. The `has_real_time_location` boolean on `itinerary_suggested` is sufficient to correlate permission grants with conversion. Continuous tracking creates the friction you fear and adds noise without answering a named question at this stage.
+*   **Identity:** Ensure `session_id` persists across app restarts to accurately measure "returning later." Use a pseudonymous user ID; do not log raw GPS coordinates or names in these events (route PII handling to privacy compliance).
+*   **Volume Check:** With 25,000 users, these four events will generate manageable data volume. Any event not listed above (e.g., `button_hover`, `scroll_depth`) is considered noise for this MVP and should be excluded to maintain schema clarity.
+
+**Next Step:** Implement these four events with the specified properties by Friday. Post-launch, we will analyze the `hours_since_save` distribution to decide on retention mechanics.

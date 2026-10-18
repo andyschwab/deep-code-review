@@ -1,0 +1,33 @@
+# Measurement Strategy: Estonia Blockchain Voting Pilot (May 5)
+
+**North Star Metric:** Verified Ballot Completion Rate (percentage of initiated sessions that successfully submit a cryptographically verified ballot). This measures real value delivery; raw session starts are vanity metrics that ignore the critical verification bottleneck.
+
+### Event Taxonomy & Non-Personal Metrics
+Instrument only events that answer specific reliability questions. Do not record voter IDs, IP addresses, or timestamps granular enough to re-identify individuals within a small precinct. Use ephemeral session tokens that are destroyed immediately upon ballot casting.
+
+| Event Name | Question Answered | Properties (Non-PII) | Privacy Guardrail |
+| :--- | :--- | :--- | :--- |
+| `voting_session_started` | Is acquisition/entry working? | `device_os`, `browser_type`, `entry_source` (e.g., direct/link) | No user ID; aggregate only. |
+| `verification_step_entered` | Do users attempt the core action? | `session_token_hash` (ephemeral), `network_type` (4G/WiFi) | Token cannot link to voter identity. |
+| `verification_duration_ms` | **Critical:** Does latency cause abandonment? | `duration_ms`, `crypto_operation_type` | Truncate to 100ms buckets to prevent fingerprinting. |
+| `verification_abandoned` | Where is the retention leak? | `duration_at_exit_ms`, `error_code` (if system-side) | **Must** fire if user exits after >10s without casting. |
+| `ballot_submitted_verified` | Did the user get real value? | `submission_latency_ms`, `verification_status` (success/fail) | Decouple submission time from initiation time in logs. |
+| `session_ended_error` | Is the system failing technically? | `error_category`, `step_failed` | No stack traces containing memory addresses or IDs. |
+
+### Analysis Method: Retention First
+Do not focus on total voters until retention is stable. Analyze the funnel bottom-up:
+1.  **Retention Check:** Calculate the drop-off rate specifically at the `verification_step_entered` → `ballot_submitted_verified` transition. If this rate exceeds your baseline tolerance (e.g., >5% abandonment), acquisition efforts are wasted.
+2.  **Latency Correlation:** Bin `verification_duration_ms` into intervals (0–5s, 5–10s, 10–15s, >15s). Plot abandonment rate against these bins. If the hypothesis holds, abandonment must spike sharply in the >10s bin.
+3.  **Cohort Aggregation:** Report metrics only in aggregates of ≥50 sessions to prevent statistical re-identification of voters in small rural districts.
+
+### Privacy & Anonymity Seam
+*   **Identifier Strategy:** Use a high-entropy, random session ID generated client-side. This ID is never transmitted to the ballot ledger. It exists only in the analytics buffer for the duration of the session and is purged immediately after the `ballot_submitted_verified` event or session timeout.
+*   **No PII:** Strictly prohibit logging national ID codes, precise geolocation, or exact timestamps (use minute-level granularity).
+*   **Data Minimization:** If an error occurs, log the error category, not the user state.
+
+### This-Week Steps (Deadline: Next Tuesday)
+1.  **Define the "Fail" Threshold:** Confirm with the board that a >15% abandonment rate in the >10s latency bin constitutes a "Stop" decision for the pilot.
+2.  **Implement Ephemeral Token Logic:** Engineering to code the client-side session ID generation and immediate purge mechanism; Security to audit that no ID persists post-submission.
+3.  **Draft the Public Statement:** Prepare the announcement citing "Verified Ballot Completion Rate" as the primary success metric, explicitly stating that no individual voting behavior is tracked.
+
+*Note: All metrics are UNVERIFIED until the instrumentation is live; do not estimate baseline rates. This plan excludes operational SLOs (server uptime), which belong in the system health report.*

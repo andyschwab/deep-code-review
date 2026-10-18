@@ -1,0 +1,39 @@
+### Diagnostic Plan: NomadStitch Activation Friction
+
+**Objective:** Isolate the root cause of the 60% drop-off between profile verification and first bid submission by next Friday, specifically testing the "mobile verification friction" hypothesis.
+
+**1. Immediate Data Segmentation (Run Today)**
+Break down the existing funnel data to confirm where the leak occurs. Do not look at aggregate numbers.
+*   **Device Split:** Compare completion rates for *Mobile Web* vs. *Desktop* vs. *App* (if applicable) specifically at the identity verification step. If mobile drop-off is >75% while desktop is <30%, the hypothesis holds.
+*   **Day-of-Week Cohort:** Isolate Tuesday/Wednesday traffic. Compare verification completion rates on these days against Thursday–Monday. If the drop is unique to Tue/Wed, investigate operational factors (e.g., verification team staffing delays, bank API maintenance windows) rather than just UI friction.
+*   **Time-on-Step:** Calculate the median time spent on the verification screen before abandonment. A spike in time followed by a drop suggests confusion; an immediate drop suggests technical failure or intimidation.
+
+**2. Event Taxonomy & Instrumentation Gaps**
+Your current data identifies *where* users leave, but not *why*. To make a confident decision, you must instrument the following specific events immediately. Do not track "everything"; track only what answers these questions:
+*   `verification_start` (Property: `device_type`, `browser`, `time_of_day`)
+*   `verification_document_upload_attempt` (Property: `file_type`, `file_size`, `success_boolean`)
+    *   *Question Answered:* Are users failing to upload due to file constraints or camera permissions?
+*   `verification_error_displayed` (Property: `error_code`, `error_message_text`)
+    *   *Question Answered:* Is a specific error message causing the exit?
+*   `verification_abandon` (Property: `step_reached`, `time_spent_seconds`, `previous_action`)
+    *   *Question Answered:* Did they leave before or after seeing an error?
+
+**3. Rapid Qualitative Triage (48-Hour Turnaround)**
+Since you lack qualitative evidence, do not wait for a full study.
+*   **Session Replay Sampling:** Watch 20 recorded sessions of mobile users who dropped off on Tue/Wed. Look specifically for "rage clicks," rapid back-and-forth navigation, or form field re-entry attempts.
+*   **Intercept Survey:** Deploy a one-question exit survey on the verification page for mobile users attempting to leave: *"What is stopping you from completing verification right now?"* with options: "Camera not working," "Document not ready," "Process too long," "Other."
+
+**4. Decision Matrix for Next Friday's Sprint**
+Use this table to determine the sprint scope based on the findings:
+
+| If Data Shows... | Then The Root Cause Is... | Sprint Action (Next Week) |
+| :--- | :--- | :--- |
+| Mobile drop-off >75% + High `upload_attempt` failure | Technical/Mobile UX | Optimize mobile camera capture; allow desktop fallback link via SMS. |
+| Tue/Wed drop-off + High `time_on_step` without errors | Operational Delay | Add status messaging ("Review takes 24h"); decouple bidding from full verification. |
+| High `error_displayed` for specific `file_type` | Validation Logic | Relax file constraints or provide clearer format examples. |
+| Uniform drop-off across all segments | Value Proposition | Re-evaluate if the "first bid" value is clear before verification starts. |
+
+**Required Inputs for Confident Decision:**
+To finalize the plan, you must provide the **device-specific conversion rates** for the verification step and the **top 3 error codes** triggered during that period. Without these, any design change is a guess.
+
+*Note: Retention of the core action (completed job) is the ultimate North Star; fixing this activation leak is the prerequisite to moving it. Ensure any new events capture a stable, pseudonymous user ID to track cohorts across sessions.*

@@ -1,0 +1,38 @@
+### Green Route Beta: Measurement Plan for Board Decision
+
+**1. The North Star & Input Metrics**
+*   **North Star:** *Retention of Core Action with Green Route Visible.* Specifically: The percentage of beta users who complete a second booking within 30 days where the Green Route score was displayed during the search/booking flow.
+    *   *Why:* Raw "views" of the badge are vanity. Value exists only if the score influences the decision to book again.
+*   **Input Metrics:**
+    *   **Activation:** % of beta users who click or hover over the Green Route badge at least once in their first session.
+    *   **Conversion Lift:** Booking completion rate for sessions where the badge was interacted with vs. sessions where it was ignored (controlling for price).
+    *   **Guardrail:** Average revenue per booking (to ensure "green" choices aren't cannibalizing high-margin routes).
+
+**2. Event Taxonomy (Instrument Only What Answers a Question)**
+Do not instrument "everything." Capture only these three events to validate the hypothesis within your engineering constraints:
+
+| Event Name | Trigger | Properties to Capture | Question Answered |
+| :--- | :--- | :--- | : |
+| `green_route_impressed` | Badge renders on screen | `user_id`, `session_id`, `route_price`, `carbon_score` | Did the user actually see the score? |
+| `green_route_interacted` | User clicks/hovers badge | `user_id`, `session_id`, `dwell_time_ms` | Did the user care enough to inspect it? |
+| `booking_completed` | Payment/Confirmation success | `user_id`, `session_id`, `was_green_route_visible` (bool), `final_price` | Did the exposure lead to a retained booking? |
+
+*Note on Identity:* Ensure `user_id` is a stable, pseudonymous ID to track users across sessions for retention cohorts. Do not log PII (company names, contact details) in these events; route that to your compliance layer.
+
+**3. Readout Structure & Statistical Rigor**
+To present to the board next month, you must avoid "peeking" (checking daily until a number looks good).
+
+*   **Design:** Treat this as a fixed-horizon test. You have 450 users. Do not check significance daily.
+*   **Primary Analysis:** Compare the 30-day retention rate of the **Beta Cohort** (450 users) against a **Holdout Control** (a randomly selected group of ~450 non-beta users with similar historical behavior).
+    *   *If no control group was created at launch:* You cannot claim causal "lift." You must instead report *correlation*: "Users who interacted with the badge had X% higher retention than those who didn't," while explicitly labeling confounders (e.g., "Environmentally conscious manufacturers may already have higher retention").
+*   **Significance Rule:** Pre-commit to reading the data **once** on the date 30 days after the last beta user's first login. Calculate the confidence interval for the difference in retention rates.
+    *   If the lower bound of the 95% confidence interval is >0%, the result is statistically significant.
+    *   If the result is read before the sample matures, label it **UNVERIFIED**.
+
+**4. This-Week Steps**
+1.  **Engineering:** Implement the three events above with the specified properties. Verify `user_id` stability. (Est. effort: <2 days).
+2.  **Analytics:** Define the SQL query now that joins `booking_completed` with `green_route_impressed` filtered by `beta_launch_date`.
+3.  **Decision Rule:** If the interaction rate (`green_route_interacted` / `green_route_impressed`) is <5% after two weeks, the feature is being ignored; recommend stopping the rollout regardless of retention data.
+
+*Note: Since you lack a pre-existing baseline for "environmentally conscious" segmentation, rely on the behavioral split (interacted vs. ignored) rather than assumed firmographics.*
+*No external benchmarks for "good" retention are used; success is defined strictly by the lift over your own control group or internal behavioral correlation.*

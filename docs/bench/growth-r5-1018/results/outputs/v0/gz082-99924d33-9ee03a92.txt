@@ -1,0 +1,46 @@
+### Event Taxonomy: Summarization Quality Signal
+
+**Target Audience:** Backend Developers (implementation) and VP of Product (decision logic).
+**Core Question:** Does "low effort" editing (minimal changes to AI output) correlate with Pro tier upgrades?
+
+#### 1. The North Star & Input Metric
+*   **North Star:** Weekly Active Users completing a "High-Quality Summary" (defined below).
+*   **Input Metric:** % of Summaries with "Low Effort" edits.
+*   **Validation Goal:** Correlate "Low Effort" events with `subscription_status_change` to Pro within 30 days.
+
+#### 2. Recommended Event Schema
+Do not capture content (text). Capture only interaction intensity metadata. Implement one primary event per summary session.
+
+**Event Name:** `summary_edit_session_completed`
+**Trigger:** User saves, copies, or exports the summarized document after generation.
+**Properties:**
+*   `session_id` (String): Stable ID linking generation to edit actions.
+*   `user_id` (String): Pseudonymous stable ID for cohort tracking (required to link behavior to future upgrade).
+*   `original_char_count` (Integer): Length of AI-generated draft.
+*   `final_char_count` (Integer): Length of user-edited draft.
+*   `keystrokes_delta` (Integer): Net count of insertions minus deletions (or total keystroke events if granular logging exists).
+*   `time_spent_editing_seconds` (Integer): Timestamp difference between `generation_complete` and `session_completed`.
+*   `edit_intensity_ratio` (Float): Calculated metric = `abs(original_char_count - final_char_count) / original_char_count`.
+    *   *Logic:* This directly validates your <10% hypothesis.
+*   `is_low_effort_signal` (Boolean): `true` if `edit_intensity_ratio` < 0.10 AND `time_spent_editing_seconds` < [Threshold, e.g., 60s].
+
+#### 3. Implementation Rules for Developers
+*   **Privacy Constraint:** Do **not** log the text content, specific keystrokes, or cursor positions. Only log aggregate counts and timestamps.
+*   **Identifier Seam:** Ensure `user_id` persists across sessions to track if a "low effort" user upgrades next week. This differs from system logs which often drop user identity; here, identity is mandatory for retention analysis.
+*   **Calculation Location:** Compute `edit_intensity_ratio` client-side before sending the event to reduce backend processing noise, or compute server-side upon receipt if client trust is low.
+
+#### 4. Decision Logic for VP of Product
+To validate the assumption by month-end:
+1.  **Cohort A (Low Effort):** Users where `is_low_effort_signal` = true.
+2.  **Cohort B (High Effort):** Users where `is_low_effort_signal` = false.
+3.  **Measurement:** Compare the 30-day upgrade rate of Cohort A vs. Cohort B.
+    *   *If* Upgrade Rate(A) > Upgrade Rate(B) by statistically significant margin → The <10% edit metric is a valid proxy for quality. Proceed with pricing/placement changes targeting this behavior.
+    *   *If* No difference → The assumption is false; "low effort" may mean "ignored," not "perfect." Do not change pricing based on this signal.
+
+#### 5. This-Week Steps
+1.  **Backend:** Implement `summary_edit_session_completed` event with the specified properties by March 11th. Verify `user_id` persistence in a test environment.
+2.  **Analytics:** Create a dashboard view filtering `subscription_status_change` by `is_low_effort_signal`. Baseline current upgrade rates before the Tuesday launch.
+3.  **Product:** Define the specific `time_spent_editing_seconds` threshold (e.g., 30s vs 60s) based on typical reading speed for a summary before finalizing the boolean logic.
+
+*Note: All metrics are currently UNVERIFIED until the event is live. Do not assume a "good" conversion rate; compare March 12+ data only against your pre-launch baseline.*
+*Avoid "peeking" at results daily; wait for a statistically significant sample size (e.g., 500 completed sessions per cohort) before drawing conclusions.*

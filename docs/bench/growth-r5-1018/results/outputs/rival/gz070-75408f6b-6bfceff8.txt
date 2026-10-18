@@ -1,0 +1,43 @@
+# Driver License Portal Friction Analysis Plan
+
+**Objective:** Isolate the cause of the 25% drop in completion rates (85% → 60%) at the document upload step using existing telemetry and logs, without user surveys.
+
+### 1. Differentiate Technical Errors vs. User Confusion
+To determine if the system is breaking or users are quitting, segment the drop-offs by **exit trigger**:
+
+*   **Technical Failure Signal:** Filter logs for HTTP 4xx/5xx status codes or JavaScript exceptions occurring *immediately* before the session ends.
+    *   *Specific Check:* Look for `upload_failed` events tied to specific file extensions (e.g., `.heic`, `.tiff`) or sizes exceeding the new limit. If >15% of drop-offs coincide with a server rejection or client-side crash, the cause is technical.
+*   **Confusion/Abandonment Signal:** Filter for sessions where the user triggers the upload UI but closes the tab or navigates away *without* triggering an error event.
+    *   *Specific Check:* Measure "Time on Step." If the average duration at the upload screen has increased significantly (e.g., from 45s to 3m+) while completion drops, users are likely struggling to format files (confusion). If duration decreases sharply, they are bouncing immediately upon seeing the requirements (intimidation/privacy).
+
+### 2. Validate the "File Size Limit" Assumption
+Test the hypothesis that new limits are the blocker by analyzing **attempt characteristics**:
+
+*   **File Size Distribution:** Compare the median file size of *successful* uploads pre-launch (before March 25) vs. post-launch.
+    *   *Validation:* If post-launch successful uploads are consistently smaller, but drop-offs spike for sessions attempting larger files (inferred from browser metadata or partial upload chunks), the limit is the friction point.
+*   **Retry Loops:** Count the number of `upload_initiated` events per session ID.
+    *   *Validation:* A high rate of retries (2+ attempts) followed by abandonment suggests users are trying to comply but failing (likely due to size/type limits). Zero retries suggests immediate rejection of the requirement.
+*   **Format Filtering:** If available, log the `file_type` property on the initial selection event, even if the upload fails.
+    *   *Validation:* A spike in drop-offs immediately after selecting specific formats (e.g., PDF vs. JPG) indicates acceptable type confusion.
+
+### 3. Rule Out Privacy Concerns
+Privacy friction usually manifests as hesitation before engagement, not during the technical transfer.
+
+*   **Interaction Heatmap (Click Analysis):** Examine click logs on the upload button vs. the "Learn More" or "Privacy Policy" links near the upload zone.
+    *   *Validation:* If clicks on privacy links have spiked 300%+ while upload starts have plummeted, privacy is the driver. If privacy link clicks remain flat, privacy is unlikely the primary cause.
+*   **Input Abandonment:** Check if users are filling out previous form fields perfectly but stopping exactly at the upload prompt. If they are skipping previous optional fields more often now, it indicates a general trust issue; if they stop *only* at upload, it is functional friction.
+
+### Recommended Data Query for CIO Report
+Run this aggregation for the period March 25–Present:
+1.  **Total Sessions** reaching upload step.
+2.  **% with Client/Server Errors** (Technical).
+3.  **% with >1 Retry Attempt** (Compliance struggle).
+4.  **Avg. Time on Step** (Confusion indicator).
+5.  **% Clicking Help/Privacy Links** (Privacy indicator).
+
+**Decision Matrix:**
+*   If **Metric 2** is high → Approve budget for backend validation fixes.
+*   If **Metric 3 & 4** are high → Approve budget for UX copy changes and client-side file compression tools.
+*   If **Metric 5** is high → Approve budget for trust signals and privacy reassurance copy.
+
+*Execute this analysis on March 27th to allow 24 hours for report drafting before the Thursday deadline.*

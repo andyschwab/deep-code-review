@@ -1,0 +1,40 @@
+### Essential Event Taxonomy for MedConnect Consultation Flow
+
+To diagnose whether drop-offs stem from connection stability or cost anxiety, instrument only the following five events. Each answers a specific question and includes properties required to segment by device, network, and cost visibility.
+
+1.  **`consultation_summary_viewed`**
+    *   **Question:** Do users proceed after seeing the total cost?
+    *   **Properties:** `total_cost_displayed`, `doctor_id`, `estimated_wait_time`, `device_type`, `network_type` (e.g., 4G, WiFi).
+    *   **Analysis:** Calculate the drop-off rate immediately following this event. If >15% of users exit here, cost anxiety is the primary driver.
+
+2.  **`join_call_attempted`**
+    *   **Question:** Did the user try to connect despite the cost?
+    *   **Properties:** `time_since_summary_view` (seconds), `connection_quality_score` (if available from client SDK), `browser/app_version`.
+    *   **Analysis:** A high volume of this event followed by failure indicates technical friction, not cost hesitation.
+
+3.  **`call_connection_started`**
+    *   **Question:** Did the media stream successfully initialize?
+    *   **Properties:** `time_to_connect` (seconds), `initial_bitrate`, `server_region`.
+    *   **Analysis:** Compare the timestamp of `join_call_attempted` to this event. A gap >30 seconds suggests connection instability before the user gives up.
+
+4.  **`call_connection_failed`**
+    *   **Question:** Why did the technical setup fail?
+    *   **Properties:** `error_code` (e.g., timeout, handshake_failure, permission_denied), `retry_count`, `last_known_network_type`.
+    *   **Analysis:** Cluster error codes. If "timeout" or "handshake_failure" dominates during rainy season weather patterns, infrastructure is the bottleneck.
+
+5.  **`consultation_abandoned`**
+    *   **Question:** At exactly which step did the user quit?
+    *   **Properties:** `last_successful_step`, `time_in_flow_total`, `exit_page_url`.
+    *   **Analysis:** This is your catch-all for users who close the tab. Correlate `last_successful_step` with the previous events to pinpoint the exact friction moment.
+
+### How to Analyze the Sequence
+
+Do not look at aggregate conversion rates alone. Construct a **funnel visualization** using these events in order: `summary_viewed` → `join_call_attempted` → `connection_started`.
+
+*   **Diagnosing Cost Anxiety:** If the drop between `summary_viewed` and `join_call_attempted` is high, filter by `total_cost_displayed`. If users seeing higher costs drop off faster, the issue is pricing transparency, not connectivity.
+*   **Diagnosing Connection Stability:** If users trigger `join_call_attempted` but never fire `connection_started` (or fire `call_connection_failed`), filter by `network_type` and `time_of_day`. If failures spike during typical rainy season hours or on mobile networks, the issue is infrastructure.
+*   **The "Four-Minute" Check:** Measure the median `time_to_connect`. If the median exceeds 60 seconds, users are likely timing out before the "four-minute" call even begins.
+
+**Decision Rule:** If cost-driven drop-off > technical failure rate, redesign the summary screen to clarify insurance coverage or payment options. If technical failure rate > cost drop-off, prioritize lowering the bitrate threshold for joining calls or adding a "low-bandwidth mode" toggle before the rainy season peaks.
+
+*Note: Ensure all user identifiers are pseudonymized and routed to your privacy compliance review before implementation. Do not invent benchmark conversion rates; compare these metrics only against your own historical baseline.*

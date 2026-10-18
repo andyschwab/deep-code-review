@@ -1,0 +1,36 @@
+# Technical Specification: Onboarding Flow Instrumentation
+
+**Objective:** Diagnose the 60% dropout at the bank selection screen and enable rigorous A/B testing of UI variations to improve activation (defined as linking a bank account).
+
+## 1. Event Taxonomy
+Instrument only the following events. Each must include a `user_id` (pseudonymous, stable across sessions) and `session_id`. Do not instrument generic clicks; track only actions that answer a specific diagnostic question.
+
+| Event Name | Trigger Condition | Properties Required | Question Answered |
+| :--- | :--- | :--- | : |
+| `onboarding_started` | User lands on the first step of the new flow. | `entry_point` (e.g., "home_banner", "post_signup") | What is the total volume entering the funnel? |
+| `bank_selection_viewed` | The bank selection screen renders successfully. | `load_time_ms`, `error_state` (boolean) | Do users see the screen, or does it fail to load? |
+| `bank_selection_abandoned` | User navigates away from the screen *without* selecting a bank. | `time_on_screen_sec`, `last_visible_element` (e.g., "footer_link", "back_button"), `device_type`, `os_version` | **Critical:** Where exactly do they drop off? Is it immediate (trust issue) or after scrolling (confusion)? |
+| `bank_selected` | User clicks a specific bank logo/name. | `bank_name` (normalized), `position_in_list` (index) | Is friction specific to certain banks or list ordering? |
+| `auth_redirect_initiated` | User clicks "Connect" after selecting a bank. | `provider_type` (e.g., "open_banking", "manual") | Do they start the external auth process? |
+| `onboarding_completed` | User returns from the provider with a successful link status. | `total_duration_sec`, `attempt_count` | Did they achieve the "aha" moment (linked account)? |
+| `onboarding_error` | Any technical failure during the flow. | `error_code`, `error_message`, `step_name` | Is the dropout caused by bugs rather than UX? |
+
+## 2. Experiment Readiness Requirements
+To run reliable experiments on UI variations (e.g., adding security badges, changing layout), the tracking must support the following:
+
+*   **Variant Attribution:** Every event above must include an `experiment_id` and `variant_name` property. If no experiment is active, these default to `control` or `null`.
+*   **Primary Metric:** `onboarding_completed` rate (completed / started).
+*   **Guardrail Metric:** `onboarding_error` rate. A UI change that increases completion but spikes errors is a failure.
+*   **Pre-commitment Rule:** Do not peek at results daily. Define the sample size (N) required to detect your Minimum Detectable Effect (MDE) before launching. Read the result **once** at the end of the pre-committed duration or use a sequential testing framework (e.g., mSPRT) if continuous monitoring is required. A result observed before reaching N is `UNVERIFIED`.
+
+## 3. Implementation Notes for Developers
+*   **Identity Seam:** Ensure the `user_id` persists even if the user closes the app mid-flow and returns later. This differs from system observability (which avoids high-cardinality IDs); here, per-user tracking is mandatory for cohort analysis.
+*   **PII Handling:** Do not log raw bank credentials, IP addresses, or full names in event properties. Route any PII handling to the privacy compliance protocol.
+*   **Validation:** Verify in the staging environment that `bank_selection_abandoned` fires correctly when the back button is pressed vs. when the app is killed.
+
+## This Week's Step
+1.  **Deploy** the above event taxonomy to the Portugal beta environment before tomorrow's coding start.
+2.  **Validate** data ingestion by triggering a test run where you intentionally abandon the flow at three different points on the bank selection screen; confirm `bank_selection_abandoned` captures the `last_visible_element` for each.
+3.  **Baseline** the current dropout rate by `device_type` to determine if the 60% friction is uniform or isolated to a specific platform before designing the first UI variant.
+
+*Note: The assumption that "security concerns" cause the dropout is currently `UNVERIFIED`; the `time_on_screen_sec` and `last_visible_element` properties will confirm if users leave immediately (trust) or after attempting to scroll/select (usability).*

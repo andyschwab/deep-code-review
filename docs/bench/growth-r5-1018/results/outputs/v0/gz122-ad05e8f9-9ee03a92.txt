@@ -1,0 +1,34 @@
+### Instrumentation Plan: NewsNile Social Feed (Code Freeze: Sept 28)
+
+**North Star Metric:** Weekly Active Users completing a "Social Loop" (Read → Comment/Share → Return within 48h).
+*Reject vanity metrics like total comments or raw scroll depth; they rise regardless of value.*
+
+**Prioritized Event Taxonomy**
+Instrument only these events to answer specific questions for the November board decision:
+
+1.  **`social_action_attempted`** (Properties: `type` [comment/share], `article_id`, `user_cohort`)
+    *   *Question:* Are users trying to engage, or is the UI blocking them?
+    *   *Decision Rule:* If attempt rate < 5% of readers, the feature is invisible or too hard. Fix UX before measuring impact.
+2.  **`social_action_completed`** (Properties: `type`, `time_to_complete`, `character_count` [for comments])
+    *   *Question:* Is this creating community (meaningful interaction) or noise (spam/empty shares)?
+    *   *Decision Rule:* If completion rate is high but `time_to_complete` < 3s or `character_count` < 5, it is noise. Deprioritize gamification.
+3.  **`push_notification_clicked`** (Properties: `source` [feed_update vs. breaking_news], `user_cohort`)
+    *   *Question:* Is the feed cannibalizing push CTR (currently 8%)?
+    *   *Decision Rule:* If `push_clicked` for breaking news drops >15% in the treatment group while `social_action_completed` rises, the feed is displacing core utility. **Stop rollout.**
+4.  **`session_return`** (Properties: `days_since_last_visit`, `trigger_source` [push vs. feed])
+    *   *Question:* Does the feed drive retention (the bottom of the funnel) or just extend single sessions?
+    *   *Decision Rule:* If session time rises 20% (your assumption) but `session_return` frequency does not increase vs. control, the feature is a "time sink," not a growth engine.
+
+**Experiment Design: Isolating Impact**
+Do not roll out to 100% on Oct 5th. You cannot isolate impact from regular content updates without a control group.
+*   **Design:** A/B Test (50% Control, 50% Treatment).
+*   **Pre-commitment:** Define success as a statistically significant lift in `session_return` (Retention) without a >10% drop in `push_notification_clicked` (Guardrail).
+*   **Reading Rule:** Do not peek at results before November 1st. A "win" observed mid-test is `UNVERIFIED` due to peeking bias. Read once at the pre-committed end date.
+
+**This Week's Steps**
+1.  **Implement ID Seam:** Ensure `user_id` is stable across sessions and pseudonymized for the Alexandria team; do not log PII.
+2.  **Define "Social Loop" Query:** Write the SQL/logic now that counts users hitting `social_action_completed` AND `session_return` within 48h. If you can't write the query, the event properties are wrong.
+3.  **Set Guardrail Alert:** Configure an automated alert if `push_notification_clicked` for the treatment group drops below 6.8% (15% relative drop) for two consecutive days post-launch.
+
+*Note: The 20% session time increase is an assumption, not a metric. Validate it against the control group, not the prior baseline, to rule out seasonality.*
+*No external benchmarks were used; all thresholds derive from your stated 8% push CTR and retention goals.*

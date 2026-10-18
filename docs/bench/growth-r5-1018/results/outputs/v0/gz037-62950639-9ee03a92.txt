@@ -1,0 +1,46 @@
+### Deduplication Logic and Validation Plan for UrbanGo MAU
+
+**1. Identification Logic: The "Same-Session" Window**
+To distinguish duplicates from legitimate multi-service usage, do not deduplicate based solely on `device_id` and `timestamp`. Instead, apply a **session-based uniqueness constraint**.
+
+*   **Legitimate Usage Pattern:** A user taking a ride (`trip_started`) and then ordering food (`order_created`) will have two distinct events with different `event_type` values. These must be preserved.
+*   **Duplicate Pattern:** Your data shows redundant `trip_started` events. These likely share the same `device_id`, `event_type` ('trip_started'), and occur within an impossibly short window (e.g., < 2 seconds) or share an identical `request_id`/`client_event_id` if your legacy SDKs generated one.
+
+**Proposed SQL Logic (Conceptual):**
+Identify duplicates by partitioning data by `device_id`, `event_type`, and a truncated timestamp (e.g., to the second or minute). Keep only the first record per partition.
+
+```sql
+-- Pseudo-SQL for identification
+SELECT * FROM (
+  SELECT
+    event_id,
+    device_id,
+    timestamp,
+    ROW_NUMBER() OVER (
+      PARTITION BY device_id, event_type, DATE_TRUNC('second', timestamp)
+      ORDER BY timestamp ASC
+    ) as rn
+  FROM raw_events
+  WHERE event_type = 'trip_started'
+    AND timestamp >= '2024-06-15' -- Post-merger date
+) ranked
+WHERE rn > 1; -- These are the suspected duplicates
+```
+
+**2. Validation Steps Before Production Apply**
+Do not run a `DELETE` statement directly on the production table. Follow this sequence:
+
+1.  **Shadow Table Creation:** Create a new table `cleaned_events_july2024`. Insert the deduplicated dataset into this table using the logic above.
+2.  **Metric Reconciliation:** Calculate the Daily Active Users (DAU) and Monthly Active Users (MAU) on both the `raw_events` and `cleaned_events_july2024` tables.
+    *   *Success Criterion:* The cleaned MAU should be approximately 18% lower than the raw MAU, aligning with your observed inflation rate. If the drop is >25% or <10%, the logic is too aggressive or too weak.
+3.  **Legitimate Flow Spot-Check:** Query the cleaned table for users who performed both `trip_started` and `order_created` within a 30-minute window. Ensure these pairs still exist. If they are missing, your deduplication key is too broad.
+4.  **Operations Dashboard Dry-Run:** Point a staging version of the operations dashboard to the `cleaned_events_july2024` table. Verify that real-time alerting thresholds (e.g., "spike in trip starts") do not trigger false negatives due to the latency of the cleaning job.
+
+**3. Execution Strategy for Board Report**
+For the board report next week, do not alter historical data in place yet.
+*   **Action:** Generate the MAU report exclusively from the `cleaned_events_july2024` shadow table.
+*   **Disclosure:** Present the figure with a footnote: "Figures adjusted for post-merger SDK duplication identified between June 15–Present, validated against a 18% baseline variance."
+*   **Permanent Fix:** Once validated, schedule a backfill job to overwrite the production partition for June/July, ensuring the ETL pipeline includes the deduplication step for all future incoming data.
+
+**Note:** This approach assumes your logs contain a high-resolution timestamp; if timestamps are only minute-granular, you must add `client_event_id` to the partition key to avoid deleting legitimate rapid retries.
+**Note:** Ensure PII handling in the shadow table matches your production governance standards before any analyst access.

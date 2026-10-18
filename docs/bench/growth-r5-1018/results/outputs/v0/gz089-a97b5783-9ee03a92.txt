@@ -1,0 +1,41 @@
+### Event Taxonomy: International Transfer Friction Indicators
+
+The following events are instrumented solely to answer the question: **"Does confusion around exchange rate displays cause users to abandon the transaction mid-flow?"** No input data (amounts, account numbers) or screen recordings are captured. All events use a pseudonymous user ID to track sessions without violating security protocols.
+
+#### 1. The "Confusion" Signal (Exchange Rate Interaction)
+*   **Event Name:** `transfer_exchange_rate_info_tapped`
+    *   **Question Answered:** Are users actively seeking clarification on the rate before proceeding?
+    *   **Properties:** `screen_name` (e.g., "ReviewTransfer"), `time_on_screen_ms`, `tap_count_sequence` (e.g., 1st tap, 2nd tap within 5s).
+    *   **Reading Rule:** A single tap is normal inquiry. **Three or more taps** on the info icon within 10 seconds, or tapping the icon immediately after the rate loads, indicates high confusion.
+
+#### 2. The "Hesitation" Signal (Time & Reversal)
+*   **Event Name:** `transfer_field_dwell_time_exceeded`
+    *   **Question Answered:** Are users stuck parsing the fee/rate breakdown?
+    *   **Properties:** `field_id` (e.g., "total_fee_display", "exchange_rate_line"), `dwell_time_ms`.
+    *   **Reading Rule:** Dwell time > 2 standard deviations above the median for that field suggests cognitive load or misunderstanding.
+*   **Event Name:** `transfer_navigation_reversal`
+    *   **Question Answered:** Are users going back to re-read terms or change amounts due to shock?
+    *   **Properties:** `from_screen`, `to_screen`, `trigger_element` (e.g., "back_button", "system_gesture").
+    *   **Reading Rule:** A reversal from "Review" back to "Amount Entry" specifically after viewing the fee breakdown is a strong friction indicator.
+
+#### 3. The "Frustration/Abandon" Signal (Rage & Exit)
+*   **Event Name:** `transfer_rage_click_detected`
+    *   **Question Answered:** Is the UI unresponsive or are users angry at the displayed info?
+    *   **Properties:** `target_element_id`, `click_count` (e.g., 5+ taps in 2s), `cluster_radius_px`.
+    *   **Reading Rule:** Detects rapid, repeated taps on non-interactive areas or the info icon itself. This is a direct proxy for rage.
+*   **Event Name:** `transfer_flow_abandonment`
+    *   **Question Answered:** Did the user quit the flow entirely?
+    *   **Properties:** `exit_point_screen`, `time_in_flow_total_ms`, `last_interaction_type` (e.g., "force_close", "home_nav", "timeout").
+    *   **Reading Rule:** Correlate `exit_point_screen` with the previous `transfer_exchange_rate_info_tapped` or `transfer_navigation_reversal`. If 60%+ of abandonments occur within 5 seconds of viewing the rate screen, the hypothesis is confirmed.
+
+#### Implementation Constraints & Privacy
+*   **Identifier Seam:** Use a stable, pseudonymous `session_user_id` to link these events across the flow. Do not use PII.
+*   **Data Exclusion:** Explicitly exclude `input_value`, `account_number`, and `beneficiary_name` from all event properties.
+*   **Instrumentation Stage:** This is an **MVP/Growth** measurement. Do not instrument "everything." Only deploy these five events.
+
+#### This-Week Step
+1.  **Engineering:** Implement the five events above in the next mobile build. Ensure `rage_click` logic runs client-side to avoid sending raw coordinate streams.
+2.  **Support Lead:** Draft a "Where are my fees?" help article draft now, but **do not publish** until the data confirms the drop-off point is the exchange rate screen. If the data shows abandonments happen *before* the rate screen (e.g., at country selection), the hypothesis is wrong, and the article will not solve the problem.
+
+*Note: Baseline metrics for "normal" dwell time and tap frequency must be calculated from your existing domestic transfer flows, as no external benchmark for "good" banking friction exists.*
+*If the data shows high abandonment but low info-icon taps, the issue may be fee shock rather than confusion; the solution would then be pricing transparency, not UX help text.*

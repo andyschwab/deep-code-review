@@ -1,0 +1,94 @@
+# BitBolso Stablecoin Swap: Event Tracking Specification
+
+**Objective:** Enable precise funnel analysis, error debugging, and gas fee impact assessment for the new stablecoin swap feature.
+**Scope:** Three stablecoin pairs; scalable to additional currencies in Q1.
+**Naming Convention:** `object_action` (lowercase, underscores).
+
+## 1. Core Event Schema
+
+### `swap_flow_started`
+*Trigger:* User clicks "Swap" on the dashboard or selects a trading pair.
+*Purpose:* Funnel entry point; measures intent vs. completion.
+*Properties:*
+- `user_id` (string)
+- `session_id` (string)
+- `entry_point` (string): e.g., "dashboard_widget", "asset_detail_page"
+- `timestamp` (ISO 8601)
+
+### `swap_parameters_viewed`
+*Trigger:* The swap confirmation screen loads with calculated rates and fees.
+*Purpose:* Captures gas estimates and slippage *before* user commitment. Addresses the gas fee uncertainty by separating view data from action data.
+*Properties:*
+- `user_id` (string)
+- `from_asset` (string): e.g., "USDC", "USDT"
+- `to_asset` (string): e.g., "DAI"
+- `from_amount` (decimal)
+- `estimated_to_amount` (decimal)
+- `estimated_gas_fee_usd` (decimal): Critical for analyzing fee sensitivity.
+- `slippage_tolerance_pct` (decimal)
+- `quote_valid_until` (ISO 8601)
+
+### `swap_initiated`
+*Trigger:* User clicks "Confirm Swap" and the backend begins transaction construction.
+*Purpose:* Marks the commitment point. Distinguishes between users who viewed quotes but didn't act.
+*Properties:*
+- `user_id` (string)
+- `from_asset` (string)
+- `to_asset` (string)
+- `from_amount` (decimal)
+- `expected_to_amount` (decimal)
+- `gas_fee_locked_usd` (decimal): The actual fee applied at submission.
+- `quote_age_seconds` (integer): Time between view and initiation; helps detect stale quote issues.
+
+### `swap_broadcasted`
+*Trigger:* Transaction successfully signed and sent to the blockchain network.
+*Purpose:* Confirms the app successfully handed off to the network. Isolates pre-network failures (signing errors, insufficient balance checks) from network failures.
+*Properties:*
+- `user_id` (string)
+- `transaction_hash` (string)
+- `network_id` (string): e.g., "ethereum_mainnet", "polygon"
+- `gas_price_gwei` (decimal)
+
+### `swap_completed`
+*Trigger:* Backend receives confirmation of required block confirmations.
+*Purpose:* Successful conversion; primary success metric.
+*Properties:*
+- `user_id` (string)
+- `transaction_hash` (string)
+- `actual_to_amount` (decimal): May differ from estimate due to slippage.
+- `final_gas_fee_usd` (decimal)
+- `confirmation_time_seconds` (integer)
+- `slippage_actual_pct` (decimal)
+
+### `swap_failed`
+*Trigger:* Any error state terminating the flow (pre-broadcast or post-broadcast failure).
+*Purpose:* Debugging abandonment and network rejection.
+*Properties:*
+- `user_id` (string)
+- `failure_stage` (string): **Critical for debugging.** Values: `validation_error`, `quote_expired`, `signing_failed`, `broadcast_failed`, `network_reverted`, `slippage_exceeded`.
+- `error_code` (string): Backend-specific error code.
+- `error_message` (string): Sanitized message (no PII).
+- `from_asset` (string)
+- `to_asset` (string)
+- `attempted_amount` (decimal)
+- `gas_fee_estimate_at_failure` (decimal): If available.
+
+## 2. Implementation Guidelines for Developers
+
+1.  **Atomic Properties:** Every event must include `user_id` and `session_id` to allow session reconstruction.
+2.  **Asset Standardization:** Use ticker symbols (e.g., "USDC") consistently across all events. Do not use internal IDs for assets in analytics payloads.
+3.  **Failure Granularity:** The `failure_stage` property is mandatory for `swap_failed`. Do not group all errors as "transaction failed." Distinctly identify if the user abandoned at the quote screen vs. the network rejecting the tx.
+4.  **Gas Fee Strategy:** Gas estimates are captured in `swap_parameters_viewed` to analyze drop-off due to high fees. Actual fees are captured in `swap_initiated` and `swap_completed` to measure cost accuracy.
+5.  **Data Types:** Ensure all monetary values are transmitted as decimals/strings to prevent floating-point precision errors in downstream analysis.
+
+## 3. Expected Funnel Analysis
+
+This schema enables the following specific queries:
+- **Abandonment Rate:** (`swap_flow_started` - `swap_initiated`) / `swap_flow_started`
+- **Quote-to-Start Drop-off:** Correlate `estimated_gas_fee_usd` in `swap_parameters_viewed` with non-initiation.
+- **Network Success Rate:** `swap_completed` / `swap_broadcasted` (Validates the assumption about network confirmation failures).
+- **Slippage Impact:** Compare `expected_to_amount` vs `actual_to_amount` to monitor quote accuracy.
+
+---
+*Note: Ensure backend logs map `error_code` to human-readable `failure_stage` values before sending to the analytics pipeline.*
+*Review this schema against Q1 currency expansion plans to verify `network_id` scalability.*

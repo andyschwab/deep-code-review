@@ -1,0 +1,37 @@
+### Event Taxonomy Specification: Video Intro Engagement
+
+**Audience:** Mobile Engineering Squad (Lyon) & Chief Product Officer
+**Goal:** Validate if video playback drives match requests or if users skip content, informing the Q3 mandatory upload decision.
+**Privacy Constraint:** All events must use a pseudonymous user ID. No event property may reveal the specific identity of the viewer to the profile owner or expose PII.
+
+#### 1. Required Events to Instrument
+Do not instrument "everything." Record only these three events to answer the specific engagement questions:
+
+| Event Name | Trigger Condition | Required Properties | Question Answered |
+| :--- | :--- | :--- | : |
+| `video_intro_loaded` | Video player initializes and the first frame is rendered on screen. | `profile_id` (hashed), `viewer_cohort` (e.g., new/returning), `connection_type`, `load_time_ms` | Is the asset technically accessible, or does it fail to load before interaction? |
+| `video_intro_played_3s` | Continuous playback reaches the 00:03 mark. | `profile_id` (hashed), `viewer_cohort`, `percent_watched` (value: 3s/total_duration) | Did the user engage beyond a accidental tap, satisfying the minimum "attention" threshold? |
+| `video_intro_completed` | Playback reaches 100% of duration OR the user manually seeks to the end. | `profile_id` (hashed), `viewer_cohort`, `completion_rate` (value: 1.0) | Did the user consume the full value proposition of the video intro? |
+
+#### 2. Analysis Logic & Decision Rules
+To determine if video quality drives matches, correlate these new events with the existing `swipe_right` event.
+
+*   **Metric A (Skip Rate):** `(video_intro_loaded count - video_intro_played_3s count) / video_intro_loaded count`.
+    *   *Interpretation:* If >60%, users are skipping immediately; video quality is irrelevant because it isn't seen.
+*   **Metric B (Conversion Lift):** Compare `swipe_right` rate for sessions with `video_intro_completed` vs. sessions with only `video_intro_loaded` (but no 3s play).
+    *   *Interpretation:* If the lift is <10% despite completion, the video content itself may not be driving the assumed 50% match increase.
+
+#### 3. Recommendation for Q3 Decision
+*   **Ship Mandatory Uploads IF:** `video_intro_played_3s` rate is >40% AND the `swipe_right` conversion lift for completers is >30%.
+*   **Do NOT Ship (Iterate Instead) IF:** Skip rate is >60% (indicates UX friction or lack of interest) OR if completion does not correlate with higher swipe-right rates than text-only profiles.
+
+#### 4. Implementation Notes for Engineering
+*   **Identifier Seam:** Use a stable, pseudonymous `session_user_id` to link these events across the funnel. Do not use high-cardinality PII labels in the event stream (per observability best practices); route any raw PII handling to the privacy compliance layer.
+*   **Timing:** Begin collection immediately. Do not analyze results until a pre-committed sample size is reached (e.g., 10,000 video loads) to avoid "peeking" bias.
+
+**This Week's Step:**
+1.  **Engineering:** Implement the three events above with the specified properties by Friday; verify data flow in the staging environment.
+2.  **Product:** Define the "pre-committed sample size" based on current daily active users to ensure statistical significance before the next review.
+
+*Note: Baseline match rates for text-only profiles must be pulled from your existing analytics to calculate the actual lift; no external benchmarks are used.*
+*Note: If `video_intro_loaded` fires but `played_3s` does not, investigate auto-play settings and network latency as primary confounders.*

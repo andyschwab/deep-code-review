@@ -1,0 +1,44 @@
+# Event Tracking Specification: FitVerse Multiplayer Raid Mode
+
+**Objective:** Balance granular debugging capability for game balancing with cloud cost constraints by implementing a tiered event taxonomy and client-side aggregation strategy.
+
+### 1. The Guiding Principle: Instrument Only Named Questions
+Do not track "everything just in case." Every high-fidelity event must answer a specific balancing question (e.g., "Is the healer's cooldown too short in Tier 3 raids?"). Events without a named question are aggregated or dropped.
+
+### 2. Tiered Event Taxonomy
+
+**Tier A: High-Fidelity Individual Events (Store Raw)**
+*Capture these for every occurrence. Essential for debugging balance outliers and "aha" moments.*
+*   **`raid_start` / `raid_end`**: Properties: `raid_id`, `team_composition` (class counts), `boss_id`, `difficulty_tier`.
+*   **`ultimate_ability_cast`**: Properties: `ability_id`, `target_count`, `cooldown_remaining`. *Question: Are ultimates being hoarded or spam-fired?*
+*   **`death_event`**: Properties: `victim_class`, `damage_source_type` (boss vs. environmental), `time_since_last_heal`. *Question: Is a specific class dying disproportionately to mechanics vs. damage?*
+*   **`objective_complete`**: Properties: `objective_type`, `time_to_complete`.
+
+**Tier B: Client-Side Aggregated Batches (Store Summaries)**
+*Buffer these locally during the raid session. Flush as a single JSON blob at `raid_end` or every 60 seconds if the session exceeds 5 minutes.*
+*   **`basic_attack_sequence`**: Aggregate: `total_hits`, `total_damage`, `critical_hit_count`, `average_latency`. Do not store individual swings unless a cheat detection flag is triggered.
+*   **`movement_dodge`**: Aggregate: `total_dodges`, `dodge_success_rate` (if calculable client-side), `distance_traveled`. *Rationale: Hundreds of dodges per minute create noise; the rate matters more than the timestamp of each step.*
+*   **`healing_over_time`**: Aggregate: `total_healing_done`, `ticks_applied`, `overheal_percentage`.
+
+**Tier C: Discarded / Derived Metrics (Do Not Store)**
+*   **Idle movement vectors**: Unless pathfinding bugs are suspected, do not store continuous X/Y/Z coordinates.
+*   **UI interactions**: Button clicks for menu navigation within the raid UI are vanity metrics for balancing.
+*   **Particle effect triggers**: Visual-only events are irrelevant to game mechanics.
+
+### 3. Sampling Strategy for Anomaly Detection
+To catch edge-case bugs without storing full logs:
+*   **Deterministic Sampling**: Capture 100% of Tier A events for all users.
+*   **Stochastic Sampling**: For high-volume Tier B components (if further reduction is needed), capture raw details for only 1% of sessions, selected by `raid_id % 100 == 0`. Tag these sessions `sample_debug=true` in the aggregated output.
+
+### 4. Implementation Guidelines for Lead Engineer
+*   **Schema Versioning**: Include `schema_version` in every payload to allow future iteration without breaking historical analysis.
+*   **Client-Side Buffer**: Implement a ring buffer on the client to aggregate Tier B events. If the game crashes, attempt to flush the last buffer on restart.
+*   **PII & Compliance**: Ensure `user_id` is pseudonymous. Route any raw IP addresses or device fingerprints to the privacy compliance filter before storage.
+
+### 5. This-Week Steps
+1.  **Define the "Balance Questions"**: List the top 5 specific balancing hypotheses (e.g., "Mages are underperforming in AoE") and map them strictly to Tier A events.
+2.  **Prototype the Aggregator**: Build the client-side buffer for Tier B events and measure the payload size reduction compared to raw streaming.
+3.  **Set the Budget Cap**: Calculate the maximum daily event volume based on the projected beta user count and the Tier A/B split; set a cloud alert at 80% of this limit.
+
+*Note: This specification assumes the core game loop logic resides client-side with server authority on outcomes. If server-side authority is total, move Tier B aggregation to the game server before writing to the data lake.*
+*Baseline metrics for "good" retention or damage rates are `UNVERIFIED` until beta data is collected; do not hardcode thresholds.

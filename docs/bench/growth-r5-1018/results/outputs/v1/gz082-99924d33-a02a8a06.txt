@@ -1,0 +1,42 @@
+### Event Taxonomy: Summarization Quality Signal
+
+**Objective:** Validate the hypothesis that "low effort" editing (<10% change) correlates with Pro upgrades, without capturing user content (PII).
+
+**1. Core Event to Instrument**
+Name: `summary_edit_session_end`
+Trigger: Fire when the user saves the document, copies the output, or exits the editor after generating a summary.
+*Do not* stream keystrokes; calculate deltas at the session end to minimize data volume and privacy risk.
+
+**2. Required Properties (Metadata Only)**
+Attach these properties to the event. All values must be integers or booleans; no text strings from the document.
+
+*   `summary_char_count_init` (Integer): Character count of the AI-generated draft immediately upon generation.
+*   `summary_char_count_final` (Integer): Character count of the text at the moment of save/copy.
+*   `edit_distance_chars` (Integer): The calculated Levenshtein distance (total characters inserted + deleted) between the initial and final states.
+    *   *Implementation Note:* Compute this in the client-side logic or ephemeral backend memory before logging. Do not store the intermediate text versions.
+*   `time_spent_editing_ms` (Integer): Milliseconds between `summary_generated` and `summary_edit_session_end`.
+*   `is_low_effort_signal` (Boolean): `true` if `(edit_distance_chars / summary_char_count_init) < 0.10`, else `false`.
+*   `user_tier_at_event` (String): "free" or "pro" (from current subscription status).
+*   `days_since_signup` (Integer): For cohort analysis.
+
+**3. What Not to Capture**
+*   Do not log the actual text content, snippets, or specific words changed.
+*   Do not log individual keystroke events (too noisy, high cardinality, privacy risk).
+*   Do not log cursor position heatmaps for this specific hypothesis test.
+
+**4. Analysis Logic for VP of Product**
+To validate the assumption by month-end, run this cohort query:
+*   **Segment A:** Users where `is_low_effort_signal` = true.
+*   **Segment B:** Users where `is_low_effort_signal` = false.
+*   **Metric:** Compare the `upgrade_rate_to_pro` within 14 days of the event for Segment A vs. Segment B.
+*   **Decision Rule:** If Segment A's upgrade rate is statistically significantly higher (p < 0.05, pre-committed sample size) than Segment B, the "low effort" metric is a valid proxy for quality and can inform pricing triggers (e.g., prompting free users with low-edit summaries to upgrade).
+
+**5. Implementation Constraints for Backend**
+*   **Privacy:** Ensure `edit_distance_chars` is calculated on the client or in a transient server process that discards the text immediately after calculation. Only the integer delta is written to the analytics warehouse.
+*   **Identifier:** Use your existing stable `user_id` to link this event to subscription status changes over time.
+*   **Deadline:** Deploy logging by March 12th to capture the full launch week. Data will be ready for the month-end decision.
+
+This taxonomy answers the specific question of which signal represents "low effort" by capturing all three variables (time, keystrokes via edit distance, and count difference) as properties, allowing you to determine post-hoc which correlates strongest with revenue without over-instrumenting.
+
+*Note: Time spent editing is a useful guardrail; if `time_spent_editing_ms` is near zero but `edit_distance_chars` is high, it may indicate a copy-paste action rather than genuine editing.*
+*Ensure your data retention policy for these event logs aligns with your privacy compliance standards before deployment.*

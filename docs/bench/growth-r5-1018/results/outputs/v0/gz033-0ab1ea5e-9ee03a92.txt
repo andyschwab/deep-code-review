@@ -1,0 +1,62 @@
+### Instrumentation Plan for ML Fraud Model Impact
+
+To measure the true cost of fraud versus manual review without generating noise, instrument only the following four events. Each event answers a specific decision question required for your Tuesday presentation. Do not log generic "page views" or intermediate model scores unless they directly trigger a state change.
+
+#### 1. `transaction_decision_made`
+*   **Question Answered:** Did the new model change the outcome compared to the baseline, and what was the immediate financial exposure?
+*   **Trigger:** The ML model returns a final verdict (Allow, Block, or Review).
+*   **Critical Fields:**
+    *   `transaction_id` (stable identifier)
+    *   `user_id` (pseudonymous, stable across sessions)
+    *   `decision_outcome` (Enum: `allowed`, `blocked`, `manual_review`)
+    *   `transaction_amount` (currency standardized)
+    *   `is_high_value` (Boolean: based on your specific threshold)
+    *   `model_confidence_score` (0.0–1.0)
+    *   `previous_rule_outcome` (What the old system would have done, for A/B comparison)
+
+#### 2. `manual_review_completed`
+*   **Question Answered:** What is the actual operational cost (time/labor) of the "Review" bucket, and how accurate was the model's uncertainty?
+*   **Trigger:** A risk analyst closes a ticket marked for review.
+*   **Critical Fields:**
+    *   `transaction_id`
+    *   `reviewer_id`
+    *   `time_to_resolve_seconds` (Start: event created, End: event closed)
+    *   `final_verdict` (Enum: `legitimate`, `fraud`)
+    *   `friction_applied` (Boolean: Did the user have to upload docs/call support?)
+
+#### 3. `false_positive_confirmed`
+*   **Question Answered:** Is the 5% false positive rate holding, and how much volume are we losing to friction?
+*   **Trigger:** A blocked or heavily frictioned transaction is later confirmed as legitimate (via user appeal or successful retry).
+*   **Critical Fields:**
+    *   `transaction_id`
+    *   `original_decision` (Enum: `blocked`, `manual_review`)
+    *   `appeal_method` (Enum: `auto_retry`, `support_ticket`, `chargeback_reversal`)
+    *   `days_to_resolution`
+
+#### 4. `fraud_loss_realized`
+*   **Question Answered:** What is the true cost of fraud that slipped through the "Allowed" bucket?
+*   **Trigger:** A chargeback is filed and upheld, or fraud is confirmed post-transaction.
+*   **Critical Fields:**
+    *   `transaction_id`
+    *   `loss_amount` (Transaction amount + fees)
+    *   `days_to_detection`
+    *   `model_confidence_score_at_time` (To analyze if the model was overconfident)
+
+### Calculation Logic for Compliance Officer
+To present the "True Cost" next Tuesday, aggregate these events into two formulas:
+
+1.  **Cost of Friction (False Positives):**
+    `(Count of false_positive_confirmed × Avg Transaction Amount) + (Count of manual_review_completed × Avg Time to Resolve × Analyst Hourly Rate)`
+2.  **Cost of Fraud (False Negatives):**
+    `Sum of fraud_loss_realized loss_amount`
+
+**North Star Metric:** *Net Validated Volume* = (Total Allowed Volume) − (Fraud Losses) − (Estimated Churn from False Positives).
+**Guardrail Metric:** *Manual Review Queue Depth* (Must not exceed current capacity).
+
+### This-Week Steps
+1.  **Define the Schema:** Finalize the JSON schema for the four events above by Wednesday; reject any additional fields that do not populate the cost formulas.
+2.  **Baseline Query:** Run a query on current data to establish the *current* "Cost of Friction" using existing logs so you have a pre-March 1st baseline for comparison.
+3.  **Validation Test:** Before March 1st, run a shadow mode test where the new model logs `transaction_decision_made` but takes no action, verifying that the `model_confidence_score` distribution matches expectations.
+
+*Note: Ensure `user_id` is pseudonymized before logging to satisfy privacy compliance; do not store raw PII in these analytics events.*
+*All volume increase projections (15%) remain `UNVERIFIED` until the A/B test runs with a pre-committed sample size.*

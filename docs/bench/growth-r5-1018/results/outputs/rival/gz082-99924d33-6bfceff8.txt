@@ -1,0 +1,46 @@
+# Tracking Plan: Summarization Quality Signal
+
+**Objective:** Validate if "low effort" editing correlates with Pro tier upgrades following the March 12th engine update.
+**Privacy Constraint:** Capture only interaction metadata. Do not log keystroke content, document text, or PII.
+
+## Recommended Primary Signal: Relative Edit Distance
+Do not rely on a single metric like time or raw keystrokes, as they are easily skewed (e.g., a user stepping away from the keyboard inflates time; holding "delete" inflates keystrokes). Instead, implement a composite **Relative Edit Distance** score.
+
+### 1. Core Event: `summary_edited`
+Trigger this event when the user saves the document, exports it, or closes the editor after interacting with the AI-generated summary.
+
+**Required Properties:**
+*   `initial_char_count` (Integer): Character count of the AI output immediately upon generation.
+*   `final_char_count` (Integer): Character count of the text at the moment of the trigger.
+*   `keystrokes_total` (Integer): Total count of keydown events (insertions + deletions) recorded during the session.
+*   `edit_session_duration_ms` (Integer): Time elapsed between generation and the trigger.
+*   `net_change_percent` (Calculated): `ABS(final_char_count - initial_char_count) / initial_char_count`.
+*   `churn_rate` (Calculated): `keystrokes_total / initial_char_count`. (Measures intensity of rewriting vs. simple tweaking).
+
+### 2. Secondary Event: `upgrade_attempt`
+Trigger when a user clicks the upgrade button or views the pricing page.
+**Required Properties:**
+*   `last_summary_quality_score`: Pass the calculated `net_change_percent` from the most recent `summary_edited` event for this user.
+*   `user_tier_current`: (e.g., "free", "trial").
+
+## Implementation Logic for Developers
+1.  **Capture Initial State:** On AI generation, store `initial_char_count` in the client-side session state.
+2.  **Listen for Input:** Attach a listener to the editor input field to increment `keystrokes_total`. Do not store the keys pressed.
+3.  **Calculate on Exit:** Upon save/close, calculate `net_change_percent`.
+4.  **Threshold Flag:** If `net_change_percent` < 0.10 (10%), flag `is_low_effort_edit` as `true` in the event payload.
+5.  **Sanitization:** Ensure the logging function explicitly excludes the text buffer. Only integers and boolean flags should be sent to the analytics pipeline.
+
+## Analysis Strategy for Product Leadership
+To validate the assumption by month-end:
+1.  **Cohort Split:** Compare users with `is_low_effort_edit: true` vs. `false` post-March 12th.
+2.  **Conversion Correlation:** Calculate the upgrade rate for the "low effort" cohort versus the "high effort" cohort.
+3.  **Metric Selection:** If `net_change_percent` shows a stronger correlation to upgrades than `edit_session_duration_ms` or `keystrokes_total` alone, adopt it as the definitive "Quality Score." If time spent is high but character change is low, it indicates reading/thinking, not poor quality.
+
+## Naming Convention
+*   Event: `summary_edited`
+*   Properties: `initial_char_count`, `final_char_count`, `keystrokes_total`, `edit_session_duration_ms`
+
+This approach isolates the *magnitude* of change from the *time* spent, providing a robust proxy for "acceptance" without compromising user privacy.
+
+*Note: Ensure your backend aggregates these events by user ID to track longitudinal behavior, not just single-session snapshots.*
+*Recommendation: Run this tracking for 2 weeks post-launch to gather sufficient sample size before making pricing decisions.*

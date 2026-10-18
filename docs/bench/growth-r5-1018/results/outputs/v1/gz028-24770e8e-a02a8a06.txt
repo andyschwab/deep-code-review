@@ -1,0 +1,48 @@
+# Analysis Plan: Isolating Document Upload Friction
+**To:** VP of Growth, UX Research Team
+**From:** Growth Analytics
+**Date:** October 24
+**Subject:** Q4 Experiment Design to Recover Pre-Approval Leakage
+
+### 1. Current Baseline & Goal
+*   **Funnel Status:** 10,000 Application Starts → 850 Pre-Approvals (8.5% conversion).
+*   **Hypothesis:** The document upload step is the primary drop-off point due to technical friction (file size/format) or user readiness.
+*   **Target:** Increase conversion by 10% relative (from 8.5% to ~9.35%), yielding ~85 additional pre-approvals per 10k starts.
+
+### 2. Instrumentation: Answering Named Questions
+Do not instrument "everything." Implement only these three events to distinguish between technical failure and user abandonment. Each event must include a stable, pseudonymous User ID to link sessions.
+
+| Event Name | Properties to Capture | Question This Answers |
+| :--- | :--- | :--- |
+| `upload_attempt_started` | `document_type` (e.g., tax_return), `device_type` | Are users even trying to upload, or abandoning before the dialog opens? |
+| `upload_error_triggered` | `error_code` (e.g., `FILE_TOO_LARGE`, `INVALID_FORMAT`, `TIMEOUT`), `file_size_kb` | Is the leakage caused by hard technical blockers? |
+| `upload_step_abandoned` | `time_on_step_seconds`, `previous_error_count` | Did users give up after repeated failures, or leave immediately due to lack of documents? |
+
+**Note on Data:** If these events are not currently logging `error_code` or `time_on_step`, any diagnosis of *why* they fail is `UNVERIFIED`. We cannot guess the split between "file too big" and "user busy."
+
+### 3. Diagnostic Analysis (Week 1 of November)
+Before running experiments, run this cohort query on existing data (if available) or the new instrumentation:
+*   **Segment A (Technical Failures):** Users with `upload_error_triggered` > 0.
+    *   *Action:* If >40% of drop-offs here, prioritize engineering fixes (increase limits, auto-convert formats).
+*   **Segment B (Readiness/Abandonment):** Users with `upload_step_abandoned` and `previous_error_count` == 0.
+    *   *Action:* If dominant, the issue is workflow (users don't have PDFs handy). Prioritize UX changes (email reminder links, "upload later" option).
+
+### 4. Experiment Design: Pre-Committed Rules
+We will run one A/B test in November. To avoid "peeking" errors (stopping early because p<0.05 on day 2), we commit to the following design now:
+
+*   **Primary Metric:** Conversion rate from `application_start` to `pre_approval_reached`.
+*   **Guardrail Metric:** Support ticket volume regarding "upload issues" (must not increase).
+*   **Variant:** "Flexible Upload Flow" (Allow users to skip upload and receive a secure email link to complete later vs. current forced immediate upload).
+*   **Sample Size & Duration:**
+    *   Current Traffic: ~3,300 starts/month (~110/day).
+    *   To detect a 10% relative lift (8.5% → 9.35%) with 80% power and 5% significance, we require approx. **14,000 users per variant**.
+    *   **Constraint Check:** At current traffic, a valid fixed-horizon test requires ~64 days. We cannot reach statistical significance by year-end with a standard test.
+    *   **Decision:** We will use a **Sequential Testing (mSPRT)** design to monitor daily without inflating false positives, aiming for an early stop if the effect is massive, but accepting that a definitive read may slip to January. Alternatively, we treat this as a high-risk "canary" release to 50% of traffic with a strict stop-tripwire if the guardrail (support tickets) spikes >5%.
+
+### 5. This-Week Steps
+1.  **Engineering:** Add `error_code` and `file_size_kb` to the `upload_error_triggered` event by Nov 1. Without this, we are blind to the root cause.
+2.  **UX/Product:** Define the "Skip & Email Later" flow variant. If the analysis shows >50% of users abandon without errors, this is the only viable fix for the deadline.
+3.  **Analytics:** Configure the sequential testing dashboard to monitor the primary metric daily, with a pre-set rule to halt if support tickets rise.
+
+*All benchmarks cited are derived strictly from LoanCompare's Q3 baseline; no external industry retention rates were used.*
+*If the "Skip & Email" variant is technically infeasible by Nov 15, the experiment must be postponed to avoid invalid mid-test changes.*

@@ -1,0 +1,42 @@
+### Prioritized Event Taxonomy for NutriPath Mobile Launch
+
+**Audience:** Lead Data Engineer & Founding Investors
+**Goal:** Instrument five high-signal events to validate retention hypotheses without creating technical debt or privacy risk.
+
+1.  **`core_value_log` (Primary North Star Input)**
+    *   **Definition:** User successfully logs a blood glucose reading with a timestamp and value range (e.g., "normal", "high") but **no raw PII numbers** stored in the event payload.
+    *   **Question Answered:** Does the hypothesized "48-hour activation" actually correlate to Day-90 retention?
+    *   **Properties:** `days_since_signup`, `device_type`, `completion_time_seconds`.
+    *   **Action Rule:** If <40% of new users trigger this within 48 hours, the onboarding flow is broken; pause acquisition spend.
+
+2.  **`plan_utilization_start` (Activation Validator)**
+    *   **Definition:** User views or initiates the first step of their generated meal plan.
+    *   **Question Answered:** Is the "personalized plan" the actual value, or just the logging tool? Distinguishes between "tool users" and "plan subscribers."
+    *   **Properties:** `plan_id_hash`, `time_to_first_view_hours`.
+    *   **Action Rule:** If `plan_utilization_start` is high but `core_value_log` is low, users like the content but aren't tracking health outcomes (risk of churn when novelty fades).
+
+3.  **`grocery_export_action` (Intent Signal)**
+    *   **Definition:** User clicks "Export List" or "Send to Instacart/Amazon Fresh."
+    *   **Question Answered:** Does high-friction commitment (shopping) predict retention better than passive consumption (recipe views)?
+    *   **Properties:** `export_method`, `items_count_bucket` (e.g., "1-5", "6-10").
+    *   **Action Rule:** If this event has a higher correlation to Month-2 retention than `recipe_view`, prioritize grocery integrations over recipe content expansion.
+
+4.  **`retention_cohort_anchor` (The Identifier Seam)**
+    *   **Definition:** A pseudonymous, stable user ID generated at install and persisted across sessions, strictly decoupled from email or medical record numbers.
+    *   **Question Answered:** Can we track the same user across mobile updates and web sessions to measure true cohort retention?
+    *   **Properties:** `user_pseudo_id` (hash), `install_source`.
+    *   **Action Rule:** Without this, all other metrics are vanity. Engineering must implement this before launch to enable cohort analysis.
+
+5.  **`friction_drop_off` (Diagnostic Guardrail)**
+    *   **Definition:** User enters the logging or plan-view flow but exits before completion.
+    *   **Question Answered:** Where is the mobile interface failing? (e.g., Is the glucose input form too hard to use on small screens?)
+    *   **Properties:** `step_name`, `error_code_if_any`, `session_duration`.
+    *   **Action Rule:** If drop-off >20% at a specific step post-launch, trigger an immediate UI hotfix sprint.
+
+**Implementation Constraints & Privacy:**
+*   **Data Minimization:** Do not log raw glucose values or specific condition names in analytics events. Log only success/failure states and buckets.
+*   **Engineering Load:** These five events can be implemented by two developers in <3 days using a standard SDK (e.g., Segment/Mixpanel) without building custom pipelines.
+*   **Baseline Reality:** We cannot assert "good" retention rates yet. We will compare Week-2 cohorts against Week-1 cohorts using our own 90-day window as the baseline.
+
+**This Week's Step:**
+Engineers to implement `retention_cohort_anchor` and `core_value_log` by Friday; Product Lead to define the exact "success" threshold for the 48-hour window based on current manual interviews before code merge.

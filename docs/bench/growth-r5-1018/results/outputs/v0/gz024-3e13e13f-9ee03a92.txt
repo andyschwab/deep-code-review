@@ -1,0 +1,38 @@
+### Event Taxonomy Proposal: TutorLink Core Journey
+
+**Objective:** Instrument only the events that answer specific questions about retention drivers (session quality vs. scheduling friction) to move the North Star Metric: **Weekly Active Students Completing a Second Booking**.
+
+**Implementation Constraints:** All events must include a `stable_user_id` (pseudonymous) for cohort tracking. Payloads must be minimal (<1KB) to accommodate low-bandwidth environments in Manila; batch non-critical events when Wi-Fi is detected.
+
+#### 1. Activation & Quality (The "First Session" Hypothesis)
+*Question: Does the perceived quality of the first session predict the second booking?*
+
+| Event Name | Trigger | Properties | Decision Rule |
+| :--- | :--- | :--- | : |
+| `session_completed` | Video call ends successfully. | `session_duration_sec`, `tutor_id`, `is_first_session` (bool), `connection_quality_score` (1-5, client-side estimate) | If `is_first_session` + low `connection_quality_score` correlates with churn, prioritize connection stability over tutor matching. |
+| `post_session_rating_submitted` | User submits 1-5 star rating immediately post-call. | `rating_value`, `session_id`, `latency_to_submit_sec` | If `rating_value` < 3 but user rebooks, rating is vanity; focus on `scheduling_friction`. If rating > 4 and no rebook, friction is the blocker. |
+| `sentiment_signal_captured` | User selects a single-tag sentiment (e.g., "Helpful", "Confusing") instead of long text. | `sentiment_tag`, `session_id` | Use tags over NLP to save bandwidth. If "Confusing" dominates, update tutor onboarding, not the app. |
+
+#### 2. Friction & Conversion (The "Scheduling" Hypothesis)
+*Question: Where do users drop off when trying to book a repeat session?*
+
+| Event Name | Trigger | Properties | Decision Rule |
+| :--- | :--- | :--- | :--- |
+| `repeat_booking_flow_started` | User clicks "Book Again" or searches for a tutor after session 1. | `source_screen`, `time_since_last_session_hours` | High start rate + low completion = UI/Flow friction. |
+| `tutor_list_loaded` | List of available tutors renders. | `load_time_ms`, `count_tutors_available`, `network_type` (4G/3G/Wifi) | If `load_time_ms` > 3s on 3G causes drop-off, implement lightweight list caching. |
+| `booking_slot_selected` | User taps a specific time slot. | `slot_lead_time_hours`, `tutor_id` | If users select slots but don't confirm, the price or confirmation step is the leak. |
+| `booking_confirmed` | Payment/Reservation successful. | `booking_id`, `is_repeat_booking` (bool), `funnel_step_duration_sec` | **Primary Success Event.** Compare conversion rate of `repeat_booking_flow_started` → `booking_confirmed` against new user flow. |
+
+#### 3. Guardrail & Operations
+*Question: Are we optimizing for speed at the cost of tutor capacity?*
+
+| Event Name | Trigger | Properties | Decision Rule |
+| :--- | :--- | :--- | :--- |
+| `tutor_response_timeout` | Tutor fails to accept/request within SLA (e.g., 10 mins). | `tutor_id`, `request_id`, `wait_time_sec` | If timeouts spike during peak school hours, recruit more tutors for those slots, not better software. |
+
+### Implementation Priority (2-Week Sprint)
+1.  **Week 1:** Deploy `session_completed`, `post_session_rating_submitted`, and `booking_confirmed`. These establish the baseline conversion and quality correlation.
+2.  **Week 2:** Deploy funnel steps (`repeat_booking_flow_started`, `tutor_list_loaded`) to diagnose drop-offs if retention remains <15%.
+
+**Note:** Do not instrument `session_duration` as a primary success metric; long sessions can indicate confusion, not value. Rely on the `post_session_rating_submitted` paired with `booking_confirmed` for truth.
+**Note:** Ensure `stable_user_id` persists across app reinstalls to accurately measure the 15% repeat rate; without this, the baseline is `UNVERIFIED`.

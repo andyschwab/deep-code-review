@@ -1,0 +1,39 @@
+### Event Taxonomy Harmonization Plan for SkyMiles Global
+
+**Objective:** Unify inconsistent event naming (40+ variants of "flight booked") to ensure accurate tier status calculations for 2.5 million members before the October 1st launch.
+
+#### 1. Critical Event Categories for Immediate Unification
+To preserve tier status integrity, you must map and standardize these three categories first. Do not attempt to merge all 40 variants immediately; focus only on those that directly impact value delivery and status rules.
+
+*   **Core Value Event (The North Star Input):** `flight_completed`
+    *   *Why:* Tier status is typically earned on flown segments, not just bookings. If your 40 variants include "booked," "ticketed," "issued," and "flown," you must isolate the **flown** state.
+    *   *Action:* Map all regional variants indicating a completed segment to a single `flight_completed` event with properties: `member_id`, `fare_class`, `distance_flown`, and `booking_channel`.
+*   **Transaction Integrity Event:** `payment_confirmed`
+    *   *Why:* Validates that the booking was revenue-generating and eligible for miles. Excludes award tickets or voided transactions which may have distinct naming conventions.
+    *   *Action:* Consolidate payment success events to filter eligible earn activities.
+*   **Status Calculation Trigger:** `tier_evaluation_run`
+    *   *Why:* You need a deterministic point where the system recalculates status based on the unified history.
+    *   *Action:* Ensure this system event fires post-migration using the cleaned historical dataset.
+
+**Mapping Strategy for Historical Data:**
+Do not lose granularity by collapsing data prematurely. Instead, adopt a **canonical schema**:
+1.  Create a lookup table mapping the 40 legacy names to the 3 canonical events above.
+2.  Migrate historical data into the new platform using the canonical names.
+3.  Preserve the original legacy event name as a property (e.g., `legacy_event_name: "VOLAR_BOOKING_ES"`) within the new unified event. This allows future forensic analysis without breaking current reporting logic.
+
+#### 2. Risks of Delaying Harmonization Until After Launch
+If you delay this cleanup until after October 1st, you face three specific, high-severity risks:
+
+*   **Incorrect Tier Status Assignments (Immediate Revenue Impact):**
+    If the new platform ingests 40 different event names without a unification layer, the status engine will likely miss 30+ variants. Members who flew but whose activity was logged as a non-standard variant (e.g., "reserve_made" instead of "flight_completed") will fail to earn qualifying miles. This results in immediate customer service spikes, forced manual adjustments, and potential regulatory complaints regarding promised loyalty benefits.
+*   **Broken Cohort Analysis (Strategic Blindness):**
+    You stated 2.5 million members are affected. Without a unified taxonomy, you cannot segment these users by behavior (e.g., "business travelers" vs. "leisure"). Your retention reports will be fragmented, showing artificial drops in activity simply because the data is split across 40 keys. You will be unable to measure the rebranding's success against the user's own baseline.
+*   **Technical Debt and "Double Migration" Costs:**
+    Fixing taxonomy post-launch requires re-processing 2.5 million user histories while the system is live. This increases the risk of data corruption during the fix and demands significantly more engineering hours than doing it during the migration window. You will effectively pay to migrate the data twice.
+
+#### This-Week Steps
+1.  **Extract and Map:** Query the legacy database for the top 10 most frequent variants of "flight booked" by volume and map them to `flight_completed` in a staging environment.
+2.  **Validate Granularity:** Confirm that the `legacy_event_name` property is successfully preserved in the new schema for the mapped events.
+3.  **Simulate Status Run:** Run a test tier calculation on a 1% sample of the 2.5 million members using the unified schema to verify status accuracy before full migration.
+
+*Note: All metrics must be verified against your actual migrated data; do not assume conversion rates based on legacy reports. Ensure member identifiers remain pseudonymous during this mapping process.*

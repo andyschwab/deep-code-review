@@ -1,0 +1,37 @@
+# Measurement Plan: Recommendation Engine Health (PageTurners)
+
+**North Star Metric:** Weekly Active Users completing a "Value Loop" (defined as: Click Recommended Item → Read/Engage → Post Review or Comment within 7 days).
+*Rejects vanity metrics like total clicks or raw pageviews, which rise even if community health decays.*
+
+### 1. Event Taxonomy (Instrument Only What Answers a Question)
+Do not instrument "everything." Implement these specific events to distinguish between "no time" and "no inspiration":
+
+| Event Name | Properties | Question Answered |
+| :--- | :--- | :--- |
+| `recommendation_served` | `algorithm_version`, `topic_cluster_id` | Baseline exposure per user. |
+| `recommendation_clicked` | `item_id`, `topic_cluster_id`, `session_id` | Is the CTR lift real across diverse topics? |
+| `content_consumed` | `item_id`, `duration_seconds`, `completion_rate` | Are users actually reading or just clicking? |
+| `review_initiated` | `source_item_id`, `time_since_last_click` | Does consumption directly precede creation? |
+| `review_published` | `item_id`, `topic_cluster_id`, `sentiment_score` | **Critical:** Is the drop in reviews universal or specific to certain topic clusters? |
+| `topic_diversity_index` | `user_id`, `unique_clusters_viewed_weekly` | (Computed) Is the algorithm narrowing the user's horizon? |
+
+### 2. Diagnostic Funnel (Read Bottom-Up)
+Do not pour more traffic into the engine until retention of the *community behavior* is understood.
+1.  **Retention of Contribution:** Cohort users by `algorithm_version`. Compare the % of users posting ≥1 review in Week 1 vs. Week 2 post-exposure. If this drops, the "no time" hypothesis is likely false; the stimulus to write is missing.
+2.  **Activation of Creation:** Measure the time delta between `content_consumed` and `review_initiated`. If the delta increases significantly, the content is less provocative.
+3.  **Acquisition/Exposure:** Analyze `topic_diversity_index`. If users only see one cluster, the "filter bubble" hypothesis is confirmed.
+
+### 3. Experiment Rigor & Guardrails
+The current "25% CTR increase" is **UNVERIFIED** as a success because it lacks a pre-committed design and ignores the guardrail failure.
+*   **Primary Metric:** Value Loop Completion Rate (defined above).
+*   **Guardrail Metric:** Weekly Reviews Per Active User (must not drop >2% from baseline).
+*   **Rule:** The 10% drop in reviews triggers an automatic **STOP** or **ROLLBACK** condition. Do not wait for "significance." A win on clicks that loses community contribution is a net loss for a book club.
+*   **Design:** Run an A/B test with a fixed sample size calculated to detect a 2% change in review rate. Do not peek at daily results; read once at the end of the cycle.
+
+### 4. This-Week Steps
+1.  **Engineers:** Instrument `review_published` with `topic_cluster_id` immediately. Query the last 14 days: Is the review drop concentrated in specific topic clusters? If yes, the algorithm is over-filtering.
+2.  **Community Managers:** Define the minimum acceptable "Reviews Per User" threshold for the summer launch. If the pilot cannot meet this while maintaining CTR, the weighting of "consumption" vs. "creation" in the algo must be retuned.
+3.  **Product Lead:** Halt any further rollout expansion until the `topic_diversity_index` is computed. If diversity is down, introduce a "serendipity slot" (10% of recommendations forced from outside user history) and re-measure.
+
+*Note: All benchmarks must be derived from PageTurners' pre-March 1st baseline; no external industry retention rates apply here.*
+*If data for `topic_cluster_id` is missing, the root cause remains UNVERIFIED until instrumentation is added.*

@@ -1,0 +1,28 @@
+### Data Cleansing and Validation Strategy for HomeSync Thermostat Events
+
+**Executive Summary**
+To meet the Q4 retail partner deadline, we will segment the 50,000 recent events into "Verified" (80%) and "Unverified Source" (20%). We will **not impute** missing 'source' values for the official energy-saving reports, as inferring source (e.g., app vs. dial) from timestamps introduces unquantifiable bias that risks partner trust. Instead, we will report aggregate energy savings from the full dataset while explicitly isolating source-attributed behaviors to the verified 80%.
+
+**Immediate Cleansing Protocol (Existing Data)**
+1.  **Segmentation, Not Imputation:** Tag the 10,000 events missing 'source' as `source: unknown_offline_gap`. Do not guess the source based on time-of-day patterns; offline usage does not perfectly correlate with physical dial usage, and false attribution corrupts the "app engagement" metric required for partner demos.
+2.  **Dual-Track Reporting:**
+    *   **Primary Metric (Energy Savings):** Calculate total kWh saved using all 50,000 events. Energy impact is independent of the interaction source, preserving the core value proposition for retailers.
+    *   **Secondary Metric (Behavioral Mix):** Report the split of App/Dial/Voice *only* for the 40,000 verified events. Include a footnote: "20% of interactions occurred during offline modes in firmware v2.4; source attribution pending reconciliation."
+3.  **Validation Query:** Run a sanity check comparing the average temperature delta of the `unknown` group against the `dial` group. If they diverge significantly, it suggests the gap isn't just offline dial usage (perhaps voice assistant failures), requiring a qualitative note in the director's presentation.
+
+**Prevention Strategy (Future Firmware)**
+1.  **Local Buffer Schema Enforcement:** Update the firmware logging logic (v2.5+) to treat 'source' as a **required field** at the point of event creation, not at transmission. If the source cannot be determined locally, the event must not be generated, or it must default to a specific `local_manual` enum rather than null.
+2.  **Offline Queue Integrity:** Ensure the local storage queue preserves the full event schema during offline periods. The "gap" indicates the serialization process drops properties when network flags are false; this logic must be inverted so that network status affects *transmission timing*, not *event composition*.
+3.  **Synthetic Test Harness:** Before rolling out v2.5, deploy a simulation that forces 100% offline operation for 48 hours. Verify that 100% of queued events retain the 'source' property upon eventual sync.
+
+**Director's Presentation Plan**
+*   **Headline:** "HomeSync devices delivered [X]% energy savings across 50k interactions last month." (Uses full dataset).
+*   **Supporting Detail:** "Of the interactions where source was explicitly logged (80%), [Y]% originated from the mobile app, demonstrating strong digital engagement."
+*   **Transparency Note:** "A known logging gap in v2.4 offline mode affects source attribution for 20% of events; this is resolved in the upcoming patch and does not impact total energy savings calculations."
+
+**This Week's Actions**
+1.  Execute the segmentation query to isolate the 10,000 `unknown` events and confirm the aggregate energy savings figure remains stable when excluding them.
+2.  Draft the schema change ticket for firmware v2.5, specifying that 'source' is a non-nullable field in the local event constructor.
+
+*Note: This approach prioritizes data integrity over completeness, ensuring retail partners receive verified energy stats without misleading behavioral claims.*
+*No external benchmarks were used; thresholds are derived strictly from the provided 50,000 event count and 20% gap.*

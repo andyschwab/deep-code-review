@@ -1,0 +1,35 @@
+# FitPulse Tracker: Essential Setup & Goal-Setting Events
+
+To isolate whether goal setting drives adherence or merely correlates with it, you must track the precise sequence and timing of configuration events. The following event list captures the "unboxing to first sync" journey, distinguishing between users who set goals immediately, later, or never.
+
+### Core Event List for Firmware & Marketing
+
+| Event Name | Trigger Condition | Essential Properties | Business Purpose |
+| :--- | :--- | :--- | : |
+| `device_unboxed` | Device powered on for the first time (hardware button press). | `device_id`, `firmware_version`, `unbox_timestamp` | Starts the "time-to-value" clock; identifies drop-off before app pairing. |
+| `app_paired` | Successful Bluetooth handshake between device and mobile app. | `device_id`, `app_version`, `os_type`, `pairing_duration_sec` | Confirms the user has reached the setup screen; filters out hardware-only failures. |
+| `setup_started` | User lands on the initial configuration screen in the app. | `device_id`, `user_id` (if logged in), `entry_source` (e.g., push notification, manual open) | Measures friction before any configuration occurs. |
+| `goal_prompt_viewed` | The specific screen asking "Set your weekly step goal?" is rendered. | `device_id`, `prompt_variant` (if A/B testing copy), `time_since_pairing_sec` | **Critical:** Establishes the opportunity to set a goal. Without this, you cannot measure refusal vs. omission. |
+| `goal_set` | User confirms a specific numeric weekly step target. | `device_id`, `goal_value` (steps), `time_to_complete_sec`, `is_first_goal` (boolean) | **Primary Independent Variable:** Used to segment users into "Goal Setters" vs. "Non-Setters" for your adherence hypothesis. |
+| `goal_skipped` | User explicitly clicks "Skip" or "Do it later" on the goal prompt. | `device_id`, `skip_reason` (if optional text provided), `time_on_screen_sec` | Distinguishes active refusal from passive drop-off. Essential for ruling out "motivated user" bias. |
+| `setup_completed` | Final success screen reached; all mandatory fields filled. | `device_id`, `total_setup_duration_sec`, `goals_configured` (boolean), `profile_completeness_pct` | Trigger for marketing automation (e.g., "Welcome" email sequence). |
+| `first_sync_completed` | First successful data upload from device to cloud post-setup. | `device_id`, `sync_duration_sec`, `data_points_synced`, `hours_since_unbox` | Validates the device is functional and the user has worn it long enough to generate data. |
+
+### Implementation Notes for Your Teams
+
+**For the Firmware Team:**
+Ensure `device_unboxed` is logged locally on the device and transmitted upon the first successful sync if the device is offline during unboxing. Timestamps must be synchronized to UTC to accurately calculate `time_since_pairing_sec` and `hours_since_unbox`. Do not log any biometric data (heart rate, sleep stages) in these events; only configuration states and timestamps are permitted under your privacy constraints.
+
+**For the Marketing Director:**
+Use `goal_skipped` and `goal_set` to trigger divergent email flows.
+*   **If `goal_set`:** Send reinforcement emails at Day 3 and Day 7 referencing their specific `goal_value` (e.g., "You're 20% toward your 50k step goal").
+*   **If `goal_skipped` or missing `goal_set` after 24 hours:** Trigger an educational email explaining the benefit of goal setting with a deep link back to the settings page, aiming to convert them post-hoc to test if late-setting still improves adherence.
+
+### Analytical Strategy for Your Hypothesis
+
+To determine causality vs. correlation:
+1.  **Segment A (Immediate Setters):** Users with `goal_set` within 5 minutes of `goal_prompt_viewed`.
+2.  **Segment B (Skippers):** Users with `goal_skipped`.
+3.  **Segment C (Passive Non-Setters):** Users who completed `setup_completed` but never triggered `goal_set` or `goal_skipped` (abandoned the specific step).
+
+Compare the **18-hour wear time adherence at Day 60** across these three groups. If Segment A significantly outperforms B and C, and B and C perform similarly to your historical 25% drop-off baseline, this suggests the *act* of setting the goal drives adherence. If Segment B (active skippers) also shows high adherence, your hypothesis is likely false, and the behavior merely correlates with pre-existing motivation.

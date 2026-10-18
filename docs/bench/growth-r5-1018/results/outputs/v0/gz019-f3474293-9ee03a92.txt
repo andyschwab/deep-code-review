@@ -1,0 +1,41 @@
+### Diagnostic Data Plan & Experiment Design for FrostChain
+
+**1. Immediate Instrumentation (Next Sprint)**
+Stop guessing at browser plugins. Instrument the following events to answer specific questions about the drop-off at the legal review step. Each event must include properties for `client_industry`, `device_type`, `browser_user_agent`, and `step_duration`.
+
+*   **Event:** `contract_step_viewed`
+    *   **Question:** Are users actually reaching the legal review step, or dropping off earlier?
+    *   **Properties:** `step_name` (e.g., "legal_review"), `referrer_source`.
+*   **Event:** `contract_step_abandoned`
+    *   **Question:** At exactly what second do they leave, and what was the last interaction?
+    *   **Properties:** `step_name`, `time_on_step_seconds`, `last_action_type` (e.g., "click_signature_field", "scroll_terms").
+*   **Event:** `signature_interaction_error`
+    *   **Question:** Is the plugin failing silently?
+    *   **Properties:** `error_code` (capture JS console errors related to the plugin), `browser_version`.
+*   **Event:** `help_tooltip_clicked`
+    *   **Question:** Is this confusion or technical friction?
+    *   **Properties:** `tooltip_id` (e.g., "plugin_install_help", "terms_explanation").
+
+**2. Experiment Design: Simplified Form vs. Control**
+Do not run a standard A/B test yet if the current drop-off is due to a hard technical block (plugin failure). First, verify if the plugin is the culprit via the error events above. If errors are low but abandonment is high, proceed with this A/B test.
+
+*   **Hypothesis:** Removing the specific plugin requirement (replacing it with a native HTML5 canvas signature or click-to-sign) will increase completion rates.
+*   **Primary Metric:** `contract_completion_rate` (Completed / Started).
+*   **Guardrail Metric:** `legal_compliance_flag` (Ensure the new method meets EU eIDAS regulations; do not optimize for speed at the cost of validity).
+*   **Design:**
+    *   **Control:** Current plugin-based flow.
+    *   **Variant:** Native web signature (no plugin).
+    *   **Sample Size:** With ~210 clients/quarter (~70/month), you cannot wait for statistical significance in a short window without risking the revenue target. Use a **sequential testing** approach (monitor daily with corrected alpha) or a **high-power fixed horizon** of 4 weeks.
+    *   **Pre-commitment:** Run for 28 days or until 140 total starts (70 per variant), whichever comes first. Do not peek at day 2; early reads on low-traffic B2B flows are `UNVERIFIED` noise.
+
+**3. Analysis & Decision Logic**
+*   **If Variant Win (>15% lift):** Roll out to 100% immediately.
+*   **If No Difference:** The issue is likely content confusion, not technical friction. Pivot to testing simplified legal language.
+*   **If Variant Loss:** Revert immediately; the plugin may be providing necessary trust signals.
+
+**This Week's Steps for Cian's Board Prep:**
+1.  **Deploy Tracking:** Ship the four events listed above by Friday. Query the `signature_interaction_error` rate immediately to confirm/deny the plugin hypothesis before the board meeting.
+2.  **Baseline Calculation:** Calculate the exact revenue impact of the 28% drop (92% → 64%) using the 210/quarter volume to present the "cost of inaction" to the board.
+3.  **Experiment Kickoff:** Launch the native signature variant on November 1st (day before the meeting) to show the board a live, controlled recovery plan is in motion, with a definitive read-out date of November 29th.
+
+*Note: All metrics compare against your pre-August 5th baseline (92%) and current state (64%); no external benchmarks are used. If error logs are unavailable, the plugin hypothesis remains `UNVERIFIED` until the new events fire.*

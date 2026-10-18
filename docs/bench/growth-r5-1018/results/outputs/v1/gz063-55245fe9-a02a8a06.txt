@@ -1,0 +1,33 @@
+### Valid Conversion Event Definition for DniproWork
+
+**Primary Conversion Event:** `contract_booking_confirmed`
+This event fires **only** when the backend successfully creates a binding contract record and returns a success state to the client. It is not the form submission, nor the initial click, nor the first message sent.
+
+**Required Properties for Legal & Engineering:**
+1.  `terms_accepted_boolean`: Must be `true`. This confirms the specific action of agreeing to the Terms of Service (ToS).
+2.  `tos_interaction_time_ms`: The duration (in milliseconds) the ToS modal or link was in focus before acceptance.
+    *   *Logic:* If this value is below a defined threshold (e.g., <1000ms), flag the conversion as `legal_review_required` in your analytics, even if the booking succeeds. This addresses the "clicking through blindly" risk without blocking revenue.
+3.  `form_fields_completed`: Integer count (should be 3 post-redesign).
+4.  `session_id`: Stable identifier to track returners.
+
+**Handling Abandonment and Returns (The 1-Hour Window):**
+Do not count the price view or the abandonment as a conversion. If a user sees the price, leaves, and returns within one hour to complete the booking:
+*   **Event Logic:** The `contract_booking_confirmed` event fires only upon final success.
+*   **Attribution:** Attach a property `is_return_session: true` if the `session_id` matches a prior `price_viewed` event within the last 60 minutes.
+*   **Measurement:** Count this as **one** conversion. Do not double-count the attempt. The "conversion rate" denominator should be `unique_users_who_viewed_price`, not `total_price_views`, to accurately reflect the funnel regardless of session fragmentation.
+
+**Why Other Actions Are Excluded:**
+*   **Initial Click:** Measures interest, not value. High drop-off after this is expected; counting it inflates success metrics.
+*   **Form Submission:** Can fail validation or be abandoned before payment/confirmation. It is an input metric, not the North Star.
+*   **First Message Sent:** Occurs post-conversion. While vital for retention, it is a downstream behavior. The business value (revenue/risk) is locked at the booking confirmation.
+
+**Implementation Instruction for Engineering:**
+Instrument the `contract_booking_confirmed` event at the exact line of code where the database transaction commits. Do not rely on client-side page loads, which can be triggered by refreshes or errors without a actual booking.
+
+**Instruction for Legal Counsel:**
+Review the distribution of `tos_interaction_time_ms`. If >20% of conversions occur under 1 second, the current UI may be deemed to encourage negligent acceptance, requiring a design intervention (e.g., mandatory scroll or delay) despite the higher booking volume.
+
+***
+
+**Note:** The rise from 450 to 520 bookings is a positive trend, but without knowing your traffic volume, we cannot determine if this is statistically significant or natural variance.
+**Next Step:** Calculate the conversion rate (bookings / unique price views) for the two weeks prior to April 2nd and compare it to the two weeks after to isolate the redesign's impact.

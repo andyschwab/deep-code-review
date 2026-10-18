@@ -1,0 +1,40 @@
+### Event Taxonomy: International Transfer Frustration Signals
+
+To diagnose friction in the international transfer flow without capturing PII or screen content, instrument the following specific events. Each event answers a named question about user confusion or abandonment relative to the exchange rate and fee display.
+
+**1. The "Rate Confusion" Loop**
+*   **Event Name:** `transfer_wizard_info_icon_tap_burst`
+*   **Properties:** `screen_name` (e.g., "review_transfer"), `element_id` ("exchange_rate_info"), `tap_count` (integer), `time_window_seconds` (e.g., 10s).
+*   **Question Answered:** Are users repeatedly tapping the info icon because the initial explanation is unclear?
+*   **Reading Rule:** A burst of >3 taps within 5 seconds on the info icon indicates high confusion. If this correlates with subsequent abandonment, the copy is failing.
+
+**2. The "Fee Shock" Reversal**
+*   **Event Name:** `transfer_wizard_navigation_reversal`
+*   **Properties:** `from_screen` ("fee_breakdown"), `to_screen` ("amount_entry"), `time_spent_on_fee_screen_ms` (integer), `previous_action` ("scroll_to_bottom").
+*   **Question Answered:** Do users retreat to the previous screen immediately after viewing the total fees and exchange rate?
+*   **Reading Rule:** A reversal occurring <2 seconds after landing on the fee screen suggests "sticker shock." If users scroll to the bottom (viewing the total) then reverse, the value proposition is unclear.
+
+**3. The "Silent Quit" (Abandonment)**
+*   **Event Name:** `transfer_wizard_session_termination`
+*   **Properties:** `exit_screen` (e.g., "fee_breakdown", "confirm_transfer"), `completion_status` ("incomplete"), `total_flow_duration_seconds`.
+*   **Question Answered:** At exactly which step do users force-close or background the app?
+*   **Reading Rule:** A spike in terminations on the "fee_breakdown" screen compared to the baseline (pre-January) confirms the drop-off point. Compare this against the 15% support call increase timeline.
+
+**4. The "Hesitation" Delay**
+*   **Event Name:** `transfer_wizard_field_dwell_time`
+*   **Properties:** `field_id` ("exchange_rate_display", "total_fee_label"), `dwell_time_ms` (integer), `is_return_visit` (boolean).
+*   **Question Answered:** Are users staring at the rate/fee line longer than expected, indicating cognitive load or distrust?
+*   **Reading Rule:** Dwell time >2 standard deviations above the median for that field indicates confusion. If this happens on return visits (user came back to check again), trust is eroding.
+
+**Implementation Constraints & Privacy Seam**
+*   **Identifier:** Use a stable, pseudonymous `device_cohort_id` to track the sequence across sessions without linking to specific accounts. Do not log user IDs, account numbers, or transaction amounts.
+*   **Data Exclusion:** Explicitly exclude any property capturing input text, screen bitmaps, or touch coordinates outside the defined UI element bounds.
+*   **Audience Specifics:**
+    *   *Mobile Dev Team:* Focus on `tap_burst` and `dwell_time` to justify UI copy changes or layout adjustments.
+    *   *Head of Customer Support:* Focus on `navigation_reversal` and `session_termination` points to update help articles specifically for the "fee_breakdown" and "review" stages.
+
+**This Week's Step:**
+1.  Ship the four events above to the staging environment with a 5% canary rollout to verify no PII leakage.
+2.  Query the last 30 days of existing navigation logs for `navigation_reversal` from "fee_breakdown" to "amount_entry"; if this rate has risen >10% since January, prioritize rewriting the fee explanation copy before adding new instrumentation.
+
+*Note: All metrics must be compared to your internal pre-January baseline; do not compare against industry benchmarks. If the "burst" threshold triggers falsely, adjust the time-window property before full rollout.*
