@@ -1,0 +1,52 @@
+### Failure Mode Analysis: Connectivity Interruptions During Firmware Update
+
+**Objective:** Ensure that any interruption during the firmware update process results in a "fail-safe" state where the insulin pump continues to deliver basal insulin using the last known good configuration, preventing patient harm.
+
+#### 1. Identified Failure Modes
+*   **FM-01: Handshake Interruption:** Connection drops before binary transfer begins.
+    *   *Risk:* Device enters update mode but receives no data.
+    *   *Safe State Requirement:* Device times out and reverts to operational mode with existing firmware.
+*   **FM-02: Mid-Stream Interruption:** Connection drops during binary transmission (e.g., at 30%, 50%, 90%).
+    *   *Risk:* Corrupted firmware image stored in memory.
+    *   *Safe State Requirement:* Bootloader detects checksum mismatch, rejects the new image, and boots the previous valid partition.
+*   **FM-03: Verification/Write Interruption:** Connection drops during final checksum validation or flash writing.
+    *   *Risk:* Partial write to the active partition.
+    *   *Safe State Requirement:* Atomic update mechanism ensures the active partition is only swapped if the new image is fully verified. If interrupted, the device retains the old active image.
+*   **FM-04: Power Loss Concurrent with Connectivity Loss:** Battery depletes or is removed during the update.
+    *   *Risk:* Total memory corruption.
+    *   *Safe State Requirement:* Hardware watchdog resets the device; bootloader defaults to the backup partition.
+
+#### 2. Simulation Scenarios for Validation
+To meet the 10-day regulatory window, execute these automated simulations immediately:
+
+*   **Scenario A: The "Cliff" Test**
+    *   *Action:* Initiate update; sever connectivity via software simulation exactly at 99% completion.
+    *   *Pass Criteria:* Device reports "Update Failed," reboots within 60 seconds, and resumes basal delivery at the pre-update rate. No user intervention required.
+*   **Scenario B: The "Packet Loss" Storm**
+    *   *Action:* Introduce 40% packet loss and high latency (2000ms) during the middle 50% of the transfer.
+    *   *Pass Criteria:* Update protocol pauses or aborts gracefully. Device never attempts to boot from an incomplete image. Insulin delivery continues uninterrupted throughout the network instability.
+*   **Scenario C: The "Ghost" Signal**
+    *   *Action:* Sever connection mid-update, then reconnect immediately with a corrupted data packet.
+    *   *Pass Criteria:* Device rejects the packet, aborts the session, and maintains the current firmware. No "bricking" occurs.
+*   **Scenario D: The "Dual Failure"**
+    *   *Action:* Simulate connectivity loss followed immediately by a power cycle (remove battery) before the device times out.
+    *   *Pass Criteria:* Upon power restoration, the bootloader identifies the incomplete update, flags the new partition as invalid, and loads the backup firmware. Basal delivery resumes automatically.
+
+#### 3. Contingency Plan
+
+**Immediate Mitigation (Pre-Deployment):**
+*   **Dual-Partition Architecture Verification:** Confirm physically that the pump utilizes an A/B partition scheme. The active slot must never be overwritten until the new slot is fully verified.
+*   **Watchdog Timer Enforcement:** Ensure the hardware watchdog is active during the update process. If the software hangs due to connection logic errors, the hardware must force a reboot into the safe state.
+*   **User Interface Lockout:** During the update process, disable all user inputs that could alter insulin delivery settings. The device must operate in a protected mode.
+
+**Operational Response (If Failure Occurs in Field):**
+*   **Automatic Reversion:** The device must automatically revert to the previous firmware version without requiring a clinic visit.
+*   **Alert Protocol:** Upon successful reboot after a failed update, the device must log the error code and display a non-alarming but clear notification: "Update Incomplete. System Running on Previous Version. Contact Support."
+*   **Remote Retry Logic:** The companion app should detect the failed state and offer a "Retry Update" option only after verifying the device is stable and the user is in a safe environment (e.g., not driving).
+
+**Regulatory Documentation:**
+*   Compile logs from all simulation scenarios showing the transition to the safe state.
+*   Document the "Maximum Interruption Time" allowed before the device forces a reboot.
+*   Submit evidence that basal delivery was never paused for more than the hardware's inherent safety margin (e.g., <2 minutes) during any failure mode.
+
+Note: Prioritize Scenario D (Dual Failure) as it represents the highest risk for permanent device incapacitation. Ensure all test logs include timestamps synchronized to UTC for regulatory audit trails.

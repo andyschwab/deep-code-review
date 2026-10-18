@@ -1,0 +1,41 @@
+# FinFlow Analytics Framework: Series A Investor Deck
+
+## Core Philosophy: Measure Decision Velocity, Not Just Speed
+While "time-to-fund" is your stated goal, investor confidence relies on distinguishing **system efficiency** (your tech) from **external friction** (local banking). Reporting a blended average of 2 hours vs. 5 days will obscure your platform's actual performance. We will segment time metrics by "Platform Processing Time" (your control) vs. "Bank Settlement Time" (external variance).
+
+## Recommended Funnel Stages & Friction Mapping
+
+Track these specific stages to isolate where value is lost. Each stage includes a "Failure Reason" property to distinguish technical errors from user hesitation.
+
+| Stage | Event Name | Critical Properties | Friction Classification |
+| :--- | :--- | :--- | : |
+| **1. Application Start** | `application_started` | `business_type`, `country` | N/A |
+| **2. Document Upload** | `documents_uploaded` | `doc_type`, `file_format`, `upload_duration` | **Technical:** File size limits, timeout.<br>**Hesitation:** Session abandonment > 5 mins. |
+| **3. Verification Result** | `verification_completed` | `status` (pass/fail), `failure_reason` | **Technical:** OCR failure, API timeout.<br>**User/Data:** "No digital records," "Mismatched ID." |
+| **4. Offer Acceptance** | `offer_accepted` | `offer_amount`, `time_to_view_offer` | **Hesitation:** Rate shopping, trust疑虑 (viewed but no click). |
+| **5. Bank Handoff** | `bank_transfer_initiated` | `bank_partner_id`, `api_response_code` | **Technical:** Bank API downtime, timeout.<br>**External:** Bank maintenance windows. |
+| **6. Funding Settled** | `funding_settled` | `total_duration_hours`, `bank_processing_hours` | **External:** Local banking rails speed. |
+
+### Distinguishing Technical Failures vs. User Hesitation
+To satisfy investor scrutiny on drop-offs, implement this logic in your dashboard:
+
+*   **Technical Failure:** Defined by explicit error codes returned by your system or bank APIs (e.g., `error_code: 504_GATEWAY_TIMEOUT`, `failure_reason: "ocr_confidence_low"`). These are fixable engineering debts.
+*   **User Hesitation:** Defined by **behavioral silence**.
+    *   *Scenario A:* User uploads docs but never triggers verification → Likely trust issue or confusion.
+    *   *Scenario B:* User views offer but doesn't accept within 24h → Likely rate shopping or internal approval delays.
+    *   *Measurement:* Track `time_since_last_action`. If > 24 hours with no error code, classify as "Hesitation/Pending."
+
+## Addressing the Banking Variance
+Do not report a single "Time to Fund" metric. Split it into two distinct KPIs for the dashboard:
+1.  **FinFlow Efficiency:** Time from `application_started` to `bank_transfer_initiated`. (Target: < 4 hours). This proves your tech works.
+2.  **Partner Settlement Lag:** Time from `bank_transfer_initiated` to `funding_settled`. (Variable: 2h – 5 days). This contextualizes the delay as a market reality, not a product failure.
+
+## Recommendation on Repeat Borrowing
+**Do not** make "Repeat Borrowing Rate" a core success metric for this Series A review.
+*   **Reasoning:** With a launch imminent and a goal of $10M processed, your primary risk is **acquisition and initial conversion**. Repeat rates require a cohort window (30–90 days) you do not yet have. Including it now invites questions about data maturity you cannot answer.
+*   **Alternative:** Track **"Offer Acceptance Rate"** as your leading indicator of product-market fit. If users accept the first offer, repeat borrowing is a logical downstream outcome. Save repeat metrics for the Series B narrative.
+
+## Implementation Note
+Ensure all `failure_reason` properties use a standardized taxonomy (e.g., `tech_api_error` vs. `user_missing_docs`) to allow clean filtering in GA4/Mixpanel. Avoid free-text fields for these classifications to ensure accurate aggregation for the investor deck.
+
+*Data quality check: Validate that `bank_processing_hours` is captured even if the final settlement event fires days later, ensuring the denominator matches the observation window.*

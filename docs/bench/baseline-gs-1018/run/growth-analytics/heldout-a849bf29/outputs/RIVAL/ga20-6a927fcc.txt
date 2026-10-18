@@ -1,0 +1,63 @@
+# Immediate Diagnostic Plan: Identity Verification Drop-Off
+
+## 1. Primary Diagnostic Signal
+Measure **Time-to-Decision** and **Rejection Reason Frequency** simultaneously, but prioritize **Rejection Reason Frequency** as your primary signal. A 25% drop-off starting on a specific date (Nov 22) strongly suggests a change in rejection logic or error handling rather than just speed. If users are timing out, they never reach a "rejection" state; if they are being rejected, they see a message. Distinguishing these two paths is critical.
+
+## 2. Logs to Examine Immediately
+Request your engineering team to extract the following logs from **Nov 20 (baseline)** through **Nov 24 (current)**:
+
+### A. API Response Logs (Third-Party Provider)
+Filter for all identity verification API calls. Extract:
+*   **Timestamp** (to the second)
+*   **User ID** (anonymized if needed for compliance)
+*   **HTTP Status Code** (200, 408, 500, 503, etc.)
+*   **Provider Error Code** (e.g., `DOCUMENT_BLURRY`, `FACE_MISMATCH`, `TIMEOUT`, `SERVICE_UNAVAILABLE`)
+*   **Response Time (ms)** (time from request sent to response received)
+*   **Final Decision** (Approved, Rejected, Pending, Error)
+
+### B. Frontend Event Logs
+Filter for events in the verification step:
+*   **`verification_started`**: User enters the flow.
+*   **`document_uploaded`**: User successfully uploads files.
+*   **`verification_result_displayed`**: The moment the user sees a result (success, fail, or error message).
+*   **`verification_abandoned`**: User closes the tab or navigates away *before* `verification_result_displayed`.
+
+## 3. Investigation Structure
+
+### Step 1: Segment by Outcome (The "What")
+Create a table comparing Nov 20-21 vs. Nov 22-24:
+
+| Outcome Category | Nov 20-21 (%) | Nov 22-24 (%) | Change |
+| :--- | :--- | :--- | :--- |
+| **Approved** | 60% | 35% | -25% |
+| **Rejected (Specific Reason)** | X% | Y% | ? |
+| **Technical Error (Timeout/5xx)** | A% | B% | ? |
+| **Abandoned (No Result)** | C% | D% | ? |
+
+*   **If "Technical Error" spiked:** The issue is infrastructure/provider connectivity.
+*   **If "Rejected" spiked (specifically one reason):** The provider updated their model/rules (e.g., stricter face matching).
+*   **If "Abandoned" spiked without a result:** Users are experiencing infinite loading screens (client-side timeout or provider latency > user patience).
+
+### Step 2: Analyze Time-to-Decision (The "How Long")
+Calculate the median and 95th percentile time between `document_uploaded` and `verification_result_displayed` for both periods.
+*   **Hypothesis:** If the median time increased from 10s to 45s, users are abandoning due to perceived slowness before the decision arrives.
+*   **Action:** If latency is the culprit, implement a "processing" state with a progress bar or estimated wait time to reduce abandonment.
+
+### Step 3: Isolate the Error Code (The "Why")
+Group the Nov 22-24 rejections by **Provider Error Code**.
+*   Look for a single error code that accounts for >50% of the new drop-off.
+*   **Common Culprits:** `IMAGE_QUALITY_LOW` (lighting changes?), `DOCUMENT_EXPIRED` (logic bug?), `PROVIDER_RATE_LIMIT` (volume spike?).
+*   **Immediate Fix:** If a specific false-positive reason is identified (e.g., "glare detection" too sensitive), contact the provider to adjust thresholds or whitelist valid documents manually while a patch is deployed.
+
+## 4. Root Cause Classification
+Based on the data above, classify the issue:
+*   **Technical:** High rate of 5xx errors, timeouts, or latency >30s.
+*   **Regulatory/Logic:** High rate of specific rejections (e.g., "ID not supported") that were previously accepted.
+*   **User Experience:** High abandonment rate *before* result delivery, correlated with high latency but no technical errors.
+
+## 5. Immediate Mitigation
+1.  **Manual Review Queue:** If possible, route all "Rejected" cases from Nov 22 onwards to a manual review team to validate if they are false positives.
+2.  **Provider Communication:** Open a high-priority ticket with your verification provider citing the exact timestamp (Nov 22) and the spike in specific error codes. Ask: "Did you deploy a model update or change thresholds on Nov 22?"
+3.  **Frontend Patch:** If latency is high, add a "We are reviewing your documents, this may take 2 minutes" message to prevent premature abandonment.
+
+Deliver this breakdown to the CCO with the specific error code distribution and latency comparison charts.

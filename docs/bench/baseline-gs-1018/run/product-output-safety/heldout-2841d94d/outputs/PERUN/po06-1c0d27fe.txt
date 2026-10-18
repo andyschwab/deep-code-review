@@ -1,0 +1,45 @@
+### Offline Geographic Bias Evaluation Plan
+
+**1. Construct the Harm Inventory**
+Before running analysis, formally record the specific risk: **Bias/Unfair Outcomes**.
+*   **Hypothesis:** The model systematically lowers credit limits for users in specific zip codes, acting as a proxy for protected classes (race, ethnicity), violating fair lending principles.
+*   **Affected Group:** Users residing in targeted geographic clusters.
+*   **Worst Case:** Regulatory enforcement action, reputational damage, and financial harm to marginalized communities.
+*   **Status:** `UNVERIFIED` until the batch analysis below is executed.
+
+**2. Design the Batch Evaluation (Measure)**
+Since real-time explanation is impossible, you must construct a static "adversarial" dataset to run through your existing batch pipeline.
+
+*   **Data Synthesis (The Probe Set):**
+    *   Create synthetic user profiles where **all** financial attributes (income, debt-to-income, payment history, age) are held constant.
+    *   Vary **only** the zip code across a spectrum: include known affluent areas, known underserved areas, and border zip codes.
+    *   **Positive Control:** A profile in a neutral/affluent zip code with average financials (expect standard limit).
+    *   **Negative Control:** A profile with genuinely poor credit metrics (expect low limit) to ensure the model still functions.
+    *   **Segmentation:** Ensure the zip code list covers diverse demographic compositions based on public census data (do not store this sensitive mapping in the model, only use it for analysis).
+
+*   **Execution:**
+    *   Run these synthetic profiles through your current batch credit-limit algorithm.
+    *   Capture the output: Approved Limit, Decision Code, and any internal risk scores generated in the batch report.
+
+*   **Metrics & Thresholds:**
+    *   **Metric:** *Geographic Disparity Ratio*. Calculate the average approved limit for Group A (Zip Cluster X) vs. Group B (Zip Cluster Y) holding financials constant.
+    *   **Threshold:** Define a "stop condition" before running. Example: "If the average limit for Zip Cluster X is >10% lower than Cluster Y for identical financial profiles, the feature fails launch."
+    *   **Reporting:** Report the raw disparity. Do not invent a "bias score." If the disparity exists, label the risk `CONFIRMED`. If the test cannot be constructed due to data gaps, label `UNVERIFIED`.
+
+**3. Manage Residual Risk (The Human Gate)**
+*   **High-Stakes Gate:** Credit limit reduction is a consequential, high-stakes decision. **Do not launch** this dynamic adjustment feature with full automation if the batch test reveals significant geographic disparity.
+*   **Remediation Path:** If bias is detected, you must either:
+    1.  Remove zip code (or highly correlated features) from the model input.
+    2.  Implement a human-in-the-loop review for any limit decrease triggered primarily by geographic factors.
+    3.  Apply a post-processing constraint to cap the variance attributable to location.
+*   **Transparency Artifact:** Draft a **Model Card** for this feature. It must explicitly state: "Intended Use: Dynamic limit adjustment," "Limitations: Evaluated for geographic bias via offline batch testing on [Date]," and "Results: [Insert Disparity Ratio or UNVERIFIED]." Do not claim the model is "fair" or "unbiased"; state the measured results only.
+
+**4. Governance & Legal Routing**
+*   **Owner:** Assign a specific individual (e.g., Lead Data Scientist) who owns the residual risk of this bias.
+*   **Legal Duty:** Fair lending laws (e.g., ECOA) strictly regulate automated credit decisions. **Route immediately to legal counsel** to determine if this specific algorithmic change triggers mandatory regulatory disclosures or adverse action notice requirements. Do not assert compliance here; counsel must verify if the "batch-only" explanation method satisfies legal "reason for denial" requirements.
+
+**Definition of Done for this Phase:**
+The batch test is run, the disparity ratio is calculated (or marked `UNVERIFIED`), the Model Card is drafted with these findings, and the legal question regarding explanation sufficiency is sent to counsel. No launch occurs until the human gate reviews these artifacts.
+
+*Note: This plan relies entirely on your ability to generate synthetic data and run it through your existing batch infrastructure. No new real-time tools are required.*
+*If the batch system cannot process synthetic data distinct from live traffic, this evaluation cannot proceed, and the risk remains `UNVERIFIED`.*

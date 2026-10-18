@@ -1,0 +1,53 @@
+### StreamlineHR: 3-Week Critical Tracking Plan
+
+**Goal:** Support Series A narrative (growth/retention) and core product decisions with minimal engineering lift.
+**Strategy:** Leverage a Customer Data Platform (CDP) to decouple tracking from code deployments. Do not build custom infrastructure.
+
+#### 1. The Tooling Stack (No Custom Infra)
+*   **Collection & Routing:** **Segment (Free/Tier 1)** or **RudderStack (Open Source)**.
+    *   *Why:* Allows you to define events once in code and send them to analytics, ads, and email tools simultaneously. Prevents the "two weeks of dev work" recurrence when adding new tools.
+*   **Analysis:** **Mixpanel (Startup Tier)** or **Amplitude**.
+    *   *Why:* Superior to GA4 for product behavior (funnels, retention cohorts). Essential for answering "do companies come back?"
+*   **Implementation:** Use their pre-built SDKs. Do not write custom database triggers for analytics.
+
+#### 2. Critical Event Taxonomy (Priority Only)
+Focus strictly on the **Company** as the unit of analysis, not just the individual user.
+
+| Event Name | Trigger | Critical Properties | Business Question Answered |
+| :--- | :--- | :--- | : |
+| `company_created` | First successful org setup | `industry`, `employee_count`, `signup_source` | **Acquisition:** Which channels bring viable companies? |
+| `onboarding_step_completed` | User finishes a setup phase | `step_name` (e.g., "invite_team", "import_data"), `time_to_complete` | **Activation:** Where do companies drop off before seeing value? |
+| `core_action_performed` | Usage of primary value prop | `action_type` (e.g., "run_payroll", "generate_report"), `company_id` | **Engagement:** Are they actually using the product? |
+| `team_member_invited` | Admin invites a colleague | `inviter_role`, `invitee_email_domain` | **Virality:** Is organic growth happening within accounts? |
+| `subscription_upgraded` | Payment success | `plan_tier`, `mrr_value`, `payment_method` | **Revenue:** Conversion from free/trial to paid. |
+| `support_ticket_created` | Help request submitted | `category`, `severity` | **Churn Risk:** Are struggling companies asking for help? |
+
+#### 3. Execution Timeline (3 Weeks)
+
+**Week 1: Infrastructure & Identity**
+*   Install Segment/RudderStack SDK on web/app.
+*   **Critical:** Implement `identify()` call immediately upon login to link anonymous events to `company_id` and `user_id`. Without this, your data is fragmented.
+*   Connect Segment to Mixpanel/Amplitude.
+*   *Deliverable:* Real-time view of `company_created` and `logins` in the new tool.
+
+**Week 2: The "Money" Events**
+*   Instrument `onboarding_step_completed` and `core_action_performed`.
+*   Ensure `company_id` is passed with every event. This allows you to aggregate user actions into company-level health scores.
+*   *Deliverable:* A working funnel report showing % of companies moving from Signup → Onboarding Complete → Core Action.
+
+**Week 3: Validation & Dashboarding**
+*   Verify data accuracy (spot check 5 companies).
+*   Build three charts for the pitch deck:
+    1.  **Growth:** Cumulative `company_created` over time.
+    2.  **Activation:** % of new companies hitting `core_action_performed` within 7 days.
+    3.  **Retention:** Weekly active companies (WAC) cohort curve.
+*   *Deliverable:* Live dashboard for the Series A pitch.
+
+#### What to Ignore (For Now)
+*   **Click-level tracking:** Do not track button clicks unless they are primary conversions.
+*   **Pageviews:** Rely on automatic collection; do not manually tag every page.
+*   **Complex attribution:** Use UTM parameters for now; do not build a multi-touch model.
+*   **Data Warehousing:** Do not move data to Snowflake/BigQuery yet. Analyze directly in Mixpanel/Amplitude.
+
+**Note:** If an event requires complex database joins to generate, skip it. Only track events available in the application layer at the moment of action.
+**Note:** Enforce a naming convention (snake_case) immediately to prevent future cleanup debt.
