@@ -1,0 +1,24 @@
+**Recommendation for EchoHome 'RecipeStepCompleted' Event Schema**
+
+To validate the hands-free hypothesis and distinguish between successful flow and friction without exceeding storage limits, implement these three specific properties for the `RecipeStepCompleted` event:
+
+1.  **`step_duration_seconds` (Integer)**
+    *   **Purpose:** Measures the time elapsed between the system announcing a step and the user issuing the completion command.
+    *   **Hypothesis Validation:** If the core assumption holds (hands are occupied), durations should correlate with the actual cooking time required for that step. Significantly short durations suggest users are skimming or not cooking; significantly long durations indicate friction, distraction, or abandonment risk. This is the primary signal for "successful following" vs. "struggling."
+
+2.  **`repeat_request_count` (Integer)**
+    *   **Purpose:** Tracks how many times the user asked the system to repeat the current instruction before marking it complete.
+    *   **Hypothesis Validation:** In a true hands-free cooking environment, users cannot look at a screen to re-read instructions. A high count here directly indicates that the voice instruction was unclear, too long, or drowned out by kitchen activity. This is the strongest leading indicator of potential abandonment due to poor UX.
+
+3.  **`completion_confidence` (String: Enum)**
+    *   **Values:** `explicit_confirm`, `implicit_advance`, `timeout_fallback`
+    *   **Purpose:** Categorizes *how* the step was marked complete.
+        *   `explicit_confirm`: User said "Done" or "Next."
+        *   `implicit_advance`: User asked for the next step directly without confirming the previous one.
+        *   `timeout_fallback`: The system auto-advanced or marked complete due to silence after a prompt.
+    *   **Hypothesis Validation:** High rates of `timeout_fallback` suggest users walked away (abandonment) or were too busy to respond, validating the "hands-occupied" constraint but highlighting a failure in the interaction model. High `implicit_advance` rates may suggest users find the explicit confirmation step redundant when their hands are full.
+
+**Implementation Note for Marcus:**
+These three properties provide a high-signal view of user friction (duration + repeats) and engagement quality (confidence type) while remaining lightweight (two integers and one short string). Avoid tracking ambient noise levels directly in this event; it generates excessive data volume and is better handled as a separate, sampled diagnostic event if audio processing issues arise later.
+
+Ensure the engineering team defines a clear timeout threshold (e.g., 5 minutes) to distinguish between a paused cooking session and true abandonment before triggering `timeout_fallback`.

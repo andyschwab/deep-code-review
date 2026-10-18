@@ -1,0 +1,53 @@
+### Measurement Framework: LogiLink Driver-Rider Matching Funnel
+
+**1. North Star Metric**
+**Weekly Successful Matches per Active Driver.**
+Reject "Total Requests Sent" or "Cumulative Signups" as vanity metrics; they rise even if the system fails. The North Star must reflect value delivered (a completed match), not activity volume.
+
+**2. Funnel Stages & Critical Drop-off Points**
+Diagnose bottom-up (Retention/Completion first), then move upstream. Instrument only events that answer specific questions.
+
+*   **Stage A: Request Dispatched → Request Received**
+    *   *Question:* Is the request reaching the device?
+    *   *Metric:* **Delivery Success Rate** (% of dispatched requests acknowledged by the device).
+    *   *Drop-off Diagnosis:* Low rates here indicate network infrastructure failures, not driver behavior.
+*   **Stage B: Request Received → Decision Initiated**
+    *   *Question:* How long does the driver sit before interacting?
+    *   *Metric:* **Idle Latency** (Time from `request_received` to first screen tap).
+    *   *Drop-off Diagnosis:* High idle time suggests UI confusion or connectivity lag preventing interaction.
+*   **Stage C: Decision Initiated → Accept/Decline/Timeout**
+    *   *Question:* Are drivers rejecting the load, or letting it expire?
+    *   *Metric:* **Action Distribution** (% Accept vs. % Decline vs. % Timeout).
+    *   *Drop-off Diagnosis:* If your 20% failure assumption is correct, look for a spike in **Timeouts** vs. Declines. A high decline rate means the offer is unattractive; a high timeout rate means the decision window is the bottleneck.
+*   **Stage D: Acceptance → Pickup Confirmation**
+    *   *Question:* Does the match stick?
+    *   *Metric:* **Post-Acceptance Fallout** (% of accepted matches that do not result in pickup).
+
+**3. Distinguishing System Delay vs. Human Decision**
+To isolate network noise from human behavior, implement a **Client-Side Timestamp Seam**:
+*   Do not rely solely on server logs. The mobile client must record two distinct timestamps:
+    1.  `local_render_time`: When the UI successfully draws the request.
+    2.  `local_interaction_time`: When the driver taps Accept/Decline.
+*   **Calculation:** `Human Decision Time` = `local_interaction_time` - `local_render_time`.
+*   **Network Latency** = `server_receive_time` - `local_interaction_time`.
+*   *Note:* Ensure the user ID used for cohorting is pseudonymous. Route raw device IDs and PII to your privacy compliance protocol; do not store raw PII in analytics events.
+
+**4. Experiment Design: 60s vs. 30s Timer**
+Do not simply "try it and see." A change in conversion without a controlled test is `UNVERIFIED`.
+
+*   **Design:** A/B Test (Randomized Controlled Trial).
+    *   **Control:** 60s timer.
+    *   **Treatment:** 30s timer.
+*   **Pre-commitment:** Define the sample size (N) required to detect a 2% lift in match rate with 95% confidence *before* launching. Do not peek at results daily; repeated checking inflates false positives. Read the result only once at the pre-committed end date.
+*   **Primary Metric:** Match Rate (Matches / Requests Sent).
+*   **Guardrail Metric:** Driver Session Duration or Churn Rate (to detect frustration). If the match rate rises but drivers log fewer shifts, the change is destructive.
+*   **Call Logic:**
+    *   If Primary lifts significantly AND Guardrail holds: Ship.
+    *   If Primary lifts but Guardrail degrades: Stop (friction costs too much).
+    *   If result is read before sample size N is met: Label `UNVERIFIED`.
+
+**This Week's Step:**
+Instrument the `local_render_time` and `local_interaction_time` events on the driver app for 5% of traffic. Query the ratio of Timeouts to Declines for this cohort. If Timeouts > 15% of total failures, proceed to design the A/B test pre-commitment document.
+
+*Note: All baseline comparisons must use LogiLink's own historical data; no external benchmarks for "good" retention are applied.*
+*Network connectivity data must be aggregated by region (e.g., Lagos Island vs. Mainland) to identify geographic infrastructure gaps.*

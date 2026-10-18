@@ -1,0 +1,47 @@
+# SkyDrop Pilot Tracking Plan
+
+**To:** Priya, Operations Director
+**From:** Analytics Lead
+**Date:** Pre-Launch (Before Jan 10)
+**Subject:** Essential Event Definitions for Trust & Reliability Validation
+
+To validate your hypothesis that **trust** (safety/reliability) is the primary bottleneck, you must track events that distinguish between *system capability* and *external constraints*. Do not rely on a single success event. Instead, implement the following four-event sequence to create a clear operational funnel.
+
+### 1. Core Event Definitions
+
+| Event Name | Trigger Point | Critical Properties | Purpose |
+| :--- | :--- | :--- | : |
+| `order_confirmed` | Customer completes checkout | `delivery_distance`, `weather_status` (at order time) | Establishes the total demand pool before any operational risk. |
+| `package_secured` | Drone physically locks payload | `security_check_status`, `load_time_seconds` | Validates the physical handoff from warehouse to machine. Failure here indicates process/robotic issues, not flight safety. |
+| `flight_initiated` | Drone lifts off with payload | `battery_level`, `wind_speed`, `visibility_score` | Marks the start of the risk window. Capturing weather *here* is crucial for later segmentation. |
+| `customer_handoff` | Recipient physically receives package | `handoff_method` (drop/pinhole/hand), `recipient_presence`, `total_flight_time` | **The Primary Success Metric.** This is the only event that proves reliability to the customer. |
+
+### 2. Handling Weather & External Factors
+
+Do not exclude weather-related delays from your data; this hides the reality of operational stability. Instead, capture environmental context as **properties** on the `flight_initiated` event and use them for segmentation in your dashboard.
+
+*   **The Metric:** Calculate `Completion Rate` as:
+    $$(\text{Count of } \texttt{customer\_handoff}) / (\text{Count of } \texttt{flight\_initiated})$$
+*   **The Analysis:** Create dashboard filters for `weather_status` (e.g., "Clear", "Rain", "High Wind").
+    *   If completion rates drop significantly only during "High Wind," the issue is **external constraint** (expected limitation).
+    *   If completion rates drop during "Clear" weather, the issue is **operational failure** (trust-breaking bug or mechanical fault).
+
+This approach allows you to report: *"Our system is 99% reliable in optimal conditions, but currently grounded by winds >15mph,"* rather than skewing data by removing bad weather days entirely.
+
+### 3. Addressing the Trust Hypothesis
+
+Your debate over which event is "primary" is resolved by the user journey:
+*   **`PackageSecured`** measures warehouse efficiency, not user trust.
+*   **`FlightInitiated`** measures dispatch capability, not success.
+*   **`SafeLanding`** is an internal telemetry state, not a customer outcome. A safe landing where the customer never receives the package is still a failure of trust.
+
+**`CustomerHandoff`** is your only true success event. It is the moment the user's anxiety resolves. To specifically measure *trust*, add a post-handoff survey trigger linked to this event asking: *"How confident did you feel during the delivery?"* Correlate these scores with `total_flight_time` and `weather_status`.
+
+### 4. Implementation Priority
+
+Before January 10th, ensure your engineering team instruments these events with the specified properties. Your dashboard should visualize the drop-off rate between each step. A large drop between `flight_initiated` and `customer_handoff` during clear weather is your leading indicator of a trust crisis.
+
+***
+
+*Note: Ensure `weather_status` is pulled from a localized API at the exact moment of initiation, not a general daily forecast.*
+*All timestamps must be UTC to prevent timezone skew across the 5-mile radius.*

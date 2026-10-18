@@ -1,0 +1,49 @@
+### Group Ordering Instrumentation Checklist for QuickBite Tokyo
+
+To validate your assumption that group orders increase average order value (AOV) from 1,800 to 4,500 yen, you must instrument specifically for the **organizer-participant relationship** and **revenue attribution**. Do not instrument "everything"; track only what answers whether the group mechanic drives value.
+
+#### 1. Essential Events & Properties
+Log these three events with the specified properties. Every event must include a `stable_user_id` (pseudonymous) to link sessions, distinct from high-cardinality operational logs.
+
+**A. `group_session_created`**
+*   **Trigger:** When a user initiates a group order.
+*   **Properties:**
+    *   `organizer_id`: The stable ID of the initiator.
+    *   `session_id`: Unique ID for this specific group cart.
+    *   `invite_channel`: (e.g., "line", "sms", "copy_link") to track acquisition source.
+    *   `timestamp`: ISO 8601.
+
+**B. `participant_joined`**
+*   **Trigger:** When a user clicks an invite link and successfully loads the shared cart.
+*   **Properties:**
+    *   `participant_id`: Stable ID of the joiner.
+    *   `organizer_id`: **Critical.** Links revenue back to the inviter.
+    *   `session_id`: Must match the creator's session.
+    *   `join_latency_seconds`: Time between creation and join (diagnoses friction).
+
+**C. `group_order_completed`** (or `order_abandoned` if applicable)
+*   **Trigger:** Payment success (or explicit cart exit after joining).
+*   **Properties:**
+    *   `session_id`: Links to the group.
+    *   `total_item_count`: Total items in the final basket.
+    *   `total_revenue_jpy`: Final transaction value.
+    *   `participant_count`: Number of unique users who added items.
+    *   `organizer_revenue_attributed_jpy`: The portion of revenue credited to the organizer for LTV calculation.
+    *   `is_mixed_cart`: Boolean (did both organizer and participants add items?).
+
+#### 2. Handling Abandoned Carts
+To analyze the leak where users join but do not buy, you do not need a new event if you have `participant_joined`.
+*   **Logic:** Query for `session_id`s that have `participant_joined` events but lack a `group_order_completed` event within 24 hours.
+*   **Action:** If abandonment is high, check `join_latency_seconds`. If latency is low but conversion is low, the friction is in the checkout flow, not the invite mechanism.
+
+#### 3. Key Questions to Answer (First 48 Hours)
+Run these queries immediately post-launch to validate your baseline:
+1.  **Validation of Assumption:** What is the actual `total_item_count` and `total_revenue_jpy` for sessions with `participant_count` > 1 versus individual orders? (Does it hit the 4,500 yen target?)
+2.  **Attribution Accuracy:** What percentage of `group_order_completed` events have a valid `organizer_id` matching the `participant_joined` record? (If <95%, your attribution logic is broken).
+3.  **Funnel Leak:** Of the users who triggered `participant_joined`, what percentage completed `group_order_completed`? Compare this to the standard individual checkout conversion rate.
+
+#### 4. Implementation Note for Engineering
+*   **Privacy Seam:** Ensure `organizer_id` and `participant_id` are pseudonymous tokens. Do not pass raw PII (names, emails) in these event properties; route any necessary PII handling to your privacy compliance protocol.
+*   **Consistency:** The `session_id` must be immutable once created and passed identically across all participants' devices to ensure accurate cohorting.
+
+**Next Step:** Confirm with engineering that the `session_id` generation logic is centralized and consistent across iOS, Android, and Web before Thursday's deadline. Without a shared `session_id`, revenue attribution to the organizer will fail.

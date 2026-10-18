@@ -1,0 +1,33 @@
+To evaluate the AR feature's impact on sales, instrument only the events that answer specific questions about value and leakage, rather than tracking every interaction. Your North Star for this feature should be **"AR-Assisted Purchases"** (transactions where the user engaged with AR within the session), not raw engagement time, which is a vanity metric if it doesn't lead to value.
+
+**1. Define the Core Funnel (Bottom-Up Diagnosis)**
+Do not start with acquisition. Instrument the flow backwards from the sale to find where value leaks:
+*   **Checkout Initiated (with AR context):** Did the user proceed to payment after using AR? This is your primary success signal.
+*   **Product Added to Cart (from AR View):** The strongest proxy for intent before checkout.
+*   **AR Session Completed (Positive Exit):** User closed the camera after a "Share" or "Add to Cart" action.
+*   **AR Session Abandoned (Negative Exit):** User closed the camera without a secondary action. This is your critical drop-off point.
+
+**2. Event Taxonomy: Answer Named Questions**
+Reject "instrument-everything." Each event below must map to a specific hypothesis:
+*   `ar_session_started`: *Question:* Are users entering the flow? (Replaces generic "camera activated").
+*   `product_rendered`: *Question:* Is the technical load time causing immediate drop-off? (Replaces "product loaded").
+*   `interaction_depth_reached`: *Question:* Does manipulation correlate to intent? Instead of tracking raw time, count specific high-intent actions:
+    *   `shade_switched` (count per session)
+    *   `angle_adjusted` (count per session)
+    *   `capture_shared` (binary: did they share?)
+    *   *Logic:* Compare the distribution of these counts between users who bought vs. those who abandoned. If buyers average 4 shade switches and abandoners average 1, you have your correlation. Do not assume time spent equals intent; "playing for fun" often looks like high time/low specific actions.
+*   `checkout_clicked_from_ar`: *Question:* Where is the seam between exploration and commerce?
+
+**3. The Identifier Seam**
+To analyze retention and funnel conversion, you must link these events to a **stable, pseudonymous user ID** that persists across sessions. This allows you to see if a user returns to the AR feature in Week 2. Do not use raw PII here; route any personal data handling to your privacy compliance protocols. This stable ID is the only way to distinguish a new user from a returning one, which is essential for calculating true retention rather than just daily volume.
+
+**4. Implementation Sequence for Engineering**
+Provide this logical sequence to your team:
+1.  **Start:** `ar_session_started` (User ID, Timestamp, Entry Point).
+2.  **Middle:** `product_rendered` (Load Latency), followed by incremental `interaction_event` (Type: Shade/Angle/Share, Count).
+3.  **End (Success):** `add_to_cart` or `checkout_initiated` (Source: AR).
+4.  **End (Failure):** `ar_session_abandoned` (Trigger: Close button, Time Elapsed, Last Interaction Type).
+
+**This Week's Step:** Before the 1st, define the exact threshold for "high intent" based on the *count* of interactions (e.g., "3+ shade switches") rather than time. Prepare a query to compare the conversion rate of users above vs. below this threshold once data arrives. Without this pre-defined hypothesis, you will only have noise, not insight.
+
+*Note: Do not fabricate benchmarks for "good" conversion rates; compare your launch week data only against your own baseline from Week 2 onwards. If the "Abandoned" event spikes, investigate technical latency or UX friction before spending on acquisition.*

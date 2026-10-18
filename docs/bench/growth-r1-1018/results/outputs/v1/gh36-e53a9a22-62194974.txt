@@ -1,0 +1,33 @@
+**North Star Metric:** Weekly Active Customers completing a **Verified Customer Handoff**.
+*Reasoning:* "FlightInitiated," "PackageSecured," and "SafeLanding" are operational vanity metrics; they can rise while user trust falls if packages never reach hands. Only **CustomerHandoff** proves the user received value. If this metric stagnates while flight counts rise, your trust hypothesis is confirmed: the system works mechanically but fails to convince users to complete the loop.
+
+**Essential Event Taxonomy (Answering Named Questions)**
+Do not instrument "just in case." Track only these four events to distinguish operational failure from external factors and measure trust:
+
+1.  **`DeliveryAttemptStarted`** (Properties: `weather_condition`, `wind_speed`, `time_of_day`)
+    *   *Question:* Are we attempting deliveries despite external constraints?
+    *   *Insight:* Filters out days/hours where weather prevents attempts entirely.
+
+2.  **`OperationalAbort`** (Properties: `abort_reason_code` [e.g., `sensor_fault`, `geofence_breach`, `weather_threshold_exceeded`], `flight_phase`)
+    *   *Question:* Is the failure internal (reliability) or external (weather)?
+    *   *Insight:* Explicitly tags weather delays. If `abort_reason_code` is `weather_threshold_exceeded`, exclude from reliability calculations. If it is `sensor_fault`, this is a trust-killing operational failure.
+
+3.  **`CustomerHandoff`** (Properties: `time_to_complete`, `customer_acknowledgment_method`)
+    *   *Question:* Did the user actually receive the package?
+    *   *Insight:* This is your success event. A gap between `SafeLanding` and this event indicates user hesitation or interface friction (trust issues).
+
+4.  **`PostDeliveryTrustSignal`** (Properties: `rating_score`, `repeat_booking_intent`, `support_ticket_flagged`)
+    *   *Question:* Did the experience increase or decrease trust for the next order?
+    *   *Insight:* Directly validates your hypothesis. If handoffs are high but repeat intent is low, the "black box" nature of the drone is scaring users despite successful delivery.
+
+**Handling Weather & Reliability Data**
+Do not blend weather delays into reliability stats. Calculate **Operational Reliability Rate** as:
+`(Successful Customer Handoffs) / (DeliveryAttemptStarted - Weather-Aborted Attempts)`
+By subtracting attempts aborted due to `weather_threshold_exceeded` from the denominator, you isolate the drone's mechanical/software performance from Austin's unpredictable weather. This prevents skewing reliability data during storm seasons.
+
+**This Week's Steps for Priya**
+1.  **Define the Schema:** Finalize the `abort_reason_code` enumeration immediately to ensure weather vs. mechanical failures are distinct strings in the database, not free text.
+2.  **Build the Cohort Query:** Set up a dashboard view comparing `DeliveryAttemptStarted` vs. `CustomerHandoff` grouped by `weather_condition`. If the drop-off is consistent across clear and rainy days, the bottleneck is trust/interface, not weather.
+3.  **Instrument the Gap:** Ensure the timestamp delta between `SafeLanding` and `CustomerHandoff` is tracked; a widening gap over the pilot indicates growing user apprehension.
+
+*Note: Do not track "PackageSecured" as a success metric; it is a prerequisite, not a value delivery. All user identifiers in these events must be pseudonymized before storage to comply with privacy standards.*

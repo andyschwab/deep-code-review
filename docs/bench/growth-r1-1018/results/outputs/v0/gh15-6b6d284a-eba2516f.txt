@@ -1,0 +1,33 @@
+To answer your retention questions and validate the hypothesis that false positives drive churn, your event schema must link every automated detection to a specific user decision. Do not instrument "everything"; capture only the events that answer whether the system delivered value or noise.
+
+**1. Core Event Categories**
+Define three distinct logical event types. Each must carry a stable, pseudonymous `household_id` to enable cohort analysis without exposing PII.
+
+*   **`motion_detected`**: Fired by the algorithm when movement occurs.
+    *   **Required Properties**: `detection_id` (unique), `object_type` (person, pet, vehicle, unknown), `confidence_score` (0–1), `timestamp`, and `zone_id` (e.g., "front_door", "backyard").
+    *   **Purpose**: Establishes the baseline volume and the raw error rate of the classifier.
+
+*   **`alert_delivered`**: Fired when a notification is successfully pushed to a user's device.
+    *   **Required Properties**: `detection_id` (foreign key to the motion event), `delivery_channel` (push, sms, email), `timestamp`.
+    *   **Purpose**: Confirms the user had the opportunity to react. Filters out backend detections that were suppressed by user settings before reaching the user.
+
+*   **`user_response`**: Fired when the user interacts with the alert.
+    *   **Required Properties**: `detection_id` (foreign key), `action_type` (verified_safe, confirmed_threat, dismissed, ignored_timeout), `time_to_respond` (seconds elapsed between `alert_delivered` and this event), `timestamp`.
+    *   **Purpose**: This is your critical retention signal. "Ignored_timeout" (no action within a set window, e.g., 30 seconds) combined with `object_type: pet` validates your false positive hypothesis. "Verified_safe" indicates a false alarm that required manual labor, which also drives churn.
+
+**2. Logical Relationships and Retention Logic**
+The schema must enforce a one-to-one relationship between a `motion_detected` event and its subsequent `alert_delivered` and `user_response` events via the `detection_id`. This chain allows you to construct a **Retention Funnel** read bottom-up:
+
+*   **Step 1 (Value Leak)**: Calculate the rate of `dismissed` or `ignored_timeout` responses grouped by `object_type`. If "pet" events have a 95% dismissal rate, your hypothesis is confirmed: the algorithm is noisy for pet owners.
+*   **Step 2 (Friction Cost)**: Measure the `time_to_respond` for `verified_safe` actions. High friction here (users having to constantly check and clear alerts) predicts churn even if they don't explicitly dismiss.
+*   **Step 3 (Cohort Analysis)**: Group `household_id`s by their primary noise source (e.g., "High Pet False Positives"). Compare the Day-7 and Day-30 active rates of this cohort against households with low false positive rates. If the high-noise cohort retains significantly worse, you have causal evidence for your roadmap.
+
+**3. Implementation Guardrails**
+*   **Instrument for the Question**: Do not log raw video frames or continuous telemetry in this schema. Only log the discrete decision points listed above.
+*   **Identifier Seam**: The `household_id` must be stable across sessions to track user behavior over the 30-day beta, but it must be pseudonymous. Route any mapping of this ID to real-world addresses or names to your privacy compliance layer, not this analytics schema.
+*   **Baseline Dependency**: Do not assume a "good" dismissal rate. Your benchmark is the trend of your own beta data. If dismissal rates drop week-over-week after an algorithm tweak, that is success.
+
+**This Week's Step**: Before Monday's modeling session, define the exact enumeration values for `action_type` (specifically distinguishing between an explicit "dismiss" swipe and a passive "ignore" timeout), as conflating these two will obscure whether users are actively annoyed or just habituated to noise.
+
+Note: This schema design assumes the MVP stage where validating the core value proposition (accurate alerts) is the primary driver of retention.
+Do not fabricate benchmark thresholds for "acceptable" false positive rates; derive these solely from the correlation between your beta dismissal rates and actual churn.

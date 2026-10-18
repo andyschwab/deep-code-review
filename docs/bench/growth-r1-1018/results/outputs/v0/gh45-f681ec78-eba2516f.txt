@@ -1,0 +1,43 @@
+### Trust Health Dashboard: Leading Indicators & Composite Metrics
+
+Your current "dispute rate" is a lagging failure metric; it tells you when trust broke, not when it is forming. To monitor community health in real-time, you must measure **trust signals** (pre-transaction) and **trust validation** (post-transaction sentiment), rather than just the absence of conflict.
+
+#### 1. The North Star: "Verified Completion Rate"
+Replace "transactions without dispute" with **Verified Completion Rate**: the percentage of initiated rental requests that result in a confirmed handover *and* a positive post-rental sentiment signal (e.g., a 4+ star rating or a "smooth transaction" tag).
+*   **Why:** This combines the *action* (rental happened) with the *value* (user felt safe/satisfied). A transaction without a dispute but also without a review is ambiguous; a transaction with a glowing review is verified trust.
+
+#### 2. Leading Indicators (Pre-Transaction Signals)
+Track these behaviors to predict trust before money changes hands. Instrument only events that answer specific questions:
+
+*   **Signal Decay Rate:** Measure the drop-off in acceptance probability as profile completeness decreases.
+    *   *Question:* "Does missing insurance info kill trust faster than missing reviews?"
+    *   *Event:* `profile_view` → `request_sent` (properties: `has_verified_id`, `has_insurance_badge`, `review_count_bucket`).
+    *   *Insight:* Your 8% lift on verified IDs suggests ID alone is weak. If `has_insurance_badge` shows a 40% lift, you have found your true leading indicator.
+*   **Conversation-to-Request Ratio:** The percentage of users who initiate a chat before sending a rental request.
+    *   *Question:* "Do users need human validation before trusting high-value gear?"
+    *   *Event:* `chat_initiated` → `request_sent`.
+    *   *Insight:* A high ratio indicates users don't trust the profile alone; a dropping ratio over time suggests your verification badges are becoming sufficient proxies for trust.
+*   **Time-to-Acceptance by Trust Tier:** Median time for a request to be accepted, segmented by the requester's trust score (e.g., New vs. Verified vs. Super-Renter).
+    *   *Question:* "Does high trust speed up the market?"
+    *   *Event:* `request_sent` → `request_accepted`.
+
+#### 3. Sentiment Proxies (Post-Transaction, Pre-Dispute)
+Disputes are rare; subtle friction is common. Capture sentiment immediately after the gear is returned, before a formal dispute window opens.
+
+*   **The "Silent Friction" Metric:** Track the percentage of completed rentals where the renter *does not* leave a review within 48 hours.
+    *   *Hypothesis:* Users who had a merely "okay" or slightly anxious experience often skip reviewing, whereas delighted users review promptly. A spike in non-reviews is a leading indicator of eroding trust.
+*   **Micro-Survey Trigger:** Instead of a full NPS, trigger a one-tap question upon return confirmation: "Did you feel confident throughout this rental?" (Yes/No).
+    *   *Action:* Route "No" responses to Trust & Safety immediately, days before a formal dispute might be filed.
+
+#### 4. Composite Metric: The Trust Velocity Score
+Create a single dashboard number combining speed and sentiment:
+$$ \text{Trust Velocity} = (\% \text{ Requests Accepted within 24h}) \times (\% \text{ Positive Micro-Sentiment}) $$
+*   If acceptance is fast but sentiment is low, you have frictionless fraud or coerced rentals.
+*   If sentiment is high but acceptance is slow, your verification barriers are too high.
+
+#### Implementation Plan (This Week)
+1.  **Instrument:** Add properties to `request_sent` and `request_accepted` events for `user_trust_tier` (ID status, review count, insurance status). Do not track "everything"; track only these segmentation keys.
+2.  **Deploy Micro-Survey:** Add the single "Confidence?" tap-target to the return flow.
+3.  **Analyze:** Run a cohort analysis comparing `acceptance_rate` against `insurance_badge` presence. If the lift is >20%, pivot your marketing to highlight insurance over ID verification.
+
+**Note:** Do not fabricate a "good" benchmark for these metrics; compare Week 1 to Week 2 of your own data. The 8% ID lift you cited is `UNVERIFIED` as a causal driver without controlling for gear price or category—ensure your new event taxonomy captures those confounders.

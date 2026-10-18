@@ -1,0 +1,72 @@
+### Group Ordering Instrumentation Checklist for QuickBite Tokyo
+
+To validate your assumption that group orders increase average order value (AOV) from 1,800 to 4,500 yen, you must instrument only the events that answer specific questions about organizer behavior, participant conversion, and revenue attribution. Do not log "everything"; log only what proves the value hypothesis.
+
+#### 1. Core Events and Required Properties
+Every event below must include a `stable_user_id` (pseudonymous, consistent across sessions) and `session_id`.
+
+**A. `group_order_initiated`**
+*   **Trigger:** When a user clicks "Start Group Order."
+*   **Question Answered:** How many users attempt to create a group? (Activation of the feature).
+*   **Essential Properties:**
+    *   `user_role`: "organizer"
+    *   `group_id`: Unique identifier for this specific order session.
+    *   `restaurant_id`: Context for menu constraints.
+    *   `timestamp`: Start time.
+
+**B. `group_invite_sent`**
+*   **Trigger:** When the organizer shares the link (via SMS, Line, copy-paste).
+*   **Question Answered:** What is the drop-off between starting a group and inviting others?
+*   **Essential Properties:**
+    *   `group_id`
+    *   `invite_method`: (e.g., "line", "sms", "clipboard") – helps optimize channels later.
+    *   `organizer_id`: To attribute future revenue.
+
+**C. `group_participant_joined`**
+*   **Trigger:** When a user opens the link and successfully loads the shared cart.
+*   **Question Answered:** What is the conversion rate from invite to active participant?
+*   **Essential Properties:**
+    *   `user_role`: "participant"
+    *   `group_id`
+    *   `referrer_id`: The `organizer_id` (critical for attributing the AOV lift to the inviter).
+    *   `time_since_initiated`: Latency metric.
+
+**D. `cart_item_added` (Existing event, enhanced)**
+*   **Trigger:** Adding an item to the cart.
+*   **Question Answered:** Are groups actually adding more items per capita than individuals?
+*   **Essential Properties:**
+    *   `group_id`: **Must be present**; if null, it's an individual order.
+    *   `item_count_in_cart`: Current total items in the shared cart.
+    *   `cart_value_yen`: Current total value.
+
+**E. `order_completed`**
+*   **Trigger:** Successful payment.
+*   **Question Answered:** Did the group order reach the 4,500 yen target? Who gets credit?
+*   **Essential Properties:**
+    *   `group_id`
+    *   `total_items`: Final count.
+    *   `total_value_yen`: Final revenue.
+    *   `organizer_id`: For cohort analysis of organizer performance.
+    *   `participant_count`: Number of unique users who added items.
+
+**F. `group_order_abandoned`**
+*   **Trigger:** A user joins (`group_participant_joined`) but the `group_id` sees no `order_completed` within a defined window (e.g., 30 mins) OR explicit "Leave Group" action.
+*   **Question Answered:** Where do groups leak? Is it friction in joining or friction in deciding?
+*   **Essential Properties:**
+    *   `group_id`
+    *   `abandonment_stage`: "joined_no_items", "items_added_no_pay", "organizer_left".
+    *   `partial_value_yen`: Value of items left in cart.
+
+#### 2. Handling Abandoned Carts
+Do not create a separate "abandonment" event fired continuously. Instead, define abandonment as a derived state in your analytics query:
+*   **Logic:** If `group_participant_joined` exists for a `group_id`, but no `order_completed` exists within 45 minutes of the first join.
+*   **Attribution:** Even if abandoned, link the `partial_value_yen` back to the `organizer_id` to measure if organizers are driving high-intent traffic even when conversion fails.
+
+#### 3. Key Questions to Answer in First 48 Hours
+Run these queries immediately post-launch to validate the hypothesis:
+1.  **Validation of Assumption:** What is the actual `total_value_yen` for orders with `participant_count` > 1 vs. `participant_count` = 1? (Target: ~4,500 vs 1,800).
+2.  **Funnel Leak:** Of the `group_order_initiated` events, what percentage result in at least one `group_participant_joined`? (If low, the invite flow is broken).
+3.  **Role Behavior:** Do participants add fewer items per person than the organizer? (Check `item_count` / `participant_count`).
+4.  **Abandonment Rate:** What percentage of groups with `participant_count` > 1 fail to complete `order_completed` compared to individual carts?
+
+**Note:** Ensure the `stable_user_id` is pseudonymous to comply with privacy standards; do not pass raw PII in these events. If the `group_id` is missing from any `order_completed` event, that revenue data is `UNVERIFIED` for group analysis.
