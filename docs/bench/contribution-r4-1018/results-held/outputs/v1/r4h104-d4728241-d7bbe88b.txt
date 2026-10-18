@@ -1,0 +1,56 @@
+Do not submit the current test or any patch referencing "Helix Corp," your internal DNS record, or the specific firewall behavior. Upstream projects cannot accept tests tied to private infrastructure or environmental quirks specific to one contributor's network.
+
+To fix this while preserving coverage, you must **generalize the failure mode** and **replace the external dependency with a synthetic or mockable one**. Here is the strategy:
+
+1.  **Abstract the Dependency**: Refactor the code under test to accept a trait or interface for DNS resolution rather than calling the system resolver directly. If the code already does this, ensure the test uses a mock implementation.
+2.  **Inject Failure Scenarios**: Instead of querying a real public record that might be blocked or flaky, write a mock resolver that deterministically simulates the specific conditions you need to test:
+    *   Successful resolution.
+    *   Timeout (simulating the firewall drop).
+    *   NXDOMAIN or malformed response.
+3.  **Remove Network Calls**: The upstream test must not perform *any* real network I/O. It should verify that your library correctly handles the *results* returned by the resolver (whether success or error), not the act of resolution itself.
+4.  **Document the Gap**: If the original test verified interaction with a specific real-world DNS quirk (e.g., a specific TTL behavior or record type edge case), describe this abstractly in a comment above the test using invented data (e.g., "Simulates a resolver returning a truncated UDP response"). Do not mention your corporate environment.
+
+**Commit Message Draft:**
+```text
+test: replace flaky external DNS lookup with deterministic mock
+
+The previous test relied on a specific public DNS record, causing
+intermittent timeouts in CI environments with restrictive firewalls
+or unstable network conditions. This violates the project rule against
+tests requiring special network configurations.
+
+This change refactors the test to inject a mock DNS resolver. The mock
+deterministically simulates successful resolution, timeouts, and
+negative responses, ensuring the library's error handling logic is
+covered without external dependencies.
+
+Fixes flaky test behavior under high load and restricted network policies.
+```
+
+**PR Body Draft:**
+```markdown
+## Problem
+The existing test `test_hostname_resolution` fails intermittently in CI due to reliance on an external DNS record that is sometimes unreachable or slow, leading to false negatives.
+
+## Solution
+- Introduced a mockable DNS resolver trait (if not present, added locally for tests).
+- Replaced the live network call with a mock implementation that simulates various resolution outcomes (success, timeout, error).
+- Removed all external network dependencies from the test suite.
+
+## Testing
+- Verified all new mock-based scenarios pass locally.
+- Confirmed no outbound network traffic is generated during test execution.
+- [Paste output of `cargo test` showing 100% pass rate over multiple runs]
+
+## Risk
+Low. The logic under test remains unchanged; only the input source is mocked.
+```
+
+**Direct Answer to Your Uncertainty:**
+You should **mock the DNS resolution entirely**. Skipping tests based on network conditions is generally discouraged in libraries because it reduces confidence in the test suite; a test that sometimes doesn't run is a test that doesn't verify anything. By mocking, you gain deterministic coverage of the error paths that the real network was failing to provide reliably.
+
+**Fallback:**
+If the maintainers argue that the specific *real-world* behavior of a resolver cannot be adequately mocked, ask if they accept a test marked with `#[ignore]` that documents the specific edge case, but emphasize that your proposed mock covers the *logic* robustly, which is usually the primary goal.
+
+Note: Ensure your `Cargo.toml` dev-dependencies include a mocking crate if you aren't writing the mock manually.
+Note: Run the privacy gate script locally before drafting the PR to ensure no residual internal identifiers remain in comments.

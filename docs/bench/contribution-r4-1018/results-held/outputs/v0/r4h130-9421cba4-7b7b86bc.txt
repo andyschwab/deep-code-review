@@ -1,0 +1,27 @@
+You cannot upstream this contribution with the current benchmark suite. The use of real user profiles containing personally identifiable information (PII) and proprietary travel patterns is a hard stop. You must replace the dataset entirely with synthetic data before any code review or PR drafting can occur.
+
+Here is the procedure to resolve this:
+
+1.  **Stop and Isolate**: Do not commit, push, or attach the real dataset or any logs derived from it to any public issue or PR. This violates privacy constraints and likely legal agreements regarding user data.
+2.  **Extract Statistical Signatures Only**: Analyze the real data locally to extract *only* the statistical properties required to reproduce the bottleneck. Do not extract schemas, field names, or specific values. You need:
+    *   Distribution curves (e.g., "80% of records have 2 fields, 15% have 50 fields, 5% have 500+ fields").
+    *   Cardinality ratios (e.g., "1 unique ID per 10,000 records").
+    *   Payload size histograms.
+    *   Specific skew patterns that trigger the allocation spike.
+3.  **Build a Deterministic Synthetic Generator**: Write a C# script (e.g., `SyntheticProfileGenerator.cs`) that uses a fixed random seed to generate data matching those statistical signatures.
+    *   **Field Names**: Use generic names like `field_a`, `id_1`, `value_x` instead of `user_id`, `travel_pass_number`, or `home_station`.
+    *   **Values**: Use random strings or numbers that match the *length* and *type* of the original data but contain no real information.
+    *   **Logic**: Hardcode the skew logic directly into the generator (e.g., `if (index % 20 == 0) generate_large_payload()`). This encodes the "business logic" as a mathematical distribution rather than revealing the actual business rule.
+4.  **Validate Locally**: Run your performance benchmark against this new synthetic dataset. Confirm it reproduces the memory allocation spike and that your fix resolves it.
+5.  **Draft the Contribution**:
+    *   **Commit Message**: "Add synthetic benchmark generator to reproduce high-cardinality memory spike. Replaces PII-containing dataset with deterministic statistical model."
+    *   **PR Body**: Explain that the benchmark now uses a seeded generator to mimic specific distribution skews (describe the skew mathematically, e.g., "long-tail distribution of nested objects") without relying on real user data. State clearly: "No real user data or proprietary schemas are included; all data is algorithmically generated."
+
+**Direct Answer to Your Uncertainty**:
+You do not need to reveal your private business logic to reproduce the performance characteristic. Performance bottlenecks are caused by *data shapes* (size, depth, frequency), not *data meaning*. By modeling the frequency and size of your "skewed" records mathematically in a generator, you create a perfect stress test that is completely decoupled from your internal domain logic.
+
+**Fallback**:
+If the maintainers argue that synthetic data does not prove the fix, offer to provide a private, sanitized trace file (stripped of all values, keeping only structure/length) via a secure, private channel if the project has one, but insist that the public repository must only contain the synthetic generator.
+
+**Note**: Ensure your generator script is included in the repository so anyone can regenerate the exact same dataset by running it with the same seed.
+**Note**: Never attempt to "anonymize" the real dataset by hashing or masking; re-identification risks remain too high for upstreaming.

@@ -1,0 +1,19 @@
+**Strategy: Deterministic Synthetic Replay with Seeded Pseudo-IDs**
+
+Do not describe the locking pattern in isolation, and do not attempt to mimic statistical properties with random data, as you have already found this fails to trigger the race. Instead, construct a **deterministic synthetic fixture** that hardcodes the *structural sequence* of the deadlock without using real customer identifiers.
+
+1.  **Abstract the Identifiers**: Replace the real financial transaction IDs with a fixed set of synthetic IDs (e.g., `TXN-0001` through `TXN-0010`). The specific numeric value of a transaction ID rarely matters to a database driver's lock manager; what matters is the *order* in which distinct resources are requested and the *timing* of those requests relative to one another.
+2.  **Encode the Sequence, Not the Data**: Your test fixture should not generate data; it should replay a script. Hardcode the exact sequence of operations that caused the deadlock in production (e.g., "Goroutine A locks ID 1, then requests ID 2; Goroutine B locks ID 2, then requests ID 1"). Map your real production IDs to your synthetic IDs one-to-one for the purpose of this test script only.
+    *   *Real World*: Lock `CUST-9988` → Lock `CUST-7766`
+    *   *Test Fixture*: Lock `SYN-0001` → Lock `SYN-0002`
+3.  **Ensure Determinism**: Use explicit synchronization primitives (like `sync.WaitGroup` or channels) in your Go test to force the goroutines to execute in the precise interleaving required to trigger the deadlock. Do not rely on `time.Sleep` or random scheduling, as these are non-deterministic. The test must fail (deadlock) 100% of the time on the current code and pass 100% of the time on the fixed code.
+4.  **Verification**: Run this synthetic test locally. If it reproduces the deadlock reliably using only fake IDs and forced scheduling, it satisfies the maintainer's requirement for "valid data that triggers the reported behavior." The "validity" lies in the logical conflict, not the financial reality of the ID numbers.
+
+**Direct Answer to Your Uncertainty**:
+Choose neither of your proposed options. Do not just describe the pattern (too vague for reproduction), and do not try to statistically mimic the data (too flaky). **Create a minimal, hardcoded test case using fake IDs that explicitly forces the specific lock-ordering conflict.** This provides the maintainer with a failing test they can run immediately, proving the bug exists without exposing a single byte of Wayne Enterprises' customer data.
+
+**Fallback**:
+If the maintainers reject the synthetic IDs claiming the bug is specific to the "real" values, ask them to identify the specific property of the real IDs (e.g., hash collisions, specific bit patterns) that causes the failure. If they cannot articulate a technical reason why synthetic IDs would behave differently than real ones in the locking logic, the burden of proof shifts to them to provide a non-confidential reproduction case, as your synthetic test logically covers the deadlock class.
+
+**Note**: Before sharing, run a privacy gate script to ensure no real IDs or hostnames leaked into the test file comments or error messages.
+**Note**: Ensure your commit message attributes the fix to the general class of "lock ordering deadlock" rather than the specific business domain.

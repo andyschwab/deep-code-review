@@ -1,0 +1,34 @@
+### Strategy: Decouple Verification from Secret Exposure
+
+Do not share credentials, and do not ask maintainers to "trust" your word alone. Instead, provide **architectural evidence** and **reproducible logic** that allows them to verify your code without needing your secrets.
+
+**1. Implement a "Test Hook" or Interface Mock (Code Change)**
+Since the project lacks a mock server, your PR should include one. In Go, this is standard practice:
+*   Identify the interface your new Azure-like provider implements (e.g., `CloudProvider`).
+*   Create a `fake_provider.go` file in your test directory that implements this interface with hardcoded, deterministic responses (no network calls, no secrets).
+*   Modify the test suite (or add a new test file) to accept a build tag (e.g., `//go:build integration_mock`) that swaps the real provider for your fake one.
+*   **Result:** The public CI can run `go test -tags=integration_mock` and verify your logic paths, error handling, and state management without ever touching a real API.
+
+**2. Provide a "Sanitized" Execution Log (Evidence)**
+Run the tests locally against your real staging environment using the actual secrets. Capture the output, but **redact** sensitive data before sharing:
+*   Run the test with verbose logging enabled.
+*   Use a script or manual editing to replace all UUIDs, IP addresses, secret keys, and specific endpoint URLs with placeholders like `[REDACTED_UUID]` or `[STAGING_ENDPOINT]`.
+*   Ensure the *structure* of the logs remains visible (e.g., "Auth successful," "Resource created," "State verified").
+*   Paste this sanitized log into your PR description under a "Local Integration Test Results" section. This proves the code works against a real API without leaking data.
+
+**3. Update the PR Description with a Security Narrative**
+Explicitly address the security constraint in your PR body. Use this structure:
+*   **Problem:** "Integration tests require private credentials unavailable to public CI."
+*   **Solution:** "Added a mock provider implementation (`fake_provider.go`) enabled via `//go:build integration_mock`. Public CI now validates logic flow without secrets."
+*   **Verification:** "Full integration against private staging passed locally. See sanitized logs below confirming successful auth, resource provisioning, and teardown."
+*   **Security Statement:** "No secrets were committed, logged, or transmitted to external services. The mock ensures future regressions can be caught publicly."
+
+**4. Offer a Private Review Channel (Optional but High-Trust)**
+If the maintainers remain hesitant about the logic that *only* hits the real API:
+*   Offer to hop on a brief screen-share call to demonstrate the test running live.
+*   Or, if the project has a security email, offer to send the full unredacted log to a maintainer directly under a temporary NDA or private email agreement, though the mock approach usually makes this unnecessary.
+
+By providing a mock that lets *them* run the tests and a sanitized log that proves *you* ran them, you satisfy the "pass the full test suite" requirement without violating your company's data policies.
+
+*Note: Ensure your `.gitignore` explicitly excludes any local `.env` files or config files containing the real credentials to prevent accidental commits.*
+*Note: If the project strictly forbids adding new files like mocks without prior issue discussion, open a brief issue first explaining that the mock is required to satisfy the CI requirement for private providers.*

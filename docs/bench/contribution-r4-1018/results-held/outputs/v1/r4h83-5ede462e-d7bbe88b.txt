@@ -1,0 +1,34 @@
+**Strategy: Decouple Verification from Secret Exposure**
+
+Do not share credentials, logs containing secrets, or request that maintainers "trust" local results without evidence. Instead, restructure your contribution to separate the *logic* of the provider implementation from the *execution* against the real cloud. Follow these steps:
+
+1.  **Implement a Mock Interface Locally:**
+    Refactor the new Azure-like provider code to depend on an interface (e.g., `CloudClient`) rather than concrete API calls. Create a mock implementation of this interface that returns deterministic, synthetic responses (e.g., hardcoded JSON structures mimicking the cloud provider's API).
+    *   *Action:* Write unit tests using this mock that cover 100% of your new logic paths. These tests require no network access and no secrets.
+
+2.  **Isolate Integration Tests:**
+    Keep your integration tests (those requiring real credentials) but mark them with a build tag or skip flag (e.g., `//go:build integration` or `t.Skip("requires real credentials")`).
+    *   *Action:* Ensure the default test suite (`go test ./...`) runs only the unit tests with mocks. This satisfies the CI requirement without needing secrets.
+
+3.  **Draft the Pull Request with Evidence:**
+    Submit the PR containing:
+    *   The provider implementation.
+    *   The new mock interface and mock data.
+    *   The comprehensive unit tests passing on public CI.
+    *   The integration tests (skipped by default).
+    *   **Documentation:** A `TESTING.md` section in the PR body explaining: "Integration tests require private staging credentials. We have verified these locally against Umbrella Innovations' staging cluster. The attached unit tests verify all logic paths using synthetic data and pass on public CI."
+
+4.  **Offer a Private Verification Channel:**
+    In the PR description, explicitly offer to demonstrate the integration tests via a secure, ephemeral method if the maintainers require it. Options include:
+    *   A screen-sharing session where you run the tests live.
+    *   Providing a temporary, read-only audit log (scrubbed of secrets) if your internal policy allows.
+    *   Inviting a maintainer to a confidential call to witness the test run.
+
+**Direct Answer to Your Uncertainty:**
+Do not ask maintainers to blindly trust local results. Instead, provide **mechanical proof** via the mock-based unit tests that run on their CI, and offer **observable proof** of the integration tests via a private, controlled demonstration. This respects both the project's quality standards and your company's security policies.
+
+**Fallback if Maintainers Insist on Public CI Secrets:**
+If the maintainers refuse to accept mocked tests and demand real credentials in public logs, politely decline to proceed further. Explain that exposing infrastructure secrets violates fundamental security policies and that no reputable project should require such a risk. Suggest they implement a generic mock server framework for the project, which you would be happy to help design (using only synthetic data).
+
+**Note:** Ensure all commit messages and code comments are stripped of "Umbrella Innovations," specific endpoint URLs, and internal ticket numbers before pushing.
+**Note:** Run a local search for your secret keys in the git history before drafting the PR to ensure no accidental leaks occurred during development.

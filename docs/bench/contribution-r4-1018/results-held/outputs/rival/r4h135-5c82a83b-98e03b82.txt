@@ -1,0 +1,38 @@
+You cannot and must not use your employer's confidential financial data, even obfuscated, to prove a bug fix in an open-source contribution. Doing so violates your internal compliance rules and risks exposing proprietary tax strategies. The solution is to construct **synthetic, deterministic test data** that mathematically reproduces the *magnitude* and *edge-case conditions* required to trigger the rounding error, without containing any actual figures from Initech.
+
+Here is your strategy to validate the fix publicly while maintaining strict confidentiality:
+
+### 1. Isolate the Mathematical Trigger
+Identify the exact mathematical condition causing the rounding error. In financial logic, this is usually a specific relationship between the transaction magnitude ($V$), the tax rate ($R$), and the rounding precision ($P$).
+*   **Action:** Determine the minimum $V$ where `round(V * R, P)` fails in the current code but passes in your fix.
+*   **Result:** You now have a formula, not a secret. For example: "The bug triggers when $V > 10^8$ and the fractional part of $V \times R$ is exactly $0.005$."
+
+### 2. Generate Synthetic "Stress-Test" Constants
+Create new constants specifically for this test case that satisfy the formula derived above but are clearly artificial.
+*   **Method:** Use powers of 10 or repeating integers that no real company would have.
+    *   *Bad (looks real):* `BigDecimal("45291033.21")`
+    *   *Good (clearly synthetic):* `BigDecimal("100_000_000.05")` or `BigDecimal("999_999_999.99")`
+*   **Implementation:** Define these in the test file with a comment explaining they are **synthetic stress values**:
+    ```java
+    // Synthetic value constructed to trigger rounding edge case at magnitude > 10^8.
+    // Does not represent any real-world transaction.
+    private static final BigDecimal SYNTHETIC_HIGH_VALUE_TX = new BigDecimal("500_000_000.125");
+    ```
+
+### 3. Prove the Edge Case via Assertion Logic
+Your test does not need to prove "Initech's tax was wrong." It only needs to prove "The library rounds incorrectly at this specific mathematical boundary."
+*   **Test Structure:**
+    1.  Input the synthetic high-value number.
+    2.  Apply the tax rate (also use a clean synthetic rate like `0.0725` or `1/13`).
+    3.  Assert that the *current* library output differs from the *expected* mathematical result (reproving the bug).
+    4.  Assert that your *fixed* library output matches the expected result.
+*   **Why this works:** Maintainers care about the *logic correctness*, not the realism of the input. If your synthetic number hits the same floating-point or BigDecimal rounding boundary as your real data, the test is equally valid.
+
+### 4. Document the Derivation in the PR
+In your PR description (Phase 4), explicitly state:
+> "This test uses synthetic values ($V=5 \times 10^8$) derived to reproduce the rounding boundary condition found in high-magnitude transactions. Real-world confidential data was not used; the failure mode is purely a function of numerical magnitude and precision limits, which these synthetic constants accurately simulate."
+
+This approach satisfies the maintainer's requirement for comprehensive coverage (you are testing the edge case) while adhering to your employer's security constraints (no real data leaves your machine). It actually strengthens your PR by showing you understand the root mathematical cause rather than just regurgating a specific incident.
+
+**Note:** Ensure your synthetic numbers are large enough to trigger the issue but small enough to not cause overflow errors unrelated to the rounding bug.
+**Note:** If the bug depends on a specific tax jurisdiction's complex rule, model that rule algorithmically in the test setup using dummy rates, rather than copying the real jurisdiction's rate table.

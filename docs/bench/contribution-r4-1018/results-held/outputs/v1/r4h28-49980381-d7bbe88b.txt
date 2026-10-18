@@ -1,0 +1,86 @@
+### Stop Checks
+Before proceeding, you must clear the following:
+1.  **Employer IP/Legal Approval:** Confirm your employment agreement allows contributing fixes derived from internal work to open source.
+2.  **Confidentiality:** The specific failure mode tied to "quarterly financial reports" is a confidential fact. Even if the numbers are changed, stating that the bug triggers *specifically* at your unreleased revenue volume may leak roadmap information. You must generalize the trigger condition to a mathematical property (e.g., "accumulation of $N$ operations where magnitude $> X$") rather than a business context.
+
+### Generalized Solution
+Do not use scaled-down versions of your real data. Instead, construct a **synthetic stress test** based on the mathematical properties of floating-point arithmetic that cause the error, independent of your specific business values.
+
+**The Mathematical Principle:**
+Rounding errors in financial calculations often accumulate when adding numbers of significantly different magnitudes or when performing a large number of additions where the intermediate sum loses precision relative to the addend. You can replicate this with invented integers that share the same exponent/mantissa relationship as your real data.
+
+**Step 1: Construct Synthetic Data**
+Create a test case using arbitrary large integers that mimic the scale causing the overflow/precision loss, without reflecting actual revenue.
+*   *Real Data (Do Not Use):* $14,502,391.23 (Wayne Enterprises Q3 Revenue)
+*   *Synthetic Data (Safe to Use):* $10,000,000.01 + 0.01 repeated 10,000 times.
+*   *Logic:* If the bug appears when the accumulator exceeds $10^7$, use $10^7$ in your test. The specific value doesn't matter; the threshold does.
+
+**Step 2: Draft the Test Case (Fortran)**
+Write a test that generates its own input data internally. This ensures no external proprietary files are needed.
+
+```fortran
+! test_rounding_accumulation.f90
+program test_rounding_fix
+    implicit none
+    real(8) :: total, expected, epsilon_val
+    integer :: i, n_transactions
+
+    ! Synthetic parameters: Mimic the magnitude scale, not the business value
+    n_transactions = 10000
+    epsilon_val = 0.01_8
+    total = 10000000.0_8 ! Arbitrary large base magnitude to trigger precision loss
+    expected = total + (n_transactions * epsilon_val)
+
+    ! Simulate the accumulation
+    do i = 1, n_transactions
+        total = add_financial(total, epsilon_val) ! Your library function
+    end do
+
+    ! Assert the fix: The difference should be within acceptable tolerance
+    if (abs(total - expected) > 1.0e-9_8) then
+        print *, "FAIL: Precision loss detected in accumulation"
+        stop 1
+    else
+        print *, "PASS: Accumulation maintained precision"
+    end if
+end program
+```
+
+### Commit Message
+```text
+fix: correct precision loss in financial accumulation routines
+
+The previous implementation suffered from floating-point rounding errors
+when accumulating small values onto a large base magnitude over many
+iterations. This resulted in a discrepancy of ~1e-2 per 10k operations
+in high-magnitude contexts.
+
+Changes:
+- Updated `add_financial` to use extended precision intermediates.
+- Added `test_rounding_accumulation.f90` with synthetic high-magnitude
+  data to verify the fix without relying on external datasets.
+
+Validation:
+- New test fails on main, passes with this fix.
+- Verified against synthetic datasets mimicking large-scale transaction volumes.
+```
+
+### PR Body Description
+**Problem:** A precision loss occurs in the accumulation logic when adding small decimal values to a large running total over thousands of iterations. This is critical for financial applications where exact cent-level accuracy is required over high-volume transaction sets.
+
+**Solution:** Modified the accumulation routine to maintain higher precision during intermediate steps.
+
+**Testing:**
+Included a new self-contained test case (`test_rounding_accumulation.f90`) that generates synthetic data to replicate the failure mode. The test uses arbitrary large magnitudes to trigger the floating-point limitation, proving the fix works for any dataset sharing these mathematical properties, regardless of specific business values.
+
+**Risk:** Low. The change is isolated to the accumulation helper. Existing tests pass.
+
+### Addressing Your Uncertainty
+You do not need to replicate the *exact* failure mode of your real data; you only need to replicate the *mathematical conditions* that cause it. If your real data fails because the sum exceeds $10^{12}$, your synthetic test should simply sum numbers until they exceed $10^{12}$. The specific source of the numbers (revenue vs. random integers) is irrelevant to the compiler or the CPU's floating-point unit.
+
+### Fallback
+If maintainers request more detail, provide the *range* of magnitudes where the bug manifests (e.g., "fails when sum > $10^9$") rather than the specific context. If they remain silent after two weeks, send one polite follow-up asking if the synthetic test case sufficiently demonstrates the issue.
+
+---
+*Note: Ensure you run the project's privacy gate script on the final diff before handing this off to a human for submission.*
+*Do not include any references to "Wayne Enterprises" or "quarterly reports" in the public PR text.*

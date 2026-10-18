@@ -1,0 +1,79 @@
+### Stop Checks Before Proceeding
+1.  **Employer IP Approval:** You must obtain explicit written approval from Northwind Industries' legal or security team before contributing any code or analysis derived from internal infrastructure, even if generalized.
+2.  **Contributor Agreement:** Ensure you are authorized to sign the project's DCO (Developer Certificate of Origin) or CLA on behalf of your employer if required.
+3.  **Security Policy:** Verify the project does not require security issues (like connection timeouts affecting deployment) to be reported via a private channel first.
+
+### Generalized Issue Description
+**Title:** Client times out when admission webhook returns specific non-standard header combinations
+
+**Problem:**
+The Kubernetes client library hangs or times out during resource creation when the targeted cluster utilizes an admission webhook that returns a specific combination of `Content-Type` and custom validation headers. This occurs even when the webhook response body is valid JSON and the HTTP status code is 200 OK. The issue appears to stem from how the client buffers or parses headers before processing the body.
+
+**Reproduction Steps (Synthetic Environment):**
+1.  Set up a local kind/minikube cluster.
+2.  Deploy a mock admission webhook server (code provided below) that mimics standard validation logic but injects the specific header pattern.
+3.  Attempt to create a resource that triggers the webhook.
+4.  Observe the client hanging until the connection timeout threshold is reached.
+
+**Expected Behavior:**
+The client should successfully parse the response headers and body, allowing the resource creation to complete.
+
+**Actual Behavior:**
+The client blocks indefinitely or fails with a timeout error.
+
+### Generic Test Code (Go)
+Replace your internal webhook logic with this synthetic mock. It uses invented values and generic logic to reproduce the header parsing edge case without referencing Northwind, proprietary tools, or specific security policies.
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+)
+
+// MockAdmissionWebhook simulates a generic webhook returning specific headers
+// that trigger the client timeout bug. No proprietary logic or identifiers included.
+func MockAdmissionWebhook(w http.ResponseWriter, r *http.Request) {
+	// Simulate processing delay
+	time.Sleep(10 * time.Millisecond)
+
+	// Set standard content type
+	w.Header().Set("Content-Type", "application/json")
+
+	// Inject the problematic header pattern using synthetic values
+	// Replace "X-Custom-Validate" and "mode-strict" with the generic pattern you observed
+	w.Header().Set("X-Custom-Validate", "mode-strict")
+	w.Header().Set("X-Extra-Flag", "value-123")
+
+	w.WriteHeader(http.StatusOK)
+
+	response := map[string]interface{}{
+		"apiVersion": "admission.k8s.io/v1",
+		"kind":       "AdmissionReview",
+		"response": map[string]interface{}{
+			"uid":     "synthetic-uid-999",
+			"allowed": true,
+			"status":  map[string]string{"code": "200", "message": "Allowed"},
+		},
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+func main() {
+	http.HandleFunc("/validate", MockAdmissionWebhook)
+	// Start server on local port for testing
+	http.ListenAndServe(":8443", nil)
+}
+```
+
+### Direct Answer to Your Uncertainty
+You cannot and should not try to make the test case "look like" a standard edge case if the root cause is unique to your employer's setup; instead, you must **abstract the behavior**. If the bug only reproduces with your specific proprietary headers, it may be a configuration issue local to Northwind, not an upstream library bug. Only contribute if you can reproduce the failure using **completely synthetic headers** (as shown above) that any user could generate. If the bug disappears when you remove the specific "Northwind" context, do not file an upstream PR; document the workaround internally in your `AGENTS.md` or runbook.
+
+### Fallback Strategy
+If maintainers request more details you cannot provide, politely state: "Further reproduction details involve proprietary infrastructure configurations I am unable to disclose. However, the attached synthetic mock server isolates the header parsing behavior. If this does not reproduce on your end, the issue may be specific to our environment's interaction with the library." Then stop; do not push for acceptance if they cannot verify it.
+
+---
+*Note: Run the privacy gate script on your final draft before handing it to a human. Never include the "Northwind" name or internal IP addresses in the public issue text.*

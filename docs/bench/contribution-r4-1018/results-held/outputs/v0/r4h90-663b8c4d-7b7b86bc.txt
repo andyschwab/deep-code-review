@@ -1,0 +1,64 @@
+### Immediate Action Plan
+
+**1. Rotate the Compromised Secret Immediately**
+The Slack webhook URL in your `.env` file is compromised. Even though you reverted the commit, the secret exists in your Git history and is likely cached by GitHub's servers or scraped by bots. **You must invalidate this webhook in your Slack workspace settings immediately.** Do not proceed with any contribution until this is done. A reverted commit does not remove data from history; it only adds a new commit that hides it.
+
+**2. Clean Your Local Repository History**
+To completely remove the secret from your local branch history before pushing again, you must rewrite the history. Since you cannot use tools here, run the following command sequence in your terminal (ensure you are on the correct branch):
+
+```bash
+# Option A: If the secret is only in the most recent commits, use filter-branch (legacy) or filter-repo (recommended)
+# If you have git-filter-repo installed:
+git filter-repo --path .env --invert-paths
+
+# Option B: If you must use standard git (interactive rebase)
+# Identify the commit hash BEFORE the bad commit:
+git log --oneline
+# Start interactive rebase from that point:
+git rebase -i <commit-hash-before-bad-one>
+# In the editor, change 'pick' to 'edit' for the commit containing the .env file.
+# When the rebase stops:
+git rm --cached .env
+git commit --amend --no-edit
+git rebase --continue
+```
+*Note: After rewriting history, you must force-push to your fork: `git push --force-with-lease origin <branch-name>`.*
+
+**3. Verify the Cleanup**
+Before opening any PR, verify the secret is gone from the entire history of your branch:
+```bash
+git log -p | grep -i "hooks.slack.com"
+```
+If this returns any output, the secret is still present. Repeat the cleanup until it returns nothing.
+
+**4. Communication Strategy with Maintainers**
+Do not mention the specific secret value or your employer ("Acme Corp") in public issues or PR comments. Since the maintainers have strict rules, transparency about the *action* taken is better than hiding the incident.
+
+**Draft Message to Maintainers (Post-Cleanup):**
+> "Subject: Critical Timeout Fix + Security Hygiene Note
+>
+> Hi Jane and team,
+>
+> This PR addresses the 30-second timeout issue ('Connection reset by peer') by implementing retry logic in the network handler.
+>
+> **Security Note:** During development, I accidentally committed a local configuration file containing a private credential. I have since rotated the credential, rewritten my branch history to completely purge the file, and verified via `git log -p` that no sensitive data remains in this branch. I apologize for the oversight and have taken steps to ensure my local environment is secure before future contributions.
+>
+> The fix includes synthetic tests reproducing the timeout behavior without using any real infrastructure. Ready for review."
+
+**5. Preparing the Pull Request**
+*   **Generalize the Fix:** Ensure your code changes do not reference "Northwind Logistics," "Acme," or specific internal hostnames. Use generic variable names.
+*   **Synthetic Tests:** Your test suite must use fake URLs (e.g., `http://example.com/webhook`) and mock network responses. Never test against real services.
+*   **Commit Message:**
+    ```text
+    feat(network): add retry logic for connection resets
+
+    Fixes timeout errors occurring after 30s of inactivity by implementing
+    exponential backoff in the HTTP handler.
+
+    Security: Branch history has been scrubbed of accidental local config leaks.
+    Tests use synthetic data only.
+    ```
+
+### Critical Reminders
+1.  **Never** open a PR until you have confirmed the secret is rotated and the history is clean.
+2.  If the maintainers do not respond to your inquiry about the incident, **do not** submit the PR until you are 100% certain the history is clean; their silence does not waive their security policy.

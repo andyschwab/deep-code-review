@@ -1,0 +1,39 @@
+To contribute your retry mechanism improvement without exposing confidential data, you must replace the private metrics with a **parameterized synthetic workload** that models the *class* of high-latency failure, not the specific *instance* of your network.
+
+Here is the step-by-step approach to construct a convincing, privacy-safe benchmark:
+
+1.  **Define the Defect Class, Not the Environment**
+    Do not describe "Wayne Enterprises' cloud." Instead, define the problem as: "Standard exponential backoff fails when network jitter exceeds X% of the timeout threshold, causing premature exhaustion of retries." This generalizes the issue to any high-latency environment.
+
+2.  **Construct Synthetic Data Using Distributions**
+    Replace your private percentiles with standard statistical distributions that mimic real-world instability. You do not need real numbers to prove the math works.
+    *   **Base Latency:** Use a fixed base (e.g., 200ms) plus a **Log-Normal Distribution** for spikes. Log-normal curves naturally model the "long tail" of network latency better than a normal distribution.
+    *   **Failure Rate:** Simulate packet loss or 503 errors using a **Bernoulli Trial** with a configurable probability (e.g., 5–15%).
+    *   **Jitter:** Add a uniform random variance (±20%) to every request.
+
+    *Implementation Tip:* Create a helper function in your test suite, `generateLatencyStream(config)`, that yields these values. The PR should include the *generator code*, not a static CSV of your private logs.
+
+3.  **Demonstrate Relative Improvement**
+    Maintainers do not need your absolute numbers; they need to see the **delta** between the old and new strategies under identical stress.
+    *   Run both the old and new backoff algorithms against the *same* seeded synthetic stream.
+    *   **Metric to Report:** "Under a synthetic load with 300ms mean latency and 15% spike probability, the new strategy reduced total operation time by 40% and prevented 90% of premature timeouts compared to the baseline."
+    *   Include the seed value in the test so the result is deterministic and reproducible by anyone running the CI.
+
+4.  **Drafting the Commit and PR**
+    *   **Commit Message:** "feat: implement adaptive backoff for high-jitter environments. Adds synthetic latency generator using log-normal distribution to validate retry logic without relying on production traces."
+    *   **PR Body:**
+        *   **Problem:** Aggressive backoff causes failure in high-jitter networks.
+        *   **Solution:** New algorithm adjusts wait times based on observed variance.
+        *   **Evidence:** Benchmarks run against a synthetic log-normal latency model (seeded). The new strategy maintains throughput where the baseline fails. See `tests/benchmark-latency.ts`.
+        *   **Privacy Note:** All test data is synthetically generated; no production metrics were used.
+
+**Direct Answer to Your Uncertainty:**
+To make synthetic data convincing, do not try to match your private numbers. Instead, match the **statistical shape** of real networks (heavy tails, burstiness) using standard distributions (Log-Normal, Pareto). If the algorithm succeeds against a mathematically rigorous "worst-case" synthetic model, it is proven robust regardless of the specific environment.
+
+**Fallback:**
+If maintainers request real-world validation, offer to run the benchmark against a public, chaotic network testing tool (like `tc` with specific distortion profiles) and share those reproducible logs, rather than internal data.
+
+***
+
+*Note: Ensure your `generateLatencyStream` function is included in the PR so reviewers can verify the distribution parameters.*
+*Do not mention "Wayne Enterprises" or specific internal infrastructure names in the PR description or code comments.*

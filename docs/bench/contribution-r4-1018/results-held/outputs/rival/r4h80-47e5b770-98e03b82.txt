@@ -1,0 +1,35 @@
+### Strategy: Synthetic Data Generation for Confidential Bug Reports
+
+To satisfy Ravi's requirement for a reproducible test case without leaking Acme's confidential data, you must construct a **synthetic minimal reproduction**. This approach isolates the logic error using dummy data that mimics the *structure* and *edge conditions* of your real export, rather than the content.
+
+#### 1. Data Sanitization and Abstraction
+Never submit raw exports. Create a script to transform your real CSV into a synthetic version before sharing:
+*   **SKU Obfuscation:** Replace real SKU identifiers (e.g., `ACME-12345-X`) with generic, non-sequential tokens (e.g., `SKU_A`, `SKU_B`, `SKU_C`). Ensure the mapping is one-way; do not include a key that allows reverse engineering.
+*   **Quantity Normalization:** Scale down quantities to the smallest integers that still trigger the bug. If the error occurs at 10,000 units, test if it also occurs at 10 or 100. Often, off-by-one errors are independent of magnitude.
+*   **Column Stripping:** Remove all columns not strictly required to trigger the bug. If the error is in aggregation logic, fields like "Product Name," "Warehouse Location," or "Date" are likely irrelevant and increase the risk of accidental disclosure.
+
+#### 2. Isolating the Edge Condition
+You noted the error occurs only when duplicate SKUs appear in a **specific order**. Your synthetic data must replicate this pattern precisely while minimizing volume:
+*   **Identify the Pattern:** Analyze the real failing CSV to determine the exact sequence causing the crash (e.g., `SKU_A` appears, then `SKU_B`, then `SKU_A` again immediately).
+*   **Construct the Minimal Set:** Create a CSV with only 3–5 rows that reproduce this exact sequence.
+    *   *Row 1:* `SKU_A`, Qty 10
+    *   *Row 2:* `SKU_B`, Qty 5
+    *   *Row 3:* `SKU_A`, Qty 10 (Triggers the duplicate aggregation error)
+*   **Verify Locally:** Run this tiny synthetic file against your local copy of the library. If it fails exactly like the real data, you have successfully isolated the bug without exposing business logic.
+
+#### 3. PR Submission Structure
+When opening the Pull Request or Issue for Ravi:
+*   **The Test Case:** Commit the synthetic CSV (e.g., `testdata/bulk_import_duplicate_order.csv`) and a corresponding Go test function (`TestBulkImportDuplicateOrder`) that asserts the incorrect behavior.
+*   **The Explanation:** Explicitly state in the description: *"This test case uses synthetic data to reproduce the off-by-one error found in production. Real SKU patterns were abstracted to `SKU_A/B` to comply with data security policies. The specific ordering of duplicates matches the failure mode observed in live systems."*
+*   **The Fix:** Follow this immediately with the code fix. Maintainers are far more likely to merge a PR that brings both the failing test (proof) and the solution (fix) in a single, small diff.
+
+#### 4. Verification Checklist
+Before pushing, ensure your synthetic data meets these criteria:
+*   [ ] **Zero Real Identifiers:** No actual Acme SKUs, names, or dates remain.
+*   [ ] **Minimal Scope:** The file contains only the rows necessary to trigger the bug.
+*   [ ] **Reproducibility:** A fresh clone of the repo + your test file = immediate test failure.
+*   [ ] **Order Preservation:** The specific sequence of duplicate SKUs is preserved exactly as required to trigger the logic error.
+
+By providing a minimal, synthetic test case, you respect the project's need for reproducibility while strictly adhering to your company's data security policy. This demonstrates professionalism and makes it effortless for Ravi to verify and merge your fix.
+
+*Note: If the bug depends on specific string lengths or character sets in the SKU, ensure your dummy SKUs match those properties (e.g., if real SKUs are 20 chars, make dummy SKUs 20 chars).*

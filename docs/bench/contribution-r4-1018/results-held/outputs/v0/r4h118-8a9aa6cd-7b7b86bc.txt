@@ -1,0 +1,68 @@
+You cannot share the log file, even with redactions, because the stack trace structure and process hierarchy you described constitute a "structural tell" that reveals your internal product roadmap. The contribution rules require that you never attach customer logs, dumps, or internal diagnostic outputs to an upstream issue or PR. Instead, you must reproduce the defect using synthetic input on a generic stack.
+
+**Steps to Generalize and Sanitize:**
+
+1.  **Stop and Clear Internal Approval:** Before proceeding, confirm with your legal or IP team that sharing a fix for the "Stark Industries Memory Manager" is permitted under your employer's open-source policy. Do not proceed without this clearance.
+2.  **Create a Synthetic Reproducer:** Write a minimal C program (under 50 lines) that mimics the *allocation sequence* causing the leak, using generic names like `alloc_worker` and `buffer_pool`. Do not use any code from your internal tool.
+    ```c
+    // synthetic_repro.c
+    #include <stdlib.h>
+    void leak_sequence() {
+        void *buf = malloc(1024 * 1024 * 100); // 100MB
+        // Intentionally omit free() to simulate the bug pattern
+        // In the real fix, this path now calls free(buf)
+    }
+    int main() { leak_sequence(); return 0; }
+    ```
+3.  **Generate New Evidence:** Run your memory debugging tool against this *synthetic* program on a generic hostname (e.g., `localhost` or `build-host`). Capture the new log. This log will naturally contain generic binary names (e.g., `synthetic_repro`) and valid stack traces that prove the leak mechanism without revealing "Project Jarvis Monitor."
+4.  **Draft the Commit Message:**
+    ```text
+    fix: resolve memory leak in large buffer allocation sequence
+
+    A specific sequence of large buffer allocations caused a memory leak
+    where the free call was skipped on a specific error path.
+
+    - Added missing free() call in [function_name]
+    - Verified fix with synthetic reproduction test (see test_leak_repro.c)
+
+    Fixes #[issue_number_if_exists]
+    ```
+5.  **Draft the PR Body:**
+    ```text
+    ## Problem
+    Allocating large buffers in a specific sequence causes unbounded memory growth.
+
+    ## Solution
+    Ensures the deallocation path is executed even when [specific condition] occurs.
+
+    ## Testing
+    - Created `test_leak_repro.c` that deterministically triggers the leak pattern.
+    - Before fix: RSS grows by 100MB per iteration.
+    - After fix: RSS remains stable.
+    - [Paste output from synthetic_repro log here]
+
+    ## Risk
+    Low. The change is localized to the error-handling path of the allocator.
+    ```
+6.  **Run the Privacy Gate:** Before handing this off, run the following command on your drafted files to ensure no residual identifiers remain:
+    `bash scripts/ci-gates.sh privacy --banlist .banlist.txt .`
+    If this fails, do not proceed.
+
+**Addressing Your Uncertainty:**
+You asked how to explain the context without referencing your internal tool. The answer is: **Do not explain the original context.** Upstream maintainers only care that the *defect class* is reproducible. By providing the synthetic reproducer, you prove the bug exists and the fix works. The fact that it was found in "Project Jarvis Monitor" is irrelevant to the library's correctness and must be omitted entirely.
+
+**Fallback:**
+If the maintainers request the original log to verify the fix, politely decline and state: "The provided synthetic reproducer (`test_leak_repro.c`) deterministically triggers the same code path and memory behavior. I cannot share internal diagnostic logs due to confidentiality constraints, but the synthetic case validates the fix identically."
+
+**Provenance and Risk Block (For Human Review Only):**
+```
+SOURCE: Stark Industries internal diagnostic session
+GENERALIZED-AWAY: Binary name 'Project Jarvis Monitor', internal process hierarchy, specific allocation sizes tied to product use-case.
+RESIDUAL RISK I COULD NOT RULE OUT: The specific allocation sequence pattern might still hint at the type of workload (e.g., image processing vs. network buffering) if the domain is narrow.
+MOSAIC CHECK: None. This is the first contribution from this source regarding memory management.
+MECHANICAL SCRUB: Pending execution of scripts/ci-gates.sh on synthetic artifacts.
+DRAFTED BY: contribution skill v1.2.1
+```
+
+*Note: Do not attempt to edit the original log file; the structural metadata is inseparable from the confidential context.*
+*Ensure the synthetic reproducer is committed to the test suite, not just attached to the PR.*

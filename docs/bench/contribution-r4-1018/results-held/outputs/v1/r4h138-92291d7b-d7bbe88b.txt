@@ -1,0 +1,34 @@
+Do not commit the specific byte sequence or the obfuscated file to the public repository. Instead, implement a **synthetic, safe surrogate** in your test suite that validates the *logic* of the fix without containing the actual exploit signature.
+
+Here is the concrete approach to demonstrate the patch effectively:
+
+1.  **Replace the Payload with a Sentinel Value**: Modify the test to use a harmless string (e.g., `TEST_MAGIC_BYTES_PLACEHOLDER`) instead of the malicious byte sequence.
+2.  **Inject at Runtime (Memory Only)**: Update the test harness to programmatically construct the dangerous byte sequence in memory *only during the specific test execution scope*, immediately after the WAF scanning phase but before the application logic processes it. Since the file on disk never contains the signature, your corporate scanners will not flag the repository.
+    *   *Implementation Concept*: Define the bytes as separate hex values in the code (e.g., `0x90`, `0x90`) and concatenate them into a buffer right before passing it to the upload handler. Do not store this concatenated buffer in a committed file.
+3.  **Assert Logic, Not File Content**: The regression test should assert that the application correctly rejects the *constructed* buffer based on its behavior (e.g., returns a 403 status or throws a specific exception), proving the validation logic works. The test output logs should confirm the rejection without printing the raw bytes.
+4.  **Document the Surrogate**: In the commit message and PR body, explicitly state: "Test uses a runtime-constructed sentinel to validate magic byte filtering. No exploit signatures are present in the repository history or file system."
+
+**Ready-to-paste Commit Message:**
+```text
+fix: enforce strict magic byte validation on image uploads
+
+- Replaces static exploit sample with runtime-constructed sentinel values.
+- Ensures no malicious signatures exist in repository history to prevent WAF false positives.
+- Adds regression test verifying rejection of crafted headers via in-memory buffer injection.
+- Validates fix against synthetic data matching the vulnerability class.
+```
+
+**Ready-to-paste PR Body Section (Testing):**
+```markdown
+## How it was tested
+A regression test was added using a synthetic, in-memory constructed payload that mimics the vulnerable byte sequence. The dangerous signature is never written to disk or committed to the repo; it is assembled at runtime solely for the assertion. The test confirms the service rejects the crafted header with a 403 response. No real exploit artifacts are included in this PR.
+```
+
+**Direct Answer to Your Uncertainty:**
+Do not use pseudocode; it is insufficient for a regression test. You must provide an executable test, but you can achieve this by **constructing the dangerous data dynamically in memory** rather than storing it as a static file artifact. This satisfies the need for a proven fix while keeping the repository clean of attack signatures.
+
+**Fallback if Maintainers Push Back:**
+If maintainers insist on a static file for reproducibility, propose hosting the sample file in a separate, access-controlled security advisory repository or a private gist linked in the issue, rather than the main codebase. Alternatively, offer to provide the sample via a password-protected archive where the password is shared only through a secure, out-of-band channel with the maintainers.
+
+**Note:** Ensure your "runtime construction" logic does not inadvertently leak the assembled bytes into error logs or stack traces that might be captured by monitoring tools.
+**Note:** Verify that your company's policy allows generating exploit logic in memory, even if not persisted; when in doubt, seek internal legal approval before proceeding.

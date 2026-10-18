@@ -1,0 +1,41 @@
+### Deliverable: Synthetic Test Strategy for DST Edge Cases
+
+To satisfy the maintainers' requirement for comprehensive coverage without exposing Acme Logistics' private data, you must reconstruct the failure mode using **structurally identical but synthetically generated timestamps**. The bug is deterministic: it relies on the mathematical properties of the DST transition (the "spring forward" or "fall back" hour), not the specific identity of the employees or the warehouse location.
+
+**Step 1: Isolate the Defect Class**
+The error is a "one-hour offset miscalculation during DST transition." This is a universal logic flaw in timezone arithmetic, not a business-logic quirk specific to Acme. You do not need real shift patterns; you need only two timestamps that span the transition boundary in the specific timezone where the bug manifests (e.g., `America/New_York`).
+
+**Step 2: Generate Synthetic Inputs**
+Create a test fixture using invented values that mirror the *structure* of your real data but contain no real PII.
+*   **Instead of real Employee IDs:** Use `EMP_SYNTH_001`, `EMP_SYNTH_002`.
+*   **Instead of real Shift Times:** Hardcode the exact UTC timestamps that trigger the bug.
+    *   *Example (Fall Back):* A shift starting at `2023-11-05T01:30:00-04:00` (EDT) and ending at `2023-11-05T02:30:00-05:00` (EST).
+    *   *Example (Spring Forward):* A shift spanning `2024-03-10T01:30:00` where the clock jumps to 3:00 AM.
+*   **Instead of Real Locations:** Use a generic timezone identifier like `US/Eastern` without referencing the specific warehouse address.
+
+**Step 3: Construct the Test Case**
+Write a unit test that asserts the correct overlap calculation using these synthetic inputs. The test should fail on the current library version (reproducing the one-hour error) and pass with your fix.
+
+```python
+def test_dst_fall_back_overlap_calculation():
+    # Synthetic data reproducing the structural edge case
+    shift_a = Shift(start="2023-11-05T00:00:00-04:00", end="2023-11-05T02:00:00-05:00")
+    shift_b = Shift(start="2023-11-05T01:00:00-04:00", end="2023-11-05T03:00:00-05:00")
+
+    # The bug causes this to be calculated as 2 hours instead of 1 (or similar offset error)
+    expected_overlap_minutes = 60
+    assert calculate_overlap(shift_a, shift_b).total_minutes() == expected_overlap_minutes
+```
+
+**Step 4: Verification Statement**
+In your PR description, state: "This test uses synthetic timestamps constructed to reproduce the DST transition boundary condition. No real employee data or proprietary work patterns were used. The failure mode is identical to the production issue observed."
+
+**Direct Answer to Your Uncertainty:**
+You do not need to anonymize real data; you must **replace** it. Anonymization often leaves structural fingerprints (mosaic risk). Synthetic data, generated from the *logic* of the bug rather than the *records* of the event, is legally safe and technically sufficient because the bug exists in the time-math library, not in your specific payroll records.
+
+**Fallback if Maintainers Push Back:**
+If maintainers insist on "real-world" complexity, offer to provide a **minimal reproduction script** (a standalone Python file) that generates the collision dynamically upon execution, proving the math fails without ever shipping a static file containing sensitive patterns.
+
+---
+*Note: Ensure your commit history does not accidentally include the original real-data test file before you replaced it; if it does, you must rewrite the branch history before sharing.*
+*Remember: The maintainers (including Jane) care about the mathematical proof of the bug, not the source of the example data.*

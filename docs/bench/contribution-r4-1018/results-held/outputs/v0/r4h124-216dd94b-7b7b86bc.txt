@@ -1,0 +1,49 @@
+**Deliverable: Upstream-Ready Design for Custom CA Injection**
+
+To resolve the SSL handshake error without violating the project's strict no-private-certificate policy, you must propose a **generic "Bring Your Own Trust Store" mechanism**. The fix should not mention your organization, the specific error context, or the existence of an intermediate CA. Instead, it generalizes the problem to: "Users operating in private cloud environments or behind corporate proxies often need to extend the system trust store with custom root or intermediate certificates."
+
+**Proposed Code Modification:**
+Introduce a new configuration field (e.g., `AdditionalCACerts` or `CustomTrustBundle`) that accepts a path to a PEM-encoded file or a slice of PEM bytes.
+1.  **Logic:** When this field is populated, the client initializes a new `x509.CertPool`. It first loads the system roots (default behavior), then appends the certificates parsed from the user-provided input.
+2.  **Implementation:** Modify the TLS dialer or connection builder to use this custom pool instead of `nil` (which defaults to system roots only).
+3.  **Safety:** Ensure the code handles malformed PEM data gracefully by returning a clear error message without logging the certificate content.
+
+**Configuration Example (for documentation only):**
+```yaml
+# config.yaml example
+tls:
+  ca_bundle: "/etc/ssl/certs/custom-ca-bundle.pem" # User provides their own chain
+```
+
+**Commit Message Draft:**
+```text
+feat: support custom CA bundles for private deployments
+
+Allow users to inject additional root or intermediate certificates
+via a new configuration option. This enables connectivity in
+environments using private PKI or intercepting proxies without
+modifying the host system trust store.
+
+No default certificates are included; the feature is opt-in.
+```
+
+**PR Body Draft:**
+*   **Problem:** Clients fail to connect in environments where the server certificate is signed by a private CA not present in the OS trust store.
+*   **Solution:** Added a configuration option to load extra PEM-encoded certificates into the client's trust pool alongside system defaults.
+*   **Testing:** Verified that connections succeed with a custom self-signed CA when the option is set, and default behavior remains unchanged when unset.
+*   **Privacy/Security:** No certificates are bundled. Users supply their own trust anchors locally.
+
+**Addressing Your Uncertainty:**
+You are unsure how to propose this without endorsing your private CA. The solution is to **never mention your specific CA**. The PR describes a *capability* (loading extra certs), not a *fix for a specific company*. Your internal fix uses this new capability to load your CA; the upstream code simply provides the hook. This separates the generic tool from your specific usage.
+
+**Fallback Strategy:**
+If maintainers remain silent after two weeks:
+1.  Post a polite follow-up asking if the approach aligns with the project's roadmap for enterprise deployments.
+2.  If still ignored, maintain the change in a private fork. Do not file an issue detailing your specific infrastructure, as that leaks the fact that you operate a private CA.
+
+**Stop Checks & Privacy Gate Notes:**
+*   **Employer Approval:** Confirm with your legal/IP team that contributing a generic TLS extension is permitted before drafting.
+*   **Identifier Stripping:** Ensure no file paths (e.g., `/home/globex/...`), hostnames, or error logs containing internal IPs are included in the PR description or test cases.
+*   **Synthetic Testing:** Run your tests against a locally generated self-signed CA, not your actual corporate certificate, before committing any test code.
+
+**Residual Risk:** The mere existence of this PR might signal that the author works in an environment requiring private PKI, though it does not reveal which one.

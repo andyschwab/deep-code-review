@@ -1,0 +1,45 @@
+You must completely restructure the test inputs; simply renaming fields is insufficient because the nesting levels and schema topology themselves constitute the confidential information. To safely abstract your data, replace the proprietary JSON hierarchy with a flat or minimally nested structure that isolates the specific variables required for currency conversion (e.g., `amount`, `source_currency`, `target_currency`, `rate`).
+
+**Refactoring Steps:**
+
+1.  **Identify Logical Primitives:** Extract only the scalar values needed for the calculation logic. Discard all metadata, audit fields, or nested customer objects unrelated to the math.
+2.  **Flatten the Schema:** Instead of mirroring your internal `customer.account.transaction` depth, define a standalone `ConversionRequest` struct in your test file that holds only the necessary primitives.
+    *   *Before (Risky):* `{ "client": { "id": "...", "profile": { "region": "...", "tier": "..." } }, "tx": { "id": "...", "details": { "amt": 100, "cur": "USD" } } }`
+    *   *After (Safe):* `{ "input_amount": 100, "input_currency": "USD", "output_currency": "EUR", "expected_rate": 0.85 }`
+3.  **Synthesize Generic Values:** Use arbitrary, non-production values (e.g., "CurrencyA", "CurrencyB") or standard ISO codes without linking them to specific internal ledgers. Ensure no field names match your internal database columns (e.g., change `cust_int_id` to `id`).
+4.  **Verify Isolation:** Confirm that the new test data cannot be reverse-engineered to reveal your database's entity relationship diagram. The test should validate the *function*, not the *storage format*.
+
+**Commit Message Draft:**
+```text
+test: refactor currency conversion cases to use generic schemas
+
+Replaces internal database-mirroring JSON structures with flat,
+generic input objects to prevent leakage of proprietary schema design.
+Tests now validate logic using isolated primitives (amount, currencies)
+rather than nested customer records. No functional logic changed.
+```
+
+**PR Body Draft:**
+```text
+## Problem
+Existing test fixtures accidentally mirrored the internal confidential
+database schema of a specific deployment, including unique nesting levels
+and field names, posing a data leak risk if upstreamed.
+
+## Change
+Refactored all currency conversion test inputs to use minimal, flat
+structures containing only the data required for the calculation logic.
+Removed all proprietary field names and hierarchical patterns.
+
+## Testing
+Verified that all edge cases (rounding, zero amounts, unsupported pairs)
+still pass with the new generic inputs.
+```
+
+**Direct Answer to Your Uncertainty:**
+Renaming fields is **not enough**. Because you noted that the "nesting levels" are unique to your internal systems, retaining that structure reveals your data architecture even with fake values. You must flatten or radically simplify the hierarchy to remove the structural fingerprint.
+
+**Fallback:**
+If the maintainers do not respond within two weeks, send one polite follow-up asking if the schema abstraction meets their safety guidelines; if there is still no response, do not push the change and consider keeping the tests local while filing a generic issue about "improving test data isolation" without attaching the code.
+
+Ensure your employer's legal or IP team approves this upstream contribution before any human opens the PR, as financial library modifications often carry specific compliance constraints.

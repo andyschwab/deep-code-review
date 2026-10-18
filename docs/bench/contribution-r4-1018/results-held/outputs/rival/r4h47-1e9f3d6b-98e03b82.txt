@@ -1,0 +1,46 @@
+Do **not** redraw the chart with fake labels; fabricating data destroys credibility and will likely get your PR closed immediately. Instead, provide a **sanitized textual summary** of the profiler findings and, if visual proof is essential, generate a **reproducible synthetic trace** or a **redacted plot** using safe data.
+
+Here is the exact approach to maintain credibility without leaking secrets:
+
+1.  **Sanitize the Data, Not the Image:** Extract the numerical data points (time vs. memory usage) from your profiler. Create a new plot using a script (Python/Matplotlib, Gnuplot, etc.) where the Y-axis shows "Relative Memory Growth (%)" or "Heap Delta (MB)" starting from 0, and the X-axis shows "Messages Processed (millions)." Remove all hostnames, usernames, and absolute memory addresses. Label the axes generically (e.g., "Staging Environment" → "Test Environment").
+2.  **Provide a Reproduction Script:** The most credible evidence is not a screenshot, but a command a maintainer can run. Write a small script or benchmark command that floods the broker with small messages to trigger the leak on *their* machine.
+    *   *Example:* `./benchmarker --count 5000000 --size 64 --duration 60s`
+    *   State clearly: "Running this command on `main` shows linear memory growth; running it on this branch shows stable memory."
+3.  **Write a Detailed Textual Analysis:** In your PR description, replace the sensitive screenshot with a structured analysis:
+    *   **Observation:** "Memory grew by ~400MB after processing 5M messages of 64 bytes."
+    *   **Root Cause:** "The buffer pool in `buffer_manager.c:line_142` failed to return blocks to the free list when `msg->flags & FLAG_TEMP` was set."
+    *   **Fix:** "Added explicit `release_buffer()` call in the error handling path."
+    *   **Verification:** "Valgrind report shows 0 leaks after the fix; previously reported 4,200 definite leaks."
+
+**Deliverable Template for your PR Description:**
+
+```markdown
+## Evidence of Memory Leak
+
+### Quantitative Findings
+- **Scenario:** High-volume small message processing (64-byte payloads).
+- **Threshold:** Leak becomes critical after ~5M messages.
+- **Growth Rate:** Approx. 80 bytes leaked per message processed.
+- **Root Location:** `src/buffer_pool.c`, function `acquire_transient_buffer()`.
+
+### Reproduction Steps
+Maintainers can verify the leak locally without internal infrastructure:
+```bash
+# On main branch (leak present)
+$ make benchmark-high-volume
+# Output: RSS grows from 50MB to 450MB over 60s. Valgrind reports 4,200 leaks.
+
+# On this branch (fix applied)
+$ make benchmark-high-volume
+# Output: RSS stabilizes at 65MB. Valgrind reports 0 leaks.
+```
+
+### Visual Data (Sanitized)
+*[Insert generated plot here with generic axes and no hostnames]*
+*Figure 1: Relative heap growth over message count. Blue line = main (unbounded growth); Green line = this PR (stable).*
+```
+
+By providing reproducible steps and sanitized numerical data, you offer higher-quality evidence than a raw screenshot, satisfying both security requirements and maintainer trust.
+
+Note: Never upload the original image to any third-party host even if you try to crop it; metadata often retains hidden details.
+Note: If the project strictly requires images, use the "orphan branch" method mentioned in Phase 4.3 to host the sanitized plot separately from your code diff.

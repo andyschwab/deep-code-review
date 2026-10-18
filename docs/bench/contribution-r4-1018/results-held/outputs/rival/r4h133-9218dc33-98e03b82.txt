@@ -1,0 +1,27 @@
+Do not include real secrets, placeholders that fail, or any indication of specific company environments in your pull request. Instead, structure your contribution to prove correctness through architecture and mockable interfaces, while handling the live integration verification offline or via secure CI channels.
+
+**1. Refactor for Interface-Based Testing**
+Ensure your Go code depends on an interface (e.g., `AuthProvider`) rather than a concrete implementation that hardcodes HTTP calls to the live provider. Your PR should introduce the implementation of this interface for the new provider. The existing test suite should already contain unit tests that use a *mock* implementation of this interface to verify logic without network access. If these mocks are missing, your PR must include them. This allows maintainers to verify your logic deterministically without needing real tokens.
+
+**2. Isolate Live Integration Tests**
+Move the tests requiring live OAuth handshakes into a separate file or build tag (e.g., `//go:build integration`). These tests should be excluded from the default `go test` run. In your PR description, explicitly state: "Integration tests requiring live credentials are tagged and skipped by default. They are intended for maintainers' private CI or local verification with their own staging credentials."
+
+**3. The Verification Strategy (No Secrets in PR)**
+You cannot prove the live handshake works *inside* the public PR artifact without leaking secrets. Instead, your "proof" consists of:
+*   **Code Review:** The implementation of the interface method (e.g., `ExchangeCode`) follows the standard OAuth flow clearly.
+*   **Local Evidence (Sanitized):** Run the integration test locally with your real secrets. Capture the *logs* showing a successful 200 OK response and token receipt. Redact all tokens, client IDs, and secrets from these logs (replace with `***`). Include these sanitized logs in the PR description as evidence that the code *can* succeed.
+*   **Maintainer Workflow:** State in the PR that you have verified the handshake locally against your staging environment and are happy to walk a maintainer through the setup if they have their own staging credentials, or to run the integration suite in a private fork if the project supports it.
+
+**4. Addressing the "Shared Sandbox" Question**
+Do not assume a shared sandbox exists. In your PR description under "Test Plan," write: "Verified locally against a private staging instance. If the project maintains a shared sandbox for CI, please provide the necessary environment variable names, and I will update the CI configuration accordingly. Otherwise, these integration tests are designed to be run ad-hoc by maintainers with their own credentials."
+
+**Summary for your PR Description:**
+*   **What:** Added `StarkIndustriesProvider` implementing `AuthProvider`.
+*   **Testing:** Unit tests cover logic using mocks (run with `go test`). Integration tests (tagged `integration`) verify the live OAuth handshake.
+*   **Evidence:** Sanitized success logs attached below showing valid token exchange.
+*   **Secrets:** No secrets committed. Integration tests require user-supplied `STARK_CLIENT_ID` and `STARK_CLIENT_SECRET` env vars.
+
+By separating logic (verifiable by anyone) from connectivity (verifiable only with secrets), you satisfy the security policy while demonstrating technical competence.
+
+*Note: Never commit real secrets even to private forks if your company policy forbids it; rely on local verification logs.*
+*If the maintainers require CI integration, they will typically provide a secure secret store (e.g., GitHub Secrets) where you can suggest the variable names but never the values.*

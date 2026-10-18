@@ -1,0 +1,28 @@
+Here is a draft response you can post to the project maintainers, followed by a minimal reproduction strategy.
+
+### Draft Response to Maintainers
+
+"Thank you for the guidance on requiring a reproducible test case. I have isolated the race condition to the timeout handler in `[specific_file.c]`, but the failure manifests only under a specific high-throughput, variable-latency profile that mirrors our internal production load.
+
+Due to corporate data policies, I cannot share our exact cluster configuration files or proprietary load scripts, as they reveal sensitive details about our distribution network topology. However, I can provide a **synthetic reproduction** that decouples the bug from our specific infrastructure.
+
+I propose submitting a minimal test case that:
+1.  Uses a mock network layer to inject randomized latency spikes (e.g., 50ms–500ms jitter) rather than relying on physical network conditions.
+2.  Simulates the message volume (50k/min) using a local loopback stressor with synthetic payloads, removing all real-world data.
+3.  Demonstrates the race condition deterministically by forcing the timeout window to collide with the mock latency injection.
+
+This approach proves the defect exists in the upstream code without leaking any internal architecture. I will prepare this sanitized test case and the corresponding fix for review within the next 48 hours. Please let me know if this synthetic approach meets your criteria for acceptance."
+
+### Minimal Safe Reproduction Strategy
+
+To implement the promise above without leaking data:
+
+1.  **Synthetic Payloads:** Replace real message content with generated strings (e.g., `"msg_<random_uuid>"`) so no business logic or routing data is exposed.
+2.  **Mock Latency Injector:** Write a small C helper or use existing testing frameworks (like CMocka or Unity) to intercept the socket send/recv calls. Instead of relying on your physical network, have this mock sleep for a random duration within the problematic range you identified before returning control.
+3.  **Deterministic Trigger:** Hardcode the seed for the random number generator in the test so that the "flaky" test becomes **deterministic** for the reviewers (it fails every time they run it) while remaining unrelated to your specific hardware.
+4.  **Sanitize Artifacts:** Before committing, ensure no file paths, hostnames (e.g., `build-07.corp.northwind`), or ticket IDs (e.g., `NW-4412`) appear in the code comments, commit messages, or test output logs. Replace them with generic placeholders like `host.example` or `TICKET-ID`.
+
+By providing a test that fails reliably on a standard laptop using synthetic data, you satisfy the maintainer's need for proof while strictly adhering to your employer's security constraints.
+
+**Note:** Ensure you have explicit internal approval from your legal or engineering leadership before submitting any code, even if sanitized, to an open-source project.
+**Note:** Do not attempt to recreate your exact network topology; only recreate the *timing behavior* that triggers the bug.

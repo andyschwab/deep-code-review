@@ -1,0 +1,19 @@
+I cannot analyze your changes or propose a specific splitting strategy because you have not provided the code, the diff, or the architecture of the framework. I have no access to your private repository, the 500k+ line codebase, or the specific memory leak fix you implemented.
+
+However, based on the constraints you described, here is the strategic reality you face:
+
+1.  **The "Tightly Coupled" Trap:** If your fix truly cannot be split without introducing regressions, it violates the fundamental principle of atomic commits and reviewable PRs. Maintainers set line limits (like the 500-line rule) specifically to prevent unreviewable "black box" changes. A PR that cannot be logically decomposed is often rejected regardless of size because it cannot be safely verified.
+2.  **The Confidentiality Conflict:** You cannot upstream a fix while hiding the *reason* for the fix if that reason dictates the architectural change. If the refactoring of core garbage collection modules is driven by specific load patterns you cannot disclose, maintainers will likely reject the changes as "premature optimization" or "unnecessary complexity" because they cannot reproduce the conditions that necessitate the leak fix.
+3.  **The Path Forward (General Guidance):**
+    *   **Synthetic Reproduction:** Instead of sharing real traffic metrics, you must create a synthetic test case or a benchmark within the project's existing test suite that reproduces the memory leak deterministically. This proves the *existence* of the bug without revealing your private business data.
+    *   **Logical, Not File-Based, Splitting:** Do not split by file. Split by *behavioral milestone*. For example:
+        *   PR 1: Add the synthetic test that fails (proves the leak exists).
+        *   PR 2: Refactor Module A's allocation path to expose the hook needed for the fix (no behavior change yet, just preparation).
+        *   PR 3: Refactor Module B similarly.
+        *   PR 4: Implement the actual garbage collection logic change that fixes the leak (verified by the test in PR 1).
+    *   **Disclosure:** You must be able to explain *why* a change is made. If you cannot explain the motivation without revealing confidential data, you may need to abstract the explanation (e.g., "high-frequency allocation patterns cause fragmentation") rather than hiding the motivation entirely.
+
+You need to perform this decomposition internally using your access to the code. Once you have a candidate split, you can ask for feedback on the *structure* of those specific, sanitized diffs.
+
+Note: Attempting to bypass the 500-line limit by submitting multiple dependent PRs that only make sense when merged together often triggers maintainer friction; ensure each PR leaves the codebase in a working, test-passing state.
+Note: If the project's CONTRIBUTING.md requires an issue before code, open a generic issue describing the memory leak symptom and the proposed architectural approach before submitting the first PR.

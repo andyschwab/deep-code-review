@@ -1,0 +1,46 @@
+### Sanitized Reproduction Case (YAML)
+
+Replace your internal manifest with this generic example. It preserves the structural failure (missing label causing `Pending` state) while stripping all Globex-specific identifiers.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sample-worker-pod
+  namespace: default
+  labels:
+    app: worker
+    # Intentionally omitting the required 'node-tier' label to reproduce the bug
+spec:
+  containers:
+  - name: worker-container
+    image: generic-worker:v1.2.3
+    command: ["./worker"]
+  nodeSelector:
+    node-tier: high-memory  # Scheduler fails to match if this label is missing on nodes
+```
+
+**Reproduction Steps for Maintainers:**
+1. Apply the YAML above to a cluster where **no** nodes possess the `node-tier: high-memory` label.
+2. Observe the pod remains in `Pending` state indefinitely.
+3. Check scheduler logs: they will show no attempt to re-evaluate or retry binding, confirming the missing label check logic.
+4. Apply your patch; the scheduler should now correctly handle the missing label scenario (e.g., by logging a specific warning or triggering a back-off retry).
+
+### Description Strategy for Maintainers
+
+In your PR description and issue comments, frame the context using **functional abstraction** rather than infrastructure specifics. Use this template:
+
+> **Context:** The bug manifests in production environments using strict node-affinity rules where specific workload types require dedicated node labels (e.g., memory-optimized tiers).
+>
+> **Failure Mode:** When a pod requests a node label that does not exist on any current node, the scheduler enters a silent failure loop. Instead of logging a clear "unschedulable due to missing label" event or entering a back-off retry, the pod hangs in `Pending` indefinitely without actionable diagnostics.
+>
+> **Impact:** This blocks deployment of critical services during node pool rotations or scaling events where label propagation lags behind pod scheduling requests. The attached sanitized manifest reproduces the exact state transition failure without relying on environment-specific configurations.
+>
+> **Privacy Note:** The original report contained proprietary infrastructure topology (internal service names and namespace structures). The reproduction case above isolates the logical error while adhering to data confidentiality requirements.
+
+**Key Principles Applied:**
+- **Abstract the Specifics:** Replace `globex-payments-internal` with `sample-worker-pod` and `gx-prod-fin` with `default`. The bug is about the *mechanism* (label matching), not the *payload* (service name).
+- **Focus on Behavior:** Describe the *symptom* (indefinite pending, silent failure) and the *trigger* (missing label), not the business context.
+- **Explicit Privacy Boundary:** Briefly acknowledge the sanitization to show professionalism and prevent maintainers from asking for the original file.
+
+This approach gives maintainers everything needed to verify the fix while protecting your internal architecture.

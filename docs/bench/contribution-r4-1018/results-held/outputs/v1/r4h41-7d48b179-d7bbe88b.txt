@@ -1,0 +1,39 @@
+### Strategy for Safe Contribution and PR Formatting
+
+**Immediate Action Plan**
+Do not submit your current patch. It contains a private metric name, which violates your company policy and the upstream project's trust. You must generalize the fix before any public exposure. Since the maintainers are silent, your goal is to create a "time-capsule" contribution: a perfectly clean, self-contained patch that can be merged the moment they return, or easily adopted by a fork later.
+
+**Step 1: Generalize and Strip Identifiers**
+Replace the internal metric name with a generic, descriptive variable or a standard Go benchmark metric.
+*   **Before:** `metrics.Inc("northwind_prod_pool_contention_v2")`
+*   **After:** `metrics.Inc("pool_lock_contention")` or simply remove the metric if it is purely for internal dashboarding and not required for the fix's logic.
+*   **Reproduction:** Create a synthetic test case using invented values (e.g., `simulated_load = 1000`) that triggers the race condition without relying on your specific production traffic patterns or configuration.
+
+**Step 2: Draft the Pull Request Description**
+Format the PR to stand on its own merits, requiring no external context.
+
+> **Title:** fix(pool): reduce lock contention to prevent 503 errors under high load
+>
+> **Problem:**
+> Under high-load bursts, the connection pool exhibits a race condition resulting in HTTP 503 errors. This occurs due to excessive lock contention during [specific operation, e.g., connection recycling].
+>
+> **Solution:**
+> Refactors the locking mechanism in `pool.go` to [briefly describe mechanism, e.g., use a sharded lock pattern / reduce critical section scope]. This reduces contention and eliminates the race condition.
+>
+> **Testing:**
+> - Added `TestPoolHighContention` using synthetic load generators.
+> - Verified race detector (`go test -race`) passes with 0 races under simulated burst conditions.
+> - [Paste output of your synthetic test here, ensuring no internal IPs or hostnames appear].
+>
+> **Verification:**
+> The fix is isolated to the connection pool module and maintains backward compatibility with existing APIs.
+
+**Step 3: Decision on Forking vs. Internal Hosting**
+**Do not fork officially yet.** A formal fork signals a permanent split and may discourage the original maintainers from merging your fix later if they return. Instead:
+1.  **Host the patch internally** in your company's private repository for your immediate launch needs.
+2.  **Prepare the clean PR** on a public branch in your personal or organization GitHub account (not pointing to a full fork of the upstream repo, just a branch with the fix).
+3.  **Leave a non-sensitive comment** on the existing silent issue (if one exists) or open a new one stating: "We have identified a fix for the 503 race condition. Due to internal compliance, we are holding the PR ready but unpublished until we can confirm the project's current maintenance status. Please ping us if you are active."
+
+This approach respects the silence, protects your data, and keeps the door open for upstream integration without the overhead of maintaining a divergent fork.
+
+**Note:** Never include "Northwind Traders," internal hostnames, or specific dashboard metric names in the public diff or commit history. If the metric is essential for the logic, abstract it behind an interface that the upstream project can implement later.

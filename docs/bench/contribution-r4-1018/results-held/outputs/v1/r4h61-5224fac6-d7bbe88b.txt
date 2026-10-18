@@ -1,0 +1,62 @@
+### Stop Checks and Policy Constraints
+Before proceeding, three critical barriers must be cleared by you, the human author:
+1.  **Employer IP Approval:** You must confirm with Acme Logistics legal/compliance that deriving test inputs from internal billing logs—even if synthetic—is permitted. The agent cannot make this determination.
+2.  **Project Guidelines:** RiverFlow's rule requiring reproducibility without private datasets means you cannot include *any* data derived from proprietary logs, redacted or otherwise. The test case must be generated from purely invented values.
+3.  **Maintainer Silence:** Do not submit a PR until the maintainers clarify their stance on sanitized logs. If they remain silent after two weeks, consider filing an issue describing the *class* of bug without code, or abandon the upstream contribution and keep the fix local (documented in your internal `AGENTS.md`).
+
+### Step 1: Generalize and Synthesize the Test Case
+You must replace the specific billing log timestamps with a deterministic, synthetic sequence that mathematically guarantees the race condition without relying on real-world data.
+
+**Action:** Create a test helper that simulates the exact timing delta observed, but using arbitrary units.
+*   **Bad:** `let t1 = 1678886400123; // Derived from Acme log line 44`
+*   **Good:** `let t1 = 0; let t2 = t1 + RACE_WINDOW_MS; // Synthetic delta known to trigger overflow`
+
+**Code Snippet for `tests/queue_race.rs`:**
+```rust
+#[test]
+fn test_concurrent_poll_drop() {
+    // Synthetic setup: No external data used.
+    // We define a specific 'skew' value that forces the race condition
+    // based on the logic flaw, not real-world timestamps.
+    let skew_ms = 15; // Invent this value; do not derive from logs
+
+    let queue = AsyncQueue::new();
+    let worker_a = spawn_worker(&queue, skew_ms);
+    let worker_b = spawn_worker(&queue, 0);
+
+    // Assert that despite the skew, no messages are dropped
+    assert_eq!(queue.dropped_count(), 0, "Race condition caused message loss");
+}
+```
+
+### Step 2: Draft the Pull Request
+**Title:** fix(queue): prevent message drop during simultaneous worker polls
+
+**Problem:**
+When two workers poll the async queue within a specific narrow time window, a race condition causes messages to be silently dropped. This occurs due to a state check inconsistency during concurrent access.
+
+**Change:**
+- Added a mutex guard around the critical polling section to ensure atomic state verification.
+- Refactored the timestamp comparison logic to use monotonic counters instead of wall-clock checks where applicable.
+
+**Testing:**
+- Added `test_concurrent_poll_drop` which deterministically reproduces the race condition using synthetic timing skews.
+- Verified fix locally: the test fails on `main` and passes with this branch.
+- [Paste output of `cargo test` here showing the new test passing].
+
+**Risk:**
+Low. The change adds minimal locking overhead to the poll path. No API changes.
+
+### Addressing Your Uncertainty
+**Can I include redacted timestamps?**
+**No.** If the timing pattern is unique to Acme's operations, even redacted values constitute a "structural tell" that could reveal proprietary throughput or operational cadence. Furthermore, RiverFlow's guidelines explicitly forbid external datasets. You must generate **purely synthetic** numbers (e.g., "1ms", "50ms") that mathematically reproduce the logic error without reflecting real system behavior.
+
+### Fallback Plan
+If the maintainers do not respond or reject the synthetic reproduction as insufficient:
+1.  Do not argue or reveal more context.
+2.  Keep the fix internal.
+3.  Document the lesson in your private repository: "RiverFlow queue race condition requires specific skew; upstream contribution blocked by reproducibility policy."
+
+---
+*Note: Ensure you run the project's specific privacy gate script (if available) against your final diff before handing this off.*
+*Remember: You are the privacy authority; the agent only drafts based on the constraint that no private data leaves your environment.*

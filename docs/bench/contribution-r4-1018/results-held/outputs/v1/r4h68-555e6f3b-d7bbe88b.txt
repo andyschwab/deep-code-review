@@ -1,0 +1,29 @@
+**Immediate Action Plan**
+
+1.  **Do Not Submit Yet:** Under no circumstances should you open a Pull Request (PR) or issue containing the leaked key, even if you intend to fix it in a subsequent commit. The initial push would permanently record the secret in the project's public history.
+2.  **Sanitize Locally:** You must rewrite your local branch history to completely remove the secret before any interaction with the remote repository.
+    *   Use `git filter-branch` or `git filter-repo` to scrub the specific commit containing the leak.
+    *   Command example: `git filter-repo --replace-text <(echo "AWS_SECRET_KEY=.*==>AWS_SECRET_KEY=REDACTED") --force` (adjust for your specific leak pattern).
+    *   Verify the scrub: Run `git log -p` and search for the key prefix to ensure zero traces remain in the entire branch history.
+3.  **Generalize the Fix:** Ensure the patch only addresses the configuration parsing logic using synthetic, non-real values (e.g., `EXAMPLE_KEY_123`). Remove any references to "Umbrella Corp," specific hostnames, or your local directory paths.
+4.  **Disclosure Decision:**
+    *   **If the key never left your local machine:** You do **not** need to disclose the accidental local inclusion to the maintainers if you successfully scrub it from the branch before pushing. Since the key was rotated and never entered their repository, reporting it creates unnecessary noise and potential alarm without adding value.
+    *   **If you accidentally pushed even once:** You **must** immediately contact the maintainers via their private security channel (not a public issue) to inform them that a secret was briefly pushed and rotated. This allows them to audit their logs and clone caches.
+5.  **Submission:** Once the history is clean and verified:
+    *   Draft the PR with a clear title: "Fix: Correct environment variable parsing in config module."
+    *   In the body, describe the bug and the fix using only the generalized context.
+    *   Do not mention the leak in the public PR description if it was successfully contained locally.
+
+**Draft Commit Message:**
+```text
+fix(config): resolve environment variable parsing failure
+
+The configuration parser previously failed to read nested environment
+variables, causing defaults to override user settings. This change
+updates the parsing logic to correctly traverse the environment scope.
+
+Tested with synthetic environment inputs to verify correct precedence.
+```
+
+**Ethical & Practical Note:**
+Your primary ethical duty is to ensure the secret never enters their ecosystem; if you achieved this via local scrubbing and rotation, silence regarding the mishap is the professional choice to avoid distracting the security team. If there is *any* doubt that the key reached their remote (even in a reflog), immediate private disclosure is mandatory regardless of rotation.

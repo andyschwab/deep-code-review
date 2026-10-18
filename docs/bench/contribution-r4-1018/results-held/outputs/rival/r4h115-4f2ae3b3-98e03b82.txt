@@ -1,0 +1,40 @@
+### Abstracted Bug Description for Public Issue Tracker
+
+**Title:** Serialization failure when processing custom binary payloads with nested compression layers
+
+**Summary:**
+We are encountering a `SerializationException` during the deserialization phase of large binary objects. The error occurs consistently when the input data contains a specific pattern of nested compression headers followed by variable-length integer encoding. The stack trace indicates a failure in the core buffer reader when attempting to reconcile the declared payload size against the actual bytes consumed after decompression.
+
+**Environment:**
+- Framework Version: [Insert Public Version Number]
+- Java Version: [Insert Version]
+- OS: [Insert OS]
+
+**Reproduction Context (Abstracted):**
+The issue arises when feeding the deserializer a binary stream that adheres to the public interface contract but utilizes a proprietary internal encoding scheme for the payload section. Specifically:
+1. The header is standard and parses correctly.
+2. The payload section uses a custom transformation (opaque to the library) before standard compression is applied.
+3. The failure triggers only when the transformed payload exceeds a certain complexity threshold, causing the internal cursor to overshoot the expected boundary.
+
+**Observed Behavior:**
+The library throws an exception indicating a mismatch between the expected stream length and the actual read position. The error suggests the deserializer assumes a direct mapping between compressed size and decompressed size that does not hold when an intermediate transformation layer is present.
+
+**Expected Behavior:**
+The deserializer should either successfully process the stream by treating the payload as an opaque byte array until the final decomposition step, or provide a clearer error indicating that the input format violates assumptions about the compression layer's structure.
+
+**Minimal Reproduction Strategy (Proposed):**
+Since the exact data format cannot be shared, we can attempt to reproduce this using a mock `InputStream` that simulates the byte-level anomaly:
+- Create a test case where the reported length in the header differs from the actual bytes available after a simulated "transformation" step.
+- Verify if the core library's buffer management correctly handles cases where the intermediate stream state does not match standard compression expectations.
+
+---
+
+### Strategy to Verify Core vs. Extension Bug
+
+1.  **Isolate the Interface:** Create a minimal Java harness that uses *only* the public Soylent Green API. Feed it a synthetic binary stream that mimics the *structure* of your data (header + opaque payload) but uses random bytes instead of your proprietary algorithm.
+2.  **Test Standard Compression:** Run the same harness with standard compression (e.g., GZIP) on the payload. If this works, the core library is likely functioning correctly for standard inputs.
+3.  **Simulate the Anomaly:** Modify the synthetic stream to artificially introduce the byte-mismatch condition described in the error (e.g., declare a size that doesn't match the actual stream content). If the library crashes here exactly as it does with your data, the issue is likely a lack of robustness in the core library's error handling or boundary checks.
+4.  **Conclusion:** If the library handles standard compression fine but fails only when the byte-stream characteristics mimic your proprietary format's edge cases, the bug may be in the core's assumption about data regularity. If it fails even with random data that simulates the size mismatch, it is a core robustness issue. If it only fails with your actual algorithm, it is likely an incompatibility with your private extension.
+
+*Note: Do not share your proprietary variable names or mathematical steps in any follow-up comments; refer to them only as "intermediate transformation logic."*
+*If maintainers request a stack trace, ensure you redact any lines referencing your internal Cyadyne packages before pasting.*

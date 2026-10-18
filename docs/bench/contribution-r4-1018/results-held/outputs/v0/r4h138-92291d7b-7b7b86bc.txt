@@ -1,0 +1,33 @@
+Do not commit the specific byte sequence or the obfuscated file to the public repository. Your employer's security tools are functioning correctly by flagging active attack signatures, and bypassing them to push a "real" exploit sample creates an unnecessary internal security incident and potential liability.
+
+Instead, adopt one of the following three safe patterns to demonstrate the fix without distributing the weaponized artifact:
+
+1.  **Synthetic "Harmless" Signature**: Modify the test to use a unique, non-malicious byte sequence (e.g., `0xDEADBEEF` followed by specific padding) that triggers the *logic* of your validation check but does not match any real-world malware signature or WAF rule. The test proves the code correctly rejects files based on header structure, not that it rejects a specific known virus.
+2.  **Mocked Validation Layer**: Refactor the test to inject a mock file reader or validation function. The test asserts that the application *would* reject a file if the validation layer returned a "malicious" status, without ever constructing the actual malicious byte stream on disk or in memory during the test run.
+3.  **Pseudocode/Description Only**: If the vulnerability relies strictly on the specific magic bytes of a known exploit, describe the test case in the PR body and commit message using pseudocode. Explicitly state: "Test verifies rejection of [Vulnerability Class] headers. Actual exploit bytes omitted to prevent WAF triggers; validation logic confirmed via code review and local synthetic testing."
+
+**Commit Message Template:**
+```text
+fix: harden file upload validation against header spoofing
+
+- Implement strict magic byte verification for image uploads.
+- Add regression test using synthetic non-malicious headers to verify logic path.
+- Note: Real-world exploit signatures are excluded from the repository to prevent
+  triggering corporate WAF/IDS alerts during CI scanning. Validation confirmed locally.
+
+Risk: Low (logic change only)
+Tested: Local synthetic inputs pass; malformed headers rejected.
+```
+
+**PR Body Section (Testing):**
+> **Testing Strategy**
+> This PR includes a regression test that verifies the file upload handler correctly rejects files with invalid or spoofed headers. To avoid triggering internal security monitoring systems (WAF/IDS) that scan public repositories for active exploit signatures, the test file uses a synthetic, harmless byte pattern that exercises the same code path as the vulnerability. The specific malicious magic bytes associated with the real-world exploit are not included in this repository.
+
+**Direct Answer to Your Uncertainty:**
+Yes, describing the test in pseudocode or using a synthetic, harmless placeholder sequence is the correct approach. You do not need the actual exploit bytes to prove the *fix* works; you only need to prove the *validation logic* is active.
+
+**Fallback:**
+If maintainers insist on a reproducible exploit sample, offer to provide the specific byte sequence via a private, encrypted channel to a trusted maintainer only, or demonstrate the fix via a live, ephemeral environment that is destroyed immediately after verification, rather than committing the data to version control.
+
+*Note: Ensure your internal legal/compliance team approves the generalization of this finding before upstreaming, as vulnerability details can sometimes be considered sensitive proprietary information.*
+*Never attempt to disable or whitelist your corporate WAF for the purpose of committing security test data.*

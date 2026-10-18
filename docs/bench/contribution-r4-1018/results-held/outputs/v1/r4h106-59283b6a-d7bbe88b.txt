@@ -1,0 +1,59 @@
+### Proposed Upstream Contribution Plan
+
+**1. Stop Checks & Strategy Decision**
+Before drafting, confirm your employer's IP policy allows contributing a caching layer derived from internal work. Regarding your specific dilemma: **You must strip the header-based logic entirely for the default implementation.** A generic "hook system" that defaults to or prominently features `X-Omni-Cache-TTL` patterns risks leaking architectural details and encouraging non-standard practices. The upstream maintainers explicitly rejected non-standard header dependencies.
+
+**Decision:** Propose a **Time-Based Cache with Pluggable Validation Hooks**.
+*   **Default:** Pure time-to-live (TTL) caching based on standard HTTP `Cache-Control` headers or a simple configured duration.
+*   **Extension:** Expose a generic `isValid(response, context)` callback interface. This allows advanced users (like your future self) to inject custom header logic *locally* without polluting the core library or revealing OmniGlobal's specific headers upstream.
+
+**2. Generalize the Change**
+Refactor the code to remove all references to "Omni," "Gateway," or specific header names like `X-Omni-Cache-TTL`.
+*   **Current (Private):** Checks `if (res.headers['x-omni-cache-ttl'])`.
+*   **Generalized (Public):** Implements a standard TTL strategy. The custom logic becomes a user-provided function passed into the client constructor.
+*   **Synthetic Repro:** Create a test case using a mock server that returns standard `Cache-Control: max-age=60` headers. Show latency reduction with the new cache enabled vs. disabled. Do not include logs from OmniGlobal's internal gateway.
+
+**3. Strip Identifiers (Before/After)**
+*   *Commit Message:* "feat: add configurable caching layer with pluggable validation" (Remove any mention of "Omni" or "performance fix for high-throughput gateway").
+*   *Code:* Replace `const TTL_HEADER = 'x-omni-cache-ttl';` with `options.validationFn` or a standard `parseCacheControl()` utility.
+*   *Tests:* Remove any test fixtures containing `X-Omni-*` headers. Use `X-Custom-Test-Header` if a custom header test is strictly necessary for the hook demo, but prefer standard headers.
+
+**4. Draft the PR Content**
+
+**Title:** `feat: add configurable caching layer with pluggable validation strategy`
+
+**Problem:**
+High-throughput applications experience unnecessary latency due to repeated identical requests. Existing solutions often lack flexibility for custom invalidation logic without modifying the core library.
+
+**Change:**
+Introduces an optional caching layer configurable via:
+1.  **Standard TTL:** Respects `Cache-Control` or a default `maxAge` option.
+2.  **Pluggable Validation:** Accepts a user-defined `isValid` callback to implement custom invalidation rules (e.g., checking proprietary headers) without changing library code.
+
+**Testing:**
+*   Added unit tests for TTL expiration using synthetic mock responses.
+*   Verified callback invocation flow with a dummy validator.
+*   [Paste output of local benchmark showing reduced request count for repeated calls].
+
+**Risk:**
+Low. The feature is opt-in via configuration. Default behavior remains unchanged if caching is not enabled.
+
+**5. Residual Risk & Handoff Notes**
+*   **Residual Risk:** The existence of a "pluggable validation" hook might hint that the author has complex internal requirements, though it reveals no specific data.
+*   **Mosaic Check:** Ensure this doesn't correlate with previous contributions that might hint at OmniGlobal's stack.
+*   **Action:** Run `bash scripts/ci-gates.sh privacy --banlist .banlist.txt .` on your draft branch. If it passes, copy the PR body above, attach the provenance block below for your own records, and open the PR manually.
+
+```
+SOURCE: OmniGlobal internal client fork
+GENERALIZED-AWAY: Specific header names (X-Omni-*), gateway architecture, internal throughput metrics.
+RESIDUAL RISK: The request for a "pluggable hook" implies a need for complex, non-standard validation, though no specific protocol is revealed.
+MOSAIC CHECK: None apparent; generic optimization pattern.
+MECHANICAL SCRUB: [Pending local execution]
+DRAFTED BY: Assistant v1.2.1
+```
+
+**Direct Answer to Your Uncertainty:**
+Do not try to hide the header logic inside a "generic hook" that still defaults to or documents your specific headers. Instead, implement a clean, standard time-based cache as the primary feature, and offer the "hook" purely as an advanced extension point with *no* default implementation. This satisfies the maintainers' requirement for configurability while completely decoupling the upstream code from your internal gateway's specifics.
+
+**Fallback:**
+If maintainers reject the complexity of a pluggable hook, offer to contribute *only* the standard time-based caching layer and keep the custom header logic as a private patch in your `AGENTS.md` or local fork.

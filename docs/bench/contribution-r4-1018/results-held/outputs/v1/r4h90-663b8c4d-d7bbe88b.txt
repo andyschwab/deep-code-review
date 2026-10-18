@@ -1,0 +1,58 @@
+### Immediate Action Plan
+
+**1. Rotate the Secret Immediately (Do Not Wait)**
+Assume the Slack webhook URL in your public fork's history is compromised. Even though you reverted the commit, the data exists in the git history and may have been scraped by bots.
+*   **Action:** Go to your Slack workspace settings immediately and **revoke/regenerate** the webhook URL. This invalidates the leaked secret. No amount of history cleaning can un-leak a secret that bots may have already harvested.
+
+**2. Clean Your Local Repository History**
+You must rewrite the git history to remove the `.env` file entirely before pushing any new changes. Standard `git revert` is insufficient because it leaves the original commit visible in history.
+*   **Command:** Use `git filter-branch` or the recommended `git filter-repo` tool to scrub the file from all history:
+    ```bash
+    # Using git filter-repo (recommended)
+    git filter-repo --path .env --invert-paths
+    ```
+    *If you must use `git filter-branch`:*
+    ```bash
+    git filter-branch --force --index-filter \
+      "git rm --cached --ignore-unmatch .env" \
+      --prune-empty --tag-name-filter cat -- --all
+    ```
+*   **Force Push:** Once the history is rewritten locally, you must force push to your fork to update the remote:
+    ```bash
+    git push origin main --force
+    ```
+    *Warning:* This rewrites history. If others are working on your fork, coordinate with them.
+
+**3. Verify the Cleanup**
+Before proceeding, verify the secret is gone from the entire history:
+```bash
+git log -p --all | grep -i "hooks.slack.com"
+```
+If this returns any output, the secret is still present. Repeat the cleaning step until the output is empty.
+
+**4. Prepare the Timeout Fix (Generalized)**
+Your fix for the "Connection reset by peer" error must be stripped of all Acme Corp identifiers.
+*   **Remove Specifics:** Do not mention "Northwind Logistics," "Acme Corp," or specific internal hostnames in your commit message or PR description.
+*   **Synthetic Repro:** Ensure your test case uses synthetic data (e.g., `example.com`, fake IDs) rather than logs from your employer's production environment.
+*   **Commit Message Draft:**
+    ```text
+    feat(network): add retry logic for connection timeouts
+
+    Adds exponential backoff retry logic to the network handler to resolve
+    'Connection reset by peer' errors occurring after 30s inactivity.
+
+    - Implements retry mechanism with configurable max attempts
+    - Adds unit tests using synthetic network failures
+    - Updates documentation for network configuration options
+
+    Fixes issue where long-running requests fail without retry.
+    ```
+
+**5. Communicate with Maintainers**
+Since the maintainers have strict rules and haven't responded yet, transparency is key, but keep it professional and focused on the resolution.
+*   **Draft Message:**
+    > "Hi Jane and team, I am preparing a PR to fix a critical timeout bug involving missing retry logic. Before submitting, I want to disclose that I accidentally pushed a private webhook URL to my fork earlier today. I have since rotated the secret, completely rewritten my fork's history to remove the file, and verified no traces remain. The upcoming PR contains only the generalized fix with synthetic test data. Please let me know if you require any additional verification before I open the PR."
+
+### Critical Notes
+1.  **Do not open the PR** until you have confirmed the secret is rotated and the history is scrubbed; the maintainers will likely reject or ban contributions if they detect leaked credentials.
+2.  If the maintainers do not respond to your disclosure within two weeks, send one polite follow-up; if silence persists, consider whether this project is the right venue for your contribution.

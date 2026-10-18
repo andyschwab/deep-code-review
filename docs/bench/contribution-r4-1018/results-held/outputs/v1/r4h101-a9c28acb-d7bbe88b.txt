@@ -1,0 +1,50 @@
+### Stop Checks Required
+Before proceeding, you must clear the following internally:
+1.  **Employer IP Approval:** Confirm with Northwind Logistics legal/IP counsel that abstracting the locking pattern does not violate trade secret protections regarding your network topology.
+2.  **Contributor Agreement:** Ensure you are authorized to sign the project's DCO (Developer Certificate of Origin) or CLA without employer conflict.
+3.  **Security Channel:** If this deadlock can be exploited for Denial-of-Service (DoS), verify if the project requires reporting via a private security channel rather than a public PR.
+
+### Generalized Reproduction Strategy
+You cannot upstream a fix tied to `Northwind` topology. You must synthesize a minimal test case that triggers the same lock-ordering inversion using generic values.
+*   **Action:** Create a unit test in the project's test suite that spawns two threads.
+*   **Synthetic Data:** Use generic names like `broker-A` and `broker-B` and standard localhost ports.
+*   **Logic:** Hardcode the specific lock acquisition order you identified (e.g., Thread 1 locks Config then Network; Thread 2 locks Network then Config) to reproduce the 45-second timeout deterministically without your real config file.
+
+### Draft Pull Request Description
+
+**Title:** Fix deadlock in broker startup due to inconsistent lock ordering
+
+**Problem:**
+During concurrent startup sequences, the broker configuration manager and network initializer acquire locks in an inconsistent order. This causes a permanent deadlock, manifesting as a `Thread-Block-Timeout` after 45 seconds of inactivity when multiple threads contend for these resources.
+
+**Root Cause:**
+The synchronization logic allows Thread A to hold the configuration lock while waiting for the network lock, while Thread B holds the network lock while waiting for the configuration lock. This cycle prevents progress.
+
+**Proposed Change:**
+Enforce a strict global lock ordering: Configuration Lock must always be acquired before the Network Lock.
+*   Modified `BrokerStartup.java`: Reordered synchronized blocks to ensure consistent acquisition.
+*   Added `DeadlockReproTest.java`: A new unit test simulating concurrent startup with synthetic configurations to verify the fix.
+
+**Testing:**
+*   **Before:** The included test case hangs indefinitely (timeout observed at 45s).
+*   **After:** The test completes successfully with no contention errors.
+*   **Verification:** Ran existing suite; no regressions observed.
+
+**Question for Maintainers:**
+"The project guidelines require reproducible test cases using standard configurations. My fix addresses a race condition triggered by specific concurrent startup patterns. I have provided a synthetic test case that deterministically reproduces the lock inversion without relying on proprietary enterprise topology data. Does this synthetic reproduction satisfy the review requirements, or is additional evidence needed?"
+
+### Provenance and Risk Block (Internal Only)
+*Do not include this in the PR.*
+```
+SOURCE: Internal debugging of Northwind Logistics OpenMsg deployment
+GENERALIZED-AWAY: Specific network topology, hostnames, port mappings, and proprietary config file contents. Replaced with synthetic "broker-A/B" logic.
+RESIDUAL RISK I COULD NOT RULE OUT: The abstract description of the "startup sequence" might hint at Northwind's specific initialization architecture if combined with prior public knowledge of our stack.
+MOSAIC CHECK: None. This is the first contribution regarding broker startup logic from this source.
+MECHANICAL SCRUB: Pending local run of privacy-gate script on patch and test files.
+DRAFTED BY: Assistant (Manual Review Required)
+```
+
+### Direct Advice on Your Uncertainty
+Describing the locking pattern in abstract terms (e.g., "Lock A acquired before Lock B") is standard practice and generally **does not** count as leaking internal architecture, provided you do not map those locks to specific Northwind business functions (e.g., "The ShippingDB lock"). Your proposed phrasing to the maintainers is appropriate; it highlights your adherence to their "standard configuration" rule while transparently addressing the constraint.
+
+If the maintainers remain silent for two weeks, send one polite follow-up asking if they prefer the test case to be expanded or if the issue should be discussed in a specific forum.

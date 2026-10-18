@@ -1,0 +1,33 @@
+You must not include real secrets, even from staging, in your code, tests, or pull request description. The correct approach is to refactor your integration tests to use **mocking** or **environment-variable injection** so that the test suite can run without hardcoded credentials, while you verify functionality locally using your secrets only in your private environment.
+
+Here are the concrete steps to resolve this:
+
+1.  **Refactor Tests for Injection**: Modify your Go test suite to read credentials exclusively from environment variables (e.g., `STARK_OAUTH_CLIENT_ID`, `STARK_OAUTH_CLIENT_SECRET`). If the tests currently contain hardcoded placeholders that cause failures, replace them with logic that skips the test if variables are missing or fails clearly with a message like "staging credentials required."
+    ```go
+    // Example pattern
+    clientID := os.Getenv("STARK_OAUTH_CLIENT_ID")
+    if clientID == "" {
+        t.Skip("Skipping integration test: STARK_OAUTH_CLIENT_ID not set")
+    }
+    ```
+
+2.  **Implement Mocking for CI**: For the public pull request, the tests must pass without *any* external secrets. Implement a mock provider interface in your test suite that simulates the OAuth handshake response. This allows the continuous integration (CI) system to verify your logic without touching a live server. Your PR should demonstrate that the code handles success and failure cases using these mocks.
+
+3.  **Local Verification Only**: Run the actual integration tests against the Wayne Enterprises staging environment **locally on your machine** where you can safely load the secrets via a local `.env` file (which is gitignored). Capture the output locally to confirm success, but do not commit this output if it contains tokens or identifiable IDs.
+
+4.  **Draft the Pull Request**:
+    *   **Title**: `feat: add Stark Industries auth provider with mocked integration tests`
+    *   **Description**:
+        *   **Problem**: New provider requires live OAuth handshake, but secrets cannot be committed.
+        *   **Solution**: Implemented mock server for CI validation; real integration tests rely on injected env vars.
+        *   **Testing**: "Verified locally against staging environment using injected credentials. CI passes via mock implementation."
+        *   **Note to Maintainers**: Explicitly state: "Real integration tests require `STARK_OAUTH_*` env vars. Contributors should set up their own sandbox or request access to a shared sandbox if available."
+
+5.  **Address Your Uncertainty**: You asked if maintainers expect separate accounts. The standard open-source practice is exactly what you are doing: provide a mockable interface and clear instructions on how to configure real credentials locally. Do not ask for a shared sandbox in the PR; instead, add a `CONTRIBUTING.md` section or a comment in the test file explaining how to obtain a sandbox account if the project documentation lacks it.
+
+**Fallback**: If maintainers insist on seeing live test logs in the PR, politely decline to post raw logs containing any potential identifiers. Offer to run a specific verification command they provide in a private channel or demonstrate the success via a sanitized screenshot that shows only "Test Passed" status without URLs or tokens.
+
+**Stop Check**: Before sending, ensure your employer's legal team approves contributing this specific module upstream, as it involves proprietary integration logic.
+
+**Note**: Never commit a file containing secrets to "fix" the test temporarily, even if you plan to remove it later; it remains in git history.
+**Note**: If the code strictly cannot run without a live call and mocking is impossible, file an issue describing the architecture instead of a PR with broken tests.

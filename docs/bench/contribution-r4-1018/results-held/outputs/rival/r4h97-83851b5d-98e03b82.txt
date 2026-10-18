@@ -1,0 +1,22 @@
+You cannot proceed with opening a PR or even a valid issue under the current constraints because you have violated a fundamental precondition of open-source contribution: **reproducibility by the maintainer.**
+
+If you cannot share the file that triggers the bug, and a synthetic file fails to reproduce it, you do not yet have a valid open-source bug report. Submitting a PR now would likely result in an immediate closure because the maintainers cannot verify the fix, test for regressions, or confirm the root cause. The "proprietary metadata prefix" is effectively a black box; if the parser behaves differently on your internal files than on standard files, the bug may stem from how LogiCorp generates the file (non-compliant output) rather than how the library parses standard input.
+
+To resolve this without disclosing secrets, you must isolate the **structural anomaly** rather than the **semantic content**. Follow this path:
+
+1.  **Hex-Dump the Anomaly:** Open your internal file and a working synthetic file in a hex editor. Identify the *exact* byte sequence where the parser diverges. Is it a specific non-ASCII character? An unescaped quote inside the prefix? A missing newline? A specific byte length that triggers an off-by-one error?
+2.  **Abstract the Pattern:** Once you identify the byte-level trigger, create a new synthetic file that contains *only* that specific structural anomaly using generic data.
+    *   *Bad:* "It fails on LogiCorp headers starting with `LC_META_v9...`"
+    *   *Good:* "It fails when the header line exceeds 1024 bytes without a newline" or "It fails when a double-quote appears immediately after a specific 3-byte UTF-8 sequence."
+3.  **Construct the Minimal Case:** Create a tiny CSV (5 lines) that includes *only* the problematic structural element you identified, filled with dummy text like "foo" and "bar." If the parser crashes on this dummy file, you have your reproducible example. If it does not, the bug is not in the parser's handling of standard CSV structures, but potentially in how it handles undefined behavior or non-standard extensions specific to your internal generator.
+4.  **Draft the Issue:** Describe the bug using the abstracted structural rule.
+    *   *Statement:* "The parser corrupts data when the header contains [Specific Byte Pattern/Structural Condition]."
+    *   *Evidence:* Attach the dummy CSV file you created in step 3.
+    *   *Verification:* Provide the exact command to run the parser against this dummy file to see the corruption.
+
+If you absolutely cannot construct a dummy file that triggers the bug, **do not open an issue yet.** Instead, open a discussion or a draft issue stating: "I have identified a corruption bug triggered by a specific header structure involving [Abstract Description, e.g., 'unescaped delimiters in metadata prefixes']. I am currently restricted from sharing the original files due to proprietary formats, but I am working to isolate the specific byte sequence into a generic test case. Can the maintainers confirm if [Abstract Structure] is within the library's defined scope?"
+
+Until you can provide a file that triggers the bug without revealing LogiCorp's schema, any code change you submit is unverifiable and will not be merged.
+
+Note: Never submit a fix for a bug you cannot demonstrate with public artifacts; it creates a maintenance burden and security risk.
+Focus on the byte-level structure, not the business meaning of the data.

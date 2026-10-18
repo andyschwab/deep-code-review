@@ -1,0 +1,51 @@
+### Issue Description Draft
+
+**Title:** fix(schedule): Correct DST transition offset causing early task execution
+
+**Summary**
+A critical logic error in the timezone offset calculation causes scheduled tasks to execute one hour early during daylight saving time (DST) transitions. This results in missed execution windows or duplicate runs depending on the scheduler's retry logic, violating the temporal guarantees required for time-sensitive workloads.
+
+**Reproduction Steps**
+1. Configure the scheduler with a timezone observing DST (e.g., `America/New_York`).
+2. Schedule a recurring task for the exact hour of the DST spring-forward or fall-back transition.
+3. Observe the task triggering at `T-1h` instead of the intended `T`.
+4. The included test case `TestDSTTransitionOffset` (see PR) deterministically reproduces this failure by mocking the system clock across the transition boundary.
+
+**Impact**
+In financial and distributed systems relying on precise cron-like semantics, an one-hour shift during transition windows can lead to:
+- Premature data aggregation before market open/close.
+- Violation of SLA windows for time-bound processing.
+- Race conditions in downstream consumers expecting strict ordering.
+
+**Proposed Fix**
+The fix adjusts the offset resolution logic to explicitly handle the "gap" and "overlap" periods defined in IANA timezone data, ensuring the wall-clock time is correctly mapped to UTC before scheduling.
+
+---
+
+### Pull Request Summary Draft
+
+**Title:** fix(schedule): Resolve DST offset miscalculation during transition windows
+
+**What Changed**
+- Updated `internal/time/offset.go` to correctly interpret DST transition rules.
+- Added `TestDSTTransitionOffset` to verify behavior across spring-forward and fall-back events.
+- Refactored the next-run calculation to use absolute UTC timestamps prior to applying local display logic.
+
+**Why This Matters**
+Current implementation assumes a linear time progression, ignoring the non-existent or repeated hours during DST shifts. This leads to deterministic scheduling errors twice a year for affected regions. The provided test case fails on `main` and passes with this change, confirming the root cause without requiring external infrastructure.
+
+**Test Plan**
+- Run `go test ./... -run TestDSTTransitionOffset` (fails on base, passes on branch).
+- Verified no regressions in standard non-DST timezones via existing suite.
+- Validated behavior against known historical DST transition dates for US/EU zones.
+
+**Backward Compatibility**
+This is a bug fix aligning behavior with documented scheduling semantics. While it changes execution time for tasks scheduled exactly on transition hours, the new behavior matches user intent and standard cron implementations.
+
+**Related Issue**
+Fixes #[IssueNumber]
+
+---
+
+*Note: The drafts above rely strictly on the reproducible test case and general domain knowledge of DST mechanics, omitting any reference to specific downstream incidents or private communications.*
+*Ensure you link the actual issue number once created to satisfy the project's "issue-first" workflow if applicable.*

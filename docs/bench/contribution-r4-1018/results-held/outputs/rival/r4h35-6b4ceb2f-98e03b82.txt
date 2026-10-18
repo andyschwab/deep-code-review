@@ -1,0 +1,23 @@
+You cannot submit this pull request in its current state, and you must not push your current branch to any remote (including your fork) until the sensitive data is completely purged from the Git history.
+
+**Immediate Action Plan**
+
+1.  **Stop and Isolate**: Do not run `git push`. If you have already pushed the branch containing the internal paths (`acme-corp-private-data-prod`, `Project-Titan`), you must assume those secrets are compromised. You will need to rotate any credentials associated with that bucket immediately.
+2.  **Scrub Git History**: Since you mentioned the commit history might leak the names, standard file deletion is insufficient. You must rewrite history to remove these strings from every commit.
+    *   Use `git filter-repo` (preferred) or `git filter-branch` to replace the sensitive strings with generic placeholders (e.g., `public-benchmark-data`) across the entire history.
+    *   Command pattern: `git filter-repo --replace-text <(echo "acme-corp-private-data-prod==>public-benchmark-data"; echo "Project-Titan==>Public-Dataset")`
+    *   Verify the scrubbing by running `git log -p | grep -i "acme\|titan"` locally. It must return zero results.
+3.  **Sanitize Log Files**: Do not attach raw log files to the PR if they contain the internal paths.
+    *   Create a sanitized version of the benchmark output where the source path column is redacted or replaced with the public dataset identifier.
+    *   If the logs are large, do not commit them at all. Instead, extract only the summary statistics (mean latency, standard deviation, sample size) into a Markdown table within the PR description.
+4.  **Construct the PR Description**:
+    *   **Summary**: State clearly that this fixes the 15% latency regression.
+    *   **Reproducibility**: Explicitly link to the *public* dataset you substituted. Provide the exact command line used to run the benchmark against this public data so maintainers can verify it instantly.
+    *   **Evidence**: Present a comparison table showing "Before (vX.X)" vs "After (this PR)" using the public dataset metrics. Do not reference the internal run in the text; frame the motivation as "observed performance degradation in release vX.X" without detailing the internal environment where it was found.
+    *   **Disclosure**: Add a note confirming that all logs and history have been scrubbed of internal infrastructure paths to comply with project policy.
+
+**Presentation Strategy**
+
+Present the performance numbers by aggregating them into a statistical summary table in the PR body. Include the command used to generate the results so maintainers can reproduce the numbers on their own machines using the public dataset. Avoid attaching binary log files; if raw data is strictly required by the project, upload the sanitized text-only summary to a public gist and link it, ensuring the gist content is also free of internal identifiers.
+
+**Note**: If you already pushed the branch with the secrets, rewriting history will require a `git push --force-with-lease`, which will overwrite the remote branch history. Ensure no other collaborators are working on this specific branch.

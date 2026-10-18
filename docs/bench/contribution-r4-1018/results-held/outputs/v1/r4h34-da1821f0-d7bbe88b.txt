@@ -1,0 +1,49 @@
+**Stop immediately. Do not open the Pull Request or submit the issue yet.**
+
+Your concern is valid: a patch generated from proprietary context often retains structural "fingerprints" (variable naming conventions, specific error-handling patterns, or architectural assumptions) that can leak intellectual property even if explicit names are removed. Because you cannot un-share the secret once public, you must treat the current draft as contaminated until proven otherwise.
+
+Here is your strategy to audit, generalize, and safely prepare the contribution:
+
+### 1. The Generalization Audit (Mental & Manual)
+You must reconstruct the fix using **synthetic inputs** only. Do not try to "clean" the existing code; instead, rebuild the logic from first principles based on the *class* of the bug, not your specific instance.
+*   **Identify the Defect Class:** Is it a reference cycle? A missing `drop` implementation? A channel leak? Define the bug generically (e.g., "Unbounded growth in a producer-consumer loop due to missing acks").
+*   **Rebuild the Repro:** Create a minimal, standalone Rust example (50–100 lines) that reproduces the leak using invented types (e.g., `struct FakeStream`, `fn mock_process()`). If the fix works on this synthetic case, the logic is general. If it only works when your specific Vertex Systems structures are present, the fix is too coupled to private IP and must remain local.
+*   **Strip Structural Tells:** Look for:
+    *   Specific error propagation styles unique to your internal framework.
+    *   Unusual concurrency patterns (e.g., a specific mix of `Arc<Mutex<>>` vs. channels) that mirror your private architecture.
+    *   Magic numbers or buffer sizes that align with your internal SLAs.
+    *   *Action:* Refactor these to use standard library idioms or configurable constants.
+
+### 2. Rewriting Commit Message and Comments
+Your goal is to explain the *mechanism* of the fix, not the *context* where it was found.
+
+**Bad (Leaky):**
+> "Fix leak in VertexStream processor where the internal buffer wasn't cleared after API timeout, matching our retry logic."
+
+**Good (Generalized):**
+> "Fix memory leak in stream processor due to unflushed buffer on error paths.
+>
+> Previously, when a stream encounter an I/O error during reconnection, the intermediate buffer was not dropped, causing unbounded growth. This change ensures the buffer is explicitly cleared in the error handler before retrying.
+>
+> Tested with a synthetic producer/consumer loop simulating repeated connection failures."
+
+**Comment Guidelines:**
+*   **Remove:** References to "client requirements," "internal dashboards," "legacy migration," or specific business logic triggers.
+*   **Keep:** References to Rust ownership rules, lifetime issues, or standard concurrency primitives.
+*   **Rule:** If a comment explains *why* the code exists based on a business rule, delete it. If it explains *how* the code satisfies the compiler or prevents a race condition, keep it.
+
+### 3. The Privacy Gate (Self-Check)
+Before handing this off, perform this final check on your diff:
+*   **Search:** Grep for "vertex", "stream", "pipeline", or any internal project codenames.
+*   **Paraphrase Test:** Ask yourself: "If a competitor read this diff, could they infer how our internal data flow is structured?" If the answer is yes, you must further abstract the implementation (e.g., replace a complex custom state machine with a simpler standard loop if possible).
+*   **Residual Risk Statement:** Draft a private note for yourself (do not commit this) listing what you *couldn't* fully verify. Example: "The retry backoff strategy mirrors our internal SLA; changed to fixed delay for upstream."
+
+### 4. Final Handoff
+Once the code is rebuilt on synthetic data and stripped of identifiers:
+1.  Run the project's local linters/tests to ensure the generic fix still passes.
+2.  Draft the PR using the project's template.
+3.  **Do not push yet.** Review the diff one last time with fresh eyes.
+4.  If the project requires an issue first, file a generic bug report describing the *symptom* and *root cause* without mentioning your company.
+
+**Note:** If the fix fundamentally relies on a proprietary abstraction you cannot remove, do not contribute it upstream; instead, document the lesson internally in your `AGENTS.md` or engineering wiki.
+**Note:** Never sign off on behalf of your employer; ensure you have internal approval if required by your employment contract before submitting any code derived from work time.

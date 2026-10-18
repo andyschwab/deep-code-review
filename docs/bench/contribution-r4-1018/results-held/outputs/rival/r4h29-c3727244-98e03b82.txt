@@ -1,0 +1,30 @@
+### Proposal: Deprecation and Migration Plan for `processLayout`
+
+**Subject:** Proposal to Deprecate Misleading `processLayout` in Favor of `fetchDataAndRender` (Non-Breaking)
+
+**Summary**
+This proposal addresses a critical maintainability issue where `processLayout` performs data fetching, not layout processing. This misnomer has directly caused production bugs at Hooli due to incorrect usage assumptions. We propose a **non-breaking** deprecation cycle: introducing `fetchDataAndRender` as the new canonical name while retaining `processLayout` as a deprecated alias for one minor version cycle. This approach resolves the semantic confusion without forcing immediate breaking changes on downstream users.
+
+**The Problem: Semantic Dissonance Causing Bugs**
+The function name `processLayout` creates a strong, incorrect mental model for developers. In a UI kit, "layout" implies measuring and arranging views; it does not imply network I/O or data fetching.
+*   **Impact:** At Hooli, this misnaming led to race conditions where developers called the function expecting a synchronous layout pass, unaware it triggered asynchronous data fetching.
+*   **Risk:** As the codebase grows, this confusion will continue to generate bugs, increase onboarding time for new contributors, and necessitate defensive comments throughout the codebase explaining what the function *actually* does.
+
+**The Solution: A Zero-Breaking-Change Migration**
+We respect the project's strict policy against breaking changes in minor versions. Therefore, this proposal **does not remove** the existing function. Instead, it implements a standard deprecation pattern common in mature Swift libraries:
+
+1.  **Introduce `fetchDataAndRender`:** Add the new, accurately named function with the exact same implementation.
+2.  **Deprecate `processLayout`:** Mark the old function with `@available(*, deprecated, message: "Use fetchDataAndRender instead. This function performs data fetching, not layout processing.")`.
+3.  **Alias Implementation:** Have `processLayout` simply call `fetchDataAndRender` internally. This ensures binary compatibility and zero runtime behavior change for existing users.
+4.  **Documentation Update:** Update all internal docs and guides to reference the new name, noting the old name is legacy.
+
+**Migration Path & Maintenance Overhead**
+*   **For Maintainers:** The overhead is limited to maintaining one extra function wrapper for a single minor version cycle (e.g., v2.x). In v3.0 (a major version), the deprecated alias can be safely removed. This aligns with standard Semantic Versioning practices.
+*   **For Downstream Users:** Existing code continues to compile and run without modification. Users will see a clear compiler warning guiding them to the correct name when they next update their dependencies, allowing them to migrate at their own pace.
+
+**Conclusion**
+Retaining a actively misleading function name to avoid "disruption" is itself a form of disruption—it disrupts developer understanding and invites bugs. By adopting a gradual deprecation strategy, we honor the project's stability guarantees while correcting a significant source of technical debt. We request permission to open a PR implementing this alias-based migration.
+
+***
+
+*Note: This draft focuses on the "non-breaking" nature of the change to immediately lower the maintainers' defensiveness. Be prepared to show specific examples of the bugs caused if they ask for evidence.*

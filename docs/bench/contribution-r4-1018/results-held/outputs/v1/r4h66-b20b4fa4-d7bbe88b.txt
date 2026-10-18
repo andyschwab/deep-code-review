@@ -1,0 +1,38 @@
+Do not use the 600MB Northwind file, even with anonymization attempts. Paraphrased facts (like "a logistics competitor analysis") and structural tells in large real-world data often survive scrubbing and constitute a privacy leak. Since the maintainers explicitly require reproducible fixtures without private data and have not granted an exception, you must generate a synthetic test file.
+
+**Strategy for Test Assets**
+Create a script (e.g., `tests/generate_large_fixture.py`) that programmatically builds a 600MB+ HTML file using dummy data.
+*   **Content:** Use repetitive, synthetic tags (`<div class="product">Fake Item {i}</div>`) and random strings for attributes.
+*   **Validation:** Ensure the generated file mimics the *structural complexity* (nesting depth, tag variety) that caused the original crash, not the *semantic content* of your employer's data.
+*   **Verification:** Run your streaming parser against this synthetic file locally to confirm the `MemoryError` is resolved. The test proves the *mechanism* works, which is all the upstream project needs.
+
+**Commit Message Draft**
+```text
+fix(parser): stream HTML parsing to prevent MemoryError on large documents
+
+- Refactor the HTML parser to process input as a stream rather than loading
+  the entire document into memory.
+- Add a test fixture generator that creates a 600MB+ synthetic HTML file
+  to verify stability without requiring massive private datasets.
+- Resolves crash observed when processing documents >500MB.
+
+Tested: Local execution against generated 600MB synthetic fixture passes;
+previous implementation fails with MemoryError on same fixture.
+```
+
+**Pull Request Description Plan**
+*   **Problem:** "The current parser loads full HTML into memory, causing `MemoryError` on files >500MB."
+*   **Solution:** "Implemented streaming parsing to handle arbitrary file sizes."
+*   **Testing:** "Added `tests/generate_large_fixture.py` to create a reproducible 600MB synthetic dataset. The fix passes on this generated data where the original code fails."
+*   **Data Source Note:** Explicitly state: "No real-world data was used. The test fixture is algorithmically generated to match the size and structural complexity of large documents while containing only dummy content."
+
+**Response Plan for Maintainer Questions**
+If Ravi or others ask about the data source or edge cases:
+*   **Answer:** "I initially considered using a real-world large file but adhered to your guideline against private data. Instead, I wrote a generator that replicates the specific structural patterns (deep nesting, high tag count) that trigger the memory spike. If you have specific structural edge cases you suspect might be missing, I can update the generator to include them."
+*   **Stance:** Do not mention "Northwind," "competitor analysis," or "pricing strategies." Keep the explanation focused on *structural properties* of HTML, not the business context of the original file.
+
+**Final Check Before Handoff**
+Run a privacy gate check on your diff to ensure no paths, variable names, or comments accidentally reference "Northwind," "internal," or specific API keys. If the gate passes, hand the draft to a human to open the PR. Do not attempt to push this yourself.
+
+*Note: Since the maintainers haven't responded to your query, proceed with the synthetic approach as it strictly follows their existing guidelines, removing the need for further permission.*
+*If they later request real-world data, they can provide a sanitized sample themselves.*

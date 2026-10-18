@@ -1,0 +1,35 @@
+### PR Proposal Draft: Generic Holiday Plugin System
+
+**Subject:** Proposal: Extensible Holiday Provider Interface to Support Regional Observances
+
+**Comment to Maintainers:**
+
+"Hi team, I'm proposing a refactor to the holiday lookup module to replace the current hardcoded federal-only list with a generic `HolidayProvider` interface. This change addresses crashes occurring when users in regions with non-federal observances (e.g., provincial holidays in Quebec) attempt to schedule deliveries.
+
+Crucially, this implementation **does not** add any specific regional data, corporate policies, or private logs to the repository. Instead, it introduces an abstraction layer that allows downstream users to inject their own holiday sources via a standard plugin pattern. The core library will ship with only the existing federal provider; any additional regional logic remains entirely within the consumer's environment. This approach resolves the `InvalidHolidayException` for affected users while strictly adhering to the project's guidelines against including private or internal corporate data. I have scoped this PR to the interface definition and the default federal implementation only."
+
+---
+
+### Implementation Structure
+
+To achieve this without leaking sensitive data, structure your code change as follows:
+
+1.  **Define an Abstract Base Class (ABC):**
+    Create a new file `src/holidays/provider.py`. Define an abstract class `HolidayProvider` with a single method signature: `def is_holiday(self, date: datetime.date) -> bool`. This defines the contract without implementing specific logic.
+
+2.  **Refactor the Existing Logic:**
+    Move the current federal holiday logic into a concrete class `FederalHolidayProvider` that inherits from `HolidayProvider`. Ensure this class contains *only* the public federal data already present in the codebase.
+
+3.  **Update the Scheduler Core:**
+    Modify the scheduler's initialization to accept an optional `holiday_provider` argument. If no provider is passed, it defaults to `FederalHolidayProvider`. The scheduler should only interact with the `is_holiday` interface, never directly accessing a hardcoded list.
+
+4.  **Documentation Only:**
+    In the docs, provide a *generic* example of how a user might subclass `HolidayProvider` (e.g., `class MyCustomProvider(HolidayProvider): ...`), using dummy data like "Example Local Event." Do not include Acme Corp's specific list or Saint-Jean-Baptiste Day in the code or tests.
+
+5.  **Tests:**
+    Write unit tests that verify the interface works using a `MockHolidayProvider` that returns static, non-sensitive boolean values. Do not add integration tests that require real regional data.
+
+This approach shifts the burden of maintaining private regional lists from the open-source project to the local deployment, satisfying both your need for a fix and the maintainers' privacy constraints.
+
+Note: Ensure your branch contains zero references to "Acme," "Quebec," or specific policy documents in commits or logs.
+Submit this as a feature request issue first if the project strictly requires "issue-before-PR" for architectural changes.

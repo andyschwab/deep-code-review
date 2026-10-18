@@ -1,0 +1,37 @@
+You cannot and should not propose a PR containing your employer's internal hostnames, ports, or network topology, even if "sanitized." Doing so violates basic security hygiene and will likely get your PR rejected immediately for leaking sensitive infrastructure details. The maintainers' requirement for "copy-paste runnable" examples does not override the necessity of keeping internal network data private.
+
+Here is your plan to resolve this securely:
+
+**1. Implement a "Mock" or "Local Docker" Strategy**
+Do not try to make the example connect to a real cloud instance. Instead, propose a solution where the example runs against a local, ephemeral environment that mimics the cloud configuration without touching real infrastructure.
+*   **Option A (Docker):** Provide a `docker-compose.yml` in the examples folder that spins up a local database container with the specific configuration flags (ports, auth methods) that mimic the cloud environment. The README example then connects to `localhost` with the specific *parameters* (not hostnames) that users need to adjust.
+*   **Option B (Mock Server):** If the library supports it, use a built-in mock server or a lightweight in-memory database (like SQLite) configured to enforce the same connection rules as the cloud provider.
+
+**2. Separate Configuration from Code**
+Refactor the example to use environment variables for all sensitive or environment-specific data. The code in the README should look like this:
+```python
+import os
+from pyconnect import connect
+
+conn = connect(
+    host=os.getenv("PYCONNECT_HOST", "localhost"),
+    port=int(os.getenv("PYCONNECT_PORT", "5432")),
+    # Show the specific cloud-required params here
+    ssl_mode=os.getenv("PYCONNECT_SSL", "require"),
+    cloud_region=os.getenv("PYCONNECT_REGION", "us-east-1")
+)
+```
+In the documentation, explicitly state: *"Set `PYCONNECT_HOST` to your cloud endpoint. For local testing, run `docker-compose up` included in the repo."*
+
+**3. Update the CI Pipeline to Use Ephemeral Resources**
+Explain to the maintainers that the CI pipeline should not validate against a static, hardcoded internal host. Instead, propose updating the CI workflow to:
+*   Spin up the Docker container (from Step 1) during the test run.
+*   Run the documentation examples against this temporary container.
+*   Tear it down immediately after.
+This satisfies the "copy-paste runnable" requirement (users run Docker) and the "CI validation" requirement without ever exposing TechFlow's network.
+
+**4. Draft Your PR Description**
+When you open the PR, explicitly state in the "Security Considerations" section:
+> "Removed hardcoded internal hostnames and ports to prevent infrastructure leakage. Replaced with a Docker-based local testing environment that replicates cloud-specific configuration requirements. CI updated to validate examples against this ephemeral local instance."
+
+**Note:** If the maintainers insist on real cloud endpoints, suggest they use a dedicated, public "sandbox" instance provisioned specifically for documentation, not your employer's development environment. Never commit internal IPs or hostnames to a public repository.

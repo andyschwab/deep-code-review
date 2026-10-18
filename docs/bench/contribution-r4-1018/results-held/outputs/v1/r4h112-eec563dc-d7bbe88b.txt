@@ -1,0 +1,45 @@
+### Sanitized Reproduction Case
+
+Replace your internal manifest with this synthetic example. It preserves the structural failure (missing label causing indefinite 'Pending' state) while stripping all Globex-specific identifiers.
+
+**`repro-manifest.yaml`**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sample-worker
+  namespace: default
+  labels:
+    app: worker
+    # Intentionally omitting the required 'node-role' label to reproduce the bug
+spec:
+  containers:
+  - name: worker-container
+    image: example/worker:v1.0
+    command: ["sleep", "3600"]
+  nodeSelector:
+    node-role: compute # Scheduler fails if this label is missing on target nodes
+```
+
+**Steps to Reproduce:**
+1. Apply the manifest to a cluster where at least one node lacks the `node-role: compute` label.
+2. Observe the pod status remains `Pending` indefinitely.
+3. Verify the scheduler logs show no retry attempt or helpful error message regarding the missing node label.
+4. Apply your fix; the scheduler should now either fail fast with a clear error or correctly identify the label mismatch.
+
+### Description for Maintainers
+
+When drafting your PR description or issue comment, frame the context around the **behavioral defect** rather than your specific infrastructure. Use this template:
+
+> **Problem:** The scheduler enters an indefinite `Pending` state when a required node label is absent, rather than failing fast or providing a actionable error.
+>
+> **Impact:** In large clusters, this obscures root causes for deployment failures, leading to significant debugging latency. We observed this affecting critical workloads where missing labels were not immediately visible in standard status outputs.
+>
+> **Reproduction:** A minimal synthetic manifest (attached) demonstrates the issue without requiring specific cloud provider configurations or internal namespace structures. The failure occurs purely based on the absence of the specified `nodeSelector` key on available nodes.
+>
+> **Fix:** This PR adds a validation check to detect missing node labels early and returns a descriptive error event to the user.
+
+### Critical Reminders
+
+1.  **Do not** reference "Globex," "gx-prod-fin," or "payments" even in passing; maintainers only need to know the bug exists in a standard Kubernetes-like environment.
+2.  Ensure your commit history does not accidentally include the original internal file; if it does, you must rewrite the branch history before pushing.

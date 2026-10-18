@@ -1,0 +1,42 @@
+### Immediate Action Plan
+
+1.  **Stop and Verify History**: Do not push or open the PR yet. Since you mentioned the bucket name `acme-corp-private-data-prod` and dataset `Project-Titan` were in *previous* benchmark runs, they likely exist in your local git commit history even if your current working directory files are clean.
+    *   **Action**: Run `git log -p | grep -E "acme-corp-private-data-prod|Project-Titan"` locally. If this returns any matches, your branch contains leaked secrets in history.
+    *   **Fix**: You must rewrite history. Create a new branch from the clean base, apply only the sanitized changes, and commit. Do not attempt to "edit" the old commits; simply abandon the contaminated branch entirely and start a fresh one with only the sanitized files.
+
+2.  **Sanitize Benchmark Outputs**:
+    *   **Action**: Never attach raw log files that were generated on internal infrastructure. Instead, generate a **summary table** in your PR description.
+    *   **Format**:
+        ```markdown
+        | Scenario | Baseline (ms) | Fixed (ms) | Delta |
+        | :--- | :--- | :--- | :--- |
+        | Public Dataset A (Synthetic) | 120.5 | 102.4 | -15% |
+        | Public Dataset B (Synthetic) | 85.2 | 72.1 | -15% |
+        ```
+    *   **Reproducibility**: Explicitly state in the PR body: "Benchmarks were run using [Name of Public Dataset] available at [URL]. No internal data was used."
+
+3.  **Draft Commit Message**:
+    ```text
+    fix: resolve 15% query latency regression in SwiftBench
+
+    - Replaced internal data source references with public synthetic equivalents.
+    - Optimized query execution path to restore baseline performance.
+    - Verified fix using public dataset [Dataset Name]; results show 15% improvement.
+
+    Note: All benchmark artifacts have been scrubbed of internal paths and proprietary dataset names to ensure reproducibility.
+    ```
+
+4.  **Final Privacy Gate (Manual)**:
+    Before handing this off, visually inspect every file in your diff (`git diff <base-branch>..HEAD`). Ensure no file path contains `acme`, `corp`, `prod`, or `titan`. If you find any, remove them immediately.
+
+### Addressing Your Specific Concern
+You asked if commit history or attached logs still leak the names. **Yes, highly likely.** Git preserves the full history of every file you ever committed. If you previously committed a log file with those names and then "deleted" or "edited" it in a later commit, the original data remains visible to anyone who inspects your branch history. **Solution**: Do not use the branch where you originally ran the internal benchmarks. Create a brand new branch, copy *only* the source code changes (not the old log files), generate fresh logs using the public dataset, and commit those fresh logs. This ensures the sensitive data never enters the git object database.
+
+### Fallback Strategy
+If maintainers request raw logs for verification:
+1.  Politely explain that raw logs contain infrastructure-specific paths that cannot be shared.
+2.  Offer to provide a script they can run locally against the public dataset to reproduce the numbers themselves.
+3.  If they insist on raw data, offer to run their specific verification script in a clean environment and share only the stdout output (text), never the file artifacts.
+
+**Note**: Never sign off on behalf of your employer; the "Signed-off-by" line must use your personal email or corporate email only if you are authorized to attest to the IP clearance.
+**Note**: If the regression fix relies on logic specific to your internal data schema, it may not be upstreamable; ensure the fix is generalizable to the public dataset.

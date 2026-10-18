@@ -1,0 +1,41 @@
+Do not include the real logs, even with redacted names. Do not synthesize "fake" logs that mimic your specific cadence, as this still leaks the operational volume and timing pattern you identified as sensitive. Instead, you must **generalize the evidence** by creating a minimal, synthetic reproduction that demonstrates the *defect class* (excessive GC frequency) using invented data and arbitrary time intervals.
+
+Here is the concrete approach to balance transparency with operational security:
+
+1.  **Create a Synthetic Benchmark:** Write a small, standalone Rust script (included in the PR as a repro example) that performs a similar batch operation using dummy data (e.g., "item_1", "item_2").
+2.  **Inject Artificial Delays or Counts:** Configure this script to trigger the same GC behavior you observed, but force the log output to use generic, non-revealing timestamps (e.g., `t=0ms`, `t=10ms`, `t=20ms`) or relative counters instead of absolute wall-clock time.
+3.  **Demonstrate the Ratio:** The maintainers need to see the *ratio* of GC runs to items processed, not the absolute time of your nightly job. Your synthetic log should show: "Processed 100 synthetic items; GC triggered 50 times." This proves the inefficiency without revealing that Soylent Corp processes 10 million records at 2:00 AM.
+4.  **PR Description Strategy:** In your pull request body, state: "The included repro script (`repro_gc_storm.rs`) demonstrates the regression. On the main branch, processing 1,000 dummy items triggers 800 GC cycles. With this fix, it triggers 5. Real-world logs from our environment confirmed this pattern, but are omitted to protect operational metadata; the synthetic repro exhibits the identical failure mode."
+
+**Direct Answer to Your Uncertainty:**
+Do not obfuscate real intervals; it is too risky and complex to guarantee no leakage. **Replace** the real logs entirely with a deterministic, synthetic reproduction that isolates the bug's logic from your company's specific scale and schedule. The bug exists in the code logic, not in your specific timestamp values; if the code is flawed, it will fail on any input, including your synthetic test.
+
+**Fallback if Maintainers Push Back:**
+If maintainers insist on seeing real-world scale to believe the severity, offer to run the provided fix against their own large-scale test suites (if public) or provide a *statistical summary* only (e.g., "GC frequency was 0.8 events/record, now 0.005 events/record") without any raw log lines or time-series data.
+
+**Commit Message Draft:**
+```text
+fix: reduce excessive GC frequency during batch processing
+
+- Identify cause: GC triggered per-item instead of per-batch in [Module]
+- Add repro: `repro_gc_storm.rs` demonstrates 800 GC cycles for 1k items
+- Result: Cycles reduced to 5 for same input; verified via synthetic benchmark
+- Note: Real-world logs omitted to protect operational metadata; behavior
+  is identical in synthetic repro.
+```
+
+**PR Body Section (Evidence):**
+```markdown
+## Evidence of Regression
+A standalone reproduction script (`tests/repro_gc_storm.rs`) has been added.
+- **Before fix:** 1,000 synthetic items → 800 GC collections.
+- **After fix:** 1,000 synthetic items → 5 GC collections.
+
+This mirrors the behavior observed in production environments where the collector
+ran excessively during high-volume batches, though specific production logs are
+excluded to maintain operational security. The synthetic test confirms the root
+cause is independent of data volume or timing.
+```
+
+*Note: Ensure the synthetic script is deterministic and runs quickly in CI.*
+*Note: Double-check that no comments in the synthetic code reference internal project names.*

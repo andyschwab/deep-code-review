@@ -1,0 +1,36 @@
+Do not submit a single PR removing dead code from 60 files. In a 2M+ line codebase with strict maintainers, a patch of this size will almost certainly be rejected as "too large to review" or "high risk," regardless of your local test results. Your strategy must shift from "cleanup effort" to "surgical removal series."
+
+**1. Determine the Baseline Size Limit**
+Before splitting, you must know the target. Run this command against the repository to see the size of recently merged refactoring PRs:
+`gh pr list --repo <owner>/vertex-compiler --state merged --limit 20 --json additions,deletions,title --jq '.[] | select(.title | test("refactor|cleanup|remove")) | "+\(.additions)/-\(.deletions): \(.title)"'`
+If the average merged refactor deletes ~300 lines, your 60-file effort (likely thousands of lines) needs to be split into 10–20 separate PRs.
+
+**2. Splitting Strategy: Logical Cohesion over Directory**
+Do not split strictly by directory (e.g., "Part 1: src/parser", "Part 2: src/codegen"). Dead code often spans modules; splitting by directory may leave dangling references or break the logical narrative.
+Instead, group by **optimization pipeline stage** or **feature flag**. Since the dead code resulted from changes three years ago, identify the specific commit or feature removal that caused the obsolescence.
+*   **Group A:** Code dead due to "Optimization Pass X" removal.
+*   **Group B:** Code dead due to "Legacy IR Format" deprecation.
+*   **Group C:** Isolated utility functions no longer called.
+
+Each PR should remove one coherent "chunk" of dead logic. The commit message must explicitly state: *"Remove dead code resulting from [Original Commit/Feature] removal. These paths are unreachable because [Reason]."* This gives the maintainer a mental model to verify the change without reading every line.
+
+**3. Scrubbing Internal References (Globex Codenames)**
+You must remove all references to "Globex" and internal codenames before the first PR. Do not mix this scrubbing with the dead code removal in the same commit if possible, as it dilutes the focus.
+*   **Preferred:** Create a preliminary, tiny PR (or include in the first small PR) that *only* sanitizes comments in the affected files. Frame it as "Documentation hygiene: remove internal codenames."
+*   **Alternative:** If the codenames only exist in the lines you are deleting, simply ensure they are gone in the diff. Do not mention them in the PR description unless necessary; drawing attention to "internal leaks" can sometimes trigger unnecessary security reviews that stall the merge.
+
+**4. The Submission Sequence**
+1.  **Issue First:** Open a single tracking issue titled "Proposal: Remove dead code from legacy optimization pipeline." List the 60 files and your proposed grouping strategy. Ask for maintainer feedback on the grouping. This satisfies the "discussion before large refactor" norm.
+2.  **PR #1:** Submit the smallest, safest group (e.g., 2–3 files, purely isolated utilities). Prove your testing rigor and review responsiveness here.
+3.  **Subsequent PRs:** Once #1 merges, submit #2 referencing #1. Do not open all 20 PRs at once; it looks like spam. Keep the pipeline moving at the speed of the maintainer's review capacity.
+
+**5. Evidence of Safety**
+Since you cannot rely on "I ran tests" alone for large deletions, your PR description must include:
+*   The specific `git blame` commit that made the code dead.
+*   A `grep` command showing zero current references to the removed symbols.
+*   Confirmation that build times improved (if measurable) or binary size decreased.
+
+By treating this as a series of tiny, justified surgeries rather than one large cleanup, you align with the maintainer's risk profile and maximize acceptance chances.
+
+*Note: Ensure your fork is up-to-date with `origin/main` before every split to avoid merge conflicts that could reintroduce dead code.*
+*Note: If any "dead" code is actually used via reflection or dynamic dispatch, your grep checks will miss it; double-check for macro-generated usage.*

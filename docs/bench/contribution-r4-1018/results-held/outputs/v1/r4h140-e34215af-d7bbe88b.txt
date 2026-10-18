@@ -1,0 +1,44 @@
+To contribute this feature safely, you must decouple the trace ID generation logic from the Acme-specific formatting and observability integration before drafting any upstream code. The upstream project likely expects a generic core with pluggable extensions, not a hard-coded proprietary format.
+
+**Step 1: Generalize the Implementation**
+Refactor your code to separate the "Trace ID Generation" (the universal logic) from the "Trace ID Formatting/Propagation" (the Acme-specific logic).
+*   **Core Change:** Implement the standard W3C Trace Context or OpenTelemetry default format as the upstream default. This uses generic hex strings (e.g., `4bf92f3577b34da6a3ce929d0e0e4736`) that reveal no topology.
+*   **Extension Point:** If the framework supports it, expose an interface or SPI (Service Provider Interface) for `TraceIdFormatter`. Move your Acme-specific prefix logic and observability platform linking into a separate module or a local implementation of this interface.
+*   **Local Testing:** Keep your Acme-specific formatter in your private repository only. Configure your local development environment to load this private module via dependency injection or a local classpath override. This allows you to test the full integration locally without polluting the upstream source tree with sensitive identifiers.
+
+**Step 2: Strip Identifiers and Synthetic Repro**
+*   **Code:** Ensure no file in the PR contains "Acme", "Globex" (if proprietary to you), cluster names, or internal hostnames.
+*   **Examples:** Replace any example logs or configuration snippets showing the proprietary prefix with standard, synthetic values.
+*   **Documentation:** Rewrite comments to explain *how* to plug in a custom formatter, rather than documenting how your specific internal platform works.
+
+**Step 3: Address Your Uncertainty (Pluggable vs. Generic)**
+The maintainers almost certainly expect a **completely generic implementation** for the core repository. Proprietary integrations are typically handled via plugins or downstream forks.
+*   **Action:** Submit only the generic core logic and the interface for customization.
+*   **PR Description Strategy:** Explicitly state: "This PR implements standard trace ID generation. It includes an extension point for custom formatters, allowing users to integrate proprietary observability platforms locally without modifying the core library." This frames your local constraints as a feature (extensibility) rather than a limitation.
+
+**Step 4: Draft the Contribution Artifacts**
+*   **Commit Message:**
+    ```text
+    feat: add distributed tracing with pluggable ID formatting
+
+    Implements standard trace ID generation correlating logs across services.
+    Adds a TraceIdFormatter SPI to allow downstream users to inject custom
+    formatting logic (e.g., for proprietary observability platforms) without
+    altering the core library. Default format adheres to W3C Trace Context.
+    ```
+*   **PR Body:**
+    *   **Problem:** Microservices lack correlated logging; existing solutions hard-code formats.
+    *   **Solution:** Generic trace ID generation with a pluggable formatter interface.
+    *   **Testing:** Verified with synthetic data using standard hex formats. Custom formatting validated locally via the SPI.
+    *   **Risk:** None; no third-party identifiers or internal topology details included.
+
+**Fallback if Maintainers Stay Silent**
+If there is no response after two weeks, post a polite follow-up asking if the project prefers a dedicated plugin repository for proprietary formatters instead of an SPI in the core. Do not mention your specific internal tools.
+
+**Stop Checks Before Sending**
+Before handing this to a human to open:
+1.  **Employer IP Approval:** Confirm Acme Corp legal allows open-sourcing the *generic* tracing logic (even if the specific formatter is kept private).
+2.  **Mosaic Check:** Ensure this generic tracer, combined with any previous contributions you've made, doesn't inadvertently reveal Acme's architecture through pattern analysis.
+3.  **Privacy Gate:** Run a mechanical scrub on the diff to ensure no accidental leaks of internal hostnames or cluster IDs remain in comments or test data.
+
+Do not attempt to bypass the gate by claiming the specific format is "necessary" for testing; the synthetic approach described above is the required standard.

@@ -1,0 +1,41 @@
+You must completely restructure the test inputs; simply renaming fields is insufficient because nesting levels, data types, and the relationships between fields still reveal your proprietary schema. To safely abstract your test data while maintaining robust coverage for currency conversion logic, follow this refactoring strategy:
+
+**1. Flatten and Decouple the Data Structure**
+Your current JSON likely mirrors your database's normalized or hierarchical design (e.g., `client.profile.currency_preferences`). Replace this with a flat, functional input model that represents only what the calculation function needs, not how you store it.
+*   **Before:** `{"client_id": "...", "account": {"tier": "gold", "settings": {"base_ccy": "USD"}}}`
+*   **After:** `{"source_currency": "USD", "target_currency": "EUR", "amount": 100.00, "rate_type": "spot"}`
+This shifts the test focus from "loading a client" to "performing a calculation," which is the actual unit under test.
+
+**2. Use Domain-Agnostic Identifiers**
+Replace specific field names that hint at internal business logic (e.g., `initech_tier_override`, `legacy_ledger_id`) with generic mathematical or standard ISO terms.
+*   Use `input_value` instead of `customer_balance`.
+*   Use `conversion_factor` instead of `internal_fx_multiplier`.
+*   Use standard ISO 4217 codes for currencies directly rather than nested objects that might imply how you resolve them internally.
+
+**3. Implement a "Builder" Pattern for Test Data**
+Instead of raw JSON files that look like database dumps, write C++ helper functions (builders) that construct the input objects programmatically. This hides the structure in code logic rather than exposing it as a data artifact.
+```cpp
+// Instead of loading a JSON file that mirrors the DB:
+// auto input = load_fixture("client_123.json");
+
+// Use a builder that explicitly defines only the necessary parameters:
+auto input = CurrencyConversionTestBuilder()
+    .with_amount(1000.50)
+    .from_currency("USD")
+    .to_currency("JPY")
+    .with_precision(4) // Explicitly testing precision logic
+    .build();
+```
+This approach ensures that if a new field is added to the internal database, your test data doesn't accidentally inherit that structure unless you explicitly code it.
+
+**4. Validate Logic, Not Schema**
+Ensure your assertions check the *mathematical result* and *error handling*, not the successful parsing of a specific deep structure.
+*   **Test Case:** "Rounding half-up at 3 decimal places."
+*   **Input:** A minimal struct containing only the amount and the rounding rule.
+*   **Assertion:** The output equals the expected rounded value.
+If your test passes only when the specific nested JSON structure is present, your function is likely doing too much (e.g., parsing + calculating). Split the parsing logic (which might need mocking) from the calculation logic (which needs pure unit tests).
+
+**5. Sanitize Historical Data Generators**
+Since the AI generated data based on your prompt or context which inadvertently included schema details, you must scrub the *generator instructions* as well. Do not reuse the prompt that led to the leak. Create a new prompt for your AI assistant that explicitly forbids nested structures and requests "primitive-only" or "flat" data structures for financial math, providing examples of the *desired* generic format.
+
+By moving from a database-mirroring schema to a functional, flat interface, you protect your intellectual property while creating tests that are actually more maintainable and focused on the business logic of currency conversion.

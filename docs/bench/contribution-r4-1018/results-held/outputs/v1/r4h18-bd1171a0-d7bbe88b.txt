@@ -1,0 +1,46 @@
+Here is a draft response you can post to the pull request. It isolates the technical symptom while stripping all internal identifiers.
+
+***
+
+**Subject:** Re: Nightly CI checksum mismatch on lockfile update
+
+Hi maintainers,
+
+Thanks for the quick review. I've investigated the checksum mismatch failing exclusively on the nightly runner.
+
+**Troubleshooting Steps Taken:**
+1.  **Reproduction Attempts:** I cannot reproduce this locally, on our standard CI, or on your stable runner. The build passes consistently in those environments.
+2.  **Cache Hygiene:** I cleared all local dependency caches and lockfiles, performing a fresh install. The issue persists only on the nightly job.
+3.  **Environment Comparison:** The nightly job appears to use a newer compiler/toolchain version compared to the stable runner. This suggests a potential interaction between the transitive dependency's binary artifact and the specific nightly toolchain, rather than a corrupted lockfile entry.
+
+**Sanitized Log Snippet:**
+Below is the relevant error output from the failing job. I have redacted internal registry URLs and proxy configurations to comply with our security policy, but the checksum values and dependency tree paths remain intact for your analysis.
+
+```text
+[ERROR] Checksum mismatch detected for transitive dependency: <framework-core-utils>@1.4.2
+Expected: sha512-abc123... (matches lockfile)
+Actual:   sha512-xyz789... (downloaded artifact)
+
+Context:
+- Runner: nightly-linux-arm64
+- Toolchain: [REDACTED_VERSION]
+- Registry Source: [REDACTED_INTERNAL_PROXY]
+- Network Trace:
+  > GET https://[REDACTED_INTERNAL_HOST]/registry/<framework-core-utils>/1.4.2/tgz
+  > HTTP 200 OK (Source: [REDACTED_PROXY_IP])
+  > Verification failed: Hash does not match locked value.
+
+Note: The same dependency resolves correctly on stable-linux-amd64 with toolchain [REDACTED_VERSION].
+```
+
+**Hypothesis:**
+Given that the error is isolated to the nightly environment with a different toolchain, this may be a case where the nightly compiler triggers a different build path for the transitive dependency if it is being compiled from source, or the nightly runner is pulling from a different mirror that hosts a stale or corrupted binary.
+
+Could you check if the nightly runner's artifact cache needs invalidation, or if there is a known variance in how that specific toolchain resolves transitive hashes? I am happy to test any specific branches or configurations you propose.
+
+Best regards,
+[Your Name]
+
+***
+
+**Note:** Do not attach the full raw log file; only paste sanitized text snippets directly into the comment to prevent accidental data leakage via file metadata. If the maintainers request unredacted logs, politely decline and offer to reproduce the issue on a public cloud instance if feasible.

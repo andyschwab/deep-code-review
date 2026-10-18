@@ -1,0 +1,67 @@
+### Stop Checks Before Proceeding
+1.  **Employer IP/Legal Approval:** You must obtain explicit written approval from Northwind Industries' legal or security team before contributing any code or even describing the *class* of bug if it relates to your proprietary security posture. Contributing a fix that reveals how your custom webhook interacts with the client could inadvertently disclose your security architecture.
+2.  **Contributor Agreement:** Ensure you are authorized to sign the project's DCO (Developer Certificate of Origin) or CLA on behalf of your employer if required.
+3.  **Security Bug Policy:** If this bug allows bypassing security validation, it may be a security vulnerability. Check the `k8s-client` repository for a `SECURITY.md` file. If present, do **not** open a public issue; use the private reporting channel instead.
+
+### Generalized Issue Description
+*Do not mention Northwind, custom webhooks, or specific security tools.*
+
+**Title:** Client hangs on specific header combinations from admission webhooks
+
+**Description:**
+When using the K8s-Client to interact with a cluster utilizing an admission webhook, the client connection times out if the webhook response includes specific non-standard header combinations (e.g., `[Insert Generic Header Name]` alongside `[Insert Generic Header Name]`). This occurs even when the HTTP status code is 200 OK. The issue appears to be a race condition or buffer handling error in the client's header parsing logic when encountering these specific headers.
+
+**Expected Behavior:**
+The client should successfully parse all valid HTTP headers returned by a compliant admission webhook and complete the request.
+
+**Actual Behavior:**
+The client hangs indefinitely until the connection timeout is reached.
+
+### Generic Test Case (Go)
+*This test uses synthetic data and standard Go libraries. It simulates the header response without requiring a real cluster or revealing internal logic.*
+
+```go
+func TestClientTimeoutOnSpecificHeaders(t *testing.T) {
+    // Create a test server that mimics a webhook returning the problematic headers
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Set synthetic headers that trigger the bug
+        w.Header().Set("X-Synthetic-Header-A", "value1")
+        w.Header().Set("X-Synthetic-Header-B", "value2")
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte(`{"apiVersion": "admission.k8s.io/v1", "kind": "AdmissionReview", "response": {"uid": "test", "allowed": true}}`))
+    }))
+    defer server.Close()
+
+    // Configure the client to use the test server
+    // (Assume standard client configuration pointing to server.URL)
+    client, err := NewClient(server.URL)
+    if err != nil {
+        t.Fatalf("Failed to create client: %v", err)
+    }
+
+    // Attempt a request that triggers the header parsing
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    _, err = client.DoRequest(ctx, syntheticPayload)
+
+    if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+        t.Fatalf("Expected timeout or success, got: %v", err)
+    }
+
+    // If the bug exists, this test will fail due to timeout before the fix
+}
+```
+
+### Direct Answer to Your Uncertainty
+You cannot make the test case "look like a standard edge case" by hiding the origin; you must make it **actually be** a standard edge case by stripping all context. The test above uses `X-Synthetic-Header` placeholders. If the bug only triggers on the *exact* header names your proprietary tool uses, you must verify if those header names are public knowledge. If they are proprietary, you cannot upstream a fix that requires testing against them without revealing them. In that scenario, the fix might need to be more robust (e.g., handling *any* unexpected header gracefully) rather than specific to your headers.
+
+### Fallback Plan
+If maintainers request the exact header names to reproduce:
+1.  Do not provide them without legal clearance.
+2.  Offer to provide a private, sanitized packet capture (pcap) file stripped of all IPs, domain names, and proprietary values, showing only the raw byte sequence of the problematic headers (if legally permissible).
+3.  If that is also blocked, you may need to keep the fix internal or work with the maintainers under an NDA if they have a process for it.
+
+---
+**Note:** This draft assumes the header names themselves are not classified. If the *existence* of specific headers is sensitive, do not proceed with a public contribution.
+**Note:** Always run `scripts/prefile_check.sh` locally on your draft files before any human submits them.

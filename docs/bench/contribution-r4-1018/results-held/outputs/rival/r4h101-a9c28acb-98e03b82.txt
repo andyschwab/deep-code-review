@@ -1,0 +1,41 @@
+## Summary
+Fixes a critical deadlock in the broker configuration startup sequence caused by inconsistent lock ordering, which currently causes the application to hang after 45 seconds of inactivity under multi-threaded load.
+
+## What
+- Refactored the synchronization logic in the broker initialization module to enforce a strict, deterministic lock acquisition order.
+- Added a guard to prevent recursive lock attempts during the configuration loading phase.
+- No changes to public APIs or configuration file formats.
+
+## Why
+When multiple threads access custom broker configurations during startup, the current implementation acquires locks in an order dependent on input parsing speed. This race condition leads to a circular wait (deadlock). The 45-second timeout is the system's default thread-block threshold triggering the failure. This fix ensures thread safety regardless of configuration complexity or load.
+
+## Test Plan
+**Constraint Note:** The specific trigger requires a proprietary network topology configuration containing sensitive enterprise data owned by Northwind Logistics, which cannot be shared publicly.
+
+**Reproduction Strategy for Maintainers:**
+1. The deadlock is non-deterministic with standard configs but reproducible under high-concurrency startup stress.
+2. I have verified the fix locally using a sanitized mock configuration that simulates the *locking pattern* (depth > 3, circular dependency potential) without exposing real network topology.
+3. **Proposed Test Case:** I can contribute a unit test to `src/test/java/...` that programmatically constructs a `BrokerConfig` object with artificial nested dependencies to force the lock contention scenario, proving the fix works without needing the real proprietary file.
+
+## Backward Compatibility
+Fully backward compatible. The change only affects internal synchronization ordering; external behavior and configuration schemas remain unchanged.
+
+## Security Considerations
+This fix resolves a denial-of-service vector where the application hangs indefinitely. No new security risks introduced.
+
+## Related Issue
+(Insert Issue # if one exists, otherwise: "Opening this PR to discuss the critical deadlock fix. Happy to open a formal issue if required.")
+
+## Checklist
+- [x] Code follows project style guidelines.
+- [x] Local build passes.
+- [x] Logic verified against simulated high-concurrency startup.
+- [ ] *Pending maintainer guidance on final test case integration for proprietary triggers.*
+
+## AI-Assisted Disclosure
+I drafted the initial explanation and test strategy with AI assistance to ensure clarity. I have personally traced the stack traces, verified the lock ordering logic line-by-line, and confirmed the fix resolves the hang in my local environment. All technical claims are my own.
+
+***
+
+**Note to Maintainers (Question for Ravi):**
+"Given that the reproduction step relies on a proprietary configuration file I cannot disclose, would a synthetic unit test that mimics the *structural locking pattern* (deeply nested config objects) be an acceptable substitute for the PR merge? I want to ensure we meet the 'reproducible test case' requirement without violating data confidentiality policies."

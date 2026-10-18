@@ -1,0 +1,25 @@
+You cannot and should not attempt to replicate the exact statistical properties of your real user data without revealing your internal schema or business logic, as this creates an unacceptable risk of reconstructing sensitive information or leaking proprietary patterns. Instead, you must decouple the **performance characteristic** from the **data semantics**.
+
+The bottleneck you are solving is likely triggered by specific structural traits (e.g., deep nesting, high cardinality of specific fields, extreme string lengths, or skewed array sizes), not by the actual meaning of "travel patterns" or "user profiles." Your solution is to write a generator that produces **structurally equivalent but semantically meaningless data**.
+
+Here is the strategy for your data generation script:
+
+1.  **Abstract the Schema:** Define a generic JSON schema that matches the *shape* of your data (e.g., `Object` with 50 fields, 3 of which are large arrays of strings, 1 is a deeply nested object) but rename all keys to generic terms (e.g., `field_a`, `list_b`, `nested_obj_c`). This hides your business logic entirely.
+2.  **Parameterize the Distribution:** Instead of hardcoding values that mimic real users, expose command-line flags or a config file for the statistical "knobs" that trigger your bottleneck. For example:
+    *   `--max-string-length=5000`
+    *   `--array-skew-factor=0.9` (to create a few massive arrays and many small ones)
+    *   `--nesting-depth=12`
+    *   `--cardinality-ratio=0.01` (to simulate many repeated values vs. unique ones)
+3.  **Generate Deterministic Noise:** Use a fixed random seed (e.g., `seed=42`) to generate content. Fill strings with lorem ipsum or random characters, and numbers with random floats within a standard range. The content itself is irrelevant; only the byte size and structural complexity matter for memory allocation benchmarks.
+4.  **Provide a "Stress Profile":** Ship the script with a predefined profile named `stress_test.json` that sets these parameters to the extreme values known to trigger the bottleneck. Document in your PR that this profile approximates the structural load of production data without containing any real records.
+
+**Implementation Plan for the PR:**
+*   Add a new tool `bench-gen` to the repository.
+*   Include a `README` in the benchmark folder explaining that the tool generates structurally representative data.
+*   Explicitly state in the PR description: "The generated data mimics the *memory footprint and parsing complexity* of production datasets via configurable structural parameters, but contains no real user data or proprietary schema definitions."
+*   Provide the exact command line used to generate the benchmark fixture (e.g., `./bench-gen --profile stress_test --seed 42 --output benchmark_data.json`) so any contributor can reproduce the exact same file bit-for-bit.
+
+This approach satisfies the maintainers' requirement for reproducibility and public safety while proving your performance claims based on structural load rather than sensitive content.
+
+Note: Ensure your generator does not accidentally embed any hardcoded strings from your real dataset during the abstraction process.
+Note: If the bottleneck relies on specific Unicode edge cases, add a flag to inject random Unicode categories rather than specific real-world characters.

@@ -1,0 +1,42 @@
+### Immediate Action Plan
+
+**1. Treat the Secret as Compromised (Do Not Proceed with PR Yet)**
+Reverting the commit in Git history **does not** remove the secret from your public fork's history. Anyone who cloned your repo or viewed the commit log before the revert can still see the Slack webhook URL.
+*   **Action:** Immediately invalidate/revoke the Slack webhook URL in your employer's (Acme Corp) Slack admin dashboard. Create a new one if needed.
+*   **Reasoning:** No amount of history rewriting can guarantee the secret wasn't already scraped by bots or observers once it was pushed to a public remote.
+
+**2. Clean Your Local and Fork History**
+To ensure no future accidental exposure occurs from your specific fork, you must rewrite history locally and force-push.
+*   **Local Cleanup:** Use `git filter-repo` (preferred) or `git filter-branch` to scrub the `.env` file from all history:
+    ```bash
+    git filter-repo --path .env --invert-paths
+    ```
+*   **Force Push:** Push the cleaned history to your fork using `--force-with-lease` to overwrite the remote history:
+    ```bash
+    git push origin <branch-name> --force-with-lease
+    ```
+*   **Verification:** Clone your fork into a *new* temporary directory and check `git log` and `git show` to confirm the secret is gone from the fresh clone.
+
+**3. Communication Strategy with Maintainers**
+Do not open the Pull Request (PR) for the timeout fix until you have addressed the security incident. Opening a PR now while the secret might still be visible in your fork's history (until you force-push) or without disclosure violates trust.
+*   **Draft an Issue or Email (Preferred over PR comment):** Since Jane has not responded to your inquiry, post a clear, concise update on the existing inquiry thread or open a new "Security Incident" issue if the project allows.
+*   **Message Template:**
+    > "Subject: Security Incident Notification & Upcoming Fix for Timeout Bug
+    >
+    > Hi Jane and team,
+    >
+    > I am writing to disclose a security incident on my fork before submitting a fix for the Northwind timeout bug. I accidentally committed a private Slack webhook URL to my public fork earlier today. I have since:
+    > 1. Revoked the compromised webhook with my employer.
+    > 2. Rewritten my fork's history to remove the file completely.
+    > 3. Verified the secret is no longer present in a fresh clone.
+    >
+    > I understand this violates the project's security guidelines. I wanted to be fully transparent before submitting the timeout fix (which involves adding retry logic to the network handler). Please let me know if you require any further action from me before I open the PR, or if you prefer I submit the patch via a different method (e.g., email) given this incident."
+
+**4. Preparing the Timeout Fix PR**
+Once you have sent the disclosure:
+*   **Scope:** Ensure the PR *only* contains the retry logic fix. Do not include any other changes.
+*   **Description:** In the PR description, briefly mention the timeout fix and reference the security disclosure issue/thread you created.
+*   **Compliance:** Double-check that no other sensitive files (`.env`, `config.json` with keys) are included in the diff.
+
+**Note:** If the project maintainers have a specific security reporting channel (e.g., a `SECURITY.md` file), use that instead of a public issue.
+**Note:** Never commit `.env` files again; add `*.env` to your global `.gitignore` immediately.

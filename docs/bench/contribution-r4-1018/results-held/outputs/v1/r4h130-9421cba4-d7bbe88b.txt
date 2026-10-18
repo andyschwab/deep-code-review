@@ -1,0 +1,38 @@
+### Synthetic Data Generation Strategy for JSON Parser Benchmarks
+
+To satisfy the requirement for reproducible benchmarks without leaking Personally Identifiable Information (PII) or proprietary schemas, you must replace the real dataset with a **statistically equivalent synthetic generator**. Do not attempt to anonymize the real data; instead, generate new data that mimics the specific statistical "skew" causing your bottleneck.
+
+**Step 1: Extract Statistical Signatures (Local Only)**
+Run a one-time analysis on your private dataset locally to extract only aggregate statistical properties. Do not output any raw rows. Capture:
+*   **Field Distribution:** Frequency of nulls, average string length, and variance in numeric fields.
+*   **Skew Metrics:** Identify the specific distribution causing the bottleneck (e.g., "90% of records have 5 fields, but 1% have 500 nested fields," or "Zipfian distribution of user activity counts").
+*   **Correlation Matrix:** Simple correlations between fields that affect parsing depth (e.g., if `field_A` exists, `field_B` is usually a large array).
+*   **Schema Structure:** The JSON shape (nesting levels, array vs. object ratios) without field names that reveal business logic (rename `user_travel_history` to `field_1`).
+
+**Step 2: Implement the Generator Script**
+Write a C# script (e.g., `SyntheticDataGenerator.cs`) included in the repository's test tools. Use a fixed seed (e.g., `42`) to ensure determinism so every clone produces the exact same binary-large output.
+*   **Logic:** Use the extracted signatures to drive random number generation. If the real data has a "long tail" of large objects, use a Pareto or Log-Normal distribution in your generator to replicate that tail.
+*   **Obfuscation:** Hardcode generic values (e.g., "User_123", "Route_A") rather than real names or IDs.
+*   **Output:** The script should write the JSON file to disk when the benchmark target is run.
+
+**Step 3: Replace the Benchmark Suite**
+Modify the benchmark project to:
+1.  Check if the dataset file exists.
+2.  If missing, execute `SyntheticDataGenerator` to create it.
+3.  Run the parser against this generated file.
+4.  Ensure the build process does not commit the generated JSON file (add to `.gitignore`), only the generator code.
+
+**Step 4: Draft the Contribution**
+*   **Commit Message:** `test: add deterministic synthetic data generator for parser benchmarks`
+*   **PR Body Section (Testing):** "Benchmarks now rely on a seeded synthetic generator (`SyntheticDataGenerator.cs`) that replicates the skew and nesting depth of production workloads without including PII. Results are reproducible via `dotnet run --seed 42`."
+*   **Gap to Flag:** Explicitly state in the PR description: "The generator mimics statistical skew (distribution curves attached in description) but uses generic schema names. Maintainers should verify the skew matches their expectations for the targeted bottleneck."
+
+**Direct Answer to Your Uncertainty**
+You do not need to share the real data schema or records. By characterizing the data mathematically (distributions, variance, skew) and rebuilding it from those numbers using a fixed seed, you provide a functionally identical stress test that contains zero sensitive information. The "skew" is a mathematical property, not a secret.
+
+**Fallback**
+If maintainers reject the synthetic data as insufficiently realistic, offer to run the benchmark against their own private data via a secure, ephemeral CI runner they control, or provide a detailed statistical report (histograms) proving the synthetic data matches the production profile characteristics.
+
+---
+*Note: Ensure the generator script itself contains no comments referencing the specific mass transit authority or internal project names.*
+*Do not commit the extracted statistical signatures if they inadvertently reveal business volume or growth rates.*

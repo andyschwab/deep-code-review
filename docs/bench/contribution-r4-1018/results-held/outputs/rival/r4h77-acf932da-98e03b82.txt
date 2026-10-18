@@ -1,0 +1,31 @@
+### Synthetic Test Data Strategy for DST Edge Cases
+
+To satisfy the maintainers' requirement for comprehensive coverage while adhering to privacy laws, you must construct **deterministic synthetic data** that isolates the mathematical properties of the bug rather than replicating real employee patterns. The goal is to reproduce the *state transition* that causes the one-hour offset, not the specific workforce demographics.
+
+**1. Isolate the Failure Mode**
+The bug triggers on the specific transition where a shift spans the DST boundary (e.g., 01:00 to 03:00 on the changeover day, where 02:00 is skipped or repeated). You do not need real names or full shift rosters. You only need:
+*   A fixed start timestamp just before the transition.
+*   A fixed end timestamp just after the transition.
+*   The specific timezone identifier (e.g., `America/New_York`).
+
+**2. Constructing the Synthetic Dataset**
+Create a test fixture file (e.g., `test_dst_overlap_synthetic.py`) containing hardcoded data structures. Do not load this from external CSVs or databases to avoid accidental leakage of real data paths.
+
+*   **Identifiers:** Replace real employee IDs with opaque, non-sequential strings (e.g., `EMP_SYNTH_01`, `EMP_SYNTH_02`).
+*   **Timestamps:** Use the exact UTC offsets that trigger the error. If the bug occurs when a shift starts at `2023-11-05 01:30:00` (local) and ends at `03:30:00`, hardcode these specific local times and the expected UTC conversion.
+*   **Payload:** Strip all metadata except what is required for the calculation (start, end, timezone). Remove names, departments, locations, and pay rates.
+
+**3. The "Golden Master" Approach**
+Since you cannot share real logs, your test case must assert against a **calculated expected value** derived from the correct mathematical model, not from historical payroll records.
+*   *Input:* Synthetic shift spanning the DST gap.
+*   *Expected Output:* The precise duration calculated by standard library references (e.g., Python's `zoneinfo` or `pytz` acting as the oracle).
+*   *Assertion:* `assert calculated_duration == expected_duration`.
+
+**4. PR Description Disclosure**
+In your pull request, explicitly state:
+> "Test data is 100% synthetic and deterministic, designed solely to reproduce the DST transition edge case. No real employee data, PII, or proprietary work patterns from Acme Logistics are included. The test asserts against mathematically derived UTC offsets rather than historical payroll outcomes."
+
+This approach gives Jane and the maintainers a reproducible, failure-inducing test case that validates the fix without requiring any trust regarding your internal data governance. It transforms a privacy risk into a verifiable mathematical unit test.
+
+*Note: Ensure your synthetic timestamps cover both the "spring forward" (lost hour) and "fall back" (repeated hour) scenarios if the logic handles both.*
+*Note: Run the test locally against the unpatched version first to confirm it fails, then against your patch to confirm it passes, before committing.*
