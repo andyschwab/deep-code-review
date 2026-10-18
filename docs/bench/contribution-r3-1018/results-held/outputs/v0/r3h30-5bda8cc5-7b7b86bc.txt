@@ -1,0 +1,23 @@
+**Immediate Action Plan**
+
+1.  **Do Not Mention the Incident in the PR:** Do not disclose the accidental commit, the specific tool (Slack), the team name (CreativeSync), or the internal workflow in your pull request description or comments. Explaining the "why" reveals the very structural details you wish to protect. Since you have already rotated the webhook, the secret is cryptographically useless; the remaining risk is purely historical metadata, not active exploitation.
+2.  **Rewrite History Locally (Silent Cleanup):** You must remove the secret from the git history entirely before pushing any further changes. A simple "revert" commit is insufficient because the data remains in previous commits.
+    *   Run an interactive rebase to squash or edit the offending commit:
+        `git rebase -i <commit-hash-before-the-mistake>`
+    *   Mark the commit containing the `.env` file as `edit` or `squash` it into a previous safe state where the file never existed.
+    *   If the file was added in a specific commit, you may need to use `git filter-branch` or `git filter-repo` (recommended) to scrub it from the entire history:
+        `git filter-repo --path .env --invert-paths`
+    *   **Verify** the secret is gone by searching the history: `git log -p | grep "hooks.slack.com"`. It should return nothing.
+3.  **Force Push to Your Fork:** Once the history is clean locally, force push to your remote fork to overwrite the public history:
+    `git push --force-with-lease origin <branch-name>`
+    *   *Note:* This rewrites public history. Since this is your personal fork and only ten minutes have passed, this is the standard and accepted procedure for removing sensitive data.
+4.  **Submit the PR Normally:** Open your pull request with a standard description focusing solely on the code changes, features, or fixes you are contributing to NotifyHub. Treat the contribution as if the mistake never happened.
+
+**Direct Answer to Your Uncertainty**
+You should **silently squash and rewrite your history**. Transparency regarding security lapses involving *your own* private infrastructure in a third-party project's public forum is unnecessary and counterproductive. It draws attention to a resolved issue and risks leaking the "structural tells" (e.g., that your team uses Slack webhooks for deployment tracking) that you identified as sensitive. The maintainers of NotifyHub do not need to know about your internal operational security incidents; they only need clean, safe code.
+
+**Fallback if Maintainers Notice**
+If a maintainer somehow saw the window of exposure and asks about it, respond briefly and generally: "I briefly pushed a configuration artifact containing a now-rotated credential and have since scrubbed the history to ensure no sensitive data remains." Do not elaborate on the tool, the team, or the workflow.
+
+**Note:** Always use `--force-with-lease` instead of `--force` to avoid overwriting others' work if you were collaborating on the fork (unlikely here, but best practice).
+**Note:** Ensure your `.gitignore` includes `.env` before your next commit to prevent recurrence.

@@ -1,0 +1,42 @@
+### Synthetic Test Data (`fuzz_input.csv`)
+
+This dataset reproduces the "quoted delimiter followed immediately by newline" corruption using generic identifiers. It isolates the structural defect without referencing Umbrella Corporation, legacy tools, or internal metrics.
+
+```csv
+id,description,notes
+1,"Item, A",
+2,"Widget, B",
+3,"Part, C",
+```
+
+**Technical Context for Reproduction:**
+The bug triggers on rows where a quoted field contains a delimiter (comma) and is immediately terminated by a newline character, with no trailing data in that row. In the sample above, the `notes` column is empty, causing the parser to mishandle the transition from the quoted `description` field to the line break.
+
+### Draft PR Description
+
+**Title:** Fix data corruption when parsing quoted fields with delimiters followed by immediate newline
+
+**Problem**
+The parser corrupts subsequent row data when encountering a CSV line where a quoted field contains a delimiter and is immediately followed by a newline character (e.g., `"Value, ",\n`). This results in shifted columns or dropped rows in the output buffer.
+
+**Reproduction**
+1. Parse the attached `fuzz_input.csv`.
+2. Observe that row 2 (`"Widget, B",`) causes the parser to misalign the `id` of row 3.
+3. Expected: Three distinct records parsed correctly.
+4. Actual: Data from row 3 merges incorrectly or is lost.
+
+**Change**
+Updated the state machine in `CsvParser.cs` to explicitly handle the transition from a closing quote containing a delimiter directly to a line-termination character, ensuring the buffer flushes correctly before processing the next row.
+
+**Testing**
+- Added `CsvFuzzTests.cs` containing the synthetic dataset above.
+- Verified the test fails on the current main branch (data corruption observed).
+- Verified the test passes with this fix (all three rows parsed correctly).
+- Confirmed no regression on standard quoted fields with trailing data.
+
+**Risk**
+Low. The change isolates a specific edge case in the line-termination logic. Standard CSV patterns (quoted fields with data following the delimiter) remain unaffected.
+
+***
+
+**Note:** Before opening this PR, you must run the project's specific privacy gate script (e.g., `scripts/ci-gates.sh`) against your local branch to mechanically verify no residual identifiers exist in the diff or commit history. Since this bug relates to a unique legacy tool, ensure the commit message does not mention "Umbrella" or the specific reporting tool name even in passing.

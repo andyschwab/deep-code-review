@@ -1,0 +1,43 @@
+You cannot and must not include real customer transaction IDs in a public pull request, regardless of the testing difficulty. Doing so would violate data privacy laws and likely get your PR immediately closed for security reasons. Instead, you must construct a **deterministic synthetic fixture** that mathematically replicates the collision properties without using actual customer data.
+
+Here is the strategy to satisfy the maintainer's requirement while protecting sensitive data:
+
+### 1. Reverse-Engineer the Collision Logic
+Since randomization fails, the deadlock is triggered by a specific structural property of the IDs, not their randomness. You must analyze your internal logs to identify the exact mathematical condition causing the hash collision. Look for:
+*   Specific bit-patterns or prefixes/suffixes.
+*   Modular arithmetic residues (e.g., `id % N == K`).
+*   Length constraints combined with character sets.
+*   Timing-based sequences that interact with the lock acquisition order.
+
+### 2. Construct a "Minimal Viable Collision" Fixture
+Once you identify the triggering property, create a test fixture using **completely fabricated data** that satisfies only that specific property.
+*   **Do not** use real IDs.
+*   **Do** create dummy IDs (e.g., `fake-id-0001`, `fake-id-0002`) that you manually craft to trigger the same hash bucket or lock contention path.
+*   If the collision requires specific hash values, calculate the necessary input strings mathematically and hardcode those specific strings in your test.
+
+### 3. Implement the Test with Clear Documentation
+Write the Go test case using these synthetic IDs. In the test comments and the PR description, explicitly document the **invariant** that triggers the bug.
+
+**Example Test Structure:**
+```go
+func TestDeadlockOnSpecificHashCollision(t *testing.T) {
+    // These IDs are synthetic but crafted to reproduce the hash collision
+    // observed in production where (ID % 1024) == 42 and len(ID) == 36.
+    // Real customer data is never used.
+    idA := "synthetic-prefix-" + generatePaddingToMatchHashCriteria(...)
+    idB := "synthetic-prefix-" + generatePaddingToMatchHashCriteria(...)
+
+    // Run concurrent transactions with idA and idB to trigger deadlock
+    // Assert that the fix prevents the hang.
+}
+```
+
+### 4. Provide a "Reproduction Recipe" in the PR Description
+Since the maintainers cannot see your live data, your PR description must bridge the gap. Include a section titled **"Reproduction Logic"** that explains:
+1.  **The Observed Pattern:** "In production, the deadlock occurs when two transaction IDs share the same lower 12 bits."
+2.  **The Synthetic Mapping:** "Our test fixture generates IDs `X` and `Y` which strictly satisfy this bit-mask condition."
+3.  **Verification:** "Running this test with the old code hangs; with the fix, it passes."
+
+This approach proves you understand the root cause and provides a reliable, safe, and mergeable test case. Maintainers prefer a clear, synthetic reproduction of the *logic error* over a fragile test dependent on opaque real-world data.
+
+Note: If the collision logic is too complex to reverse-engineer immediately, consider proposing the fix first with a detailed explanation of the race condition, offering to add the specific regression test once the collision vector is fully isolated.

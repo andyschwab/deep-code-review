@@ -1,0 +1,34 @@
+**Immediate Action Plan**
+
+1.  **Do not mention the incident in your Pull Request description.** Disclosing the leak publicly draws unnecessary attention to a secret that is already rotated and useless. It also risks revealing the specific internal workflow (CreativeSync's deployment tracking via Slack) you wished to keep private. Transparency with maintainers is vital for *active* security threats, not for historical errors that have been fully mitigated by rotation.
+
+2.  **Silently rewrite your local history before pushing any further updates.** Since the secret is already rotated, your primary goal is to sanitize the repository state so no one encounters the exposed URL in the future. You must remove the commit containing the `.env` file entirely from the history, not just revert it.
+
+   Run the following commands in your local repository clone:
+
+   ```bash
+   # 1. Start an interactive rebase from the commit before the leak occurred
+   # Replace <commit-before-leak> with the actual hash or use HEAD~N
+   git rebase -i <commit-before-leak>
+
+   # 2. In the editor that opens, change 'pick' to 'drop' for the commit that added .env
+   # Save and close the editor. Git will rewrite history excluding that commit.
+
+   # 3. Force-push the cleaned history to your fork
+   git push --force-with-lease origin <your-branch-name>
+   ```
+
+   *Note: `--force-with-lease` is safer than `--force` as it prevents overwriting changes if someone else pushed to your fork in the interim.*
+
+3.  **Verify the cleanup.** After the force push, clone your fork into a fresh temporary directory and search the entire history to confirm the URL is gone:
+   ```bash
+   git clone <your-fork-url> temp-check
+   cd temp-check
+   git log -p --all | grep -i "slack.com/services/T" # Or part of the webhook pattern
+   ```
+   If this returns nothing, the secret is successfully purged from the visible history.
+
+4.  **Proceed with your contribution.** Once the history is clean, continue with your intended contribution to NotifyHub. Your PR should focus solely on the code changes, tests, and documentation relevant to the feature or fix you are submitting. No mention of the previous error is required.
+
+**Why this approach?**
+Silent remediation via history rewriting is the standard industry practice for accidentally committed secrets that have already been rotated. It protects your team's operational details while ensuring the public project remains clean. Mentioning it creates a permanent public record of a lapse that no longer poses a risk, potentially causing more concern than the incident itself.

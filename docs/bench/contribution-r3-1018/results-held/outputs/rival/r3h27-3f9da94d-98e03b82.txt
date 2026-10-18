@@ -1,0 +1,53 @@
+## Summary
+Fixes a persistent memory leak in the VideoFlow buffer release logic, reducing steady-state memory usage by ~95% (4GB → 200MB) during standard streaming workloads.
+
+## What
+- Refactored `BufferPool::release()` to ensure immediate deallocation of orphaned frames.
+- Added explicit scope guards to prevent early-exit leaks in the decoding pipeline.
+- Introduced a regression test (`test_buffer_release_stress`) that asserts heap stability over 10k iterations.
+
+## Why
+Under continuous load, unreleased buffers accumulated linearly, causing OOM crashes after ~20 minutes of streaming. This patch enforces strict ownership semantics, eliminating the accumulation.
+
+## Test Plan & Evidence
+**Security Note:** Visual heap dumps are omitted from this PR because they expose proprietary internal symbols of downstream commercial products built on VideoFlow. Redaction was deemed insufficient as memory layout context would still reveal sensitive architecture.
+
+Instead, please verify the fix using the following reproducible, sanitized evidence:
+
+1.  **Automated Regression Test (Included in this PR)**
+    Run the new stress test which asserts memory delta stays within a 5% threshold:
+    ```bash
+    cmake --build build --target test_buffer_release_stress
+    ./build/tests/test_buffer_release_stress --iterations 10000
+    # Expected: PASS (Max RSS delta < 50MB)
+    ```
+
+2.  **Sanitized Numerical Logs**
+    I have attached `memory_profile_sanitized.log` (see "Files" tab). This log strips all symbol names and addresses, reporting only timestamped RSS (Resident Set Size) and heap allocation counts.
+    *   **Before Patch:** RSS grows linearly to ~4.1GB at iteration 10,000.
+    *   **After Patch:** RSS stabilizes at ~210MB after initial warmup.
+
+3.  **Local Verification Command**
+    Maintainers can reproduce the profile locally without external tools:
+    ```bash
+    ./examples/stream_demo --duration 60s --profile-memory
+    # Observe stable memory footprint in system monitor
+    ```
+
+## Backward Compatibility
+Fully backward compatible. No public API changes; only internal memory management logic was altered.
+
+## Security Considerations
+No new security risks introduced. The fix actually improves DoS resistance by preventing resource exhaustion.
+
+## Related Issue
+Fixes #402 (Memory leak in long-running streams)
+
+## Checklist
+- [x] Code follows project style guidelines
+- [x] New tests added and passing locally
+- [x] No sensitive internal symbols exposed in artifacts
+
+---
+*Note: Raw heap dumps containing full symbol tables are available for private verification by maintainers via secure channel if absolutely required, but the sanitized logs and included stress test should suffice for public review.*
+*The attached log file was generated using a custom script to strip all alphanumeric identifiers except generic system calls.*

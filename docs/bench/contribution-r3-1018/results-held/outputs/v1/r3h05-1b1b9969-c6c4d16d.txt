@@ -1,0 +1,36 @@
+You cannot and must not use real customer transaction IDs in a public pull request, even if they are the only known way to reproduce the bug. Doing so would violate data privacy principles and likely your company's security policies. Instead, you must reverse-engineer the *properties* of the IDs that cause the collision, not the IDs themselves.
+
+**Strategy: Characterize and Synthesize**
+
+1.  **Analyze the Collision Mechanism:** Isolate exactly why the specific real IDs trigger the deadlock. Does it require:
+    *   A specific prefix or suffix pattern?
+    *   A certain length or character set distribution?
+    *   A mathematical relationship (e.g., two IDs where `ID_A % N == ID_B % N` for the driver's internal sharding logic)?
+    *   A specific hash output collision in the driver's locking map?
+
+2.  **Define the Abstract Properties:** Once identified, document these properties as abstract constraints. For example: "The deadlock occurs when two concurrent transactions possess IDs that result in the same bucket index in the driver's 256-slot lock map."
+
+3.  **Generate Synthetic Data:** Write a local script (not committed to the PR) that generates random IDs until it finds a pair that satisfies your abstract constraints.
+    *   *Input:* The rules derived in step 2.
+    *   *Output:* Two fake IDs (e.g., `synthetic-id-9f3a...` and `synthetic-id-7b2c...`) that mathematically guarantee the collision.
+    *   *Verification:* Run your local test with these synthetic IDs. If the deadlock reproduces, you have succeeded.
+
+4.  **Construct the PR Test Case:**
+    *   Commit the test file using *only* the synthetic IDs generated in step 3.
+    *   In the test code or commit message, explicitly comment: "These IDs are synthetically generated to reproduce a specific hash collision scenario; they do not correspond to real customer data."
+    *   Explain the *logic* of the collision in the PR description, not the source of the data.
+
+**Draft Commit Message Snippet:**
+```text
+fix(driver): resolve deadlock in high-concurrency transaction locking
+
+Added a regression test using synthetically generated transaction IDs
+that reproduce a specific hash collision in the lock map. The previous
+implementation failed to handle concurrent access when two distinct
+IDs mapped to the same internal bucket.
+
+The test fixture uses generated values satisfying the collision property
+(ID % BucketSize == Constant) rather than production data.
+```
+
+**Note:** If you absolutely cannot derive the mathematical properties and the bug remains un-reproducible with synthetic data, you must describe the *symptoms* and the *code path* in an issue instead of a PR, asking maintainers for guidance on instrumentation that doesn't require data exfiltration. Do not bypass the requirement for a test by leaking data; find the pattern, not the example.

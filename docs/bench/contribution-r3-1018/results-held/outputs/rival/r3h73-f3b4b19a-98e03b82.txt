@@ -1,0 +1,26 @@
+Do not include any real OAuth client secrets, partial redactions, or staging credentials in your pull request, code, or issue comments. Sharing even redacted secrets from a production or staging environment violates data governance policies and creates a security liability for both your company and the open-source project.
+
+To satisfy the maintainer's requirement for "passing integration tests with real providers" without leaking secrets, you must decouple the **test execution** from the **secret storage**. Here is the standard industry pattern to achieve this:
+
+1.  **Implement Environment Variable Injection**: Refactor your integration tests to read credentials exclusively from environment variables (e.g., `NORTHWIND_CLIENT_ID`, `NORTHWIND_CLIENT_SECRET`). The code should never contain hardcoded strings or default values for these secrets.
+2.  **Add a `.gitignore` Rule**: Ensure any local `.env` file where you store these secrets is explicitly listed in `.gitignore` so it can never be accidentally committed.
+3.  **Provide a Template File**: Commit a file named `.env.example` to the repository. This file should contain the *keys* only, with placeholder values (e.g., `NORTHWIND_CLIENT_SECRET=your_secret_here`). This documents exactly what is needed without exposing data.
+4.  **Update CONTRIBUTING.md**: Add a section explaining how to run the integration tests. State clearly: "Integration tests require valid Northwind ID credentials. Set the environment variables listed in `.env.example` before running `pytest --integration`."
+5.  **Submit the PR with CI Configuration**:
+    *   If the project uses GitHub Actions, propose a workflow configuration that *expects* these secrets to be stored in the repository's "Secrets" settings.
+    *   In your PR description, explicitly state: "Integration tests are configured to run only when valid credentials are provided via repository secrets. As a contributor, I have verified these tests locally using my company's isolated staging environment, but I cannot share the credentials themselves."
+
+**Regarding the "Real Provider" Requirement:**
+Maintainers typically require "real provider" tests to ensure the library works against the actual API, not to demand that *you* publicly share your keys. By setting up the test harness to accept secrets via environment variables, you enable the maintainers to inject their *own* test credentials (or a dedicated test account they control) into the CI pipeline. This satisfies their need for verification while keeping your company's data secure.
+
+**On Mocking vs. Real Tests:**
+Since the maintainers rejected your mock due to complex token validation, do not fight this requirement. Instead, document in the PR that while unit tests cover the logic using mocks, the integration suite (gated behind the env vars) provides the end-to-end validation they requested. If the maintainers insist that *you* personally run the tests and show logs, run them locally, capture the **sanitized output logs** (showing "Success: Token Validated" without showing the token itself), and include those text logs in the PR description as evidence of success.
+
+**Summary of Deliverables for your PR:**
+*   Code changes implementing Northwind ID support.
+*   Integration tests reading from `os.environ`.
+*   A `.env.example` file with placeholder keys.
+*   Updated documentation on how to configure the environment.
+*   Sanitized local test logs in the PR description proving successful handshake.
+
+Never attempt to "hide" secrets in code; maintainers view this as a critical security failure that will result in your PR being closed immediately.

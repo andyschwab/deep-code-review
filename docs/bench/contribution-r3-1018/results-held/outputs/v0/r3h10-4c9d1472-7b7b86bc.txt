@@ -1,0 +1,61 @@
+### Stop Checks
+Before proceeding, you must clear three critical barriers:
+1.  **Employer IP Approval:** Your legal team must explicitly approve the *generalized* benchmark logic and the statistical description of the data, even if raw values are removed.
+2.  **Contributor Agreement:** Ensure your contribution aligns with Hooli's open-source policy regarding "competitive edge" algorithms; optimizing core math functions may be restricted.
+3.  **Project Policy:** Confirm the maintainers accept synthetic benchmarks. If they strictly require "real-world" data traces, a synthetic generator may be rejected regardless of quality.
+
+### Generalize and Strip
+You cannot submit the financial models. You must reduce the contribution to the **defect class** (inefficient memory access or instruction pipelining in specific sparsity patterns) and the **fix shape** (your optimized kernel).
+*   **Strip Identifiers:** Remove all references to "Hooli," "financial models," "market scenarios," and specific ticker symbols.
+*   **Replace Data:** The 30% speedup claim must be reproducible without your proprietary dataset. You must replace the specific financial data with a **synthetic generator** that mimics the *statistical properties* (distribution, sparsity, condition number) without revealing the *source logic*.
+
+### Creating the Synthetic Generator
+Do not try to reverse-engineer your financial models into the generator. Instead, characterize the matrices mathematically:
+1.  **Analyze Properties Locally:** Run a script on your private data to extract only high-level statistics:
+    *   Sparsity ratio (e.g., 0.05% non-zero).
+    *   Distribution of non-zero values (e.g., Log-Normal, Gaussian).
+    *   Block structure or band width.
+    *   Condition number range.
+2.  **Write the Generator:** Create a C++ or Python script included in the PR that generates random matrices matching *only* these statistics.
+    *   *Input:* Seed, matrix size, target sparsity, distribution parameters.
+    *   *Output:* Binary or text matrix files.
+    *   *Constraint:* The generator must use standard library random number engines. Do not include any proprietary weighting logic.
+
+### Drafting the Contribution
+**Commit Message:**
+```text
+feat(bench): add synthetic sparse matrix benchmark suite for GEMM
+
+Adds a reproducible benchmark suite targeting sparse-dense matrix multiplication.
+Includes a deterministic generator producing matrices with configurable sparsity
+and value distributions (log-normal, uniform) to simulate high-condition-number
+workloads.
+
+Optimizes cache-line utilization in the kernel for block-sparse patterns,
+yielding ~30% improvement on generated datasets matching target sparsity (0.01%-5%).
+
+Validation:
+- Generator seeded output matches statistical profile of target workload class.
+- Benchmarks run cleanly on CI with generated assets.
+```
+
+**PR Body Section (Performance):**
+> "The optimization targets block-sparse structures common in large-scale linear solvers. To ensure reproducibility without sharing proprietary data, this PR includes `gen_sparse_matrix.cpp`, which synthesizes test cases matching the sparsity and statistical distribution of real-world financial workloads. The reported 30% speedup is observed on these generated matrices (seed 42, size 10kx10k, sparsity 0.05%)."
+
+### Addressing Your Uncertainty
+**How to validate without leaking IP?**
+You validate by proving the *class* of problem is solved, not the specific instance. If your optimization works on a randomly generated matrix with the same sparsity and block structure as your financial model, the speedup is valid for that *class* of computation. The maintainers care that the code is faster for the *pattern*, not that it prices a specific derivative correctly.
+
+**Fallback:**
+If maintainers reject the synthetic data as "unrealistic," offer to provide a **hash** of your private dataset and the benchmark results locally, inviting a maintainer with an NDA to verify the numbers privately, while keeping the public PR strictly synthetic.
+
+### Provenance and Risk Block (For Your Internal Review Only)
+*Do not include this in the public PR.*
+```
+SOURCE: Hooli internal financial modeling stack
+GENERALIZED-AWAY: Specific market scenarios, ticker logic, proprietary weighting algorithms, raw numerical values.
+RESIDUAL RISK: The specific sparsity pattern distribution might hint at the domain (finance vs. physics). Mitigation: Use broad parameter ranges in the generator.
+MOSAIC CHECK: None; this is a first-time contribution of this specific kernel optimization.
+MECHANICAL SCRUB: Pending local run of privacy-gate scripts.
+DRAFTED BY: Assistant
+```

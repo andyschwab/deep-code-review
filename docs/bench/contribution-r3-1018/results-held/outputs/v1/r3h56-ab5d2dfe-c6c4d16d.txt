@@ -1,0 +1,28 @@
+### Synthetic Test Artifact Generation Strategy
+
+To satisfy the requirement for a reproducible test case without violating legal constraints, you must generate a **synthetic file** that mimics the byte structure of the problematic encoding rather than anonymizing existing data. Anonymization (masking) often alters byte lengths or character sequences, which destroys the specific edge case you are fixing. Instead, construct a new file from scratch using the following method:
+
+1.  **Identify the Byte Signature:** Isolate the specific byte sequences in your original customer files that trigger the corruption. In rare character sets, this is often a specific multi-byte sequence, an unassigned code point, or a boundary condition (e.g., a specific character at the end of a buffer line). Note the exact hex values (e.g., `0x8F 0xA2`).
+2.  **Construct Dummy Payload:** Create a new text file using a script (Python or C++) that writes these exact byte sequences into a generic context.
+    *   Replace "John Doe" with "User A".
+    *   Replace real addresses with "123 Test Street".
+    *   **Crucially:** Ensure the dummy text surrounding the problematic bytes has similar length and structure to the original to maintain buffer alignment, but contains no real PII.
+    *   If the bug relies on a specific character appearing at a specific offset (e.g., byte 1024), pad your dummy file with standard ASCII characters until that offset, then insert the problematic hex sequence.
+3.  **Verify Encoding:** Save this constructed file explicitly in the rare character set (e.g., EBCDIC, Shift_JIS, or a specific ISO variant) using a hex editor or a conversion tool that allows raw byte injection. Verify via a hex dump that the problematic byte sequence exists exactly as it did in the customer file.
+4.  **Validation:** Run your fixed TextConvert utility against this new synthetic file. It should produce the same "garbled" output on the unpatched version and correct output on your patched version. This proves the fix addresses the *encoding mechanics*, not the specific customer data.
+
+### Pull Request Explanation Draft
+
+Include the following text in your PR description to clearly communicate the privacy constraint and the validity of your synthetic test:
+
+> **Test Data and Privacy Constraint**
+> The bug involves a specific byte-sequence handling error in [Name of Rare Encoding] that causes data corruption. While this issue was initially observed in production files containing confidential client information (Wayne Enterprises), strict data privacy policies prohibit sharing any derivative of real customer records.
+>
+> To comply with these constraints while providing a reproducible test case, I have generated a **synthetic input file** (`test_rare_encoding_edge_case.dat`) included in this PR. This file:
+> *   Contains no personally identifiable information (PII).
+> *   Is constructed to replicate the exact problematic byte sequences and buffer alignments found in the original failure case.
+> *   Successfully triggers the corruption on the `main` branch and verifies the fix in this branch.
+>
+> This approach ensures the test validates the decoding logic without exposing sensitive data. The synthetic file serves as a minimal, safe reproduction of the defect class.
+
+**Note:** Do not attempt to "clean" the original file; the byte-structure alteration will likely invalidate the test. Your legal department's prohibition is a hard stop—synthetic generation is the only compliant path.

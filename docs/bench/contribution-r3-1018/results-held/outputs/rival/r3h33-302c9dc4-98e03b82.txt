@@ -1,0 +1,24 @@
+### Proposed PR Description Section: Test Plan & CI Integration
+
+**Test Plan: High-Latency Race Condition Verification**
+The fix addresses a race condition triggered specifically when inter-node latency exceeds 200ms. Standard local tests and current CI pipelines cannot reproduce this failure mode because they operate within low-latency localhost or standard cloud networks.
+
+To verify the fix without exposing private infrastructure details, I have validated the behavior using a generic network emulation approach that any maintainer can reproduce:
+
+1.  **Local Verification Method**: I used `tc` (Linux Traffic Control) or `netem` to inject artificial delay on loopback interfaces between test processes.
+    *   *Command*: `tc qdisc add dev lo root netem delay 200ms 20ms distribution normal`
+    *   *Result*: The race condition consistently reproduces on `main` under this delay and is resolved in this branch.
+    *   *Cleanup*: `tc qdisc del dev lo root`
+
+2.  **Proposed CI Integration (Generic)**:
+    Instead of relying on specific cloud regions (e.g., us-west-2) or private topology configs, I propose adding a dedicated GitHub Actions job that uses a Docker container with `iproute2` installed to inject latency between test runners.
+    *   *Implementation*: Use the existing test harness but wrap the execution in a network namespace where `netem` applies a fixed 250ms delay.
+    *   *Benefit*: This creates a deterministic, reproducible "slow network" test case that runs entirely within the public CI environment, requiring no external cloud resources or private IP configurations.
+
+**Security & Privacy Note**
+The validation scripts I used locally reference internal Globex staging IPs and topology. **These files are NOT included in this PR.** The proposed CI solution above relies solely on generic localhost emulation, ensuring no proprietary infrastructure data is ever committed to the repository.
+
+***
+
+*Note: If the project uses Rust-specific tools like `tokio-test` or `mockall`, mention that the latency injection happens at the transport layer (TCP) to remain language-agnostic.*
+*Ensure you run the `tc` commands locally one final time before pushing to confirm the fix holds under the exact 200ms+ threshold.*

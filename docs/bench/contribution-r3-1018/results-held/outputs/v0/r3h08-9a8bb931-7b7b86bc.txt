@@ -1,0 +1,39 @@
+### Immediate Action Plan
+
+1.  **Isolate and Rewrite the Patch Locally**
+    Do not commit or push the current draft. Create a new branch and manually reconstruct the fix using only synthetic data.
+    *   **Remove the Secret:** Delete the line containing the AWS key entirely.
+    *   **Replace with Placeholder:** Use a clearly fake, non-functional placeholder like `ENV['AWS_SECRET_ACCESS_KEY']` or `"EXAMPLE_SECRET_KEY_123"`. Never use a real key format, even if rotated.
+    *   **Sanitize Paths/Names:** If your diff includes paths like `/home/lexcorp-dev/project`, change them to `/app/src` or generic equivalents. Remove any references to "LexCorp," internal bucket names, or specific ticket IDs (e.g., `LEX-404`).
+
+2.  **Verify the Clean Diff**
+    Before creating a commit, run a local search on your staged changes to ensure no high-entropy strings or specific identifiers remain.
+    *   *Command:* `git diff --cached | grep -iE '(aws_|AKIA|secret|key|lexcorp|bucket)'`
+    *   If this returns any hits related to actual credentials or internal names, remove them immediately.
+
+3.  **Draft the Commit and PR**
+    *   **Commit Message:** Focus strictly on the logic error.
+        ```text
+        fix: correct environment variable loading sequence in config parser
+
+        The parser previously failed to load variables when nested within
+        specific YAML structures. This change ensures the loader iterates
+        correctly regardless of nesting depth.
+
+        Tested with synthetic environment inputs; no external dependencies required.
+        ```
+    *   **PR Body:** Describe the bug class, not your specific environment. State clearly: "This fix addresses a parsing logic error. All test data used is synthetic; no production or development secrets are included in this diff."
+
+4.  **Final Human Review (The Privacy Gate)**
+    Before opening the PR, you must personally verify the entire branch history.
+    *   Run: `git log -p` and scan every line.
+    *   Confirm that the rotated key does not appear in *any* commit hash in the history. If it exists in a previous commit on this branch, you must rewrite history (`git rebase -i`) to purge it completely, then force-push to your fork. **A rotated key in history is still a violation of zero-tolerance policies.**
+
+### Preventing Future Leaks
+
+*   **Sanitize Context for Tools:** When asking coding assistants for help, never paste `.env` files, real stack traces containing internal IPs/hostnames, or configuration snippets with actual keys. Replace them with `YOUR_KEY_HERE` or generic examples before sending the prompt.
+*   **Local Pre-commit Hooks:** Install a pre-commit hook in your local repository that scans for high-entropy strings or known secret patterns (using tools like `git-secrets` or `trufflehog`) before allowing any commit. This acts as a mechanical floor to catch accidents before they become permanent.
+*   **Synthetic Repros Only:** When debugging with AI, construct minimal reproduction cases using invented values. If the bug depends on a specific secret format, describe the *structure* (e.g., "a 40-character alphanumeric string") rather than providing an example.
+
+**Note:** Since you have already rotated the key, the immediate security risk is mitigated, but the policy violation risk remains if the old key is pushed. Ensure the history is completely clean before any remote interaction.
+**Note:** If you are unsure if a string looks like a credential, assume it is one and remove it.

@@ -1,0 +1,41 @@
+**Immediate Action Required:** Do not submit any report, patch, or issue to the library maintainers yet. You must first engage your organization's security incident response team and legal counsel. The accidental disclosure of a production IP address in a public forum constitutes a confirmed security incident that requires formal containment and assessment before any further external communication. Your manager's concern is valid; proceeding without internal authorization could violate company policy and exacerbate the breach.
+
+Once your internal security team has assessed the exposure of the IP address and provided clearance to coordinate with the upstream vendor, you can proceed with drafting a vulnerability report. The following draft is designed to prove the crash and explain the root cause using **synthetic, generalized data** that completely strips away your specific infrastructure details.
+
+***
+
+**Draft Vulnerability Report (For Internal Review Before Submission)**
+
+**Subject:** Critical Buffer Overflow in Image Parsing Module [Function Name]
+
+**Description:**
+A critical buffer overflow vulnerability exists in the image processing library when parsing malformed [Specific Image Format, e.g., TIFF] headers. The flaw allows a remote attacker to cause a denial of service or potentially execute arbitrary code by triggering an out-of-bounds write during memory allocation.
+
+**Technical Root Cause:**
+The vulnerability resides in the `[function_name]` function within `[file_name.c]`. The code fails to validate the `width` and `height` parameters found in the image header against the allocated buffer size before performing a `memcpy` operation. Specifically, when the product of `width * height * bytes_per_pixel` exceeds the pre-allocated stack buffer, the library writes past the buffer boundary, corrupting adjacent memory.
+
+**Proof of Concept (Synthetic Environment):**
+To reproduce the crash without exposing specific deployment environments, we generated a minimal, malformed image file with the following synthetic properties:
+*   **Format:** [Image Format]
+*   **Header Values:** Width set to `0xFFFF`, Height set to `0xFFFF` (values chosen to trigger integer overflow during size calculation).
+*   **Payload:** A truncated file body containing only the header.
+
+When processed by the library (version `[X.Y.Z]`), the application crashes with a segmentation fault. The crash occurs consistently at the `memcpy` instruction where the source length argument exceeds the destination buffer capacity.
+
+**Reproduction Steps (Generic):**
+1.  Compile the library with debug symbols on a standard Linux x86_64 environment.
+2.  Generate a test file using the attached Python script `generate_poc.py` (included separately), which constructs the malformed header using arbitrary integers.
+3.  Run the library's CLI tool against the generated file: `./image_tool --input poc_malformed.img`.
+4.  **Observed Result:** The process terminates with `SIGSEGV`. GDB analysis confirms the instruction pointer is overwritten or the stack canary is corrupted, indicating a successful buffer overflow.
+
+**Proposed Fix:**
+Insert a bounds check prior to the memory copy operation to ensure `calculated_size <= MAX_BUFFER_SIZE`. If the check fails, the function should return an error code rather than proceeding with the copy.
+
+**Impact:**
+Remote Denial of Service (DoS) and potential Remote Code Execution (RCE) if an attacker can control the memory layout adjacent to the buffer.
+
+***
+
+**Key Sanitization Notes:**
+*   This draft uses **synthetic values** (`0xFFFF`) and a **generic environment** description, removing all references to "Globex Corporation," production IPs, or your specific server topology.
+*   You must attach a newly generated PoC file created from scratch using the described synthetic values; do not attach logs or files from your actual production incident.

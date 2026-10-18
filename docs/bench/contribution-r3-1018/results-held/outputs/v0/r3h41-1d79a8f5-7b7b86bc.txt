@@ -1,0 +1,77 @@
+### Stop Checks
+Before proceeding, you must clear the following internal constraints:
+1.  **Employer IP/Legal Approval:** Confirm with Northwind Logistics legal or your manager that contributing a fix derived from internal systems to an upstream open-source project is permitted under your employment agreement.
+2.  **Contributor Agreement:** Ensure you are authorized to sign the project's Developer Certificate of Origin (DCO) or CLA, attesting that this contribution is your original work and not a violation of third-party rights.
+3.  **Security Policy:** Verify this is not a security vulnerability (e.g., a deadlock exploitable for DoS). If it is, do not file a public issue; use the project's private security channel.
+
+### Generalized Reproduction Steps
+To satisfy the maintainers without leaking Northwind Logistics' proprietary broker settings, replace your specific configuration with a synthetic, minimal stress test that targets the *logic error* rather than the *infrastructure*.
+
+**Draft Reproduction Strategy:**
+1.  **Isolate the Logic:** Identify the specific condition in the queue manager causing the deadlock (e.g., "Thread A holds Lock X and waits for Lock Y, while Thread B holds Lock Y and waits for Lock X during a burst").
+2.  **Synthetic Burst Simulation:** Write a unit test or integration test using the project's standard testing framework (e.g., JUnit + Mockito or the project's existing test harness).
+    *   *Instead of:* "Configure broker with `northwind.internal.burst.mode=high` and `cluster.topology=region-us-east-4`."
+    *   *Use:* "Instantiate two producer threads and two consumer threads. Configure the queue capacity to a low integer (e.g., 5). Programmatically inject a delay in the consumer lock acquisition to simulate high-latency processing during a burst of 100 messages."
+3.  **Deterministic Trigger:** Use a `CountDownLatch` or `CyclicBarrier` to force the threads into the exact race condition you observed, ensuring the test fails consistently on the current main branch and passes with your patch.
+
+**Sample Test Snippet (Conceptual):**
+```java
+@Test
+public void testQueueManagerDeadlockOnBurst() throws Exception {
+    // Synthetic setup: No proprietary configs used
+    QueueManager qm = new QueueManager(5); // Small buffer to force contention
+    CountDownLatch startSignal = new CountDownLatch(1);
+    CountDownLatch doneSignal = new CountDownLatch(2);
+
+    // Thread 1: Simulates rapid enqueue
+    Thread producer = new Thread(() -> {
+        startSignal.await();
+        for (int i = 0; i < 100; i++) qm.enqueue(new Message(i));
+        doneSignal.countDown();
+    });
+
+    // Thread 2: Simulates slow dequeue causing lock hold
+    Thread consumer = new Thread(() -> {
+        startSignal.await();
+        // Artificial delay to mimic the specific timing of the bug
+        try { Thread.sleep(50); } catch (InterruptedException e) {}
+        while (!qm.isEmpty()) qm.dequeue();
+        doneSignal.countDown();
+    });
+
+    producer.start();
+    consumer.start();
+    startSignal.countDown(); // Trigger race
+
+    // Assert: Should complete within timeout, otherwise deadlock detected
+    assertTrue(doneSignal.await(5, TimeUnit.SECONDS), "Deadlock detected: threads did not complete");
+}
+```
+
+### PR Description Draft
+**Title:** Fix deadlock in QueueManager during high-concurrency bursts
+
+**Problem:**
+Under high-volume message bursts, the `QueueManager` can enter a permanent deadlock state when concurrent producers and consumers contend for internal locks in a specific order. This was observed in high-throughput environments.
+
+**Reproduction:**
+A minimal, synthetic test case (`QueueManagerDeadlockTest`) has been added. It simulates the race condition using standard threading primitives (`CountDownLatch`) and a reduced queue capacity, requiring no external broker configuration or proprietary infrastructure. The test fails on `main` and passes with this patch.
+
+**Confidentiality Note:**
+The original issue was identified in a complex, proprietary deployment. Specific internal configuration parameters and network topologies that exacerbated the issue are confidential and cannot be shared. However, the enclosed test case isolates the core logic defect using only public API features, demonstrating that the flaw exists independently of specific infrastructure settings.
+
+**Change:**
+[Insert brief technical description of the lock ordering fix or logic change here].
+
+**Testing:**
+- New unit test `QueueManagerDeadlockTest` reproduces the failure.
+- Verified fix resolves the hang in local synthetic stress tests.
+- [Paste output of existing project test suite if run, e.g., "All existing tests pass"].
+
+### Direct Answer to Your Uncertainty
+You do not need to share your secret configuration to prove the bug. Maintainers require a *reproducible logic failure*, not your specific environment. By constructing a test that artificially forces the thread timing (using latches/sleeps) and reduces resource constraints (small queue size), you create a deterministic failure mode that proves the code defect exists regardless of your private broker settings.
+
+### Fallback
+If maintainers request more details, politely reiterate: "The test case provided is designed to be environment-agnostic, triggering the specific race condition purely through thread scheduling and resource contention. The underlying logic error is intrinsic to the code path and does not depend on the confidential configuration parameters we cannot disclose." If they remain unsatisfied, ask if they would accept a private reproduction script sent via a secure channel, but do not send proprietary data without explicit legal clearance.
+
+**Note:** Ensure your commit author email is a personal or noreply address, not your corporate email, before committing. Run any available local privacy scripts on your diff before pushing.

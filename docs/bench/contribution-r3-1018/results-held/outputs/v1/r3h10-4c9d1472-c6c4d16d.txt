@@ -1,0 +1,31 @@
+**Deliverable: Synthetic Benchmark Strategy and Generator Outline**
+
+Do not submit the proprietary financial models or the specific generation logic. Instead, submit a C++ generator script that constructs synthetic matrices matching the *statistical profile* of your data without revealing the underlying financial algorithms.
+
+**1. Characterize, Don't Reveal**
+Analyze your proprietary dataset locally to extract only high-level, non-sensitive statistical metrics. You need to measure:
+*   **Dimensions:** Average rows/columns and the distribution of sizes.
+*   **Sparsity Pattern:** The percentage of non-zero elements and their distribution (e.g., block-diagonal, banded, random).
+*   **Value Distribution:** The range (min/max), mean, variance, and histogram shape of the non-zero values (e.g., Gaussian, log-normal).
+*   **Condition Number:** An estimate of matrix stiffness if relevant to convergence.
+
+Document these metrics in your PR description as the "Target Profile." State clearly: *"Benchmarks use synthetic data generated to match the sparsity and value distribution of typical financial risk models, characterized by [X]% sparsity and [Y] value distribution."* This validates the relevance without exposing the secret sauce.
+
+**2. The Generator Script (`generate_bench_data.cpp`)**
+Write a standalone C++ tool included in the benchmark suite that accepts the statistical parameters above as command-line arguments or a simple config file.
+*   **Logic:** Use standard library random number engines (e.g., `std::mt19937`) to populate matrices.
+*   **Sparsity:** Implement a strategy to place non-zero elements based on the target sparsity rate (e.g., uniform random placement or simple block structures if your data is consistently blocky).
+*   **Values:** Populate non-zero slots using the identified value distribution (e.g., `std::normal_distribution`).
+*   **Reproducibility:** Expose a `--seed` flag. In your PR, provide a specific seed (e.g., `--seed 42`) and the exact parameters used. This allows any reviewer to run `./generate_bench_data --seed 42 --sparsity 0.15 ...` and bit-for-bit reproduce the input matrices you tested against.
+
+**3. Validation Workflow**
+In your PR, include a script or Makefile target that:
+1.  Runs the generator with the documented parameters/seed.
+2.  Executes the optimized matrix multiplication functions against this generated data.
+3.  Outputs the runtime and correctness verification (e.g., comparing against a naive implementation).
+
+**Why this works:**
+The maintainers get a fully reproducible benchmark. They can verify the 30% speedup on data that *looks* like your real workload statistically, ensuring the optimization is valid for their use cases. You retain your competitive edge because the specific market scenarios and proprietary modeling logic never leave your machine; only the generic statistical "shape" of the data is shared.
+
+**Note:** Before drafting the PR, run a local privacy check to ensure no hardcoded constants from your real data accidentally remain in the generator's default values.
+**Note:** If the sparsity pattern is highly complex (e.g., specific graph structures), describe the pattern algorithmically (e.g., "block-diagonal with 5% off-band noise") rather than trying to encode the exact structure.

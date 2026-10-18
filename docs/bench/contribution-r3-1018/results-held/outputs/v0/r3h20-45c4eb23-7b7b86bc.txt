@@ -1,0 +1,38 @@
+**Deliverable: Upstream Contribution Strategy**
+
+Do not share the LogiCorp CSV file, even with anonymized SKUs. The logic error (negative stock counts due to race conditions) is a structural defect independent of your specific product data. You must replace the real transaction logs with a **completely synthetic dataset** that mimics the timing patterns and category logic without using real identifiers.
+
+**Step-by-Step Execution Plan:**
+
+1.  **Generalize the Defect:** Isolate the race condition logic. The bug occurs when `return_count` exceeds `processed_count` within a specific time window, regardless of the SKU value. The "product category" logic you mentioned should be abstracted to generic types (e.g., `Type_A`, `Type_B`) rather than encoded in real SKU numbers.
+2.  **Create Synthetic Data:** Write a small script to generate a CSV with invented values:
+    *   **SKUs:** Use placeholders like `SKU-001`, `SKU-002`.
+    *   **Timestamps:** Replicate the *relative* timing deltas from your real logs (e.g., "return occurs 50ms after request") but shift the absolute timestamps to a generic date (e.g., `2023-01-01`).
+    *   **Volumes:** Use integers that trigger the bug (e.g., high frequency returns) without reflecting actual sales velocity.
+3.  **Verify the Repro:** Run your fixed code against this synthetic CSV. It must fail on the unpatched version and pass on the patched version. If the test fails to reproduce the bug with synthetic data, the dependency on real SKUs indicates the fix may be too coupled to your internal schema; refactor the fix to be generic first.
+4.  **Draft the PR Content:**
+    *   **Title:** "Fix race condition in inventory update causing negative stock counts"
+    *   **Problem:** "Concurrent return processing can result in negative inventory values when returns outpace processing updates."
+    *   **Solution:** "Added synchronization/locking mechanism to the update function."
+    *   **Test Case:** "Includes `test_race_condition.csv` with synthetic data replicating high-frequency return scenarios."
+    *   **Note to Maintainers:** "Real-world logs triggered this, but synthetic data is used here to protect proprietary product mix information. The timing patterns and logic flow are identical to the production failure."
+
+**Direct Answer to Your Uncertainty:**
+You should **create a completely synthetic dataset**. Obfuscating real SKUs is insufficient because the pattern of usage (sales velocity) remains a competitive secret, and if the logic truly depends on the specific numeric properties of your SKUs, the library design itself may need refactoring to avoid such coupling. A valid upstream test case must rely only on the library's public API and logical states, not internal business data.
+
+**Fallback if Maintainers Push Back:**
+If maintainers insist on real data patterns, explain that providing proprietary business metrics violates your employment agreement. Offer to perform a live debugging session (screen share) where you run the test against the real data locally without sharing the file, or ask if they accept a detailed trace log with all identifiers replaced by hashes.
+
+**Stop Checks Before Sending:**
+*   Confirm your employer's IP policy allows contributing generic bug fixes (usually yes, but verify).
+*   Ensure no internal hostnames, paths, or employee names remain in the synthetic test comments or commit messages.
+*   Verify the synthetic CSV contains zero real SKU numbers or dates.
+
+**Commit Message Template:**
+```text
+fix: prevent negative stock counts during concurrent returns
+
+- Add locking mechanism to inventory update function
+- Include synthetic regression test for race condition
+- Test data mimics high-frequency return patterns without using PII or proprietary IDs
+```

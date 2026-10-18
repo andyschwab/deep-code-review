@@ -1,0 +1,50 @@
+Do not submit the breaking change as proposed; it will be rejected and damage your relationship with the maintainer. Instead, implement a **non-breaking additive pattern** that introduces new asynchronous methods while deprecating the old ones, strictly adhering to the v3.0 policy.
+
+**Step 1: Generalize and Isolate the Fix**
+Refactor your solution to create new method signatures (e.g., `processDataAsync`) that return `CompletableFuture`, `Flow`, or accept a callback, depending on the library's existing concurrency model. Keep the original synchronous methods (`processData`) intact but mark them with `@Deprecated` annotations, pointing users to the new async variants. In the deprecated methods' KDoc, explicitly state: "This method blocks the main thread and causes performance issues. Use [newMethod] instead. Will be removed in v3.0." This satisfies the "no breaking changes" rule because existing code continues to compile and run, while new adopters get the performant default.
+
+**Step 2: Draft the Commit Message**
+```text
+feat: add non-blocking async processing methods; deprecate blocking variants
+
+Introduces `processDataAsync` to resolve main-thread freezing during heavy loads.
+The existing `processData` method is deprecated but retained for backward compatibility
+until v3.0, per project versioning policy.
+
+- Added `processDataAsync` returning Flow<T> (or appropriate type)
+- Marked `processData` as @Deprecated with migration guide in KDoc
+- Added unit tests verifying async execution does not block caller thread
+- Updated README with performance comparison and migration snippet
+
+Fixes severe performance bottleneck reported in internal usage without violating
+the no-breaking-change constraint for v2.x.
+```
+
+**Step 3: Draft the PR Body**
+**Title:** feat: Add async processing methods and deprecate blocking calls (v2.x compatible)
+
+**Problem:**
+The current `processData` method blocks the main thread during heavy operations, causing UI freezes. Internal testing shows latency spikes of >200ms on mid-range devices.
+
+**Solution:**
+This PR introduces new asynchronous methods (`processDataAsync`) that offload work to a background dispatcher. To respect the v3.0 breaking-change freeze:
+1. No existing signatures are removed or modified.
+2. Old methods are marked `@Deprecated` with clear migration instructions.
+3. Binary compatibility is preserved for all current consumers.
+
+**Testing:**
+- Verified new methods execute on `Dispatchers.Default` and do not block the caller.
+- Confirmed existing synchronous tests still pass unchanged.
+- [Paste specific benchmark output comparing old vs. new here]
+
+**Risk:**
+Low. The change is purely additive. Deprecated methods function exactly as before.
+
+**Direct Answer to Your Uncertainty:**
+You should **never** force a breaking change against an explicit maintainer policy; it guarantees rejection. The standard industry pattern for this scenario is **additive deprecation**: ship the fix as new APIs, mark the old ones as deprecated, and let the maintainer remove them in v3.0. This solves your immediate performance crisis (by switching your app to the new methods) while respecting the project's governance.
+
+**Fallback:**
+If Alex rejects even the deprecation warning as "too aggressive" for a patch release, offer to submit the new async methods *without* deprecating the old ones yet, perhaps hiding the deprecation note only in the KDoc until v3.0 approaches. If that is also refused, you must maintain a private fork for Stark Industries until v3.0, as pushing further will likely result in being blocked from future contributions.
+
+*Note: Ensure you strip all references to "Stark Industries" or internal benchmark specifics before submitting.*
+*Verify that your async implementation uses the library's existing coroutine scope or dispatcher patterns to avoid introducing new dependencies.*

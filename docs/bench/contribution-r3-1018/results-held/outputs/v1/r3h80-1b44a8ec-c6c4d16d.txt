@@ -1,0 +1,34 @@
+**Proposed Solution: Pluggable Trace ID Strategy with Synthetic Examples**
+
+To resolve the conflict between utility and privacy, implement the feature using a **Strategy Pattern** for ID generation and propagation. This decouples the framework's core logic from any specific ID format, allowing your team to inject the proprietary Acme Observability format internally while the public repository ships with a standard, generic implementation (e.g., W3C Trace Context or UUID).
+
+**1. Architectural Design**
+Define a `TraceIdGenerator` interface and a `TraceContextPropagator` interface within the framework core.
+*   **Default Implementation:** Provide a `StandardTraceIdGenerator` that produces compliant, generic IDs (e.g., 16-byte hex strings). This ensures immediate value for the community without requiring knowledge of your internal systems.
+*   **Extension Point:** Document how users can override these beans/providers to inject custom logic. Your team will implement `AcmeTraceIdGenerator` in your private microservices repository, not in the upstream PR.
+
+**2. Pull Request Content Strategy**
+Your PR description must focus entirely on the **mechanism of extensibility**, not the **specifics of your usage**.
+
+*   **Do Not Include:** Any mention of "Acme Observability," your internal indexing system, the specific structure of your custom IDs, or the scale of your operations (e.g., "tested at our 50k RPS cluster").
+*   **Do Include:**
+    *   **Problem:** "MicroFlow lacks a standardized hook for distributed tracing, forcing users to fork the framework for custom ID formats."
+    *   **Solution:** "Introduced `TraceIdGenerator` SPI (Service Provider Interface) allowing pluggable ID strategies."
+    *   **Testing:** Use **synthetic data**. Generate fake trace IDs that mimic the *shape* of a generic ID (or even a fake "custom" format like `TEST-XXXX`) to prove the hook works. Do not use real logs or dumps from your production environment.
+    *   **Value Proposition:** "Enables integration with any observability backend (Jaeger, Zipkin, or proprietary tools) without modifying framework core."
+
+**3. Addressing Your Specific Concerns**
+*   **Leaking Architecture:** Discussing the *need* for a custom format is safe; discussing the *structure* of that format is not. State only: "Some organizations require specific entropy or encoding in trace IDs for legacy index compatibility." This is a universal truth, not a leak.
+*   **Scale of Operations:** Never mention request volumes or cluster size. Performance claims should be framed as "O(1) insertion overhead" or "non-blocking injection," derived from code analysis, not empirical production data.
+
+**4. Implementation Steps for the PR**
+1.  Refactor the header injection point to accept the `TraceIdGenerator` interface.
+2.  Implement the default `UuidTraceIdGenerator`.
+3.  Add a configuration property (e.g., `microflow.tracing.generator.class`) to allow users to swap implementations.
+4.  Write unit tests using mocked interfaces and synthetic strings.
+5.  Draft the PR title: "feat: Add pluggable Trace ID generation strategy for distributed tracing."
+
+By upstreaming the *hook* rather than your *implementation*, you provide a high-value feature to the community (extensibility) while keeping your proprietary schema and operational details strictly private. Your team then maintains the proprietary adapter internally.
+
+*Note: Before submitting, run a local search for "Acme", "Observability", and your internal ticket prefixes to ensure no accidental leaks remain in comments or test data.*
+*Ensure you have legal approval to contribute the refactored core logic, as it originates from your private codebase.*

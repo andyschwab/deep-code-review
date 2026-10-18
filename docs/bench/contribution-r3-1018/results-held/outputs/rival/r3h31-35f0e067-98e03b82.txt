@@ -1,0 +1,52 @@
+### Proposed Change Strategy
+
+Do not submit Acme-specific logic. Instead, implement a **generic error-transformation plugin interface** that allows any consumer to intercept and rewrite raw GraphQL errors before they reach the application layer. Your PR should introduce the hook mechanism, while your local verification uses a mock plugin that simulates the Acme envelope without hardcoding "Acme" or proprietary schema names into the library source.
+
+**Step 1: Sanitize Mock Data**
+Review your generated mock data immediately. Remove any field names, enum values, or type definitions that are unique to Acme's internal services. Replace them with generic placeholders (e.g., `legacyErrorCode`, `nestedPayload`) that demonstrate the *structure* of the problem (nested errors with numeric codes) without revealing the *content* of your private schema. If your mock data contains real table names or business logic, the PR will be rejected for leaking proprietary information.
+
+**Step 2: Implement the Generic Hook**
+Modify the error handling pipeline to accept an optional `errorTransformer` function in the client configuration.
+*   **Signature:** `(rawError: GraphQLError[]) => GraphQLError[]`
+*   **Behavior:** If provided, the client passes raw server errors to this function before returning them to the user. If undefined, the client behaves exactly as it does today.
+*   **Implementation:** Ensure the transformer is strictly typed against the standard GraphQL error interface, not your custom Acme types.
+
+**Step 3: Demonstrate via External Example**
+Do not add tests inside the core library that reference "4099" or "Acme." Instead:
+1.  Add a unit test for the *hook mechanism* using a generic transformation (e.g., appending a prefix to all messages).
+2.  Create a separate `examples/acme-legacy-adapter.ts` file (or similar, per project structure) in the PR. This file imports the new plugin interface and implements the specific logic to unwrap the nested envelope and map code 4099. This proves the interface works for your use case without polluting the core codebase with vendor logic.
+
+**Step 4: Draft the PR Comment**
+Use the following template for your initial PR description. It emphasizes generic utility and explicitly disclaims vendor specificity.
+
+---
+
+**Title:** feat(core): Add optional `errorTransformer` hook for custom error normalization
+
+**Summary**
+This PR introduces a generic `errorTransformer` configuration option, allowing consumers to intercept and normalize raw GraphQL errors before they are returned to the application. This solves compatibility issues with legacy backends that use non-standard error envelopes without requiring the core library to maintain vendor-specific parsers.
+
+**Motivation**
+Several enterprise users operate behind legacy gateways that wrap standard GraphQL errors in proprietary nested structures (e.g., specific numeric codes or nested payload fields). Currently, integrating these systems requires fragile local forks of the error handler. A generic hook enables these teams to implement custom normalization logic safely while keeping the upstream library agnostic.
+
+**Implementation Details**
+*   Added an optional `errorTransformer` field to the client configuration.
+*   The transformer receives the raw `GraphQLError[]` and must return a valid `GraphQLError[]`.
+*   Zero breaking changes: the default behavior is unchanged if no transformer is provided.
+*   Includes a new example (`examples/legacy-adapter.ts`) demonstrating how to unwrap a nested error envelope and map custom numeric codes. *Note: The example uses generic mock data and contains no proprietary schema definitions.*
+
+**Test Plan**
+*   Unit tests verify the hook is called when provided and skipped when undefined.
+*   Type checks confirm the transformer adheres to standard GraphQL error interfaces.
+*   Verified locally against a mock server returning nested error structures; the example adapter successfully normalizes them to standard format.
+
+**Backward Compatibility**
+Fully backward compatible. Existing clients will see no change in behavior or performance unless they explicitly opt into the new configuration option.
+
+**Related Issue**
+Addresses the need for custom error handling discussed in community channels regarding legacy backend integration.
+
+---
+
+**Note:** Ensure your `examples` folder is included in `.npmignore` if the project convention excludes examples from the published package, or confirm with maintainers if they prefer examples in the main distribution.
+**Note:** If the project requires an issue before code, open a feature request titled "Generic hook for custom error normalization" and link it before submitting this PR.

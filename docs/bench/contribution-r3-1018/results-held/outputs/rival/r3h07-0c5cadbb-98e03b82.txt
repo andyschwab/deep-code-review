@@ -1,0 +1,34 @@
+Do not submit your current refactoring as a single breaking-change PR. It will be closed immediately, damaging your credibility with Alex and eliminating any chance of getting this performance fix into version 2.x. The maintainer's "no breaking changes until 3.0" rule is a hard constraint, not a negotiation point.
+
+Instead, frame your contribution as a **non-breaking additive enhancement** using the "Parallel Implementation" pattern. This approach respects the versioning policy while solving your immediate performance crisis.
+
+**The Strategy: Add, Don't Replace**
+
+1.  **Preserve Existing Signatures:** Leave every current public method exactly as it is. Do not change return types, remove parameters, or alter synchronous behavior for existing callers. This ensures zero binary incompatibility.
+2.  **Introduce New Asynchronous APIs:** Create new methods specifically for async usage. In Kotlin, the idiomatic approach is to add `suspend` functions or methods accepting callbacks.
+    *   *Example:* If you have `fun processData(data: String): Result`, add `suspend fun processDataAsync(data: String): Result`.
+    *   Implement the heavy lifting in a new internal asynchronous engine.
+    *   Refactor the *old* synchronous methods to internally call your new async engine (using `runBlocking` or similar) only if necessary, or simply leave them as-is if they are still useful for legacy callers. Ideally, point the old methods to the new logic wrapped in a blocking context, but ensure this wrapper doesn't reintroduce the main-thread freeze for the old use cases (or document that the old methods remain blocking by design).
+3.  **Deprecate, Don't Delete:** Add `@Deprecated` annotations to the old synchronous methods with a message like: "Performance optimized in [NewMethod]. This method remains for backward compatibility but may block the calling thread. Will be removed in v3.0." This signals the future direction without breaking current builds.
+4.  **Scope the PR Strictly:** Your PR description must explicitly state: "This PR adds new asynchronous APIs and deprecates old ones. It contains **zero** breaking changes. Existing binaries will continue to compile and run without modification."
+
+**How to Frame the Contribution to Alex**
+
+When you open the PR (after ensuring you have an open issue tracking this performance bottleneck), use this narrative:
+
+*   **Title:** `feat: Add asynchronous processing APIs to resolve main-thread freezing (non-breaking)`
+*   **Summary:** "Introduces new `suspend` functions for heavy data processing to prevent main-thread freezes. Existing synchronous methods are preserved and marked `@Deprecated` for removal in v3.0, ensuring full backward compatibility."
+*   **Motivation:** Acknowledge Alex's timeline: "Understood that v3.0 breaking changes are scheduled for next year. However, the current main-thread freeze is critical for production apps. This proposal delivers the performance fix immediately without forcing a major version bump or breaking existing consumers."
+*   **Evidence:** Provide a benchmark comparison showing the old method (still present) vs. the new async method. Show that old code still compiles and runs.
+
+**Why This Works**
+
+*   **Respects Authority:** You are adhering to the "no breaking changes" rule explicitly.
+*   **Solves Your Problem:** Stark Industries can immediately switch to the new `suspend` methods in your app code.
+*   **Low Risk for Maintainer:** The PR doesn't force a release decision; users can opt-in to the new APIs.
+*   **Future Proof:** It lays the groundwork for v3.0 by already having the async logic tested and the deprecation warnings in place.
+
+If Alex rejects even this additive approach, your only remaining option is to fork the library, apply your breaking changes privately, and publish the fork under a different group ID (e.g., `com.starkindustries.android-utils`). However, the additive pattern is the standard professional compromise in the Android ecosystem and has a high probability of acceptance.
+
+Note: Ensure your new async methods follow the project's existing naming conventions and coroutine guidelines (e.g., using `Dispatchers.Default` or `IO` appropriately).
+Note: Verify that adding `@Deprecated` annotations does not trigger any strict lint rules in the project's CI that might treat warnings as errors.

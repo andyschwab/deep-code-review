@@ -1,0 +1,48 @@
+### Stop Checks
+Before proceeding, you must clear the following internal constraints:
+1.  **Employer IP Approval:** Confirm with your legal or engineering lead that generalizing this specific bottleneck description does not violate Stark Industries' trade secret policies, even when stripped of proper nouns.
+2.  **AI-Disclosure Policy:** Verify if your project or employer requires disclosing that an AI assisted in the analysis, and if so, ensure that disclosure itself doesn't trigger a review of the forbidden context.
+3.  **Duplicate Check:** Ensure no existing issue in the upstream LogStream repository already covers "memory exhaustion on malformed input" to avoid filing a duplicate.
+
+### Generalized Technical Explanation (For PR Body)
+**Problem:**
+The parser enters an unbounded memory allocation loop when encountering specifically malformed log entries containing nested, unclosed delimiters. Instead of failing fast or enforcing a depth limit, the current logic recursively buffers intermediate states, causing resident set size (RSS) to spike until the process panics.
+
+**Root Cause:**
+The state machine lacks a guard clause for excessive recursion depth during tokenization. When faced with pathological input, it prioritizes completeness over resource safety, accumulating buffers proportional to the input's malformed complexity rather than its logical size.
+
+**Solution:**
+Introduced a hard limit on parsing depth and a maximum buffer threshold per entry. If these thresholds are exceeded, the parser now aborts the specific entry with a structured error (`ParseError::ResourceLimitExceeded`) rather than continuing to allocate. This ensures memory usage remains bounded regardless of input malignancy.
+
+**Testing:**
+Added a fuzz test case that generates deeply nested, unclosed delimiter streams.
+- **Before:** Process crashes with `panic: out of memory` within 200ms.
+- **After:** Process returns an error immediately, with memory footprint remaining stable under 5MB.
+
+### Safe Commit Message
+```text
+fix(parser): enforce resource limits on malformed input to prevent OOM
+
+The parser previously lacked depth and buffer limits when handling
+nested delimiters in malformed entries, leading to unbounded memory
+allocation and process crashes.
+
+This change introduces:
+- A maximum recursion depth for tokenization.
+- A per-entry buffer cap.
+- Early termination with `ParseError::ResourceLimitExceeded` when limits are hit.
+
+Includes a regression test using synthetic pathological input to verify
+memory stability under attack conditions.
+```
+
+### Direct Answer to Your Uncertainty
+You describe the fix as enforcing **resource bounds** (depth/buffer limits) on **pathological input structures** (nested/unclosed delimiters). You do not need to mention *how* the data was being compressed or processed internally, only that the *control flow* failed to stop allocating memory. The "unique algorithm" is irrelevant to the bug; the bug is purely about missing input validation and resource guarding.
+
+### Fallback Strategy
+If maintainers ask for more specifics on the "nested delimiters" without revealing your internal format:
+" The malformed input consists of valid token start sequences that never terminate, forcing the state machine to hold open contexts indefinitely. The exact payload structure is proprietary, but the behavior is reproducible with any grammar using recursive start/end tokens."
+
+---
+*Note: Ensure the attached test case uses completely synthetic data (e.g., characters like `(((...`), not sanitized real logs.*
+*Do not include the original AI discussion thread in the PR; summarize only the mechanical fix as shown above.*

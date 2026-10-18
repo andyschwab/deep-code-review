@@ -1,0 +1,47 @@
+### Design Strategy: Pluggable Trace ID Codec
+
+To resolve the conflict between community utility and internal privacy, you must decouple the **propagation mechanism** (injecting headers) from the **ID generation strategy** (formatting the ID). Do not contribute your custom Acme format. Instead, contribute a **SPI (Service Provider Interface)** or Strategy pattern that allows the framework to accept any ID generator.
+
+**Implementation Steps:**
+
+1.  **Define an Interface:** Create a `TraceIdGenerator` interface within MicroFlow with a single method: `String generate()`.
+2.  **Provide a Default Implementation:** Implement a `StandardTraceIdGenerator` that uses a widely accepted, non-proprietary format (e.g., W3C Trace Context standard UUIDs or 16-byte hex strings). This ensures the framework works out-of-the-box for the community without exposing your internal logic.
+3.  **Inject via Configuration:** Modify the framework's initialization to accept a custom `TraceIdGenerator` bean. If none is provided, it defaults to the standard implementation.
+4.  **Internal Usage:** In your private fork at Acme, implement `AcmeTraceIdGenerator` containing your proprietary logic and inject it at runtime. This code never leaves your private repository.
+
+**Draft Commit Message:**
+```text
+feat: add pluggable TraceIdGenerator SPI for distributed tracing
+
+- Introduce TraceIdGenerator interface to decouple ID format from propagation.
+- Provide default StandardTraceIdGenerator using W3C UUID format.
+- Allow users to inject custom generators via framework configuration.
+- Ensures compatibility with various observability backends without hardcoding formats.
+```
+
+**Draft PR Body:**
+```markdown
+## Problem
+MicroFlow currently lacks a standardized way to inject trace IDs, and hardcoding a specific ID format limits compatibility with diverse observability backends.
+
+## Solution
+This PR introduces a `TraceIdGenerator` SPI. The framework now defaults to a standard UUID format but allows users to inject custom generators for proprietary needs.
+
+## Testing
+- Verified default generator produces valid W3C-compliant IDs.
+- Confirmed custom injection works via unit test mocking the interface.
+- [Paste output of local latency test here]
+
+## Risk
+Low. The change is additive and backward compatible if the default is used.
+```
+
+**Direct Answer to Your Concern:**
+Yes, discussing the specific constraints, indexing logic, or scale of your internal observability platform in the PR description **would leak confidential information**. Even describing *why* your format is unique can reveal architectural details about your monitoring scale or data modeling. You must strictly limit the public discussion to the **generic problem** (need for flexible ID formats) and the **generic solution** (the interface you created). Do not mention "Acme," your specific indexing requirements, or the reasons why a generic format was insufficient for your internal needs.
+
+**Fallback Plan:**
+If the maintainers reject the SPI approach and insist on a hardcoded format, do not push your proprietary logic. Instead, keep your custom implementation entirely within your private Acme fork as a patch. You can still benefit from the upstream framework's core features while maintaining your proprietary tracing logic locally, perhaps documenting the *need* for this feature in an upstream issue without revealing your specific constraints.
+
+---
+*Note: Ensure your local `AcmeTraceIdGenerator` class is excluded from any automated "share learning" scripts to prevent accidental leakage of the proprietary algorithm structure.*
+*Remember: The value to the community is the flexibility you added, not your specific implementation.*
