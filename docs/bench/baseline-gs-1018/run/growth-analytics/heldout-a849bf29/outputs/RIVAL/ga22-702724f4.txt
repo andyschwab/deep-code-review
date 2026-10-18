@@ -1,0 +1,73 @@
+# FitVerse Launch Tracking Plan
+
+**To:** Sarah, Engineering Lead
+**From:** Alex
+**Date:** October 24, 2023
+**Deadline:** October 30, 2023
+**Goal:** Capture core behavior for launch decisions without pipeline overload.
+
+## Core Principles
+1.  **Decision-First:** Only track events that inform specific launch decisions (retention, monetization, social stickiness).
+2.  **Scalability:** Use flat property structures to allow future filtering without schema changes.
+3.  **Privacy:** No PII in event properties; anonymize user IDs before logging.
+
+## Essential Event Schema
+
+Implement these five core events immediately. All events must include standard context properties: `user_id` (hashed), `session_id`, `device_type`, `app_version`, and `timestamp`.
+
+### 1. `session_started`
+*Trigger:* User enters the main VR environment.
+*Purpose:* Measure daily active users (DAU) and session frequency.
+*Properties:*
+*   `mode`: "solo" | "multiplayer" | "tutorial"
+*   `referrer_campaign`: [UTM string if applicable]
+
+### 2. `workout_completed`
+*Trigger:* User finishes a fitness session (success or early exit).
+*Purpose:* Primary conversion metric; correlates with the beta 22-min average.
+*Properties:*
+*   `workout_id`: [string]
+*   `duration_seconds`: [integer]
+*   `calories_estimated`: [integer]
+*   `intensity_score`: [0-100 float] *(Validates the movement/satisfaction hypothesis)*
+*   `completion_status`: "completed" | "abandoned" | "paused_exit"
+*   `social_context`: "none" | "friend_invite" | "public_lobby"
+
+### 3. `social_interaction_attempt`
+*Trigger:* User initiates or responds to a social feature in multiplayer.
+*Purpose:* Isolates the "unknown factor" of social quality vs. solo performance.
+*Properties:*
+*   `interaction_type`: "voice_chat_join" | "avatar_high_five" | "challenge_sent" | "leaderboard_view"
+*   `partner_count`: [integer]
+*   `interaction_duration_seconds`: [integer]
+*   `post_interaction_rating`: [1-5 integer] *(Optional: prompt user post-session)*
+
+### 4. `subscription_viewed`
+*Trigger:* User opens the pricing or upgrade modal.
+*Purpose:* Funnel analysis for monetization.
+*Properties:*
+*   `plan_type_displayed`: "monthly" | "annual" | "lifetime"
+*   `entry_point`: "post_workout" | "nav_menu" | "paywall_block"
+
+### 5. `purchase_completed`
+*Trigger:* Successful payment processing.
+*Purpose:* Revenue tracking.
+*Properties:*
+*   `plan_type`: [string]
+*   `transaction_value`: [float]
+*   `currency`: [string]
+*   `payment_method`: [string]
+
+## Data Structure Recommendations
+
+*   **Naming Convention:** Use `object_action` format (e.g., `workout_completed`) in lowercase with underscores.
+*   **Property Types:** Strictly enforce types (integers for counts, floats for scores, strings for categories) to prevent aggregation errors later.
+*   **Extensibility:** Add a `metadata` object property for experimental flags (e.g., `metadata: { "beta_feature_x": true }`) so engineers can toggle tracking without altering the core schema.
+*   **Social Quality Metric:** Since "quality" is unknown, do not try to calculate it server-side yet. Instead, log raw `interaction_duration` and `post_interaction_rating` separately. Correlate these against `workout_completed` retention in your BI tool post-launch.
+
+## Implementation Checklist for Oct 30
+1.  Validate `workout_completed` fires even if the app crashes mid-session (use local caching).
+2.  Ensure `social_context` distinguishes between private friends and public strangers.
+3.  Test data payload size to ensure no latency in VR rendering.
+
+*Note: Do not instrument "full body movement" raw data streams; only log the derived `intensity_score` to save pipeline bandwidth. Revisit raw movement tracking only if the intensity/satisfaction correlation fails after 30 days.*

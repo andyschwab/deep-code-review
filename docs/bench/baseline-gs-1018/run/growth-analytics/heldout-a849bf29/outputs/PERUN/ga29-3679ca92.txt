@@ -1,0 +1,44 @@
+### Instrumentation Specification for LogiTrack (May 10th Deadline)
+
+**North Star Metric:** Weekly Active Dispatchers completing ≥95% of daily shipment updates without manual retry.
+*Rejects vanity metrics like "total pageviews" or "raw ping count." This metric ties directly to dispatcher efficiency and value delivery.*
+
+**Event Taxonomy (Answering Named Questions)**
+Instrument only the following events. Do not log "everything."
+
+1.  **Event:** `dispatch_session_start`
+    *   **Question:** Does unstable connectivity prevent session initialization?
+    *   **Properties:** `dispatcher_id` (pseudonymous), `region_code`, `connection_type` (4G/3G/Wifi), `initial_load_time_ms`.
+2.  **Event:** `shipment_update_attempt`
+    *   **Question:** Where does the workflow break during updates?
+    *   **Properties:** `shipment_id`, `attempt_number` (1, 2, 3...), `payload_size_kb`, `time_to_ack_ms`, `failure_reason` (timeout, network_error, server_error).
+    *   **Logic:** Increment `attempt_number` on client-side retry. A high ratio of `attempt_number` > 1 indicates connectivity friction impacting efficiency.
+3.  **Event:** `manual_workaround_triggered`
+    *   **Question:** When do dispatchers abandon the dashboard for offline methods?
+    *   **Properties:** `action_type` (e.g., "exported_to_csv", "switched_to_phone_call", "copied_text_manually"), `preceding_error_code`.
+    *   **Criticality:** This is the strongest proxy for lost efficiency. If this spikes when `time_to_ack_ms` > 3000ms, you have your causal link.
+4.  **Event:** `dashboard_render_complete`
+    *   **Question:** Is the perceived load time correlated with region connectivity?
+    *   **Properties:** `render_time_ms`, `data_fetched_kb`, `region_code`.
+
+**The Identifier Seam**
+*   **Requirement:** Use a stable, pseudonymous `dispatcher_id` for cohort analysis across sessions.
+*   **Constraint:** Do not store PII (names, phone numbers) in these events. Route any mapping of `dispatcher_id` to real identity to the `privacy-compliance` protocol. This differs from system observability (which avoids high-cardinality user labels); here, the user journey is the product.
+
+**Performance Guardrails (System Health)**
+*   **Metric:** 95th percentile `time_to_ack_ms` per `region_code`.
+*   **Threshold:** Alert if P95 latency increases by >20% compared to the pre-launch baseline.
+*   **Note:** Do not instrument individual packet traces here; that belongs in system observability (logs/traces). Only instrument the *user-perceived* result of those traces.
+
+**Analysis Plan: Retention Before Acquisition**
+Do not measure how many new dispatchers sign up (Acquisition) until you verify they can complete updates reliably (Retention).
+1.  **Cohort:** Group by `region_code` (proxy for connectivity stability).
+2.  **Query:** Compare `manual_workaround_triggered` rate vs. `dashboard_render_complete` latency for each region.
+3.  **Hypothesis Test:** If regions with high latency show >15% higher workaround rates, latency is the bottleneck. If latency is high but workaround rates are low, your assumption about driver satisfaction is incorrect; look elsewhere.
+
+**This Week's Steps**
+1.  **Define Schema:** Finalize the JSON schema for the four events above by May 12th.
+2.  **Implement Sampling:** For high-volume `shipment_update_attempt` events, implement 10% sampling for regions with stable connectivity to reduce overhead, but 100% logging for regions flagged as "unstable" to capture the nuance.
+3.  **Baseline Capture:** Run a script on current production logs (if available) or staging to establish the current `time_to_ack_ms` baseline before June 1st.
+
+*Note: No benchmarks for "good" latency are asserted; success is defined by the reduction in `manual_workaround_triggered` relative to your own baseline. If data is missing post-launch, the metric is UNVERIFIED.*

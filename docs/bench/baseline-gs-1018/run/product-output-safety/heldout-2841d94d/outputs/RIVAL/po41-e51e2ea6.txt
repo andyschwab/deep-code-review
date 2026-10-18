@@ -1,0 +1,42 @@
+# Pre-Launch Safety Protocol: Smart-Watering System
+
+## 1. Failure Mode Identification (FMEA)
+Conduct a tabletop Failure Mode and Effects Analysis focusing on "Single Point of Failure" scenarios where software misinterprets sensor data. Prioritize these specific logic gaps:
+*   **Stuck-At-Dry:** Sensor returns a constant low-moisture value despite saturation.
+*   **Rate-of-Change Violation:** Sensor indicates impossible drying speeds (e.g., soil going from saturated to bone-dry in seconds).
+*   **Out-of-Bounds Values:** Sensor reports physically impossible negative moisture or >100% saturation.
+*   **Communication Noise:** Intermittent signal loss interpreted as "dry" due to default error handling.
+
+## 2. Software-Based Simulation Strategy
+Since hardware redundancy is prohibited, inject faults directly into the data ingestion layer before the logic engine processes them.
+
+*   **Data Replay Harness:** Record 48 hours of historical "normal" and "rainy" sensor data. Create a playback tool that intercepts live data streams and substitutes them with pre-recorded faulty sequences.
+*   **Fault Injection Scripts:** Develop scripts to mutate incoming JSON payloads in real-time:
+    *   *Freeze Value:* Hold the last "dry" reading constant for 2 hours.
+    *   *Spike Injection:* Insert momentary 0% moisture spikes into a saturated dataset.
+    *   *Drift Simulation:* Gradually decrease reported moisture while keeping the input source static.
+*   **Boundary Stress Testing:** Feed the system edge-case values (null, NaN, maximum integer, negative numbers) to ensure the parser rejects them rather than defaulting to "open valve."
+
+## 3. Logic Safeguard Validation
+Validate that the following software guards trigger a "Fail-Safe Closed" state (valves remain off) during simulations:
+
+*   **Temporal Consistency Check:** If moisture drops faster than physical evaporation allows (e.g., >5% per minute), flag as sensor error and inhibit irrigation.
+*   **Cross-Zone Correlation:** If Zone A reports "dry" but adjacent Zone B (same soil type/exposure) reports "saturated," suspend action on Zone A and alert engineers.
+*   **Maximum Duration Hard Limit:** Enforce an absolute hard-coded timeout (e.g., 15 minutes) regardless of sensor feedback. If the valve runs this long, force shut-off.
+*   **Rain Event Override:** Integrate with a free local weather API. If recent rainfall is reported for the garden's GPS coordinates, override any "dry" sensor reading for a set cooldown period.
+*   **Heartbeat Monitoring:** If the sensor stops sending data or sends malformed packets, the system must default to "valve closed" rather than attempting to guess the state.
+
+## 4. Execution Plan
+1.  **Isolated Environment:** Deploy the current production build to a staging server connected to a mock database.
+2.  **Automated Regression Suite:** Run the fault injection scripts against the staging environment. Each test must verify that the command output is `VALVE: CLOSE`.
+3.  **Chaos Drill:** Simulate a "storm" scenario where all sensors simultaneously report conflicting data. Verify the system defaults to a global shut-off.
+4.  **Manual Code Review:** Specifically audit the `error_handling` and `default_state` blocks in the irrigation control module to ensure no path allows `VALVE: OPEN` without a verified, stable "dry" signal.
+
+## 5. Go/No-Go Criteria
+The rollout is approved only if:
+*   100% of injected fault scenarios result in valves remaining closed.
+*   The system successfully logs and alerts on every simulated anomaly.
+*   The "Maximum Duration" hard limit triggers correctly under continuous "dry" signals.
+
+*Note: This protocol relies entirely on software logic validation; physical valve sticking or pipe bursts remain outside this scope.*
+*Ensure all simulation logs are archived for the city compliance review next month.*

@@ -1,0 +1,55 @@
+### Activation Definition: "First Successful Data Sync"
+
+For DevFlow, **Activation** is defined as: **A user completing a successful two-way data sync between their inventory system and the DevFlow network within 14 days of starting the integration.**
+
+**Why this criteria?**
+*   **API Key Generation** is a configuration step, not a value moment. A user can generate a key and still fail to connect due to firewall issues, schema mismatches, or authentication errors. Counting this as activation would inflate your success metrics while hiding the actual friction points.
+*   **First Successful Data Sync** confirms the core value proposition: the systems are talking. This is the moment the user achieves their goal.
+*   **14-Day Window:** Since you noted integrations can take weeks, a 7-day window (your current benchmark) artificially labels slow-but-successful integrations as failures. A 14-day window captures the realistic timeframe for developer workflows while still identifying abandoned attempts.
+
+---
+
+### Measurement Plan
+
+To move from guessing to optimizing, implement the following tracking and analysis framework immediately.
+
+#### 1. Event Tracking Schema
+You must instrument specific events to replace the binary "started/completed" view with a granular funnel. Implement these events in your analytics platform (e.g., Mixpanel, Amplitude, or GA4 via GTM):
+
+| Event Name | Trigger | Critical Properties |
+| :--- | :--- | :--- |
+| `integration_started` | User clicks "Start Integration" | `user_id`, `inventory_system_type`, `date` |
+| `auth_handshake_initiated` | User begins auth flow | `step_number` (1-6), `auth_method` |
+| `auth_handshake_completed` | Auth token received | `duration_seconds`, `error_code` (if any) |
+| `docs_viewed` | User visits specific doc pages | `page_url`, `time_on_page`, `search_query` |
+| `code_error_logged` | Client-side or API error returned | `error_type`, `step_number`, `stack_trace_snippet` |
+| `sync_test_triggered` | User runs a test sync | `payload_size`, `direction` (inbound/outbound) |
+| **`activation_achieved`** | **First successful 2-way sync** | **`time_to_activate`**, `inventory_system_type` |
+
+#### 2. The Activation Funnel Analysis
+Stop measuring only "Step 3 completion." Build a funnel report with these specific stages to isolate the drop-off:
+
+1.  **Started** (`integration_started`)
+2.  **Auth Attempt** (`auth_handshake_initiated`)
+3.  **Auth Success** (`auth_handshake_completed`) → *Hypothesis Check: Is this the bottleneck?*
+4.  **Documentation Engagement** (`docs_viewed` between steps 3-4) → *Hypothesis Check: Are they stuck reading?*
+5.  **Error Encounter** (`code_error_logged`) → *Hypothesis Check: Is it code complexity?*
+6.  **Test Sync** (`sync_test_triggered`)
+7.  **Activated** (`activation_achieved`)
+
+#### 3. Cohort & Time-to-Value Analysis
+Since your cycle is longer than a single session, you must analyze by **Cohort** (grouped by start date) rather than single sessions.
+
+*   **Metric:** *Percentage of users who reach `activation_achieved` within 14 days of `integration_started`.*
+*   **Segmentation:** Break this down by `inventory_system_type`. You may find that users connecting to System A activate at 40%, while System B users stall at 5%. This tells you exactly where to focus engineering resources.
+*   **Support Reconciliation:** Create a manual mapping of users who contacted support in October. Tag these users in your analytics tool. Calculate the activation rate for "Support Contacted" vs. "No Support Contacted." This quantifies how many of your 3,400 October starts eventually succeeded via human intervention.
+
+#### 4. Immediate Next Steps
+1.  **Instrumentation Sprint:** Prioritize the `code_error_logged` and `auth_handshake_completed` events. These directly validate or invalidate your hypothesis about the authentication barrier.
+2.  **Historical Baseline:** Run a one-time SQL query on October logs to estimate the current 14-day activation rate based on successful sync logs, even without perfect event tracking yet.
+3.  **Qualitative Loop:** For the next 20 users who drop off after Step 2, trigger an automated email asking specifically: "What was the specific error message or confusion that stopped you?"
+
+By defining activation as the *value moment* (sync) rather than the *config moment* (key), and measuring the time-to-value over a realistic 14-day window, you will provide the CTO with a clear picture of where the product is failing and where it is succeeding.
+
+*Note: Ensure your data retention policies accommodate the 14-day analysis window without aggregating data prematurely.*
+*Do not count partial syncs or one-way pings as activation; strictly enforce the "two-way" criteria to maintain data integrity.*

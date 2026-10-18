@@ -1,0 +1,30 @@
+### Pre-Launch Safety Checklist for Andes Health Supply
+
+**1. Static Data & Logic Verification (Immediate Manual Review)**
+*   **Unit Conversion Audit:** Manually trace every variable in the demand forecasting module from input to output. Verify that all weight units (mg, g, kg) and volume units (mL, L) are explicitly defined and consistent. Confirm that conversion factors (e.g., 1000 vs 0.001) are hard-coded correctly and not derived from user input.
+*   **Hard-Code Safety Thresholds:** Embed absolute maximum daily dosage limits and maximum order quantities per clinic directly into the code as immutable constants. These values must be based on WHO guidelines for the specific medications listed. The system must physically prevent any calculation from exceeding these hardcoded ceilings, regardless of the algorithm's output.
+*   **Zero/Negative Input Check:** Ensure the system rejects or flags any negative demand inputs or zero-stock assumptions that could invert calculation logic.
+
+**2. Automated "Golden Dataset" Regression Testing**
+*   **Create Extreme Test Cases:** Construct a local spreadsheet or JSON file containing 10–15 known scenarios, including:
+    *   Normal demand for a common drug.
+    *   Zero demand (to ensure no order is placed).
+    *   Maximum possible population density.
+    *   **Deliberate Error Injection:** Input data with swapped units (e.g., entering grams instead of milligrams) to verify the system either corrects it or halts with an error rather than calculating a toxic dose.
+*   **Run Local Comparison Script:** Write a simple script (Python/Node.js) that runs your forecasting module against this golden dataset. The script must assert that every output matches the pre-calculated safe expected value within a 0% tolerance for safety-critical fields. If any value deviates, the build fails.
+
+**3. The "Human-in-the-Loop" Gate (Mandatory Process Control)**
+*   **Statistical Outlier Flagging:** Configure the bot to automatically flag any order quantity that deviates more than 20% from the clinic's 3-month average or exceeds the hardcoded safety threshold. These orders must be routed to a manual approval queue and **never** sent automatically.
+*   **Dual-Signoff Protocol:** For the first 30 days post-launch, require two authorized operations staff to digitally sign off on the generated order manifest before it is transmitted to suppliers. One person verifies the total volume; the second verifies specific high-risk medications.
+*   **Clinic Confirmation Loop:** Implement a mandatory SMS or email summary sent to the clinic manager listing the incoming order. Require a "CONFIRM" reply to finalize the dispatch. If no confirmation is received within 4 hours, the order pauses.
+
+**4. Deployment & Monitoring Safeguards**
+*   **Read-Only Dry Run:** Deploy the bot to your existing cloud infrastructure in "simulation mode" only. Let it run for 48 hours using live data feeds but disable the actual transmission API. Log all calculated orders and review them manually against historical trends.
+*   **Rate Limiting at the Gateway:** Configure your cloud API gateway or load balancer to reject any single request payload exceeding a specific byte size or numerical value, acting as a final network-level circuit breaker.
+*   **Rollback Plan:** Prepare a script to instantly revert to the previous manual ordering process (e.g., static spreadsheets) if any safety check fails. Keep this script ready and tested.
+
+**5. Final Go/No-Go Meeting**
+*   Convene the team of seven. Review the results of the Golden Dataset test and the 48-hour Dry Run logs. Do not proceed to full automation unless every single test case passed and the manual review of the dry run showed zero anomalies.
+
+*Note: Given the lack of advanced validation tools, the "Human-in-the-Loop" gate is your most critical defense and must not be bypassed.*
+*Prioritize correctness over speed; a delayed shipment is preferable to a toxic overdose.*

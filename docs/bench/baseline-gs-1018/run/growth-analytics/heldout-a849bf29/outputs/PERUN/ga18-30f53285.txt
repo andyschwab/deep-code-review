@@ -1,0 +1,26 @@
+### Immediate Action Plan: Q3 Revenue Correction & Data Integrity
+
+**1. Historical Data Cleaning (Q3 Correction)**
+Do not attempt to "guess" the currency for ambiguous records; this introduces new errors. Instead, execute a deterministic mapping based on existing high-confidence signals within your 2.5M events:
+*   **Correlate with User Profile:** Join booking events to the user's `billing_country` or `account_currency` stored in your user table. If a user from Germany has an entry marked only as "€" or "EUR", map it to EUR. If a US user has "$", map to USD.
+*   **Transaction Amount Heuristic:** For records lacking user context, analyze the `amount` field. If the value aligns with typical price points for that region (e.g., a $50 vs. €50 discrepancy is often visible in magnitude relative to average order value), flag these for manual review only if they represent >1% of total revenue. Otherwise, exclude ambiguous records from the "Confirmed Revenue" line item and report them separately as "Unverified Transactions" to the CFO. This preserves integrity over false precision.
+*   **Success/Failure Segmentation:** Filter the ambiguous set by `transaction_status`. If the status is "failed" or "pending," exclude them from revenue aggregation entirely. Only clean currency codes for "successful" transactions.
+*   **Deliverable:** Present the CFO with two figures: "Confirmed Q3 Revenue" (cleaned via profile join) and "Potential Revenue Impact" (the value of the remaining ambiguous successful transactions). This answers the requirement without fabricating data.
+
+**2. Future Validation Rule Implementation**
+*   **Standardize at Ingestion:** Update the event taxonomy to enforce a strict ISO 4217 standard (e.g., "USD", "EUR") at the frontend form submission layer. Reject any event payload containing symbols ("$", "€") before it enters the pipeline.
+*   **Schema Enforcement:** Implement a database constraint or stream processing rule that drops or quarantines events failing the currency format check, alerting engineering immediately rather than corrupting the dataset.
+
+**3. Metrics for Conversion Funnel Integrity**
+To prevent recurrence and monitor data health, track these specific metrics:
+*   **Data Quality Error Rate:** The percentage of events rejected by the new validation rule per hour. A spike indicates a frontend regression.
+*   **Currency Ambiguity Ratio:** (Count of events with non-ISO currency codes) / (Total Booking Events). Target: 0%.
+*   **Revenue Reconciliation Delta:** The daily difference between the sum of successful transactions in the analytics engine vs. the payment gateway's settled report. If this exceeds 0.5%, trigger an investigation.
+*   **Funnel Drop-off by Region:** Monitor activation and retention cohorts specifically segmented by `region`. If the "October 5th" update broke validation for a specific browser/region, you will see a sharp drop in successful bookings for that cohort while traffic remains stable.
+
+**This Week's Steps:**
+1.  Run the SQL join against `user_profile` to reclassify 90%+ of the ambiguous Q3 records by EOD tomorrow.
+2.  Isolate the remaining ambiguous "successful" transactions and calculate their total value for the CFO's "Unverified" line item.
+3.  Deploy the frontend validation patch to enforce ISO 4217 codes and verify the first 1,000 incoming events match the schema.
+
+*Note: Do not impute values for the remaining ambiguous records; reporting a range is more honest than a fabricated precise number. Ensure the "Unverified" bucket is clearly labeled in all financial presentations.*

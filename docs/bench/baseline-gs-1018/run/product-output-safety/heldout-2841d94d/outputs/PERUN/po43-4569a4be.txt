@@ -1,0 +1,35 @@
+### Validation Workflow Checklist: Parsing Vulnerabilities & Exclusion Risks
+
+**1. Harm Inventory & Worst-Case Definition**
+*   **Named Harm:** Bias/Unfair Outcome via Parsing Failure.
+*   **Affected Group:** Students in underserved districts submitting non-standard document formats (e.g., scanned PDFs, mobile photos, older word processor files).
+*   **Worst Realistic Case:** A qualified student is systematically excluded from funding because their essay structure failed to parse, resulting in a false negative match.
+
+**2. Runnable Test Cases (One Row Per Harm)**
+Execute the following probes against the legacy database parser. Each row includes a positive control (known bad input that should trigger a flag) and a negative control (known good input that should pass).
+
+| Probe Category | Input Description | Positive Control (Should Flag/Fail Gracefully) | Negative Control (Should Pass) | Metric & Threshold | Stop Condition |
+| :--- | :--- | :--- | :--- :--- | :--- |
+| **Layout Variation** | Essays with non-standard headers, columns, or sidebars. | Multi-column layout where text order is scrambled by parser, causing keyword mismatch. | Single-column standard layout with clear headers. | **False Negative Rate:** Must be 0% for known-qualified profiles. | **Block Launch** if any qualified student is scored < threshold due to layout. |
+| **File Format Degradation** | Scanned PDFs, low-res images, or legacy `.doc` formats common in under-resourced schools. | Blurry scan where OCR misses >10% of text, leading to incomplete profile. | High-res digital PDF or clean `.docx`. | **Data Completeness:** <5% field extraction failure on degraded inputs. | **Block Launch** if extraction failure causes eligibility status change. |
+| **Special Character/Encoding** | Essays containing non-ASCII characters, bullet points, or tables. | Table-based resume where parser skips cell content entirely. | Plain text with standard punctuation. | **Field Integrity:** 100% of critical fields (GPA, essay text) extracted. | **Block Launch** if critical data is silently dropped. |
+| **Length/Structure Extremes** | Very short essays or essays with unusual paragraph breaks. | One-paragraph essay where parser fails to identify "essay" section. | Standard 500-word multi-paragraph essay. | **Section Recognition:** 100% detection of essay body regardless of length. | **Block Launch** if valid essays are classified as "missing." |
+
+**3. Measurement & Reporting Protocol**
+*   **No Fabricated Metrics:** Do not claim "0% bias" or "99% accuracy" without running the above probes on a representative dataset of underserved district submissions. If untested, mark status as **UNVERIFIED**.
+*   **Transparency Artifact:** Create a **Model/Data Card** for the pilot. It must list:
+    *   **Intended Use:** Matching scholarships for high school seniors.
+    *   **Limitations:** Explicitly state which file formats or layouts are not supported.
+    *   **Known Gaps:** Document the legacy database constraints and how they impact parsing.
+    *   **Owner:** Name the specific team member responsible for parsing errors.
+
+**4. Risk Management Controls**
+*   **Human-in-the-Loop Gate:** Because denying funding is a high-stakes, irreversible action, **no student flagged as "ineligible" solely due to parsing errors or low confidence scores may be rejected automatically.** These cases must route to a human guidance counselor for manual review before final decision.
+*   **Uncertainty Disclosure:** If the system cannot confidently parse a document, it must output a defined tier (e.g., "Unverified – Manual Review Required") rather than a false precision score (e.g., "87% match").
+*   **Override Mechanism:** Ensure counselors can easily override the system's exclusion and manually input data if parsing fails.
+
+**5. Governance**
+*   **Owner Assignment:** Assign a specific owner to re-review this workflow if the database format changes or if new document types are introduced.
+*   **Legal Routing:** Consult counsel regarding disclosure requirements for automated decision-making in financial aid, specifically for minors and underserved populations. Do not assert legal compliance internally; route the determination.
+
+**Note:** This checklist prevents the failure of shipping an output-facing feature with no harm inventory. The pilot cannot proceed without the human gate on exclusions.
