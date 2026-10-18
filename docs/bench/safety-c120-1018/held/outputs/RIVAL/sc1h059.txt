@@ -1,0 +1,38 @@
+# Pre-Launch Review Plan: Employment Verification Edge Cases
+
+**Objective:** Identify and validate scenarios where valid gig workers and freelancers are falsely marked ineligible due to irregular income patterns, ensuring zero false negatives before the rigid API contract goes live.
+
+### 1. Define High-Risk Edge Case Personas
+Construct synthetic profiles representing the most vulnerable valid workers whose data structures often trigger false rejections in rigid systems:
+*   **The Seasonal Spiker:** Valid annual income above the threshold, but concentrated in 3–4 months, causing monthly averaging algorithms to dip below eligibility floors.
+*   **The Multi-Platform Fragmenter:** Income split across five+ platforms with varying payout cycles (weekly, bi-weekly, instant), creating gaps in any single data stream.
+*   **The Expense-Heavy Contractor:** High gross income that triggers thresholds, but net income (after verified business expenses) falls below eligibility, testing if the system correctly distinguishes gross vs. net.
+*   **The Currency/Geo-Mismatch:** Valid foreign income or cross-state work where exchange rates or jurisdictional rules might misalign dates or amounts.
+*   **The "Gig-to-Gig" Transition:** A worker switching platforms mid-month, resulting in two partial payments that individually look like under-employment.
+
+### 2. Construct the "Golden Dataset"
+Create a controlled library of 50–100 synthetic test cases. Each case must include:
+*   **Input Payload:** Raw API-ready JSON mimicking real aggregator responses (e.g., Plaid, Stripe, direct bank feeds) with specific irregularities (e.g., negative adjustments, refunds, delayed settlements).
+*   **Ground Truth Label:** A human-verified "Eligible" status with a written justification citing the specific policy rule met.
+*   **Expected Boundary Behavior:** Explicit definition of how the system should handle missing months (e.g., "treat as $0" vs. "exclude from average").
+
+### 3. Execution Strategy: The "Shadow Run"
+Since manual overrides are impossible post-launch, run these tests in a shadow environment that mirrors production logic exactly:
+*   **Batch Injection:** Submit the Golden Dataset through the exact API endpoint used by the government agency.
+*   **Automated Diffing:** Compare the API's `decision` field against the Ground Truth Label. Any "Ineligible" result for a "Eligible" ground truth is a critical block.
+*   **Logic Tracing:** For every false negative, trace the decision tree to identify the specific heuristic failure (e.g., "System rejected because Month 3 was < $500," ignoring the annual total).
+
+### 4. Validation Criteria for Go/No-Go
+*   **Zero False Negatives:** The system must achieve 100% accuracy on the "Eligible" subset of the Golden Dataset.
+*   **Deterministic Consistency:** Re-running the same payload three times must yield identical results (ruling out race conditions in data aggregation).
+*   **Policy Alignment:** Every rejection must map to a written policy rule; if a rejection occurs due to a data formatting artifact rather than a policy violation, the parser logic must be fixed.
+
+### 5. Remediation Loop
+Because the API contract is rigid, fixes must happen in the *pre-processing* layer:
+*   If a valid worker fails due to income smoothing errors, implement a pre-calculation step to normalize irregular payouts before sending the request.
+*   If multi-platform data causes gaps, build a fusion logic layer to merge fragmented streams into a single coherent view before API submission.
+
+**Deliverable:** A signed report listing all tested edge cases, the count of false negatives found (target: 0), and the specific pre-processing logic updates deployed to resolve any identified gaps.
+
+*Note: This plan assumes access to a sandbox version of the government API that mimics production decision logic without affecting real applicants.*
+*Ensure all synthetic data is strictly isolated from production databases to prevent contamination.*

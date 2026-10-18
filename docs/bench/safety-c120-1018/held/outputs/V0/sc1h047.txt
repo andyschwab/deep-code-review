@@ -1,0 +1,47 @@
+### Safety Validation Protocol: Fall Detection False Negative Mitigation
+
+**1. Harm Inventory & Scope**
+*   **Primary Harm:** False Negative (Failure to Alert). A serious fall occurs, but the device classifies it as normal activity, leaving the user unattended.
+*   **Affected Population:** Elderly users with varying mobility levels, potentially wearing the device loosely or in cold weather clothing.
+*   **Worst Case:** User suffers a hip fracture or head trauma in isolation; delayed medical response leads to permanent disability or death.
+
+**2. Test Regimen Design (The "Red Team" for Physics)**
+Do not rely solely on standard unit tests. You must construct a physical and simulated adversarial suite specifically targeting **missed detections**.
+
+*   **A. Adversarial Fall Scenarios (Positive Controls)**
+    Simulate falls that historically confuse accelerometers. Each scenario must be tested across three device positions (tight wrist, loose wrist, under sleeve) and two temperatures (room temp, freezing).
+    *   *The "Soft Surface" Fall:* Falling onto a bed, sofa, or thick carpet (dampened impact).
+    *   *The "Slow Slide":* Sliding off a chair or bed rather than a sudden drop.
+    *   *The "Braced" Fall:* User attempts to break the fall with hands, altering wrist acceleration vectors.
+    *   *The "Post-Fall" Stillness:* Ensure the algorithm doesn't require movement *after* the impact to trigger if the impact itself was borderline.
+
+*   **B. Activity Interference (Negative Controls)**
+    Verify these do *not* trigger alerts, but specifically monitor if the filtering logic inadvertently suppresses a real fall signal immediately following these actions.
+    *   Clapping hands vigorously, hammering a nail, slamming a door.
+    *   Rapid arm swinging while walking or running.
+    *   Dropping the watch intentionally onto a table (distinguish device drop vs. user fall).
+
+*   **C. Environmental & Physiological Stressors**
+    *   *Cold Soak:* Test battery voltage sag and sensor drift at 0°C (32°F) and -10°C (14°F). Low voltage can cause sensor sampling skips, creating data gaps that look like "no fall."
+    *   *Clothing Interference:* Test with thick winter gloves and heavy coat sleeves restricting wrist snap.
+
+**3. Metrics & Stop Conditions**
+*   **Metric:** False Negative Rate (FNR) per specific fall subtype.
+*   **Threshold:** For a high-stakes safety feature, the threshold for "Soft Surface" and "Slow Slide" categories must be near-zero tolerance.
+*   **Stop Condition:** **LAUNCH BLOCK.** If *any* verified serious fall scenario (defined by medical consultant criteria) results in a missed alert during the final validation run, the firmware update must not ship. Do not average this with "easy" falls; a 99% overall accuracy is unacceptable if the 1% failure mode is "falling onto a carpet."
+
+**4. Human-in-the-Loop Gate**
+Because this is an irreversible, high-stakes automated action (alerting emergency services or failing to do so):
+*   **Manual Review of Edge Cases:** Any test run where the confidence score is borderline (neither clear fall nor clear activity) must be reviewed by a human safety engineer before the model weights are finalized.
+*   **Uncertainty Signaling:** If the on-device algorithm detects an ambiguous event it cannot classify due to low battery or sensor noise, the system should default to a "Check-In" vibration prompting the user to respond, rather than silently assuming "no fall."
+
+**5. Transparency Artifact (Model Card)**
+Before shipping, produce a one-page "Safety Limitations" document for internal support and regulatory files. It must explicitly list:
+*   Known scenarios where detection is less reliable (e.g., "Falls onto very soft surfaces may have reduced sensitivity").
+*   The specific temperature range where validation was completed.
+*   **Status:** Mark any untested scenario as `UNVERIFIED`. Do not claim "100% detection" in marketing or documentation.
+
+***
+
+**Note:** This protocol addresses product output safety; legal obligations regarding medical device classification and emergency service integration must be routed to counsel immediately.
+**Note:** Given the battery constraints, ensure the "Check-In" fallback does not drain the battery faster than the device's minimum operational life.

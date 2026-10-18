@@ -1,0 +1,32 @@
+### Safety Review Strategy: Automated Flood Adjuster
+
+**1. Harm Inventory & Edge Case Identification**
+Before testing, explicitly map the primary harm: **False Denial of Legitimate Claims**. Given the legacy database constraints, focus manual red-teaming on these high-risk edge cases where verified damage is often misclassified:
+*   **Ambiguous Evidence:** Claims with photos showing water lines just below the strict pixel-threshold or metadata gaps due to older camera models.
+*   **Complex Causality:** Damage where floodwater mixed with pre-existing leaks or roof failures, which the model might attribute solely to non-covered causes.
+*   **Demographic Bias:** Properties in lower-income districts where documentation quality (e.g., scanned PDFs vs. digital uploads) is systematically lower, potentially triggering automatic rejection.
+*   **Temporal Gaps:** Claims filed immediately post-disaster when verification data in the legacy system is lagging or incomplete.
+
+**2. Validation Method: Stratified Sampling & Human-in-the-Loop Gate**
+Due to the inability to run exhaustive tests on the slow legacy database, do not attempt full regression. Instead, execute a **Stratified Adversarial Audit**:
+
+*   **Data Selection:** Extract a small, targeted dataset (e.g., 200 records) from historical claims. Do not sample randomly. Specifically select:
+    *   *Positive Controls:* 50 claims historically paid out after manual review that initially looked borderline.
+    *   *Negative Controls:* 50 clear, undisputed denials.
+    *   *Edge Cases:* 100 claims where human adjusters previously overturned an initial automated or junior assessment.
+*   **The "Shadow Mode" Test:** Run the new automated logic against this sample in a read-only environment. Compare its denial decisions against the final historical human outcome.
+*   **Metric & Threshold:** Calculate the **False Denial Rate** specifically on the "Positive Control" and "Edge Case" slices.
+    *   *Stop Condition:* If the system denies *any* claim that was historically validated and paid out (False Negative), **block the launch**. For high-stakes financial denials, zero tolerance for known false negatives is the required floor.
+*   **Human-in-the-Loop (HITL) Implementation:**
+    *   **Mandatory Gate:** Any claim the system flags for denial must route to a human adjuster for final confirmation before the user is notified. Fully autonomous denial is unsafe given the unverified edge cases.
+    *   **Uncertainty Display:** If the system's confidence is low (e.g., missing data fields), it must default to "Refer to Human" rather than "Deny."
+
+**3. Transparency & Governance Artifacts**
+*   **Model Card:** Draft a one-page document stating the system's intended use (triage only), limitations (legacy data latency, specific exclusion criteria), and the results of the stratified audit. Explicitly mark any untested demographics or damage types as `UNVERIFIED`.
+*   **Owner Assignment:** Name a specific product owner responsible for reviewing every denied claim during the first month of launch.
+
+**4. Legal & Compliance Routing**
+*   **Regulatory Duty:** Whether an automated denial of an insurance claim triggers specific regulatory disclosures under Thai insurance law or requires an explicit "AI Decision" notice is a legal determination. Route this immediately to counsel; do not assume compliance based on internal testing.
+*   **Recourse Mechanism:** Ensure the denial notification includes a clear, one-click path for the customer to request an immediate human review.
+
+**Note:** Do not fabricate a "safety score" or "accuracy percentage" based on limited testing; report the specific false denial count found in the shadow audit. The launch decision rests on the owner's acceptance of the residual risk identified in the edge cases.

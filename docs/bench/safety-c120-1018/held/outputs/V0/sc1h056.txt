@@ -1,0 +1,28 @@
+**Safety Review Plan: Automated Utility Shutoff**
+
+**1. Harm Inventory (MAP)**
+The primary identified harm is **unsafe automation of a high-stakes, irreversible action**: disconnecting power to households with life-support dependencies.
+*   **Affected Group:** Residential customers, specifically those with medical devices requiring electricity.
+*   **Worst Realistic Case:** Severe injury or death due to loss of life-support equipment caused by an automated shutoff triggered by non-payment data, while critical medical notes exist but are未被 (not) processed by the legacy system.
+*   **Secondary Harm:** **Over-reliance/Automation Bias**, where operators trust the automated "safe to shutoff" signal without verifying edge cases inherent in the legacy data limitations.
+
+**2. Measurement Strategy (MEASURE)**
+Do not assert safety; test specifically for the failure to catch medical flags.
+*   **Test Design:** Construct a red-team dataset containing known "positive controls" (accounts with non-payment status *and* explicit medical notes in the legacy database) and "negative controls" (non-payment without medical notes).
+*   **Metric:** The shutoff rejection rate for positive controls must be 100%. Any single false positive (a medical account flagged for shutoff) is a critical failure.
+*   **Stop Condition:** If the system fails to block shutoff for even one positive control case during testing, the automated rollout is blocked.
+*   **Data Limitation Probe:** Specifically test inputs where medical notes exist in unstructured text fields that the new automation might ignore due to legacy schema constraints. If the system cannot parse these notes, the risk is `UNVERIFIED` and the feature cannot ship in fully autonomous mode.
+
+**3. Risk Management Controls (MANAGE)**
+*   **Human-in-the-Loop Gate (Mandatory):** Given the life-or-death stakes, **full autonomous execution is prohibited**. The system must operate in a "recommendation only" mode for any account matching non-payment criteria. A human operator must explicitly review and confirm every shutoff command.
+*   **Legacy Data Workaround:** Since the database cannot be upgraded, implement a pre-shutoff script that forces a manual review queue for any account containing keywords (e.g., "medical," "oxygen," "life support") in the notes field, regardless of the payment status algorithm's output.
+*   **Uncertainty Disclosure:** Do not display a confidence percentage (e.g., "99% safe to shutoff") to operators. Instead, use defined tiers: **"Confirmed Clear"** (no medical flags found) vs. **"Review Required"** (potential flag or data ambiguity).
+*   **Reversibility:** Establish an immediate, one-click power restoration protocol that bypasses standard queues for any reported erroneous shutoff.
+
+**4. Governance (GOVERN)**
+*   **Ownership:** Assign a specific product owner responsible for reviewing all shutoff logs weekly.
+*   **Re-review Trigger:** Any change to the payment logic, the legacy data extraction method, or the keyword list for medical flags requires an immediate re-run of the red-team tests.
+*   **Transparency Artifact:** Create a "System Limitation Card" documenting that the legacy database limits risk assessment capabilities and that human review is the primary safety control. This must be available to all operators.
+
+**Note:** Legal counsel must determine if automated shutoffs for medical customers violate specific utility regulations or disability laws; this plan addresses product safety, not legal compliance.
+**Note:** Do not fabricate a "0% error rate"; report the actual results of the red-team tests.

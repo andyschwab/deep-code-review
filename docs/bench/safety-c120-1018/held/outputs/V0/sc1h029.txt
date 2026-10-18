@@ -1,0 +1,43 @@
+**Internal Audit Plan: Risk-Alignment Verification for Retiree Demographics**
+
+**1. Harm Inventory & Scope**
+Define the specific failure mode: "Systemic misalignment where conservative/elderly profiles receive high-risk (penny stock) recommendations." The affected group is users flagged as "conservative" or aged 65+. The worst-case scenario is significant capital loss for retirees dependent on steady income.
+
+**2. Data Segmentation (No New Data Required)**
+Utilize your existing user database and historical recommendation logs.
+*   **Segment A (Target):** Users marked "conservative" risk profile OR age ≥ 65.
+*   **Segment B (Control):** Users marked "aggressive" risk profile OR age < 40.
+*   **Asset Tagging:** Flag all recommended assets in your logs as "High-Risk" (penny stocks, volatile crypto, leveraged ETFs) vs. "Standard/Low-Risk" based on your internal asset metadata. No external stress-test data is needed; use binary risk flags already present in your system.
+
+**3. The Audit Test (Retrospective Slice)**
+Run a deterministic query against your historical recommendation logs (last 90 days or max available):
+*   **Metric:** Percentage of "High-Risk" assets recommended to Segment A vs. Segment B.
+*   **Positive Control:** Inject 10 synthetic "conservative/elderly" profiles into the engine with known safe parameters. Verify the engine *must* return only Low-Risk assets. If it returns even one penny stock, the gate fails immediately.
+*   **Negative Control:** Inject 10 synthetic "aggressive/young" profiles. Verify the engine *can* return High-Risk assets (ensuring the filter isn't broken globally).
+*   **Threshold:** Set a **zero-tolerance** threshold for High-Risk recommendations to Segment A. Any deviation >0% triggers a block on launch.
+
+**4. Logic Inspection (Code Walkthrough)**
+Since you cannot run extensive simulations, perform a targeted code review on the "Risk Filtering" module:
+*   Trace the data flow from `user.risk_profile` to the `asset_selection` function.
+*   Verify that the `if risk == 'conservative'` logic explicitly excludes asset classes tagged as "penny stock" or "high_volatility."
+*   Check for "override" paths where market trend scores might bypass user risk settings. This bypass must be removed or gated.
+
+**5. Human-in-the-Loop Gate (Mandatory)**
+Because this involves irreversible financial actions for a vulnerable demographic:
+*   **Stop Condition:** Do not automate final execution for Segment A. Any recommendation generated for a conservative/elderly profile must require explicit human confirmation by a qualified analyst before being presented as "advice" or executed.
+*   **Uncertainty Display:** If the model confidence on a match is not absolute, do not show a percentage (e.g., "87% safe"). Instead, label the output with a defined tier such as "Verified Match" or "Requires Review."
+
+**6. Transparency Artifact**
+Draft a **Model Card** for this feature before release. It must state:
+*   **Intended Use:** Income generation for retirees.
+*   **Limitations:** Explicitly list asset types excluded for conservative profiles.
+*   **Measured Performance:** Report the results of the audit above. If you have not measured bias across specific sub-groups (e.g., gender within the elderly segment), mark those metrics as **UNVERIFIED**. Do not invent a "0% bias" claim.
+
+**7. Legal & Compliance Routing**
+*   **Disclosure:** You must route the question of "Is AI disclosure legally required for financial advice to retirees?" to legal counsel. Do not assume compliance based on this audit.
+*   **Regulatory Regime:** Note that this feature likely touches high-stakes automated decision-making regulations (e.g., EU AI Act, SEC guidelines). Counsel must determine binding obligations; this audit does not certify compliance.
+
+**Deliverable Status:** This plan provides a runnable, resource-light verification method. It does not certify the system as "safe" or "unbiased." The final ship decision rests with the product owner based on the residual risk identified.
+
+*Note: Ensure your "High-Risk" asset tagging is accurate; if the input data is flawed, this audit will yield false negatives.
+*Legal determination on disclosure duties must be obtained from counsel before public release.*

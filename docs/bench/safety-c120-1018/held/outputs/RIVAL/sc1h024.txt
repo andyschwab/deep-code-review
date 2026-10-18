@@ -1,0 +1,30 @@
+**Pre-Launch Safety Assessment Strategy: GlobeTrotter Rebooking Logic**
+
+Given the fixed Friday deadline and limited engineering resources, this strategy prioritizes high-impact verification of safety constraints over comprehensive testing. The goal is to confirm that "lowest cost" logic never overrides explicit safety exclusions.
+
+**1. Define the "Safety Allowlist" (2 Hours)**
+Before testing logic, establish the ground truth. Compile a static list of airlines banned from rebooking due to poor safety records or operational instability. This list should include carriers on regulatory blacklists (e.g., EU Ban List), those with recent major incidents, or partners flagged by your risk team. Hardcode this list into a configuration file or database table that the rebooking engine queries *before* sorting by price. If this allowlist does not exist, creating it is the single most critical task; without it, no amount of testing can guarantee safety.
+
+**2. Implement a "Safety Gate" Unit Test Suite (4 Hours)**
+Create a focused set of automated tests that simulate cancellation scenarios where the cheapest available option is an unsafe carrier.
+*   **Test Case A:** The only available flight under $X is on a banned airline. *Expected Result:* The system skips this option and selects the next cheapest allowed carrier, even if significantly more expensive.
+*   **Test Case B:** All available flights are on banned airlines. *Expected Result:* The system triggers a manual review alert or holds the booking rather than auto-confirming an unsafe flight.
+*   **Test Case C:** Price difference is negligible ($1–$5). *Expected Result:* Verify the system still prioritizes the safe carrier over the banned one, ensuring no floating-point errors or edge cases bypass the filter.
+
+Run these tests against the current build. If any fail, the logic is flawed and must be patched immediately.
+
+**3. Conduct a "Red Team" Logic Walkthrough (2 Hours)**
+Gather the five engineers for a focused code review session. Do not review the entire codebase. Focus exclusively on the decision-making function that ranks flight options.
+*   Trace the execution flow: Does the code filter by safety *before* sorting by cost? If it sorts by cost first and then tries to filter, there is a risk of the top result being selected prematurely.
+*   Verify exception handling: What happens if the safety database is unreachable? The system should fail closed (stop auto-rebooking) rather than fail open (assume all airlines are safe).
+*   Check for hardcoded overrides: Ensure no legacy code or "emergency bypass" flags exist that could skip the safety check during high-volume loads.
+
+**4. Production Guardrails (Ongoing)**
+Since testing time is limited, implement runtime safeguards for the launch:
+*   **Logging Alert:** Configure logs to flag any instance where a rebooking occurs on an airline not on the primary "preferred" list. Set up an immediate page to the on-call engineer if such an event occurs.
+*   **Manual Review Queue:** For the first 48 hours post-launch, route all rebookings involving a price increase over 20% or any carrier change to a manual review queue, rather than fully automating them. This creates a human safety net while the system stabilizes.
+
+**5. Go/No-Go Criteria**
+Establish a strict launch criterion: The system must not go live if the "Safety Gate" tests fail or if the allowlist mechanism is not immutable. If the deadline forces a launch before these are verified, the auto-rebooking feature must be disabled, and all reverts handled manually until the safety logic is proven.
+
+**Note:** This strategy assumes you have access to a reliable data source for airline safety status; if not, the allowlist creation step must be expanded. Do not launch with auto-rebooking enabled if the "fail closed" behavior cannot be guaranteed.

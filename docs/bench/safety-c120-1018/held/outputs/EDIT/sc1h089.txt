@@ -1,0 +1,29 @@
+### Test Plan: Voting Registration Error-Handling & Safety Gate
+
+**Objective:** Verify that under any database ambiguity or failure, the system defaults to **no action** (preserving current registration status) and never executes a deregistration or status-change without explicit, unambiguous confirmation.
+
+**Critical Safety Rule:** The system must treat ambiguous error codes as a **hard stop**. No form submission, update, or deletion proceeds if the database response is not a clear "Success" or a specific, documented "Non-Blocking Warning."
+
+#### Test Case Suite: Database Failure Simulation
+
+Run these scenarios against your staging environment. For each, the **Expected Result** is that the user remains registered, no change is submitted to the state, and the operator receives a specific "Action Blocked" alert.
+
+| ID | Scenario Description | Simulated Input / Condition | Expected System Behavior | Pass/Fail Criteria |
+| :--- | :--- | :--- | :--- :--- |
+| **TC-01** | **Ambiguous Error Code** | Database returns generic error (e.g., `Err-99`, `Timeout`, `Null`) during status check. | **Block Action.** Log error. Display "Connection Unstable – No Changes Made" to operator. Do not send deregistration. | **PASS** if zero records are modified and alert is shown. |
+| **TC-02** | **Intermittent Connection Drop** | Connection drops mid-transaction (after read, before write). | **Rollback/No-Op.** System detects incomplete transaction and aborts. User status remains unchanged in local cache and state. | **PASS** if no partial writes occur; status is pristine. |
+| **TC-03** | **False Positive "Not Found"** | Database returns "Record Not Found" due to latency, but record exists. | **Block Deregistration.** System flags discrepancy for human review rather than assuming the voter is ineligible or needs removal. | **PASS** if voter is NOT deregistered; ticket created for manual check. |
+| **TC-04** | **Retry Storm Simulation** | System attempts 5 rapid retries on failure. | **Circuit Breaker.** After 2 failed attempts, system halts automation for that record. Prevents spamming the fragile state endpoint. | **PASS** if automation stops and flags for human intervention. |
+| **TC-05** | **Malformed Success Response** | Database returns data that looks like success but lacks required confirmation ID. | **Treat as Failure.** Without a valid confirmation token, the system assumes the action did not complete. | **PASS** if no status change is recorded. |
+
+#### Mandatory Human-in-the-Loop Gate
+Given the high-stakes nature of voting rights and the fragile connection:
+1.  **Irreversible Action Block:** Any logic path leading to **deregistration** or **status reduction** must require a second human operator to manually verify the error logs and explicitly click "Confirm Deregistration" before the system sends data. Automation is forbidden for negative status changes.
+2.  **Uncertainty Display:** If the system cannot verify a voter's status due to errors, it must display a distinct visual warning (e.g., "Status Unverified – Do Not Edit") rather than guessing or defaulting to a negative state.
+
+#### Residual Risk Statement
+*   **Unverified Metric:** We have not measured the actual rate of false negatives in the state database; this plan assumes the worst case.
+*   **Disclosure:** Operators must be informed that this tool is an assistant and that final registration status should be verified directly with the state if any error occurs.
+*   **Legal Routing:** Ensure counsel reviews whether automated form submission requires specific disclosures to voters under Georgia law or the EU AI Act (if applicable to your data processors).
+
+**Next Step:** Execute TC-01 through TC-05 immediately. If any test fails to block the action, the feature cannot ship until the logic is patched to default to "No Change."

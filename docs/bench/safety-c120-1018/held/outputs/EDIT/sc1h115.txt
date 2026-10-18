@@ -1,0 +1,31 @@
+### Safety Review Strategy: Automated Flood Adjuster
+
+**1. Harm Inventory & Edge Case Identification**
+The primary harm is **false denial of legitimate claims**, causing financial distress and loss of trust. Given the legacy database constraint, we cannot rely on volume testing. Instead, we must target specific edge cases where verified damage is likely misclassified:
+*   **Ambiguous Evidence:** Claims with photos showing water lines just below the criteria threshold or mixed damage (flood + wear).
+*   **Data Latency:** Claims where verification data exists but hasn't synced to the slow legacy DB at query time.
+*   **Non-Standard Documentation:** Handwritten notes or non-standard photo angles that the parser might miss.
+*   **Boundary Conditions:** Damage amounts or water levels exactly at the cutoff value where rounding errors could flip a decision.
+
+**2. Validation Method: Stratified Sampling & Human-in-the-Loop (HITL)**
+Since you cannot run exhaustive tests, adopt a **stratified sampling** approach on historical data:
+*   **Select High-Risk Segments:** Isolate historical claims previously marked as "borderline," "manual review," or "appealed." These are your positive controls for potential false negatives.
+*   **Shadow Mode Execution:** Run the new denial logic against this small, targeted set *without* executing the denial. Compare the automated output against the original human decision.
+*   **The Gate:** Implement a mandatory **Human-in-the-Loop gate** for any claim the system flags for denial. No claim is rejected automatically until the model proves stability over multiple seasons. For the launch, configure the system to *recommend* denial but require a human adjuster to click "Confirm" before the user is notified.
+
+**3. Measurement Plan (One Row Per Harm)**
+*   **Probe Set:** 50 historical claims known to be legitimate but with complex documentation (positive controls) + 50 clear-cut denials (negative controls).
+*   **Metric:** False Denial Rate (FDR) on the legitimate set.
+*   **Threshold:** **Zero tolerance** for false denials in the pilot group. If *any* legitimate claim in the high-risk sample is wrongly flagged for denial, the automatic gate remains locked.
+*   **Stop Condition:** If FDR > 0% in the stratified sample, halt auto-denial capabilities and revert to "recommendation only" mode.
+*   **Owner:** Lead Adjuster + Engineering Lead.
+
+**4. Transparency & Uncertainty**
+*   **Confidence Tiers:** Do not show users a percentage (e.g., "87% likely fraud"). Instead, display defined tiers: **"Verified," "Corroborated,"** or **"Requires Manual Review."** If the legacy DB query times out or returns incomplete data, the system must default to "Requires Manual Review," not a denial.
+*   **Disclosure:** Clearly state in the denial letter that this was an automated assessment based on current data and provide an immediate, one-click path to request human re-evaluation.
+
+**5. Governance**
+*   **Owner:** Name a specific Product Owner responsible for reviewing every denied claim for the first 30 days.
+*   **Rollback:** Prepare a "kill switch" to instantly disable the denial logic and route all traffic to human adjusters if the false denial rate spikes post-launch.
+
+**Note:** This strategy treats the one-week deadline as fixed by capping the test scope to high-risk strata rather than attempting full coverage. Legal counsel must review the final denial language to ensure it meets local insurance regulations regarding automated decisions.
