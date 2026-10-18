@@ -26,8 +26,8 @@ earlier confirm.py hash, SHA256-frozen.txt the final one):
   replacements. Scenario text from the aborted passes was discarded, never used, never judged.
 - The overlap rule is applied to the share rounded to two decimals (`round(overlap, 2) <= 0.10` in confirm.py, inherited from
   confirm-v2-1017), so a scenario up to 0.104 shared 6-word shingles passes, not strictly at most 10% as PREREGISTERED.md says.
-  Recomputed against the corpus without this bench, three scored held-out scenarios sit above 0.100 (positioning w070 0.101,
-  positioning w127 0.104, product-discovery w127 0.104) and two unscored tune scenarios do (0.116, 0.117).
+  Recomputed with confirm.py's own corpus and overlap functions, four scored held-out scenarios sit above 0.100 (agentic-ceo
+  w062 0.103, positioning w070 0.101, positioning w127 0.104, product-discovery w127 0.104).
 - Rival text is fetched at run time and recorded by hash only (the positioning rival is CC BY-NC-SA, not vendored).
 Limits: one generator family wrote the scenarios and all answers; one judge scored all three skills; scenarios are fictional. PASS means
 "beats this rival on this synthetic distribution under this judge", not a claim about real users. There is no machine timestamp
