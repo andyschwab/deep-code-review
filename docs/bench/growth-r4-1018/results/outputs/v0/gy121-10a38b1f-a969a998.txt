@@ -1,0 +1,34 @@
+**Event Taxonomy for HealthGuard Audit: Data Minimization & Security Justification**
+
+To satisfy the November 15 audit and enforce data minimization, we will reduce logging from 400+ events to a focused taxonomy of **12 critical events**. This list proves that we capture only what is necessary for security and compliance, excluding vanity or non-diagnostic UI noise.
+
+**Tier 1: Mandatory Compliance Events (Direct Data Access)**
+*These events are non-negotiable for HIPAA audit trails. They answer: "Who accessed what patient data and when?"*
+1.  `record_viewed`: User opened a specific patient record. (Properties: `user_id`, `patient_id`, `timestamp`, `access_reason_code`).
+2.  `record_exported`: User downloaded or printed patient data. (Properties: `user_id`, `patient_id`, `format`, `destination`).
+3.  `record_modified`: User altered clinical or demographic data. (Properties: `user_id`, `patient_id`, `field_changed`, `old_value_hash`, `new_value_hash`).
+4.  `consent_updated`: User modified patient consent status. (Properties: `user_id`, `patient_id`, `consent_type`, `status`).
+
+**Tier 2: Security & Anomaly Detection Events**
+*These events replace broad UI tracking. They answer: "Is someone probing the system or acting unusually?"*
+5.  `search_executed`: User ran a query against the patient database. (Properties: `user_id`, `query_filters`, `result_count`). *Justification: Detects bulk scraping attempts better than tracking individual hovers.*
+6.  `login_failed`: Authentication attempt failed. (Properties: `user_id`, `ip_address`, `failure_reason`).
+7.  `privilege_escalation_attempt`: User tried to access a role-restricted feature. (Properties: `user_id`, `target_feature`, `current_role`).
+8.  `session_anomaly`: System detected impossible travel or concurrent session usage. (Properties: `user_id`, `location_a`, `location_b`, `time_delta`).
+
+**Tier 3: Operational Guardrails (Aggregated Only)**
+*These are logged as aggregated counts per hour, not per user, to monitor system health without storing PII.*
+9.  `feature_usage_count`: Count of clicks on non-sensitive UI elements (e.g., "Help", "Settings").
+10. `error_rate`: Count of client-side crashes or API timeouts.
+
+**Excluded Events & Justification for Auditors**
+The following 390+ events (e.g., `menu_hover`, `tooltip_view`, `button_mousedown`, `scroll_depth`) are **explicitly excluded** from persistent logs:
+*   **Reason 1 (No Diagnostic Value):** Hover states and menu expansions do not alter data state nor indicate a security breach. A malicious actor does not need to hover to steal data; they execute `record_exported`. Tracking hovers creates noise that obscures real threats.
+*   **Reason 2 (Data Minimization Principle):** Under HIPAA and Ohio law, we must limit collection to the "minimum necessary." Recording granular UI interactions creates a massive, unnecessary surface area of potential PII exposure without adding proportional security value.
+*   **Reason 3 (Anomaly Detection Strategy):** Security anomalies are better detected via **Tier 2** patterns (e.g., a single user exporting 50 records in 2 minutes) rather than UI micro-interactions. If an investigation requires deeper context, we will rely on short-term, ephemeral session replays (stored <24 hours) rather than permanent structured logs.
+
+**Implementation Directive**
+Engineering will disable logging for all events not listed above by **October 25**. The audit package will include this taxonomy alongside a sample log output showing zero instances of excluded events, proving active enforcement of data minimization.
+
+*Note: Ensure `user_id` in logs is pseudonymous; map to real identities only via a separate, access-controlled key management system as per privacy-compliance standards.*
+*This taxonomy addresses the audit requirement; it does not replace the need for standard infrastructure observability (logs/traces) for system uptime.*

@@ -1,0 +1,63 @@
+# Fraud Model Monitoring Dashboard Proposal
+
+## Executive Summary
+To validate the new fraud model without delaying deployment, we will implement a **Dual-Horizon Monitoring Strategy**. This approach separates immediate operational health (lag: minutes) from true model accuracy (lag: 30–45 days), allowing you to approve deployment based on leading indicators while ground truth matures.
+
+## 1. Immediate Feedback Loop (Operational Health)
+*Timeframe: Real-time to T+24 hours*
+*Purpose: Detect system breaks, data pipeline failures, or catastrophic false positive spikes.*
+
+**Key Data Points:**
+*   **Decision Latency (p95):** Time from transaction request to model decision. Alert if >200ms (protects user experience).
+*   **Manual Review Rate (MRR):** % of transactions flagged for human review.
+    *   *Baseline:* Establish current MRR.
+    *   *Alert Threshold:* Spike >10% above baseline indicates potential false positive surge.
+*   **Auto-Decline Rate:** % of transactions blocked automatically.
+    *   *Alert Threshold:* Sudden drop suggests model under-scoring; sudden spike suggests over-aggression.
+*   **Support Ticket Volume:** Tags related to "blocked transaction" or "false decline."
+    *   *Proxy:* This is your fastest signal for false positives, faster than formal manual review logs.
+
+## 2. Intermediate Proxy Metrics (Early Accuracy Signals)
+*Timeframe: T+2 days to T+7 days*
+*Purpose: Estimate false negatives before chargebacks arrive.*
+
+**Key Data Points:**
+*   **Early Dispute Rate:** % of transactions disputed by customers within 48 hours (distinct from formal chargebacks).
+*   **Friendly Fraud Signals:** Users who immediately request refunds or contact support claiming "unauthorized transaction" post-purchase.
+*   **Velocity Anomalies:** Sudden spikes in declined transactions from specific BINs or geos that were previously low-risk.
+
+## 3. Long-Term Truth Loop (Ground Truth)
+*Timeframe: T+30 days to T+45 days*
+*Purpose: Calculate definitive False Positive Rate (FPR) and False Negative Rate (FNR).*
+
+**Key Data Points:**
+*   **Confirmed Chargeback Rate:** Finalized chargebacks mapped back to the original model score.
+    *   *Calculation:* (Chargebacks on Approved Transactions) / (Total Approved Volume).
+*   **Manual Review Accuracy:** % of manual reviews that resulted in a block vs. release, correlated to eventual chargeback status.
+*   **Latency Distribution:** Average days between transaction and chargeback filing.
+    *   *Usage:* Use this distribution to apply a statistical "look-back factor" to recent data, estimating final FNR before the window closes.
+
+## Dashboard Structure for CRO Sign-off
+
+| Metric Category | Specific Metric | Target/Baseline | Alert Threshold | Data Latency |
+| :--- | :--- | :--- | :--- :--- |
+| **System Health** | Decision Latency (p95) | < 200ms | > 250ms | Real-time |
+| **False Positives** | Support "Blocked" Tickets | Baseline + 5% | Baseline + 15% | T+4 hours |
+| **False Positives** | Manual Review Rate | Current Baseline | +10% variance | T+1 hour |
+| **False Negatives** | Early Dispute Rate | < 0.05% | > 0.08% | T+48 hours |
+| **True Accuracy** | Chargeback Rate (Approved) | < Target FNR | N/A (Trend only) | T+45 days |
+| **True Accuracy** | Estimated FNR (Projected) | < Target FNR | > Target + 10% | T+7 days* |
+
+*\*Projected FNR uses the Latency Distribution curve to extrapolate final chargeback rates from early disputes.*
+
+## Implementation Recommendation
+Do not wait for the full 45-day window to deploy. Proceed with a **Canary Deployment (5% traffic)**:
+1.  Route 5% of traffic to the new model.
+2.  Monitor **Decision Latency** and **Support Ticket Volume** for 48 hours.
+3.  If operational metrics hold steady, expand to 25%, then 100% over one week.
+4.  Continue tracking the 45-day chargeback window in parallel to validate the long-term FNR assumption.
+
+This ensures you catch immediate fires while gathering the long-term data required for final validation.
+
+Note: Ensure all manual review decisions are timestamped and linked to the specific model version to enable clean retrospective analysis.
+The "Projected FNR" requires a one-time analysis of historical chargeback latency curves to build the extrapolation logic.

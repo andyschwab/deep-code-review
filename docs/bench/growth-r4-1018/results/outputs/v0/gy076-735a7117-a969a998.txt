@@ -1,0 +1,48 @@
+**Proposal: Immutable Core Audit Trail with Volatility-Adaptive Telemetry**
+
+**Audience:** CTO, Compliance Officer
+**Objective:** Guarantee 100% fidelity for regulatory reconstruction (Dec 1 review) while preventing infrastructure collapse during high-volatility events.
+
+**Architecture Principle:** Decouple the **Immutable Audit Log** (compliance) from **Operational Telemetry** (system health/performance). The current proposal to reduce log granularity during volatility violates the requirement for a complete audit trail. Instead, we will maintain full fidelity for critical actions and degrade only non-essential diagnostic data.
+
+**1. The Immutable Audit Event List (Priority: Critical)**
+These events must be captured with 100% reliability, regardless of system load. They form the legal record for the December 1 review. No sampling, no aggregation, and no dropped events are permitted for this stream.
+
+*   **Event: `trade_execution_confirmed`**
+    *   *Purpose:* Legal proof of trade completion.
+    *   *Attributes:* `user_id` (pseudonymous), `order_id` (UUID), `asset_pair`, `side` (buy/sell), `execution_price`, `quantity`, `fee_amount`, `timestamp_utc` (nanosecond precision), `exchange_reference_id`.
+*   **Event: `order_placement_received`**
+    *   *Purpose:* Proof of user intent and latency analysis.
+    *   *Attributes:* `user_id`, `order_id`, `asset_pair`, `side`, `limit_price` (if applicable), `stop_price` (if applicable), `requested_quantity`, `timestamp_utc`.
+*   **Event: `order_modification`**
+    *   *Purpose:* Audit trail for changes to open orders.
+    *   *Attributes:* `user_id`, `order_id`, `previous_state_snapshot` (JSON), `new_state_snapshot` (JSON), `modification_reason`, `timestamp_utc`.
+*   **Event: `order_cancellation`**
+    *   *Purpose:* Proof of order termination (user or system initiated).
+    *   *Attributes:* `user_id`, `order_id`, `cancellation_source` (user/system/risk_engine), `filled_quantity_at_cancel`, `timestamp_utc`.
+*   **Event: `wallet_balance_snapshot_post_trade`**
+    *   *Purpose:* Reconstructible ledger state.
+    *   *Attributes:* `user_id`, `asset`, `balance_before`, `balance_after`, `linked_order_id`, `timestamp_utc`.
+
+**2. Volatility-Adaptive Telemetry (Priority: Operational)**
+This stream handles system diagnostics. During the 12% swing windows, this is where we reduce granularity to protect stability, not the audit trail.
+
+*   **Strategy:** Switch from per-event logging to **batched aggregation** for non-critical metrics when latency thresholds are breached.
+*   **Degraded Events:**
+    *   *Price Feed Updates:* Aggregate into 1-second candles rather than logging every tick.
+    *   *Bot Decision Loops:* Log only the final decision, suppressing intermediate calculation steps.
+    *   *Heartbeats:* Increase interval from 1s to 10s during peak load.
+
+**3. Data Integrity & Compliance Controls**
+*   **Write-Ahead Logging (WAL):** All Audit Events must be written to a Write-Ahead Log on local disk before acknowledgment to the user. This ensures no data loss even if the network or main database crashes during the 5% failure window.
+*   **Dual-Stream Pipeline:** Route Audit Events to a dedicated, high-priority queue (e.g., separate Kafka topic) with replication factor 3, isolated from the noisy Operational Telemetry stream.
+*   **Gap Detection:** Implement a sequence number per `user_id`. Any gap in the sequence triggers an immediate automated alert and a replay request from the exchange API to reconstruct the missing record before the daily close.
+
+**Reading Rules for Approval:**
+*   If `trade_execution_confirmed` count does not match the exchange's daily statement, the system is **non-compliant**.
+*   If Operational Telemetry drops >10% during volatility, the system is **stable enough** for audit purposes, provided the Audit Stream remains at 0% loss.
+
+**Next Step:** Implement the dual-stream pipeline and WAL mechanism in the next sprint; validate 0% loss on the Audit Stream using a replay of the October 5 volatility data before December 1.
+
+*Note: User IDs in logs must be pseudonymous; map to PII only via a secure, access-controlled service per privacy compliance standards.*
+*Do not estimate missing audit events; any gap is a compliance failure requiring immediate reconstruction.*

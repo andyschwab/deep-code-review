@@ -1,0 +1,38 @@
+# Experimental Design: Free Trial Extension (14 vs. 30 Days)
+
+**Objective:** Isolate the causal impact of extending the free trial from 14 to 30 days on conversion rates, controlling for the known seasonal decline (Jan–Feb) and traffic volatility.
+
+### 1. Design Structure: Stratified Randomized Controlled Trial
+Do not use a "before-and-after" comparison. The seasonal drop (−15%) is a confounder that will mask any lift from the trial extension. Instead, run a **parallel A/B test** where both groups experience the same seasonality simultaneously.
+
+*   **Population:** All new sign-ups starting February 1st.
+*   **Randomization Unit:** User ID (stable, pseudonymous identifier).
+*   **Assignment:** 50/50 split between Control (14 days) and Treatment (30 days).
+*   **Stratification:** If traffic sources vary significantly in quality (e.g., paid search vs. organic), stratify randomization by `acquisition_channel` to ensure equal distribution across arms. This prevents mix-shift bias if one channel dips more than another during the slump.
+
+### 2. Metrics Definition
+*   **Primary Metric:** **Conversion Rate** (Percentage of users who upgrade to paid within 45 days of sign-up).
+    *   *Reasoning:* A 30-day trial delays the decision window. Measuring conversion at day 14 biases the Control group artificially low because Treatment users haven't expired yet. The evaluation window must extend beyond the longest trial period (e.g., Day 45) to capture the full decision cycle for both groups.
+*   **Guardrail Metric:** **Cost Per Acquired Customer (CPAC)** and **Churn Rate at Day 60**.
+    *   *Reasoning:* Longer trials may increase conversion but delay revenue recognition or attract lower-intent users who churn later. Ensure the lift in conversion does not come at the cost of unsustainable unit economics or poor long-term retention.
+
+### 3. Statistical Rigor & Sample Size
+*   **Pre-commitment:** Define the sample size ($N$) and duration *before* launch. Do not peek at results daily.
+*   **Power Calculation:** To detect a lift against a volatile baseline:
+    *   Use the historical baseline conversion rate adjusted for the expected −15% seasonal dip as your $p_{control}$.
+    *   Set the Minimum Detectable Effect (MDE) based on business viability (e.g., "We need at least a 5% relative lift to justify the delayed revenue").
+    *   Calculate $N$ using standard power analysis (80% power, 95% confidence). Because variance is high in travel, $N$ will be larger than in stable seasons.
+*   **Analysis Method:** Use **CUPED** (Controlled-Experiment Using Pre-Experiment Data) if you have pre-signup covariates (e.g., device type, referral source) to reduce variance and increase sensitivity without increasing sample size.
+*   **Stopping Rule:** Run for the pre-committed duration (likely 4–6 weeks to cover the slump and capture Day 45 conversions). If continuous monitoring is required, use an **always-valid p-value** (sequential testing) method to avoid false positives from peeking.
+
+### 4. Execution Plan
+1.  **Instrumentation:** Ensure the `trial_start_date` and `trial_end_date` events are logged accurately. Verify the `upgrade_event` fires correctly for both trial lengths.
+2.  **Launch:** Activate the 50/50 split on February 1st.
+3.  **Readout:** Analyze data only after the pre-committed end date (e.g., mid-March) to allow the full 45-day conversion window to close for the last cohort.
+
+### This-Week Steps
+1.  **Compute Sample Size:** Calculate the required $N$ per arm using the seasonally adjusted baseline (historical rate × 0.85) and your target MDE; confirm if February traffic volume can support this $N$ within a 4-week window.
+2.  **Define Evaluation Window:** Update the analytics query to measure conversion at **Day 45**, not Day 14 or Day 30, to prevent censoring the Treatment group's results.
+
+*Note: If February traffic is insufficient to reach the required $N$ for your MDE, extend the test into March or accept a higher MDE (detecting only larger effects).*
+*Ensure user identifiers used for cohorting are pseudonymous; route any PII handling to privacy compliance protocols.*

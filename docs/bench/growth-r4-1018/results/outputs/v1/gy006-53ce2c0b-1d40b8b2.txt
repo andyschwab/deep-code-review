@@ -1,0 +1,21 @@
+**Decision: Do not roll out. The result is `UNVERIFIED` and the dataset is contaminated; discard the causal claim and treat the data only as a diagnostic for the outage bias.**
+
+The 4% uplift observed over four days cannot be trusted as a win. Stopping a fixed-horizon test (planned for 14 days) early due to an external shock invalidates the statistical design. More critically, your stated fact—that the outage disproportionately affected mobile users (50% of traffic)—introduces severe **selection bias**. If the variant performed differently on mobile versus desktop, and the outage removed a non-random chunk of mobile users from the sample, the remaining 8,000 users no longer represent your population. The "uplift" may simply reflect a shift in the device mix rather than the feature's true effect.
+
+**Immediate Checks to Quantify Bias (Run these before considering a restart):**
+1.  **Sample Ratio Mismatch (SRM) Check:** Compare the split ratio (Control vs. Variant) specifically within the *mobile* segment during the outage window versus the pre-outage window. If the ratio deviates significantly from 50/50 in the mobile subset during the crash, the randomization is broken for that cohort.
+2.  **Segmented Performance Analysis:** Isolate the 4-day data by device. Calculate the uplift for Desktop-only and Mobile-only separately.
+    *   *If Desktop shows ~0% change and Mobile shows huge variance:* The aggregate 4% is a composition artifact.
+    *   *If both show consistent directionality:* You have a weak signal, but still insufficient power.
+3.  **Guardrail Metric Correlation:** Check if the "booking completion" drop correlates exactly with the server error logs' timestamps. If the variant's "gain" disappears when filtering for high-latency periods, the result is noise.
+
+**Action Plan for the Head of Engineering:**
+*   **Stop:** Do not allocate resources to roll out this change based on current data. The risk of deploying a neutral or negative feature is high.
+*   **Salvage:** Use the segmented data *only* to hypothesize how mobile users interact with the feature. If mobile users dropped out entirely, you have zero insight into them.
+*   **Restart Design:** Re-run the test with a **pre-committed sequential design** (e.g., mSPRT) that allows for valid interim looks without inflating false positives, or strictly adhere to a new fixed duration that accounts for the holiday season traffic volatility.
+*   **Infrastructure Gate:** Before restarting, verify that the server capacity can handle the projected holiday load + the test overhead. If the outage affected 30% of traffic, the system is not stable enough for a rigorous growth experiment.
+
+**This Week's Step:**
+Run the **Segmented Performance Analysis** on the 8,000 users immediately. If the mobile subset shows an SRM failure or divergent behavior from desktop, formally declare the test `INVALID` and schedule a restart for post-holiday stability or after infrastructure scaling, whichever comes first. Do not attempt to "adjust" the numbers; the bias is unquantifiable without a clean control group.
+
+*Note: The 4% figure is treated as `UNVERIFIED` because the stopping rule was external and the sample composition shifted. No benchmark for "good" uplift is applied; the decision rests entirely on the integrity of your own randomization.*

@@ -1,0 +1,43 @@
+# AncestryPath Private Journal Upload Tracking Plan
+
+**Objective:** Measure feature adoption and funnel completion without capturing PII, file content, or user identity, adhering to strict privacy charter.
+
+## Core Privacy Principles
+1.  **Zero Content Logging:** No file names, text snippets, or document metadata are ever sent to analytics.
+2.  **No Persistent Identifiers:** Do not log User IDs, Email addresses, or IP addresses in event properties. Rely on the analytics provider's anonymous session/user stitching.
+3.  **Aggregated Reporting:** All analysis must be performed on aggregated counts; individual user paths are not reconstructible from the data warehouse.
+
+## Proposed Event Schema
+
+| Event Name | Trigger Point | Properties (Non-PII) | Purpose |
+| :--- | :--- | :--- | : |
+| `journal_upload_viewed` | User lands on the upload interface. | `entry_point` (e.g., "dashboard", "profile_menu") | Measures initial interest and entry volume. |
+| `journal_upload_started` | User clicks "Select File" or drags a file into the zone. | `file_type_category` (e.g., "pdf", "image", "text"), `estimated_size_range` (e.g., "<1MB", "1-5MB", ">5MB") | Identifies intent to upload without knowing *what* file. |
+| `journal_upload_processing` | File is selected and client-side validation passes; upload begins. | `connection_type` (e.g., "wifi", "cellular" - derived from Network Information API if available, otherwise omit) | Tracks technical initiation. |
+| `journal_upload_completed` | Server returns 200 OK; file is securely stored. | `duration_bucket` (e.g., "<5s", "5-30s", ">30s"), `retry_count` (integer) | **Primary Success Metric.** Confirms adoption. |
+| `journal_upload_failed` | Client or server returns an error code. | `error_code_category` (e.g., "network_timeout", "file_too_large", "unsupported_format"), `failure_stage` (e.g., "validation", "transfer", "server_save") | Identifies drop-off reasons without exposing user data. |
+| `journal_upload_abandoned` | User closes modal or navigates away after `started` but before `completed`. | `time_on_page_bucket` (e.g., "<10s", "10-60s", ">60s") | Measures hesitation or privacy concern abandonment. |
+
+## Implementation Constraints for Engineering
+*   **IP Anonymization:** Ensure the analytics tag is configured to anonymize IP addresses at the edge (before ingestion). Do not pass IP as a custom property.
+*   **File Names:** Strictly forbid passing `file.name` or path strings to the data layer. Only map extensions to broad categories client-side before pushing to the data layer.
+*   **User Identity:** Do not map internal User IDs to analytics user properties for this specific feature flow if it risks re-identification in small cohorts. Use anonymous session IDs only.
+
+## Alerting Thresholds & Adoption Metrics
+
+**Primary Success Metric:** Monthly Active Users (MAU) with `journal_upload_completed` ≥ 1.
+
+**Alerting Logic (First Month):**
+1.  **Adoption Rate Alert:** If `(Count of unique sessions with 'journal_upload_completed') / (Total Unique Sessions)` < 0.05 (5%) by Day 15.
+    *   *Action:* Trigger review of entry point visibility and privacy messaging clarity.
+2.  **Drop-off Alert:** If `(Count of 'journal_upload_started') > 0` AND `(Count of 'journal_upload_completed') == 0` for any rolling 48-hour window.
+    *   *Action:* Immediate engineering investigation for technical blockage.
+3.  **Friction Alert:** If `(Count of 'journal_upload_abandoned' where time_on_page_bucket > 60s) / (Count of 'journal_upload_started')` > 0.40 (40%).
+    *   *Action:* Indicates users are hesitating due to privacy concerns or UI confusion; requires UX/Privacy counsel review.
+
+## Data Review Protocol
+*   **Frequency:** Weekly aggregated reports only.
+*   **Access:** Restricted to Data Lead and Engineering Manager. No raw event logs accessible to marketing or general product teams.
+*   **Retention:** Event data older than 90 days must be purged or aggregated into monthly totals to minimize privacy risk.
+
+This plan ensures we validate the $45k engineering investment through completion rates while mathematically guaranteeing that no specific user's journal content or identity can be reconstructed from the analytics dataset.

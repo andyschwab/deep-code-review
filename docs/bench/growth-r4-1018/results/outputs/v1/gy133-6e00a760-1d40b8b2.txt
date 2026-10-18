@@ -1,0 +1,30 @@
+### Strategy for Data Reconciliation and Duplicate Prevention
+
+**Immediate Action: Halt and Isolate (Today)**
+Stop the bleeding by disabling one of the two firing scripts on the purchase confirmation page immediately via feature flag or code deployment. Do not attempt to "fix" live data while the duplication source remains active. Mark all data collected from last Tuesday through today as `UNVERIFIED` in internal reports until reconciliation is complete.
+
+**Historical Data Cleaning: Deterministic Deduplication**
+Reject the fixed-factor division approach; it assumes uniform failure rates and will obscure the specific segments (e.g., mobile users with ad blockers) where only one script fires. Instead, execute a deterministic merge using the following logic on the raw event stream:
+
+1.  **Identify the Unique Key:** Group events by `user_id` (or session ID if logged out) + `order_id` + `timestamp_window` (e.g., ±2 seconds).
+2.  **Merge Logic:** For every group containing >1 event, retain exactly one record. Prioritize the record with the most complete property set (e.g., if one event lacks `revenue` due to a partial load, keep the one that has it).
+3.  **Audit Trail:** Do not delete the duplicates. Flag them as `deduplicated_duplicate` in a separate column. This preserves the ability to analyze *why* double-firing occurred (e.g., specific browsers or network conditions) without inflating the count.
+4.  **Recalculate Metrics:** Re-aggregate the cleaned dataset to produce the corrected conversion count and revenue figures for the finance team.
+
+**Validation & Segment Analysis**
+Before finalizing the monthly report, validate the cleaning logic against your primary database (the source of truth with 5,000 records).
+*   **Reconciliation Check:** The cleaned analytics count must match the primary database count within a <0.1% tolerance (accounting for timezone edge cases).
+*   **Partial Failure Analysis:** Query the `deduplicated_duplicate` flags to identify if specific segments (e.g., "iOS Safari," "Users with Ad Blockers") show a higher rate of *single* script fires. This answers your concern about obscured variations without polluting the top-line metric.
+
+**Future Prevention: Idempotency and Governance**
+1.  **Implement Idempotency:** Update the analytics ingestion pipeline to accept an `idempotency_key` (composed of `order_id` + `event_type`). If the key exists within a 24-hour window, the system automatically rejects the second event.
+2.  **Event Taxonomy Review:** Instrument only one confirmed "Purchase Complete" event. Remove the redundant script entirely.
+3.  **Guardrail Metric:** Add a daily automated alert that triggers if `Analytics_Conversions` deviates by >2% from `Database_Orders`. This catches instrumentation drift immediately.
+
+**Deliverable for Friday Morning**
+Provide the VP and Finance team with a single revised dashboard view labeled "Verified Revenue (Deduplicated)." Include a footnote stating: "Historical data from [Date] to [Date] has been deterministically deduplicated based on Order ID. A 30% inflation factor was observed and corrected; segment-specific firing errors are logged separately for engineering review."
+
+***
+
+**Note:** The discrepancy between your database (5,000) and analytics (6,500) confirms the 30% duplication rate is an average; do not apply this average to future days as network latency and ad blocker usage vary by segment.
+**Note:** Ensure the `user_id` used for merging is pseudonymous and compliant with your privacy policies before sharing raw logs with engineering.

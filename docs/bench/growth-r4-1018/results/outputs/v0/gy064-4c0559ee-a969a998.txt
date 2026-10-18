@@ -1,0 +1,32 @@
+### Incident Response Plan: 'add_to_cart' Duplication
+
+**Objective:** Validate scope, halt inflation, and correct historical data for the audit in three weeks.
+
+#### Phase 1: Validate Scope & Isolate Root Cause (Days 1–3)
+Do not assume the race condition applies universally. We must isolate the blast radius before touching data.
+1.  **Segment by Device/OS:** Query the raw event stream (not the aggregated dashboard) for the period post-March 12th. Group `add_to_cart` events by `session_id`, `device_model`, and `os_version`.
+2.  **Identify the Pattern:** Filter for sessions with >1 `add_to_cart` event within a <2 second window. Calculate the duplication rate per device/OS combination.
+    *   *Hypothesis Check:* If the 18% duplication is concentrated in specific iOS/Android versions following the March 12th update, the race condition theory is validated. If it is uniform across all devices, the issue may be network retry logic or a backend idempotency failure.
+3.  **Define the "Clean" Baseline:** Identify a control group (e.g., desktop users or a specific mobile OS version unaffected by the update) to establish a baseline conversion rate for comparison.
+
+#### Phase 2: Stop the Bleeding (Immediate)
+1.  **Client-Side Mitigation:** If the root cause is confirmed as a UI race condition, deploy an immediate hotfix to debounce the checkout button listener (ignore subsequent clicks within 500ms).
+2.  **Stream Filtering:** Update the ingestion pipeline to tag or drop duplicate events in real-time. Implement a temporary rule: if an `add_to_cart` event arrives with the same `session_id` and `product_id` within 2 seconds of the previous one, flag it as `suspected_duplicate` rather than dropping it immediately, allowing for manual verification.
+
+#### Phase 3: Historical Data Correction (Days 4–10)
+Do not reprocess the entire six months blindly. Use a surgical approach to preserve year-over-year (YoY) integrity.
+1.  **Algorithmic Deduplication:** Run a backfill job on the last six months using the logic defined in Phase 1 (same `session_id` + `product_id` + <2s window).
+    *   *Action:* Create a new table/view `events_cleaned` where duplicates are removed. **Do not overwrite** the raw logs. Keep the raw data for audit trails.
+2.  **Impact Assessment:** Calculate the difference in conversion rates between the raw and cleaned datasets for each month.
+    *   *YoY Comparison:* For the audit, present two figures: "Reported (Raw)" and "Adjusted (Cleaned)." Explicitly state that pre-March 12th data is assumed clean (verify with a spot check). If the duplication exists pre-March 12th, the YoY comparison remains valid as both periods are equally inflated; if it is only post-March 12th, use the cleaned data for the recent period and note the anomaly in the report.
+
+#### Phase 4: Audit Preparation (Days 11–21)
+1.  **Documentation:** Prepare a lineage document showing the raw data, the deduplication logic applied, and the before/after metrics.
+2.  **Guardrail Metric:** Monitor `checkout_initiated` vs. `add_to_cart`. If the ratio spikes unnaturally after the fix, the deduplication logic may be too aggressive.
+
+**This Week's Steps:**
+1.  Run the segmentation query to confirm if the 18% duplication is isolated to specific mobile OS versions post-March 12th.
+2.  Draft the SQL logic for the deduplication window (session/product/time) and validate it against a known clean sample.
+3.  Freeze any automated reporting that uses the raw `add_to_cart` count until the cleaned view is ready.
+
+**Note:** The "18%" figure is a symptom; the root cause verification (Phase 1) dictates whether we fix the app code or the pipeline. Do not reprocess data until the duplication pattern is mathematically defined.

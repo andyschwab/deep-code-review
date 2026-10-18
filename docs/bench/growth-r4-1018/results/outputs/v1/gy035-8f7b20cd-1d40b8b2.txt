@@ -1,0 +1,45 @@
+**To:** Jane, Hardware Engineering Lead
+**From:** Product Analytics
+**Subject:** Firmware Logging Priorities for EcoTherm Launch (10k Units)
+
+Per the constraint of limited device bandwidth, we will instrument only events that answer specific questions about energy savings and active engagement, rejecting vanity metrics like total app opens. The North Star is **Weekly Active Energy Savings Instances** (a user-adjusted schedule that lowers consumption), not raw temperature adjustments.
+
+**1. Core Event Taxonomy (Firmware & App)**
+Log these events with the specified properties. Do not log continuous streams; log state transitions and confirmed actions.
+
+*   **`device_online_state_change`**
+    *   *Question:* How much time is the device actually reachable vs. offline?
+    *   *Properties:* `previous_state` (offline/online), `current_state`, `offline_duration_seconds` (calculated on reconnect), `wifi_signal_strength_at_reconnect`.
+    *   *Logic:* Use this to normalize engagement metrics. If a device is offline for 48 hours, absence of data is not "low engagement."
+
+*   **`temperature_setpoint_changed`** (The "Active Adjustment")
+    *   *Question:* Is the user actively managing comfort, or did they set and forget?
+    *   *Properties:* `source` (physical_dial / mobile_app / voice), `previous_temp`, `new_temp`, `hvac_mode` (heat/cool/auto), `time_since_last_change`.
+    *   *Filter:* Only log if `time_since_last_change` > 5 minutes to ignore rapid toggling noise.
+
+*   **`schedule_override_applied`**
+    *   *Question:* Did the user intervene to save energy or increase comfort against the auto-program?
+    *   *Properties:* `override_type` (temporary_hold / permanent_change / eco_mode_toggle), `duration_minutes`, `estimated_energy_impact_delta` (if calculable on-device).
+
+*   **`energy_report_viewed`** (App-side, correlated to Device ID)
+    *   *Question:* Does seeing usage data drive further action?
+    *   *Properties:* `report_period` (daily/weekly), `time_spent_seconds`, `action_taken_post_view` (boolean: did a setpoint change occur within 10 mins?).
+
+**2. Handling Offline Periods (The Identifier Seam)**
+Do not let Wi-Fi gaps skew engagement metrics.
+*   **Strategy:** The device must queue events locally during offline periods and flush them with a `local_event_timestamp` upon reconnection.
+*   **Metric Correction:** Calculate engagement rates as `(Active Users) / (Users with Device Online > X hours)`. Users offline > 24 hours are excluded from the denominator for that day's engagement rate, preventing false negatives.
+*   **Stable ID:** Ensure the firmware generates a persistent, pseudonymous `device_uuid` at first boot that survives factory resets but is not derivable from the MAC address, allowing correlation with the app user without violating privacy constraints.
+
+**3. Reading the Data: Retention Before Acquisition**
+We will ignore how many units are sold (Acquisition) until we verify **Retention of the Core Action**.
+*   **Week 2 Cohort Check:** Of the first 1,000 activated units, what % performed a `schedule_override_applied` or `temperature_setpoint_changed` in Week 2?
+*   **Verdict Rule:** If < 20% of active devices show manual intervention or schedule optimization by Day 14, the "set and forget" hypothesis is confirmed, and energy savings claims are `UNVERIFIED`. We must then pivot to automated eco-algorithms rather than hoping for manual user savings.
+
+**This Week's Steps:**
+1.  **Implement:** Add `offline_duration_seconds` and `source` properties to the firmware logging buffer immediately.
+2.  **Define:** Set the `device_uuid` generation standard to ensure app-device linking works without PII.
+3.  **Validate:** Run a bench test simulating a 48-hour Wi-Fi outage to confirm events queue locally and flush correctly with original timestamps upon reconnect.
+
+*Note: All energy savings calculations marked "estimated" in logs must be validated against utility meter data in a post-launch sample; do not hardcode savings assumptions into the firmware logic.*
+*No external benchmarks for "good" retention are used; we will compare Week 2 performance strictly against our own Week 1 baseline.*

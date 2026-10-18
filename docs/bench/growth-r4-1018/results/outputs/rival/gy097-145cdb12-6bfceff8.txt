@@ -1,0 +1,105 @@
+# JobbSverige Semantic Search: Event Tracking Specification
+
+**Objective:** Instrument the full funnel from query to application to validate semantic search performance against the 15% legacy CTR baseline.
+**Launch Deadline:** May 1
+**Audience:** Backend Engineering Team
+
+## Core Principles
+1.  **Funnel Completeness:** Track every step from entry to conversion; do not rely solely on result clicks.
+2.  **Context Preservation:** Every event must include the `search_session_id` to link actions within a single user journey.
+3.  **Variant Identification:** All events must flag `search_type: semantic` vs. `search_type: keyword` for A/B comparison.
+
+## Event Schema
+
+### 1. `search_initiated`
+*Trigger:* User submits a search query.
+*Purpose:* Establish baseline volume and query intent.
+*Properties:*
+- `search_session_id` (UUID, generated on first query)
+- `user_id` (hashed, if logged in)
+- `query_text` (string)
+- `search_type` (enum: "semantic", "keyword")
+- `filters_applied` (object: {location, role_level, salary_range})
+- `device_type` (mobile, desktop)
+- `timestamp`
+
+### 2. `search_results_rendered`
+*Trigger:* Results successfully load and display on screen.
+*Purpose:* Measure latency and result set size (zero-result rate).
+*Properties:*
+- `search_session_id`
+- `search_type`
+- `query_text`
+- `total_results_count` (integer)
+- `render_time_ms` (integer)
+- `top_result_id` (string)
+
+### 3. `search_result_clicked`
+*Trigger:* User clicks a job card in the results list.
+*Purpose:* Calculate CTR (your primary success metric) and rank effectiveness.
+*Properties:*
+- `search_session_id`
+- `search_type`
+- `query_text`
+- `clicked_job_id` (string)
+- `clicked_job_title` (string)
+- `result_position` (integer, 1-based index)
+- `result_score` (float, the semantic match score returned by the engine)
+- `time_to_click_ms` (integer, time from render to click)
+
+### 4. `search_refined`
+*Trigger:* User modifies filters or submits a new query within the same session without clicking a result.
+*Purpose:* Detect confusion or dissatisfaction (high refinement rate may indicate poor relevance).
+*Properties:*
+- `search_session_id`
+- `search_type`
+- `original_query_text` (string)
+- `new_query_text` (string)
+- `refinement_type` (enum: "query_change", "filter_add", "filter_remove", "sort_change")
+- `previous_result_count` (integer)
+- `new_result_count` (integer)
+
+### 5. `job_detail_viewed`
+*Trigger:* User lands on the specific job description page.
+*Purpose:* Validate that the click led to genuine interest (filter out accidental clicks).
+*Properties:*
+- `search_session_id`
+- `search_type`
+- `job_id`
+- `referrer_event` (e.g., "search_result_clicked")
+- `time_on_page_seconds` (calculated on exit, or send as separate event)
+
+### 6. `application_started`
+*Trigger:* User clicks "Apply" or begins the application form.
+*Purpose:* Measure deep conversion intent.
+*Properties:*
+- `search_session_id`
+- `search_type`
+- `job_id`
+- `application_method` (enum: "external_link", "internal_form", "easy_apply")
+
+### 7. `application_completed`
+*Trigger:* User successfully submits an application.
+*Purpose:* The ultimate north-star metric for search quality.
+*Properties:*
+- `search_session_id`
+- `search_type`
+- `job_id`
+- `application_id` (UUID)
+- `total_funnel_time_seconds` (time from `search_initiated` to submission)
+
+## Implementation Requirements
+
+1.  **Session Continuity:** The `search_session_id` must persist across page reloads and subsequent refinements until the user leaves the search context or 30 minutes of inactivity passes.
+2.  **Error Logging:** Implement a separate `search_error` event for failed queries or timeout issues to exclude technical failures from relevance metrics.
+3.  **Data Latency:** Events must be available in the analytics warehouse within 1 hour for daily monitoring during the launch week.
+4.  **Privacy:** Ensure no PII (personally identifiable information) is captured in `query_text` or `user_id` fields; hash user IDs before logging.
+
+## Validation Checklist for Engineering
+- [ ] Verify `search_session_id` links `search_initiated` through `application_completed`.
+- [ ] Confirm `search_type` is correctly populated for both legacy and new engines.
+- [ ] Test that `result_position` resets correctly when filters are applied.
+- [ ] Validate that `search_refined` fires only when no `search_result_clicked` occurred in the interim.
+
+*Note: Ensure the semantic match score is logged even if the user does not click, to analyze relevance distribution of non-clicked results.*
+*Recommendation: Create a dashboard comparing "Application Rate per Search Session" between semantic and keyword cohorts, not just CTR.*

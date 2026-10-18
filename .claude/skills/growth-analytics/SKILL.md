@@ -34,9 +34,8 @@ Persisted artifacts stay normal English. Chat may be terse. Lookup table:
   health** — logs, traces, error rates, SLOs. This is **product behaviour** —
   what users do. They meet at one seam (below); do not restate ops observability
   here.
-- **Not** a source of market benchmarks, and not the user's analytics tool. It
-  designs *what to measure and how to read it*; the figures live in the user's
-  analytics.
+- **Not** a source of market benchmarks or the user's analytics tool: it designs
+  *what to measure and how to read it*; the figures live in their analytics.
 
 ## Prime directive — the user's own data, never invented
 
@@ -112,21 +111,22 @@ already trip. An arbitrary round threshold is not a tripwire. The user's own bas
 only benchmark.
 
 ### 7. Deliver what was asked, then apply the rules
-Produce the artifact the requester named (the event list, the plan, the summary
-for their director, the choice between the options they gave) in the format and
-for the audience stated, before any caveat. The rules above shape it; they never
-replace it with a refusal, a smaller list or a lecture. Pick among the
-requester's own options instead of inventing a third, leave a decision they
-reserved for someone else to them, use data they already have before proposing
-new tracking, and add an identifier or no-benchmark note only if the request
-touches one.
+Produce the artifact the requester named (the event list, the plan, the summary for their
+director, a pick among the options they gave) in the format and for the audience stated,
+before any caveat. The rules shape it; they never replace it with a refusal, a smaller list
+or a lecture. Leave a decision they reserved for someone else to them, use data they already
+have before proposing new tracking, and add an identifier or no-benchmark note only if the request touches one.
 
 ### 8. Make every cut decide something
 For each segment, metric or test you propose, say what each result would mean and
 the next action it triggers (for example: if the drop is only on mobile, fix the
 layout; if it is uniform, test the price copy), and tie it to the money the
 decision-maker weighs: revenue per visitor, margin, payback or the cost of the
-change. A list of cuts with no reading rule is not an answer.
+change. Make it runnable: name events with properties, formulas, thresholds, sample sizes and dates
+computed from the stated figures (the quarterly volume, days to reach N at their traffic, the
+break-even rate), and fit the call to the stated deadline and constraint (a short canary, a
+partial rollout) rather than a bare "wait" or "re-run". If the data is contaminated, say what
+can still be salvaged. A list of cuts with no reading rule is not an answer.
 
 ## Definition of done
 - One customer-value North Star named (vanity metrics rejected), with input
@@ -142,8 +142,6 @@ change. A list of cuts with no reading rule is not an answer.
 - The answer ends with a **this-week step**: two or three concrete actions naming the exact
   event, cohort, query or test design, and the result that would change the decision. "Share
   your data and I will help" is not a step; an unsupplied number stays `UNVERIFIED`.
-- When the request involves per-user ids, the identifier seam and PII routing are stated, not restated from
-  `observability.md` / `privacy-compliance.md`.
 
 ## Anti-rationalization (excuse → rebuttal)
 
@@ -152,8 +150,6 @@ change. A list of cuts with no reading rule is not an answer.
 | "What's a good retention rate?" | Not a number the model can source. Compare to the user's own baseline and trend; route to their analytics. |
 | "Track everything so we have it later." | Unused events are cost and noise. Instrument only what answers a named question. |
 | "Signups are up — we're growing." | Signups are vanity; they rise regardless. Read retention of the core action first. |
-| "Estimate our conversion so the deck is done." | An un-instrumented metric is UNVERIFIED. Name what to instrument; do not invent the value. |
-| "Use the raw user id for cohorts." | Cohorts need a *stable* id, but keep it pseudonymous; route PII/consent to `privacy-compliance.md`. |
 | "It hit significance on day 2 — ship it." | Peeking inflates the false-positive rate; read a fixed-horizon test **once** at the pre-committed end, or use a valid sequential rule. Day 2 of a 14-day test is `UNVERIFIED`, not a win. |
 
 ## Standards (by name; verify a figure/URL before citing one)
@@ -169,4 +165,5 @@ user's baseline), `north-star-not-vanity`, `instrument-answers-a-named-question`
 `routes-real-figures-to-analytics` (no data means `UNVERIFIED`, never an invented number),
 `experiment-peeking-is-not-a-win-precommit-or-sequential`,
 `diagnose-retention-before-pouring-in-acquisition`, `ends-with-a-this-week-step-not-a-data-request`,
-`experiment-call-recomputes-then-decides`, `delivers-the-asked-artifact-with-reading-rules`.
+`experiment-call-recomputes-then-decides`, `delivers-the-asked-artifact-with-reading-rules`,
+`runnable-call-fits-the-deadline`.

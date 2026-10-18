@@ -1,0 +1,83 @@
+# SwissComply Non-Linear Journey Measurement Design
+
+## Core Concept: State-Based Journey Tracking
+Replace the traditional linear funnel with a **State-Transition Model**. Instead of measuring progress through fixed steps (Step 1 → Step 2 → Step 3), track user movement between **Workflow States** and the **Actions** that trigger transitions. This captures loops, skips, and parallel activities without data explosion.
+
+## Event Structure Framework
+
+### 1. Session Context Events (Fire Once Per Session)
+Capture the environment for every user session:
+- `session_started`: user_id, bank_id, session_id, entry_point
+- `report_context`: report_id, report_type, compliance_framework (e.g., FINMA, Basel III), creation_date
+
+### 2. State Entry Events (Fire on Entering Any Module)
+Track when users enter any workflow module, regardless of order:
+- `state_entered`: state_name (document_upload | risk_assessment | approval_workflow | report_generation), report_id, entry_method (direct_nav | previous_step_completion | sidebar_link)
+
+### 3. Action Completion Events (Fire on Meaningful Work)
+Capture specific work completed within each state:
+- `document_uploaded`: document_type, file_size, validation_status, retry_count
+- `risk_assessment_completed`: risk_score, assessment_method, flags_raised, time_spent_seconds
+- `approval_request_submitted`: approver_id, priority_level, comments_attached
+- `approval_decision_received`: decision (approved | rejected | revisions_needed), reviewer_id, rejection_reason
+
+### 4. State Transition Events (Fire on Moving Between States)
+Map the actual journey path:
+- `state_transitioned`: from_state, to_state, transition_trigger (user_action | system_auto | validation_pass), time_in_previous_state_seconds
+
+### 5. Loop Detection Events (Fire on Re-visits)
+Identify iterative behavior explicitly:
+- `state_revisited`: state_name, visit_count, time_since_last_visit_seconds, changes_made (boolean)
+
+### 6. Session Completion Events
+- `session_ended`: session_id, final_state, report_status (draft | submitted | finalized), total_duration_seconds, states_visited_count
+
+## Key Properties for Audit & Analysis
+
+**Every event must include:**
+- `user_id`: Individual user identifier
+- `bank_id`: Client organization identifier
+- `report_id`: Specific compliance report being worked on
+- `timestamp`: Precise event time
+- `session_id`: Grouping for continuous work periods
+- `user_role`: Compliance officer | reviewer | admin (critical for B2B workflows)
+
+**Action-specific properties:**
+- `validation_errors`: Array of any errors encountered
+- `manual_override`: Boolean indicating if user bypassed system suggestions
+- `collaboration_activity`: Boolean indicating if multiple users touched this report in session
+
+## Analysis Framework for Product Team
+
+### Journey Flow Visualization
+Map all observed state transitions to identify:
+- **Common paths**: Most frequent sequences leading to report finalization
+- **Friction loops**: States where users frequently revisit (indicates confusion or incomplete work)
+- **Skip patterns**: States commonly bypassed (may indicate irrelevance or poor UX)
+- **Dead ends**: States where sessions frequently terminate without completion
+
+### Efficiency Metrics
+- **Cycle time per state**: Average time spent in each module
+- **Loop frequency**: Average revisits per state before progression
+- **Path efficiency**: Ratio of actual steps taken vs. minimum possible steps
+- **Completion rate by entry point**: Which starting states lead to highest finalization rates
+
+### Audit-Ready Reporting
+- Complete chronological event log per report_id
+- User attribution for every action (who did what, when)
+- Change tracking for any modifications to submitted materials
+- Time-stamped approval chain documentation
+
+## Implementation Principles
+
+1. **Event granularity**: Track meaningful completions, not every click. A "document uploaded" event fires when validation passes, not on file selection.
+
+2. **State definition**: Define states by business function (what the user is trying to accomplish), not by URL or screen.
+
+3. **Idempotency**: Ensure re-submitting the same action doesn't create duplicate events; use unique action_ids.
+
+4. **Privacy by design**: No PII in event properties; user_id should be an internal identifier, not email or name.
+
+This structure provides the CCO with a complete audit trail while giving the product team clear visibility into where users struggle, loop, or abandon complex workflows.
+
+*Note: Validate state definitions with pilot bank workflows before November 15 launch to ensure alignment with their actual compliance processes.*

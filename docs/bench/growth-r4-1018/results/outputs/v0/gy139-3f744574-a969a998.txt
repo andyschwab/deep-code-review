@@ -1,0 +1,32 @@
+# Technical Roadmap: Data Integrity Recovery & Prevention Plan
+
+**Executive Summary**
+Since the September 20th update, 40% of workout completion events lack `source_campaign` and `device_model` properties. This renders retention segmentation by channel and hardware impossible. We cannot impute these values without fabricating data, which would invalidate marketing ROI claims. The following plan prioritizes isolating the corruption, preventing further data loss, and establishing a verified baseline for analysis.
+
+### 1. Immediate Containment (Prevent Widening the Gap)
+*   **Implement Schema Validation at Ingestion:** Configure the event pipeline to reject or quarantine events missing critical properties (`source_campaign`, `device_model`) rather than ingesting them with nulls. This stops the contamination of the "clean" dataset.
+*   **Deploy a "Shadow" Logging Flag:** Release a hotfix that adds a boolean flag `is_property_loaded` to the event payload. If properties are missing, the app delays the event send by 200ms or retries once. This validates the suspected race condition without blocking the user journey.
+*   **Freeze Historical Analysis:** Mark all data from September 20th to present as `UNVERIFIED` for channel-specific reporting. Do not attempt to fill gaps with averages; this creates false precision for the VP and Marketing.
+
+### 2. Historical Data Strategy (Isolation, Not Imputation)
+*   **Do Not Impute:** There is no statistically valid method to guess a user's marketing source or device model after the fact. Imputing "unknown" sources as "organic" or averaging device types will skew ROI calculations and lead to incorrect budget decisions.
+*   **Segment by Data Quality:** Create two distinct cohorts in the analytics warehouse:
+    1.  **Verified Cohort:** Records with complete properties (approx. 60%). Use this *only* for directional trends, explicitly noting the sample bias.
+    2.  **Corrupted Cohort:** Records with null properties. Aggregate these into a single "Unknown Source/Device" bucket for total volume counting, but exclude them from any segmented retention or ROI analysis.
+*   **Log Sampling for Root Cause:** Instead of inspecting "massive" raw logs entirely, sample 1,000 corrupted events and 1,000 valid events from the same timeframe. Compare timestamps between `app_start`, `property_load`, and `event_send`. This confirms the race condition hypothesis without full log processing.
+
+### 3. Recovery & Reporting Path
+*   **Client-Side Enrichment (Future Proofing):** Ensure `device_model` is captured at the SDK level (always available) and `source_campaign` is persisted to local storage immediately upon install/attribution, ensuring it is available for all future events, not just the first one.
+*   **Interim Reporting Protocol:** For the holiday season ROI questions:
+    *   Report total conversions.
+    *   Report channel-specific conversions *only* for the Verified Cohort.
+    *   Apply a clear disclaimer: "Channel data represents ~60% of traffic due to a known logging gap; true ROI is bounded between [Verified Only] and [Verified + Unknown Allocation]."
+*   **Backfill Feasibility:** If the raw logs contain the IP address or user-agent string at the time of the event, write a one-time script to re-enrich `device_model` (via User-Agent parsing) and `source_campaign` (via IP-to-campaign mapping if session data exists). If these fields are truly null in the raw payload, the data is unrecoverable.
+
+### This-Week Actions
+1.  **Engineering:** Merge the schema validation rule to quarantine null-property events within 24 hours.
+2.  **Analytics:** Publish the "Verified vs. Corrupted" cohort split to the dashboard, hiding specific channel breakdowns for the affected period to prevent misinterpretation.
+3.  **Decision:** Approve the log sampling task to confirm the race condition before allocating resources to a full code refactor.
+
+**Note:** Any attempt to estimate the missing 40% for the VP's deck must be labeled `UNVERIFIED` and excluded from final ROI calculations.
+**Note:** Retention analysis must focus on the aggregate "Verified" cohort until the fix is deployed and data stabilizes.

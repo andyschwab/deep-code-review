@@ -1,0 +1,41 @@
+### Instrumentation Plan: SwiftChat Voice Messaging (MVP)
+
+**Audience:** VP of Product, Lead Backend Engineer
+**Goal:** Validate viral growth and core value within a 6-week window without data overload.
+
+#### 1. The North Star (Customer Value)
+**Metric:** `weekly_active_senders_completing_voice_loop`
+*Definition:* Users who send a voice message and receive a voice reply within 48 hours, repeated in a weekly cohort.
+*Why:* Latency and clarity are hygiene factors; the product only has value if it creates a two-way conversation. Raw sends are vanity; loops prove retention and utility.
+
+#### 2. Event Taxonomy (Answer Named Questions Only)
+Do not instrument "just in case." Implement only these four events to answer specific growth questions:
+
+| Event Name | Question Answered | Properties Required |
+| :--- | :--- | :--- |
+| `voice_message_sent` | **Activation:** Do users try the feature? | `user_id` (pseudonymous), `message_duration_sec`, `network_type` |
+| `voice_message_played` | **Value:** Is the content consumed? | `user_id`, `play_duration_sec`, `is_replay` (boolean) |
+| `voice_message_shared` | **Virality:** Does it drive acquisition? | `user_id`, `share_channel` (e.g., SMS, Link), `recipient_count` |
+| `voice_reply_received` | **Retention:** Did it spark a loop? | `sender_id`, `time_to_reply_minutes` |
+
+**Explicitly Ignored for V1:**
+*   **Latency/Crash Reports:** Route to system observability (`observability.md`). Do not clutter product analytics with ops metrics unless they directly block the "sent" event.
+*   **Audio Clarity Scores:** Subjective and hard to instrument reliably in 6 weeks. Infer quality indirectly via `play_duration_sec` (short plays suggest poor quality) and support tickets.
+
+#### 3. Funnel Diagnosis (Bottom-Up)
+Read the data in this order to avoid wasting marketing spend:
+1.  **Retention (The Loop):** Are users who sent a message getting replies? If `voice_reply_received` is low, marketing is useless; fix the core interaction first.
+2.  **Activation:** Of those who see the button, how many `voice_message_sent`?
+3.  **Virality:** What % of sent messages trigger a `voice_message_shared`?
+4.  **Acquisition:** Only analyze inbound sources after the above three are stable.
+
+#### 4. Implementation Constraints
+*   **Identifier Seam:** Use a stable, pseudonymous `user_id` to track users across sessions and devices for cohort analysis. Do not use raw PII here; route consent handling to `privacy-compliance.md`.
+*   **Variance Reduction:** If running A/B tests on the share button later, use pre-period data (CUPED) to reduce noise given the small team size.
+
+#### 5. This-Week Steps
+1.  **Engineer:** Implement the four events above with pseudonymous IDs; verify data flow for `voice_message_sent` and `voice_message_played` only.
+2.  **VP Product:** Define the "successful loop" threshold (e.g., 20% of senders get a reply) based on internal alpha testing, not market benchmarks.
+3.  **Joint:** Reject any request to add latency tracking to this dashboard; keep product behavior and system health separate.
+
+*Note: No market benchmarks for "good" share rates are provided; success is defined by improvement against your own Week 1 baseline. Any metric without an event definition is `UNVERIFIED`.*

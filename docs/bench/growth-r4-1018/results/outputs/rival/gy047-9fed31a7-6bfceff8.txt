@@ -1,0 +1,58 @@
+# VerifyFast KYC Drop-off Diagnostic Plan
+
+## Objective
+Isolate whether the 38% drop-off at the document upload step is driven by technical failures (Android OS ≤10 camera bugs) or usability friction (language barriers), enabling a targeted fix before the October 1st campaign.
+
+## Phase 1: Data Requests (Immediate Action)
+
+Request the following segmented datasets from Engineering and Data teams for the last 30 days. All metrics must be filtered specifically for the **Document Upload Step**.
+
+### A. Technical Failure Metrics (Engineering)
+*Target: Validate the Android OS ≤10 hypothesis.*
+
+1.  **Client-Side Crash Logs:** Count of crashes or fatal exceptions triggered specifically during camera initialization or file upload, segmented by:
+    *   OS Version (Android 10, 9, 8, etc.)
+    *   Device Model
+    *   Error Code (e.g., `CameraPermissionDenied`, `Timeout`, `MemoryOverflow`)
+2.  **HTTP Error Rates:** Percentage of upload requests returning 4xx or 5xx status codes, segmented by OS version.
+3.  **Upload Latency:** Average time from "camera open" to "upload complete" vs. "upload timeout," segmented by OS version and network type (WiFi vs. Cellular).
+4.  **Permission Denial Rate:** Frequency of users denying camera/gallery permissions immediately upon prompt, segmented by OS version.
+
+### B. Usability & Behavior Metrics (Data/Analytics)
+*Target: Validate the language/clarity hypothesis.*
+
+1.  **Drop-off Location Precision:** Exact screen or UI element where the session ended (e.g., "stuck on instruction screen," "abandoned after selecting file," "closed during cropping").
+2.  **Retry Behavior:** Average number of upload attempts per session before abandonment, segmented by:
+    *   User Language Setting / IP Geolocation
+    *   OS Version
+3.  **Time-on-Step:** Median duration spent on the upload screen before dropping off, segmented by language region. (Long durations suggest confusion; near-zero suggests immediate technical failure).
+4.  **Support Ticket Correlation:** Volume of support tickets tagged "upload issue" or "camera broken" correlated with user OS and region.
+
+## Phase 2: Analysis Framework
+
+Cross-reference the data using this decision matrix to determine the root cause:
+
+| Scenario | Technical Indicators | Usability Indicators | Diagnosis |
+| :--- | :--- | :--- | :--- |
+| **A. Pure Tech Failure** | High crash/error rates on Android ≤10; Low retry count; Immediate drop-off. | No significant variance by language; Time-on-step is low. | **Fix:** Patch camera integration or disable camera for old OS (force file upload). |
+| **B. Pure Usability** | Low crash rates across all OS versions; High retry count. | High drop-off in non-English regions; Long time-on-step; High support volume from specific regions. | **Fix:** Localize instructions, simplify UI copy, add visual guides. |
+| **C. Compounded** | Moderate errors on Android ≤10 AND high drop-off in non-English regions. | Errors spike only when language is non-English (suggests error messages are unclear). | **Fix:** Prioritize tech patch for Android, but A/B test simplified copy immediately. |
+
+## Phase 3: Validation & Mitigation Timeline
+
+To meet the October 1st deadline without delaying the campaign:
+
+1.  **Days 1-2 (Data Pull):** Engineering generates crash logs; Data team exports behavioral segments.
+2.  **Day 3 (Triage):**
+    *   **If Scenario A (Tech):** Deploy a hotfix to catch camera exceptions and fallback to "Upload from Gallery" automatically for Android ≤10. This bypasses the buggy camera module.
+    *   **If Scenario B (Usability):** Implement a rapid content update: replace text instructions with universal icons/video GIFs showing the exact action. This requires no code logic changes, only asset swaps.
+    *   **If Scenario C:** Execute both fallback logic and content swap.
+3.  **Days 4-7 (Staging Validation):** Verify the fix in staging using emulators (Android 10) and real devices in target regions.
+4.  **Day 8 (Production Deploy):** Release the patch. Monitor the "Upload Success Rate" dashboard hourly for the first 48 hours.
+5.  **October 1st:** Campaign launch proceeds with monitored stability.
+
+## Required Output Format
+Deliver findings in a single dashboard view comparing **Success Rate by OS Version** vs. **Success Rate by Region** to visually confirm the dominant drop-off driver.
+
+*Note: If crash logs are unavailable, instrument a temporary "error catch" event in the app immediately to capture failure states going forward while analyzing historical drop-off patterns.*
+*Do not wait for 100% statistical significance on the language hypothesis if the technical error rate on Android ≤10 exceeds 15%; prioritize the technical fix first as it blocks all users regardless of language.*

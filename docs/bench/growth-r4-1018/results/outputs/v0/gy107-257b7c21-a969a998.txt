@@ -1,0 +1,53 @@
+### Technical Specification: Network Density Instrumentation
+
+**Objective:** Quantify "Local Network Density" to validate the hypothesis that 5+ mutual city connections drive engagement.
+
+**1. Data Model & Event Taxonomy**
+Do not instrument "everything." Define one core derived metric and the events required to compute it.
+*   **Core Metric:** `local_density_score` (per user, computed daily).
+*   **Required Events:**
+    *   `connection_created`: Properties `{ user_id, target_user_id, timestamp }`.
+    *   `user_profile_update`: Properties `{ user_id, city_id }`. (Must be validated/normalized).
+*   **Identifier Seam:** Use a stable, pseudonymous `user_id` for cohort tracking. Do not use raw PII. Route consent and data retention logic to the privacy compliance domain.
+
+**2. The Formula**
+For each user $U$ in city $C$:
+$$ \text{Density}_U = \text{Count}(\text{Mutual Connections within } C) $$
+*Logic:* For user $U$, identify all direct connections. Filter those connections who also list city $C$. Count the number of pairs among those connections that are also connected to each other (triadic closure) OR simply count the number of direct connections $U$ has within $C$ if "mutual" implies "shared neighbors."
+*Clarification based on your hypothesis:* If the hypothesis is "having 5 mutual connections," the metric is: **Count of distinct users in City $C$ who are connected to $U$ AND share at least one other connection with $U$.**
+*Simpler Proxy (Recommended for MVP):* **Local Degree:** Count of direct connections $U$ has who are also in City $C$.
+*Threshold Logic:* Flag users where `Local Degree` $\ge$ 5.
+
+**3. Implementation Constraints**
+*   **Latency:** Real-time calculation of triadic closure at scale is expensive. Compute `local_density_score` via a nightly batch job or hourly stream aggregation. Do not block the UI waiting for this calculation.
+*   **Storage:** Store the score in the user profile document for fast retrieval.
+*   **Verification:** This metric is currently `UNVERIFIED`. The 40% engagement lift is a hypothesis, not a benchmark. You must instrument the correlation between `local_density_score` and your North Star (e.g., "weekly active users sending messages") to validate it.
+
+**4. Visualization for Underserved Regions**
+*   **Heatmap:** Plot `Avg(local_density_score)` by `city_id`.
+*   **Distribution Curve:** Histogram of users by density score (0, 1, 2, 3... 5+). Identify the "cliff" where retention drops.
+
+---
+
+### Strategic Brief: Marketing Allocation (Kharkiv & Lviv)
+
+**North Star Definition**
+Stop tracking "Registered Users" (25k) as a success metric; it is vanity. It rises regardless of value.
+*   **New North Star:** **Weekly Active Users with Local Density $\ge$ 5.**
+*   **Rationale:** If the hypothesis holds, value is only delivered when the network is dense. Growth without density is churn waiting to happen.
+
+**The Funnel Diagnosis (Retention First)**
+Do not pour marketing spend into Kharkiv or Lviv yet. Read the funnel bottom-up:
+1.  **Retention Check:** Of the users currently in Kharkiv/Lviv with Density < 5, what is their Week-2 retention?
+2.  **Activation Check:** How many new users reach Density $\ge$ 5 within 7 days of signup?
+3.  **Acquisition Decision:** Only if users who reach Density $\ge$ 5 show significantly higher retention should you spend to acquire more users in those cities. If they do not reach density, acquisition spend is wasted.
+
+**Actionable Thresholds**
+*   **The "Kick-in" Point:** Do not assume 5 is the magic number. Run a cohort analysis: Plot Retention Rate vs. Density Score (0, 1, 2, 3, 4, 5, 6...). The threshold is the point where the curve inflects upward. It might be 3, it might be 8. Let your data decide, not the assumption.
+*   **Marketing Trigger:** Target ads in Kharkiv/Lviv *only* if the current user base there has a high % of users near the threshold (e.g., many users with 3-4 connections), implying a small push will tip them into value. If the base is mostly 0-1 connections, marketing will fail; focus on product-led introductions first.
+
+**This-Week Steps**
+1.  **Engineers:** Implement the `local_density_score` batch job. Output a table: `user_id`, `city`, `density_score`. Do not estimate the 40% lift; prepare the query to calculate the actual correlation between this score and retention next week.
+2.  **Product/Marketing:** Run a cohort query on existing Kharkiv/Lviv users: "What is the Day-14 retention for users with Density 0-4 vs Density 5+?" If the difference is negligible, pause city-targeted ads and fix the onboarding flow to force local connections first.
+
+*Note: No external benchmarks for "good density" exist for your specific niche; compare only against your own pre-relaunch baseline or internal cohorts. The 40% figure remains `UNVERIFIED` until the correlation query is run.*

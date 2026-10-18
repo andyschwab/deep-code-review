@@ -1,0 +1,26 @@
+### Strategy to Resolve Duplicate Conversion Tracking
+
+**1. Immediate Historical Data Correction (For Friday's Report)**
+Do not apply a flat 30% reduction factor to your total count. As you correctly suspected, this obscures segment-specific variances and partial failures. Instead, execute a record-level deduplication based on transaction uniqueness:
+
+*   **Extract Raw Event Logs:** Pull the raw event stream for the affected period (last Tuesday to present) including `event_timestamp`, `transaction_id`, `revenue`, `user_id`, and `session_id`.
+*   **Identify Duplicates via Transaction ID:** Group events by `transaction_id`.
+    *   *Single Event:* If a `transaction_id` appears once, retain it. This captures the "partial failures" you are concerned about.
+    *   *Duplicate Events:* If a `transaction_id` appears twice (or more) within a tight time window (e.g., <5 seconds), flag these as duplicates.
+*   **Merge Logic:** For flagged groups, keep the record with the earliest timestamp (usually the most accurate attribution point) and discard subsequent duplicates. Sum the revenue and count based on these unique IDs.
+*   **Segmented Reconciliation:** Before finalizing, calculate the duplication rate per segment (e.g., by browser, device, or traffic source). If mobile users show a 40% duplication rate while desktop shows 20%, a flat factor would misstate performance by channel. Report the *actual* deduplicated count alongside the duplication rate variance by segment to the VP.
+
+**2. Preventing Future Duplicates (Technical Implementation)**
+To stop the bleeding immediately without waiting for a full engineering sprint:
+
+*   **Disable One Script Temporarily:** If the two scripts are independent (e.g., one GTM container and one hard-coded pixel), disable the less critical one immediately via the tag manager or comment out the code block. It is better to under-count slightly (capturing only partial failures) than to over-count systematically.
+*   **Implement Idempotency Logic:** Instruct engineering to wrap the firing logic in a check. Before firing the conversion event, the system must verify if an event with the same `transaction_id` has already been sent in the current session.
+*   **Server-Side Tracking (Long-term):** Move conversion tracking to the server side. When the purchase is confirmed in your database, your server sends a single, authoritative event to the analytics tool. This bypasses client-side issues like ad blockers, network latency, and double-firing scripts entirely.
+
+**3. Validation Protocol**
+Before signing off on Friday's report:
+*   **Reconcile with Finance:** Match the deduplicated analytics count exactly against the primary database count (5,000 in your example). They must align 1:1.
+*   **Monitor Real-Time:** Use the analytics tool's "DebugView" or real-time report to watch a test transaction. Ensure only one event fires upon completion.
+
+**Note:** A flat reduction factor assumes uniform error distribution, which rarely exists in web analytics; always deduplicate at the transaction ID level.
+**Note:** Prioritize disabling one script immediately to halt data corruption while the permanent fix is developed.

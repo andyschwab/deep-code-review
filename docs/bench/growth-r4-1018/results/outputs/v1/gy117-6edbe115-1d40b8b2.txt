@@ -1,0 +1,41 @@
+### Offline-First Instrumentation Specification for AgriConnect Pilot
+
+**Objective:** Preserve accurate planting cycle timelines and user behavior sequences despite up to 18-hour daily offline windows, ensuring grant reporting validity by January 20.
+
+#### 1. Data Storage Strategy: Local-First with Deferred Sync
+Do not attempt to transmit events immediately. All user interactions must be persisted locally on the device first. Transmission occurs only when connectivity is detected, batching events for upload.
+
+*   **Local Store:** Use an embedded database (e.g., SQLite, Realm, or WatermelonDB) to store events immediately upon generation.
+*   **Sync Trigger:** Initiate upload only when a stable connection is confirmed. If the connection drops mid-batch, pause and resume from the last acknowledged event ID.
+
+#### 2. Critical Metadata Schema
+To reconstruct timelines reliably after delayed uploads, every event object must include the following immutable fields at the moment of creation:
+
+*   **`event_id` (UUID):** A globally unique identifier generated locally to prevent duplication during retries.
+*   **`occurred_at` (ISO 8601 UTC):** The precise timestamp when the user performed the action. **Never** use the server receipt time or the sync time for analysis.
+*   **`device_clock_offset` (Optional but Recommended):** If possible, capture the device's reported NTP offset or network time at the last known sync to validate local clock drift.
+*   **`sequence_number` (Integer):** A monotonically increasing counter per user session. This resolves ordering ambiguities if `occurred_at` timestamps are identical due to clock resolution limits.
+*   **`synced_at` (Server Timestamp):** Added by the server upon receipt to track latency, but strictly separated from `occurred_at` for business logic.
+*   **`connectivity_context`:** A boolean flag or enum indicating the network state (e.g., `OFFLINE`, `WEAK_2G`, `WIFI`) at the moment of the event.
+
+#### 3. Reconstruction Logic
+Your analytics pipeline must sort incoming batches by `occurred_at`, not by ingestion time.
+*   **Ordering Rule:** Primary sort by `occurred_at`; secondary sort by `sequence_number`.
+*   **Deduplication:** Use `event_id` to discard retries caused by network timeouts.
+
+#### 4. Risks and Mitigations
+
+| Risk | Impact on Insights | Mitigation |
+| :--- | :--- | :--- |
+| **Local Clock Drift** | Farmers' devices may have incorrect dates/times, distorting planting cycle durations. | Implement a "time sanity check" on sync. If `occurred_at` deviates >2 hours from the server's current time, flag the event as `UNVERIFIED_TIME` and store the device's raw timestamp for manual review. |
+| **Data Loss (Device Failure)** | If a phone is lost/broken before syncing, all local data vanishes. | Enable optional local encryption and backup to SD card if hardware permits; otherwise, accept this as a pilot limitation and document the potential data gap percentage. |
+| **Batch Ordering Conflicts** | Events arriving out of order may confuse session reconstruction. | Rely strictly on the `sequence_number` tie-breaker. Do not assume arrival order equals event order. |
+| **Storage Bloat** | Accumulating days of data may fill limited device storage. | Implement a local retention policy: purge successfully synced events immediately. Cap the local queue size (e.g., 500 events); if full, halt non-critical tracking until sync succeeds. |
+
+#### 5. Immediate Next Steps (This Week)
+1.  **Define the Schema:** Finalize the JSON structure for the event object including the six metadata fields above.
+2.  **Prototype the Queue:** Build a simple "write-local, read-on-sync" module in the chosen mobile framework to verify persistence across app restarts.
+3.  **Simulate Latency:** Create a test script that generates events with backdated `occurred_at` times to verify your analytics pipeline sorts them correctly upon ingestion.
+
+*Note: Do not instrument "pageviews" or vanity metrics; focus strictly on core farming actions (e.g., "log_planting", "record_harvest") to conserve storage and bandwidth.*
+*Ensure all locally stored PII is encrypted at rest to comply with data privacy standards before the pilot launch.*

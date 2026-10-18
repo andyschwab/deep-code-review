@@ -1,0 +1,43 @@
+### Diagnosis Strategy: Checkout Completion Drop
+
+**Primary Hypothesis:** The September 1 payment gateway update introduced friction or technical failure at the authorization step, disproportionately affecting specific segments (likely mobile).
+
+**Immediate Data Cuts & Segmentation Plan**
+
+To isolate the failure point before Thursday, execute the following queries on your analytics platform. Do not invent benchmarks; compare current rates strictly against your own pre-September 1 baseline.
+
+**1. Segment by Device & OS (The Mobile Hypothesis)**
+*   **Cut:** Checkout completion rate grouped by `device_type` (Mobile vs. Desktop) and `os_version`.
+*   **Reading Rule:** If the drop is isolated to Mobile (e.g., iOS 17+ or Android 14+), the issue is likely UI rendering or native wallet integration (Apple Pay/Google Pay) breaking during the gateway swap. If the drop is uniform across all devices, the core API integration or general SSL/certificate configuration is the suspect.
+*   **Action Trigger:** If mobile-specific, prioritize a hotfix for mobile payment sheets. If uniform, roll back the gateway integration immediately.
+
+**2. Segment by Failure Type (User Abandonment vs. Technical Error)**
+*   **Cut:** Since logs are ambiguous, create a proxy metric: Ratio of `payment_page_load` to `payment_submit_click` vs. `payment_submit_click` to `order_confirmation`.
+*   **Reading Rule:**
+    *   **Scenario A:** High drop between `load` and `submit_click`. Users see the form but refuse to enter data. This indicates **trust friction** (e.g., missing security badges, confusing new UI, or saved card fields disappearing).
+    *   **Scenario B:** High drop between `submit_click` and `confirmation`. Users try to pay but vanish. This indicates **technical failure** (timeout, silent API error, or infinite loading spinner).
+*   **Action Trigger:** Scenario A requires UX copy/design fixes. Scenario B requires engineering logs inspection for HTTP 5xx/4xx errors at the gateway endpoint.
+
+**3. Segment by Payment Method & "Saved Card" Usage**
+*   **Cut:** Completion rate for `new_card_entry` vs. `saved_card_token_usage`.
+*   **Reading Rule:** Your suspicion targets saved details. If `saved_card` completion plummeted while `new_card` remains stable near the 65% baseline, the tokenization migration failed. The system cannot read old tokens against the new gateway.
+*   **Action Trigger:** Force a re-authentication flow for saved cards or revert the token mapping logic.
+
+**4. Time-Series Cohort Analysis (The "September 1" Cliff)**
+*   **Cut:** Daily checkout completion rate from August 25 to present, overlaid with the deployment timestamp.
+*   **Reading Rule:** Look for an immediate step-change on Sept 1 versus a gradual decay. An immediate step-change confirms the deployment as the root cause. A gradual decay suggests an external factor (seasonality, competitor promo) unrelated to the code change.
+*   **Action Trigger:** Immediate step-change validates the rollback hypothesis.
+
+**Required Instrumentation Gap (If data is missing)**
+If the above cuts return `UNVERIFIED` because events are not tracked:
+*   **Instrument Immediately:** Add a specific event `payment_authorization_error` with properties `error_code`, `gateway_response_time`, and `device_info`.
+*   **Stop-Gap Measure:** Until new events flow, correlate server-side gateway logs (HTTP status codes) with user session IDs to manually calculate the failure rate for the last 48 hours.
+
+**Decision Framework for Thursday Presentation**
+*   **If Mobile + Saved Cards show >30% drop:** The migration broke tokenized payments on mobile. **Call:** Roll back gateway or disable "saved card" feature temporarily.
+*   **If Uniform Drop + High Submit-to-Confirm leakage:** The gateway is timing out or rejecting valid requests. **Call:** Engage gateway support with error logs; consider fallback provider.
+*   **If Uniform Drop + High Load-to-Submit leakage:** The new UI is confusing. **Call:** A/B test the old checkout flow against the new one for 24 hours.
+
+**This Week's Step:** Run the Device/OS cut and the Saved-vs-New card cut by EOD today. If the "Saved Card" metric on Mobile is below 30%, prepare a rollback plan for the Engineering Director. If data is missing, deploy the `payment_authorization_error` event tonight to capture tomorrow's traffic.
+
+*Note: All comparisons must use your internal pre-Sept 1 baseline; do not compare against industry averages. If specific error codes are unavailable in analytics, the diagnosis remains `UNVERIFIED` until server logs are correlated.*

@@ -1,0 +1,48 @@
+### Technical Specification: Network Density Metric
+
+**Objective:** Quantify local network density to validate the hypothesis that 5+ mutual connections within a city drives a 40% engagement lift.
+
+**1. Data Requirements & Schema**
+To calculate this, the data pipeline must ingest the following events with these specific properties:
+*   `user_id` (Pseudonymous stable ID): Unique per user.
+*   `city_code` (String): Derived from user profile or IP geolocation at signup.
+*   `connection_created` (Event): Properties must include `initiator_id`, `receiver_id`, and `timestamp`.
+*   `mutual_connection_count` (Derived Attribute): Computed nightly or via stream processing.
+
+**2. The Formula**
+Do not track "total connections." Track **Local Density Score (LDS)** per user:
+$$LDS_{u} = \text{Count}(\{c \in \text{Connections}_u \mid \text{City}_c == \text{City}_u \land \text{Mutual}_c \geq 5\})$$
+*Where `Mutual_c` is the count of shared connections between user $u$ and connection $c$ within the same city.*
+
+**3. Instrumentation Rules**
+*   **Question Answered:** "Does reaching 5 mutual local connections correlate with higher retention/referral?"
+*   **Constraint:** Do not instrument "all graph traversals." Compute this aggregate only for the **Activation** funnel stage.
+*   **Status:** Until the `mutual_connection_count` property is emitted by the backend, this metric is **UNVERIFIED**. Do not estimate the 40% lift; compare users who *have* hit the threshold against those who haven't using your own historical baseline.
+
+**4. Visualization for Underserved Regions**
+*   **Axis X:** City (Kharkiv, Lviv, Kyiv, etc.).
+*   **Axis Y:** % of Active Users with $LDS_u \geq 1$.
+*   **Heatmap Overlay:** Average time-to-first-5-mutuals by city.
+*   **Actionable Signal:** Cities with high signup volume but low % of users hitting $LDS_u \geq 1$ are "underserved" and require community seeding, not just ad spend.
+
+---
+
+### Strategic Brief: CEO Targeting (Kharkiv & Lviv)
+
+**North Star Metric:** Weekly Active Users completing a "Meanful Local Exchange" (defined as a message sent to a connection with $LDS_u \geq 1$).
+*Rejection of Vanity:* Total registered users (25k) and raw connection rate (150/hr) are vanity metrics; they rise even if the product fails to deliver value.
+
+**The Strategy: Retention Before Acquisition**
+We are currently pouring acquisition into a potentially leaky bucket. The hypothesis states value unlocks at **5 mutual local connections**.
+1.  **Diagnose First:** Before spending marketing budget in Kharkiv or Lviv, query the current cohort: What % of users in these cities currently have 5+ mutual local connections?
+    *   If <10%: Marketing spend will waste money on users who cannot yet experience the "40% lift" because the network isn't dense enough.
+    *   Action: Pause broad ads. Run "Community Seeding" events (virtual or physical) specifically to interconnect early adopters in those cities until the density threshold is met.
+2.  **The Threshold:** Do not assume the 40% lift is real. Run a cohort analysis comparing retention of users who hit 5 mutuals vs. those who stopped at 4. Use your own data to confirm the cliff.
+3.  **Allocation Rule:** Allocate marketing spend only to cities where the "Time-to-5-Mutuals" is under 7 days. If a city takes 30 days to reach density, organic growth will churn before value is realized.
+
+**This Week's Steps:**
+1.  **Engineering:** Implement the `mutual_connection_count` property on the `connection_created` event. Verify output within 48 hours.
+2.  **Analytics:** Run a retrospective cohort query: "Retention rate at Day 14 for users with 0-4 mutuals vs. 5+ mutuals" for Kharkiv and Lviv specifically.
+3.  **Decision:** If the lift is <20% (not 40%), halt the proposed marketing push and redesign the onboarding flow to suggest local connections explicitly.
+
+*Note: The 40% figure provided is a hypothesis, not a benchmark. It must be validated against your internal baseline before being treated as fact. No external industry averages are used here.*

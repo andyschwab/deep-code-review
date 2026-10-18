@@ -1,0 +1,43 @@
+# Diagnostic Plan: PayFast Checkout Data Discrepancy
+
+**Objective:** Distinguish between revenue loss (abandonment) and visibility loss (tracking failure) to prioritize engineering resources.
+
+### Phase 1: Quantify the "Silent Success" Window
+Isolate transactions that exist in the backend but lack a corresponding frontend event.
+1.  **Extract Data:** Pull all backend transaction logs from Oct 5–Present with status `SUCCESS` or `COMPLETED`.
+2.  **Filter:** Isolate records where the `confirmation_page_load` timestamp exists but no `checkout_event` was recorded within a ±5 second window.
+3.  **Segment by Failure Mode:** Cross-reference these "silent successes" against server logs for:
+    *   **Client-side errors:** 4xx/5xx errors on the tracking endpoint occurring at the exact moment of transaction completion.
+    *   **Network timeouts:** Requests that initiated but never received a 200 OK from the analytics collector.
+    *   **Browser/Device:** Cluster by browser version (specifically Safari ITP updates) and ad-blocker usage patterns if available via user agent strings.
+
+**Deliverable Metric:** *Visibility Loss Rate* = (Silent Successes / Total Backend Successes) × 100.
+
+### Phase 2: Validate True Abandonment
+Confirm if the remaining gap represents actual dropped transactions.
+1.  **Analyze Drop-off Point:** For backend records marked `FAILED` or `PENDING` near the checkout click, identify the specific step where the session terminated.
+2.  **Payment Gateway Reconciliation:** Compare PayFast's internal "Click Pay" logs against the Gateway's "Authorization Received" logs.
+    *   If Gateway shows authorization but PayFast backend shows no completion: **System Failure** (Revenue at risk).
+    *   If Gateway shows no authorization: **True Abandonment** (User behavior).
+3.  **Session Replay Sampling:** Randomly sample 50 sessions from the discrepancy window where the backend has no record. Manually review replays to confirm if the user navigated away or encountered a crash.
+
+**Deliverable Metric:** *True Revenue Leakage* = Value of transactions authorized by Gateway but not finalized in PayFast backend.
+
+### Phase 3: Financial Impact Assessment
+Calculate the monetary value of the discrepancy to guide prioritization.
+*   **Scenario A (Tracking Only):** If >80% of the 12% gap are "Silent Successes," the financial impact is **$0 lost revenue**, but **100% distorted LTV/CAC metrics**. Priority: Medium (Data integrity fix).
+*   **Scenario B (System Failure):** If a significant portion represents authorized but unrecorded transactions, calculate: *Average Order Value × Count of Missing Authorizations*. Priority: Critical (Revenue rescue).
+*   **Scenario C (Abandonment):** If the gap is true abandonment, the cost is the missed conversion rate improvement. Priority: High (UX/Product fix).
+
+### Recommended Immediate Actions
+1.  **Implement "Beacon" Fallback:** Deploy `navigator.sendBeacon()` for the checkout event to ensure data transmission persists even if the page unloads immediately after payment.
+2.  **Server-Side Tracking Mirror:** Configure the backend to fire a server-side analytics event upon successful database commit, decoupling measurement from client-side browser stability.
+3.  **Daily Reconciliation Job:** Create an automated script that compares backend vs. frontend counts daily and alerts if the variance exceeds 2%.
+
+**Report Structure for CPO/SRE:**
+*   **Executive Summary:** One sentence stating if revenue is lost or just invisible.
+*   **The Numbers:** Breakdown of the 12% into "Tracking Failure," "System Error," and "True Abandonment."
+*   **Financial Exposure:** Dollar value of each category.
+*   **Fix Recommendation:** Specific technical ticket (e.g., "Implement Server-Side Tagging") with estimated effort vs. risk reduction.
+
+This approach moves the conversation from "we have a bug" to "we have a $X visibility problem requiring Y fix."

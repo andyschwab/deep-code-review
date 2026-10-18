@@ -1,0 +1,20 @@
+### Strategy for Data Correction and Future Prevention
+
+**1. Immediate Historical Cleanup (Do not apply a fixed factor)**
+Dividing total counts by a fixed factor (e.g., 1.3) is unsafe because it assumes uniform duplication across all segments, masking the very latency and ad-blocker issues you identified. Instead, execute a deterministic deduplication on the raw event stream before aggregation:
+*   **Identify Keys:** Group events by `user_id` (or session ID if logged out), `order_id`, and a tight time window (e.g., ±2 seconds).
+*   **Merge Logic:** For any group containing multiple "purchase" events, retain only the record with the earliest timestamp (the true conversion moment) and discard subsequent duplicates.
+*   **Segmented Audit:** Before deleting, calculate the duplication rate *per segment* (device type, browser, geography). This quantifies where network latency or ad blockers cause single-script failures versus double-fires. Report these variances to the VP; a high single-fire rate in a specific segment indicates a broken tracking path, not just noise.
+*   **Restate Metrics:** Re-run the monthly report using this cleaned dataset. Explicitly label these figures as "Deduplicated Actuals" to distinguish them from the inflated dashboard numbers currently visible to stakeholders.
+
+**2. Prevent Future Duplicates (Instrumentation Fix)**
+The root cause is architectural, not analytical. The tracking system must be patched to prevent dual firing:
+*   **Single Source of Truth:** Refactor the confirmation page to trigger the analytics event from a single, server-side callback upon successful payment gateway confirmation, rather than relying on client-side scripts that can fire twice or be blocked.
+*   **Idempotency Token:** If client-side firing remains necessary, generate a unique `event_id` (UUID) for each transaction on the server and pass it to the frontend. Configure the analytics tool to ignore any incoming event with a duplicate `event_id` within a 24-hour window.
+*   **Validation:** Deploy a "shadow mode" test where new events are logged but not counted, verifying that exactly one event fires per transaction across different network conditions before re-enabling live counting.
+
+**3. Reporting Protocol for Friday**
+Present the finance team with two numbers: the "Raw Inflated Count" (6,500) and the "Verified Deduplicated Count" (approx. 5,000+/- variance). Include a brief appendix showing the duplication rate by segment to prove that the correction did not hide partial failures. This satisfies the need for reliable revenue attribution while maintaining visibility into technical debt.
+
+**Note:** Do not adjust historical data in the live dashboard if it lacks an audit trail; instead, provide a corrected static report for the monthly close and patch the pipeline for future data.
+**Note:** Ensure the `order_id` used for merging is immutable and generated before the user reaches the confirmation page to avoid matching errors.

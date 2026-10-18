@@ -1,0 +1,36 @@
+**Prioritized Event Taxonomy for HealthGuard Audit (Data Minimization Compliance)**
+
+To satisfy Ohio regulatory standards and the November 15 audit while adhering to data minimization, replace the current 400+ event logs with this strict, question-driven taxonomy. This list captures only events where a user interacts with Protected Health Information (PHI) or alters system security posture. All other interactions are excluded to reduce liability and storage costs.
+
+**Tier 1: Mandatory Capture (PHI Access & Movement)**
+*These events answer the core compliance question: "Who accessed or moved patient data?"*
+1.  **`record_viewed`**: Triggered only when a patient record containing PHI is successfully rendered to the user.
+    *   *Properties:* `user_id` (pseudonymous), `record_id`, `timestamp`, `access_reason_code` (if applicable).
+    *   *Exclusion Justification:* Does not capture partial loads or background prefetching where no PHI is displayed.
+2.  **`record_exported`**: Triggered on any download, print, or external transmission of patient data.
+    *   *Properties:* `user_id`, `record_id`, `export_format`, `destination_type` (e.g., PDF, CSV, Email).
+    *   *Exclusion Justification:* Critical for tracking data egress; distinct from viewing.
+3.  **`record_modified`**: Triggered only on successful write operations to PHI fields.
+    *   *Properties:* `user_id`, `record_id`, `field_changed` (category only, not old/new values unless required by specific state law for audit trails), `timestamp`.
+
+**Tier 2: Security Posture & Anomaly Detection**
+*These events answer: "Did an unauthorized attempt occur or did privileges change?"*
+4.  **`access_denied`**: Triggered when a user attempts an action blocked by role-based access control (RBAC).
+    *   *Properties:* `user_id`, `attempted_action`, `resource_id`, `denial_reason`.
+    *   *Exclusion Justification:* Replaces the need to log "hover" states for security; actual blocked attempts are the only valid signal of probing behavior.
+5.  **`privilege_escalation_request`**: Triggered when a user requests higher access levels.
+    *   *Properties:* `user_id`, `requested_role`, `approver_id` (if auto-approved or pending).
+6.  **`session_anomaly_flag`**: Triggered by backend logic (not UI events) detecting impossible travel, rapid-fire requests, or off-hours access patterns.
+    *   *Properties:* `session_id`, `anomaly_type`, `risk_score`.
+
+**Explicitly Excluded Events (Justification for Auditors)**
+The following previously tracked events are **removed** to enforce data minimization. They do not constitute PHI access nor provide actionable security signals compared to Tier 2:
+*   **UI Interaction States (Hovers, Menu Expansions, Clicks on Empty Space):** These generate high-volume noise without proving data access. A hover does not equal a breach. Security anomalies are better detected via `access_denied` spikes or backend rate limiting, not UI telemetry.
+*   **Form Field Focus/Blur:** Tracking which field a user clicked before saving adds no value over the final `record_modified` event and increases the surface area for reconstructing user behavior beyond necessity.
+*   **Performance/Timing Metrics per Action:** While useful for engineering, these are operational metrics, not compliance records. They should reside in system observability tools (logs/traces) separate from the user-behavior audit trail to maintain separation of concerns.
+
+**Implementation Note for Audit Defense**
+This taxonomy reduces the event footprint by >95% while retaining 100% of the data required to reconstruct a "who, what, when" audit trail for PHI. By documenting that excluded events (like hovers) cannot prove data access, we demonstrate active data minimization rather than passive data hoarding.
+
+*Note: Ensure `user_id` in logs is pseudonymous and linked to real identities only via a secure, separate mapping table accessible solely to the Compliance Officer.*
+*Route specific retention periods and PII handling rules to your privacy-compliance documentation; this list defines *what* to capture, not *how long* to keep it.*

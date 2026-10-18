@@ -1,0 +1,46 @@
+**Event Taxonomy Specification: Virtual Backgrounds (MeetSync)**
+**Audience:** Jessica, Backend Team Lead
+**Goal:** Validate if background customization increases meeting duration and detect performance-induced abandonment.
+
+**1. Core Value Events (Answer: Does this drive engagement?)**
+*   `background_applied`
+    *   **Question:** Did the user successfully activate a virtual background?
+    *   **Properties:** `user_id` (pseudonymous), `session_id`, `background_type` (blur, image, video), `is_custom_upload` (boolean), `meeting_id`.
+    *   **Action:** If rate < 30% of DAU, investigate discovery friction.
+*   `meeting_duration_extended` (Derived Metric)
+    *   **Question:** Do meetings with active backgrounds last longer than those without?
+    *   **Logic:** Compare average `meeting_end_time` - `meeting_start_time` for sessions with `background_applied` vs. control group.
+    *   **Action:** If no lift in duration, the feature is cosmetic only; reprioritize roadmap.
+
+**2. Performance & Abandonment Events (Answer: Is rendering killing retention?)**
+*   `background_render_latency`
+    *   **Question:** Is slow rendering causing immediate drop-off?
+    *   **Properties:** `latency_ms`, `device_model`, `cpu_usage_percent`, `background_type`.
+    *   **Action:** If P95 latency > 2s correlates with abandonment, optimize engine before scaling.
+*   `background_disabled_premature`
+    *   **Question:** Did the user turn the feature off within the first 2 minutes?
+    *   **Properties:** `time_since_activation_seconds`, `reason_code` (user_selected_off, system_error, performance_warning).
+    *   **Action:** If >15% disable within 120s, trigger alert for performance regression or UX confusion.
+
+**3. Interaction Depth Events (Answer: Are users exploring or stuck?)**
+*   `background_selector_opened`
+    *   **Question:** Are users finding the feature?
+    *   **Properties:** `entry_point` (settings_menu, quick_toggle).
+    *   **Action:** Low open rate indicates poor visibility; update UI cues.
+*   `background_selection_time`
+    *   **Question:** Is the selection process too cumbersome?
+    *   **Properties:** `duration_seconds`, `items_scrolled`, `final_selection_made` (boolean).
+    *   **Action:** High duration with `final_selection_made=false` indicates library fatigue or search failure.
+
+**Implementation Constraints & Seam**
+*   **Identifier Seam:** Use a stable, pseudonymous `user_id` for cohort analysis across sessions. Do not log raw PII or IP addresses in these events; route identity mapping to the privacy-compliance service.
+*   **Instrumentation Rule:** Do not track every mouse movement in the selector. Only log the aggregate `selection_time` and final state to avoid noise.
+*   **Baseline:** The "30% uptake" is a target, not a benchmark. Success is measured against MeetSync's own prior week's engagement data.
+
+**This Week's Step**
+1.  Implement `background_applied` and `background_disabled_premature` with `latency_ms` properties by August 5.
+2.  Define the SQL query to compare `meeting_duration` between users with `background_type != none` and the control group.
+3.  Set an alert trigger: If `background_disabled_premature` > 20% for `background_type=video`, pause video background promotion automatically.
+
+*Note: If latency data is missing from the client SDK, mark metrics as UNVERIFIED until the pipeline is updated.*
+*Do not instrument "time spent selecting" per item; aggregate at the session level to reduce cardinality.*

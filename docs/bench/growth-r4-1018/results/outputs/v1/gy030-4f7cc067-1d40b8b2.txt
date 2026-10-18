@@ -1,0 +1,36 @@
+**Referral Quality Audit & Decision Framework for PayPeer**
+
+**North Star Metric:** Weekly Active Transactors (users completing ≥1 successful P2P transfer in the last 7 days).
+*Rejects vanity metrics like "total signups" or "invites sent," which rise regardless of value.*
+
+**Input Metrics Moving the North Star:**
+1.  **Referral Activation Rate:** % of referred users completing a first successful transaction within 14 days of signup.
+2.  **Referrer-Referee Linkage:** % of referred users who transact *specifically* with their referrer (validates the "friend" hypothesis vs. bonus farming).
+3.  **Time-to-First-Transaction (TFT) Cohort:** Median days from signup to first transfer, segmented by Brazil vs. Mexico.
+
+**Event Taxonomy (Instrument Only These):**
+*   `referral_invite_sent` (Properties: `channel`, `referrer_id`) → *Answers: Where does friction start?*
+*   `referral_signup_complete` (Properties: `referee_id`, `referrer_id`, `region`) → *Answers: Conversion from invite to account.*
+*   `first_successful_transfer` (Properties: `sender_id`, `receiver_id`, `amount`, `days_since_signup`) → *Answers: The core value event and TFT lag.*
+*   `referral_bonus_claimed` (Properties: `user_id`, `trigger_event`) → *Answers: Are bonuses being claimed without value exchange?*
+
+**AARRR Diagnosis (Bottom-Up):**
+Do not scale the budget until **Retention** and **Activation** are verified.
+1.  **Retention/Activation Check:** Filter the 25,000 new users by those who completed `first_successful_transfer`. If the rate is <20% (hypothetical baseline), scaling acquisition burns cash on dormant accounts.
+2.  **Quality Verification:** Cross-reference `sender_id` and `receiver_id` on the first transaction.
+    *   *Scenario A:* High overlap (Referrer sends to Referee). Your 30% LTV assumption holds; the loop is healthy.
+    *   *Scenario B:* Low overlap (Referee transacts with strangers or not at all). Users are farming bonuses; the 30% LTV assumption is `UNVERIFIED` and likely false.
+3.  **Friction Identification:** Calculate the drop-off between `referral_signup_complete` and `first_successful_transfer` by region. If Brazil has a 3-day median TFT and Mexico has 10 days, the friction is regional (e.g., local payment rail integration), not universal.
+
+**Experiment Rigor & Budget Decision:**
+Do not commit the full $50,000 based on the current unverified data. The claim of "30% higher LTV" is `UNVERIFIED` without linking the referrer to the referee's transaction history.
+*   **Pre-committed Test:** Run a controlled cohort analysis on the existing 25,000 users. Segment by "Linked Transaction" vs. "Unlinked/No Transaction."
+*   **Guardrail Metric:** Cost Per *Active* Transactor (CPAT). If CPAT for referrals exceeds 1.5x the CPAT of organic users, the incentive is inefficient.
+*   **Stop Tripwire:** If <40% of referred users complete a transaction with their referrer within 21 days, halt budget scaling immediately.
+
+**This Week's Steps for Sofia:**
+1.  **Query:** Run a SQL join on `referral_signup_complete` and `first_successful_transfer` to calculate the % of referred users who transacted with their referrer within 14 days, split by Brazil/Mexico.
+2.  **Instrument:** If `first_successful_transfer` lacks `receiver_id`, patch the event schema today; without it, referral quality is `UNVERIFIED`.
+3.  **Decision Rule:** If the "Linked Transaction" rate is >50% and CPAT is <$2.50, approve a 20% budget increase (not full $50k) for next month. If <50%, freeze scaling and fix the onboarding flow for the lagging region.
+
+*Note: All benchmarks above are derived from your internal baseline logic; no external market averages were applied. Real figures must be pulled from your analytics warehouse.*

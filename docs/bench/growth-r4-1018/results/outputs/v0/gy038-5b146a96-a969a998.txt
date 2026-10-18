@@ -1,0 +1,50 @@
+**Proposal: Dual-Horizon Fraud Model Monitoring Dashboard**
+
+**Objective:** Validate the new fraud model's safety against the current baseline (1.5% false positive rate) by balancing immediate operational feedback with delayed ground-truth verification, enabling a go/no-go decision by next Friday.
+
+**1. The North Star Metric**
+*   **Net Fraud Loss per Million Transactions:** This combines the cost of undetected fraud (false negatives) and the operational/reputational cost of blocking good users (false positives). It rises only when the model creates net value. Do not track "total blocks" or "review volume" as primary success metrics; these are vanity metrics that can rise while losses increase.
+
+**2. Event Taxonomy & Data Points**
+Instrument only events that answer specific validation questions. Do not instrument "everything."
+
+*   **Event A: `model_decision_emitted`**
+    *   *Question:* What is the immediate distribution of risk scores?
+    *   *Properties:* `transaction_id`, `risk_score` (0-100), `decision` (allow/block/review), `model_version`, `timestamp`.
+    *   *Usage:* Real-time drift detection. If the new model blocks 20% more transactions than the old one at the same threshold, alert immediately.
+*   **Event B: `manual_review_outcome`**
+    *   *Question:* Are we correctly identifying errors in the "grey zone" (reviews)?
+    *   *Properties:* `transaction_id`, `reviewer_id`, `outcome` (confirmed_fraud/false_alarm), `time_to_resolution`.
+    *   *Usage:* Proxy for False Positives. Your assumption is correct: this is the fastest signal for model errors. Track the **False Positive Rate within the Review Queue** daily.
+*   **Event C: `chargeback_received`**
+    *   *Question:* What fraud slipped through?
+    *   *Properties:* `transaction_id`, `chargeback_reason_code`, `transaction_date`, `discovery_date`.
+    *   *Usage:* Ground truth for False Negatives. This links back to the original `model_decision_emitted` to calculate the lagged error rate.
+
+**3. The Dual-Horizon Monitoring Strategy**
+To address the latency gap between transaction and chargeback, split the dashboard into two timeframes:
+
+*   **Horizon A: Immediate (T+0 to T+48 hours) – Operational Safety**
+    *   *Metric:* **Review Rate & Manual False Positive Rate.**
+    *   *Logic:* Since chargebacks take weeks, use manual reviews as the leading indicator. If the new model sends 50% more transactions to review, but the *confirmed fraud rate* within those reviews drops, the model is noisy, not smarter.
+    *   *Tripwire:* If the manual review volume increases by >10% without a proportional drop in confirmed fraud within the queue, halt deployment. This prevents operational collapse while waiting for chargeback data.
+*   **Horizon B: Lagged (T+7 to T+45 days) – True Accuracy**
+    *   *Metric:* **Chargeback Rate by Cohort.**
+    *   *Logic:* Group transactions by `deployment_date`. Calculate the cumulative chargeback rate for each cohort at Day 7, Day 14, and Day 30.
+    *   *Projection:* Use the ratio of *Day 7 chargebacks* to *Total Expected Chargebacks* (derived from historical curves) to create a "Nowcast." Do not wait for the full 45-day cycle to make a decision; extrapolate the early curve against the old model's historical curve.
+
+**4. Experiment Rigor for Deployment**
+*   **Design:** Run a **Champion/Challenger** split (e.g., 90% old model, 10% new model) rather than a full switch. This isolates the new model's performance without risking the entire 2M daily volume.
+*   **Guardrail:** Set a hard limit on the **False Positive Rate**. If the new model's FP rate exceeds 1.65% (10% buffer over baseline) in the first 24 hours of the 10% split, auto-revert.
+*   **Decision Rule:** By next Friday, you will not have full chargeback data. The sign-off decision must rely on:
+    1.  Stability of the Review Queue (Horizon A).
+    2.  The *trajectory* of the Day 3-5 chargeback signal compared to the historical baseline.
+    3.  If the Day 3 signal is worse than baseline, the model is unsafe. Do not wait for "statistical significance" on chargebacks if the early trend is negative.
+
+**This Week's Steps:**
+1.  **Define the Cohort Query:** Write the SQL/logic to join `model_decision_emitted` with `chargeback_received` using `transaction_id`, grouping by `deployment_date`.
+2.  **Set the Nowcast Baseline:** Calculate the historical ratio of "Chargebacks received within 5 days" to "Total Chargebacks" for the old model to establish your early warning threshold.
+3.  **Configure the Guardrail Alert:** Set an automated alert to trigger if the `manual_review_outcome` false positive rate exceeds 1.65% for any 4-hour window during the initial 10% rollout.
+
+*Note: Ensure `transaction_id` used for joining cohorts is pseudonymous and stable across sessions; route any PII handling for reviewer data to your privacy compliance protocol.*
+*Do not estimate the "true" false negative rate without the chargeback join; mark any pre-join metric as UNVERIFIED regarding total fraud capture.*

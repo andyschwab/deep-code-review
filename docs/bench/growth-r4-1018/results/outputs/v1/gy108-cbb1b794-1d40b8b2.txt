@@ -1,0 +1,33 @@
+### Tracking Schema: HighlandRoots "Smart Path" Investigation
+
+To reconstruct the user's research narrative and identify algorithmic dead-ends without excessive noise, instrument only the following four events. Each event answers a specific question about the "smart path" efficacy.
+
+**1. `smart_path_suggested`**
+*   **Question Answered:** What options did the algorithm present, and was the suggestion contextually relevant to the current tree depth?
+*   **Properties:** `session_id`, `user_pseudonymous_id`, `current_tree_depth` (integer), `suggestion_type` (e.g., "census_record", "birth_certificate"), `suggestion_confidence_score` (algorithm output), `timestamp`.
+*   **Why:** Establishes the denominator for conversion rates. Without this, you cannot measure failure rates, only raw clicks.
+
+**2. `smart_path_interaction`**
+*   **Question Answered:** Did the user engage with the suggestion, and did they follow the logical flow (sequence) required to validate your "two paths" hypothesis?
+*   **Properties:** `session_id`, `user_pseudonymous_id`, `suggestion_id` (links to event #1), `interaction_type` ("click", "hover_only", "dismissed"), `sequence_order` (integer: 1st suggestion clicked, 2nd, etc.), `time_to_interact_ms`.
+*   **Why:** Captures the *sequence* you are currently missing. The `sequence_order` property allows you to verify if users hitting "2+ interactions" actually correlate with subscriptions, or if they are just clicking randomly.
+
+**3. `research_dead_end`**
+*   **Question Answered:** Where do users abandon the investigation after a suggestion fails to yield value?
+*   **Properties:** `session_id`, `user_pseudonymous_id`, `last_suggestion_id`, `abandonment_context` ("no_results_found", "irrelevant_record", "paywall_hit", "timeout_no_action"), `tree_depth_at_exit`.
+*   **Why:** Explicitly marks failure points. Define a "dead-end" logically: a `smart_path_suggested` event followed by 30 seconds of inactivity OR a session end without a `smart_path_interaction`. Do not log every mouse move; log the *absence* of expected progress.
+
+**4. `subscription_converted`**
+*   **Question Answered:** Does the "two paths" behavior actually drive revenue, or is it a vanity metric?
+*   **Properties:** `session_id`, `user_pseudonymous_id`, `total_smart_paths_clicked_in_session` (integer), `subscription_tier`, `mrr_value`.
+*   **Why:** Validates your core assumption. You will query this against `smart_path_interaction` to see if the "2+ clicks" cohort truly has a higher conversion rate than the "0-1 clicks" cohort.
+
+**Implementation Constraints for the Lead Developer:**
+*   **Identifier Seam:** Use a stable `user_pseudonymous_id` to track sequences across sessions. Do not use high-cardinality raw IPs or PII.
+*   **Noise Control:** Do not log "page_view" or generic "click" events for this feature. If an event does not map to one of the four questions above, do not instrument it.
+*   **Data Retention:** Raw event logs containing search terms must be purged or hashed after 30 days to comply with privacy standards; aggregated metrics (e.g., "conversion rate by suggestion type") can be retained indefinitely.
+
+**Immediate Analysis Plan for Head of Content:**
+Once live, run a cohort analysis comparing `subscription_converted` rates between users with `total_smart_paths_clicked_in_session` ≥ 2 versus those with < 2. If the lift is not statistically significant after 2,000 converted sessions, the "two paths" assumption is false, and the algorithm should prioritize single high-confidence suggestions instead.
+
+*Note: All baseline conversion rates must be calculated from your existing analytics data; no external benchmarks are applied here. Ensure the `user_pseudonymous_id` generation aligns with your privacy compliance domain before deployment.*

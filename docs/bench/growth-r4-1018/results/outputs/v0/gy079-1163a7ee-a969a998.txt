@@ -1,0 +1,44 @@
+# Conceptual Measurement Design: The Compliance Journey Map
+
+For SwissComply's pilot with five major banks, replace the traditional linear funnel with a **State-Based Journey Map**. This approach treats compliance not as a straight line, but as a series of states a report moves through, allowing for infinite loops while still measuring progress.
+
+### 1. The North Star Metric
+**Metric:** "Weekly Active Reports Finalized."
+**Why:** In B2B compliance, a user logging in is vanity; a document reaching "Finalized" status is real value. This metric rises only when the core job is done.
+**Input Metrics:** Average cycle time per report, loop frequency (revisions per report), and stage completion rate.
+
+### 2. Event Taxonomy: States vs. Actions
+To handle non-linear workflows without data noise, separate events into two distinct categories. Do not instrument every click; instrument only state changes and critical actions.
+
+**A. State Transition Events (The Backbone)**
+These define the lifecycle of a compliance report. Every report has a unique, pseudonymous ID to track it across sessions and users.
+*   `report_created` (Properties: bank_id, report_type)
+*   `report_stage_changed` (Properties: `from_stage`, `to_stage`, timestamp)
+    *   *Stages:* Draft → Data Collection → Risk Assessment → Review → Approved → Finalized.
+*   `report_finalized` (Properties: total_duration, revision_count)
+
+**B. Loop & Friction Events (The Insight)**
+These capture the "iterative loops" you described. They answer specific questions about usability and bottlenecks.
+*   `stage_revisited` (Properties: `stage_name`, `reason_code` if available)
+    *   *Question Answered:* How often do users have to go back to "Risk Assessment" after "Review"? High frequency here indicates unclear requirements in the earlier stage.
+*   `action_failed_retry` (Properties: `action_type`, `error_category`)
+    *   *Question Answered:* Are users struggling with document uploads or specific risk calculations?
+*   `audit_log_accessed` (Properties: `user_role`, `document_id`)
+    *   *Question Answered:* Satisfies the CCO's need for audit visibility without cluttering product analytics.
+
+### 3. Reading the Data: The Loop-Adjusted Funnel
+Do not read this as "Step 1 → Step 2 → Step 3." Instead, analyze it as:
+1.  **Retention of State:** Once a report reaches "Risk Assessment," does it eventually move to "Review," or does it stall?
+2.  **Loop Density:** Calculate the average number of `stage_revisited` events per finalized report. A high density in "Data Collection" suggests the upload interface is confusing or the requirements are ambiguous.
+3.  **Time-in-Stage:** Measure the duration between entering and leaving a stage. Outliers indicate friction points.
+
+### 4. Privacy and Audit Seam
+*   **Identifier Strategy:** Use a stable, pseudonymous `report_id` linked to a hashed `user_id`. This allows you to follow a user's journey across sessions for cohort analysis without exposing PII.
+*   **Compliance Routing:** Raw audit logs required by the CCO must be routed to your secure compliance storage (governed by privacy policies), not the product analytics dashboard. The product team only sees aggregated counts and trends.
+
+### This Week's Steps
+1.  **Define the State Machine:** Map the exact 5-7 states a report must traverse and the valid transitions between them.
+2.  **Draft the Event Schema:** Write down the exact properties for `report_stage_changed` and `stage_revisited` to ensure they answer the "why" behind the loops.
+3.  **Validate with the CCO:** Confirm that the aggregated `audit_log_accessed` metric satisfies their audit trail requirements before writing code.
+
+*Note: No benchmark values are asserted here; success will be measured against your own pilot baseline starting November 15. Ensure all user IDs are pseudonymized before ingestion.*

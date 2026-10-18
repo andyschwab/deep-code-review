@@ -1,0 +1,49 @@
+# Diagnostic Plan: MFA Setup Drop-Off (EnterpriseShield)
+
+**Objective:** Distinguish between "device access friction" (user behavior) and "SMS delivery failure" (technical infrastructure) to inform the April 25th executive review.
+
+### 1. Instrumentation & Data Collection (Deploy Immediately)
+Do not instrument "everything." Capture only events that answer the specific diagnostic questions below.
+
+| Event Name | Question Answered | Required Properties |
+| :--- | :--- | :--- |
+| `mfa_setup_started` | Did the user attempt the flow? | `user_id` (pseudonymous), `org_id`, `geo_region`, `timestamp` |
+| `mfa_sms_sent` | Did the system dispatch the code? | `delivery_provider`, `geo_region`, `attempt_number` |
+| `mfa_sms_delivery_status` | **Critical:** Did the carrier accept it? | `status` (delivered/failed/timeout), `error_code`, `latency_ms` |
+| `mfa_code_entry_attempt` | Did the user try to input a code? | `time_since_sent_sec`, `attempt_number` |
+| `mfa_setup_completed` | Did they succeed? | `total_duration_sec`, `method_used` |
+| `mfa_setup_abandoned` | Where did they quit? | `last_step_seen`, `time_on_step_sec`, `exit_reason` (if detectable, e.g., tab close) |
+
+**Identifier Seam:** Ensure `user_id` persists across sessions to track return attempts after the initial 48-hour window. Keep this pseudonymous; route PII handling to privacy compliance protocols.
+
+### 2. Diagnostic Logic (How to Read the Data)
+Analyze the funnel bottom-up (Retention/Completion first) to isolate the leak.
+
+*   **Hypothesis A: Technical Delivery Failure (SMS Issues)**
+    *   **Signal:** High volume of `mfa_sms_delivery_status` = `failed` or `timeout` specifically in the 20% of regions with known spotty coverage.
+    *   **Confirmation:** Users in these regions show `mfa_setup_started` but zero `mfa_code_entry_attempt` events, or multiple `mfa_sms_sent` events followed by `mfa_setup_abandoned` at the "Enter Code" step.
+    *   **Action:** If confirmed, the bottleneck is infrastructure. Switch providers for affected regions or enable email/App-based fallbacks immediately.
+
+*   **Hypothesis B: Device Access Friction (Policy/Behavior Issues)**
+    *   **Signal:** `mfa_sms_delivery_status` = `delivered` is high (>95%), but `mfa_code_entry_attempt` is low or delayed.
+    *   **Confirmation:** Look at `time_since_sent_sec`. If users return to enter codes 4–8 hours after `mfa_setup_started` (after work hours) or on weekends, this confirms they lack device access during the workday.
+    *   **Action:** If confirmed, the bottleneck is policy timing. Recommend a grace period, "remember this device" extensions, or allowing setup during non-work hours without marking accounts as non-compliant.
+
+### 3. Immediate Qualitative Loop
+Since you have no data on device availability yet, deploy a targeted intercept survey **only** for users who abandon at the "Enter Code" step.
+*   **Trigger:** After 2 failed delivery attempts OR 1 hour of inactivity at the code entry screen.
+*   **Question:** "What is preventing you from completing setup now?" (Options: "No personal phone nearby," "Didn't receive code," "IT policy blocks personal devices," "Other").
+*   **Constraint:** Keep this optional to avoid adding friction.
+
+### 4. Executive Summary Preparation (For April 25th)
+Present findings using the user's own baseline, not industry benchmarks.
+*   **Metric:** Completion Rate by Region vs. Completion Rate by Time-of-Day.
+*   **Verdict:** State clearly whether the 35% drop-off is `UNVERIFIED` as a technical failure or confirmed as behavioral based on the delivery logs.
+*   **Recommendation:** One specific call: either "Switch SMS vendor for Region X" or "Extend compliance deadline to allow after-hours setup."
+
+**This Week's Steps:**
+1.  Add `mfa_sms_delivery_status` and `time_since_sent_sec` to your event taxonomy by April 17th.
+2.  Run a cohort query comparing completion rates for "High-Risk Regions" vs. "Stable Regions" to isolate the SMS variable.
+3.  If delivery rates are >98% globally, assume device friction and draft a policy grace-period proposal for the CISO.
+
+*Note: Do not assert a "good" completion rate; compare only against your pre-April 10th baseline. If SMS logs are unavailable from your provider, mark the technical hypothesis as `UNVERIFIED` until ingested.*

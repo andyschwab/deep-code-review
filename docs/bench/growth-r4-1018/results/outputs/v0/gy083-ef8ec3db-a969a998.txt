@@ -1,0 +1,35 @@
+### Event Tracking Strategy: Private Family Journals
+
+**Objective:** Measure adoption and completion of the journal upload feature while strictly adhering to the privacy charter (no PII, no content metadata, no IP addresses).
+
+#### 1. Event Taxonomy
+Instrument only the following three events. Each answers a specific question without capturing sensitive data.
+
+| Event Name | Question Answered | Properties (Strictly Non-PII) |
+| :--- | :--- | :--- |
+| `journal_upload_started` | Do users attempt the feature? | `entry_point` (e.g., "dashboard_banner", "profile_menu"), `device_type` (mobile/desktop), `browser_locale` (e.g., "en-US" only, no region) |
+| `journal_upload_failed` | Where is the friction? | `failure_stage` ("file_selection", "processing", "network_timeout"), `error_code_category` (e.g., "format_unsupported", "size_exceeded") |
+| `journal_upload_completed` | Did the user succeed? | `file_size_bucket` ("small", "medium", "large"), `duration_seconds_bucket` ("<10s", "10-60s", ">60s") |
+
+**Critical Constraints for Engineering:**
+*   **Identifier Seam:** Use a stable, pseudonymous `user_cohort_id` derived from the internal auth token. Do **not** log raw user IDs, emails, or IP addresses. This satisfies the need for cohort analysis while inverting standard ops observability rules to protect privacy.
+*   **Content Blindness:** The system must not log `file_name`, `file_hash`, or any text preview. The `file_size_bucket` is pre-calculated client-side before the upload request initiates.
+*   **Retention:** Set event data TTL (Time-To-Live) to 90 days, aligning with the privacy charter's minimization principle.
+
+#### 2. Measurement Logic (No Benchmarks)
+*   **Completion Rate:** Calculate as `(journal_upload_completed) / (journal_upload_started)`.
+*   **Drop-off Analysis:** Compare `started` vs. `failed` counts grouped by `failure_stage`. If `failure_stage` = "processing" spikes, investigate server-side latency, not user intent.
+*   **Adoption Rate:** Calculate as `(unique users with journal_upload_completed) / (total weekly active users)`.
+
+**Regarding the 5% Threshold:**
+We cannot assert that "below 5% is bad" or that "5% is a standard benchmark" because no external market data exists for this specific private feature, and fabricating a threshold violates our directive to use only user-supplied baselines.
+*   **Actionable Rule:** Treat the **first month's actual result** as the baseline. If adoption is 2%, the goal for month two is >2%, not an arbitrary 5%.
+*   **Alerting Condition:** Configure an alert only if the completion rate drops >20% week-over-week *after* the first week of stability. Do not alert on low absolute volume initially; low volume is an adoption problem, not a system failure.
+
+#### 3. This-Week Steps
+1.  **Engineering:** Implement the three events above with the specified pseudonymous ID logic; verify via a staging test that no `file_name` or IP appears in the payload.
+2.  **Legal/Privacy:** Review the `file_size_bucket` logic to confirm it cannot be reverse-engineered to identify specific documents.
+3.  **Data Lead:** Define the SQL query for the "Completion Rate" using the new events and schedule it to run automatically on November 8th (7 days post-launch) to establish the initial baseline.
+
+*Note: If the `journal_upload_failed` event shows high volume in "network_timeout", prioritize performance optimization over feature iteration.*
+*Reminder: Any request for granular user tracking must be routed to `privacy-compliance.md` before implementation.*

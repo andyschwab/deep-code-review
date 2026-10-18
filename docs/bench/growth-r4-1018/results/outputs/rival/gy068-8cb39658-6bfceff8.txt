@@ -1,0 +1,60 @@
+# PathFinder AR Beta: Instrumentation Specification
+
+**Objective:** Diagnose usability friction and validate "time to destination" against leading indicators (camera usage, path deviation).
+**Scope:** Mobile App (iOS/Android) – PathFinder AR Feature.
+**Implementation Deadline:** Code freeze end of month.
+
+## 1. Session & Context Properties (Attach to All Events)
+Every event below must include these standard properties to enable segmentation:
+- `user_id`: Anonymous beta tester ID.
+- `session_id`: Unique AR session identifier.
+- `mall_zone`: Starting zone/level (e.g., "Level 2_North").
+- `destination_category`: Target type (e.g., "fashion", "food_court", "restroom").
+- `device_model`: e.g., "iPhone 14 Pro", "Pixel 7".
+- `os_version`: e.g., "iOS 17.1".
+- `app_version`: e.g., "5.2.0-beta".
+
+## 2. Core Event Taxonomy
+
+### A. Lifecycle Events (Funnel Integrity)
+| Event Name | Trigger | Key Properties |
+| :--- | :--- | :--- |
+| `ar_session_started` | User taps "Start Navigation" | `origin_zone`, `destination_id`, `estimated_distance_meters` |
+| `ar_session_ended` | User closes AR view or arrives | `end_reason` (arrived, cancelled, timeout), `total_duration_sec`, `final_distance_to_target_meters` |
+| `ar_session_crashed` | App force closes or AR module fails | `error_code`, `last_known_action`, `memory_usage_mb` |
+
+### B. Navigation Performance (Outcome Metrics)
+| Event Name | Trigger | Key Properties |
+| :--- | :--- | :--- |
+| `destination_reached` | User within 5m of target | `time_to_destination_sec`, `path_efficiency_ratio` (actual_dist / ideal_dist), `walking_speed_avg` |
+| `navigation_abandoned` | User exits before arrival | `abandonment_point_distance_m`, `time_elapsed_sec`, `last_visible_instruction` |
+
+### C. Interaction & Confusion (Leading Indicators)
+| Event Name | Trigger | Key Properties |
+| :--- | :--- | :--- |
+| `camera_feed_active` | Camera stream rendering | `duration_sec` (batched every 10s or on stop), `lighting_quality_score` (low/med/high) |
+| `path_deviation_detected` | User moves >10m off calculated path | `deviation_distance_m`, `correction_time_sec`, `deviation_count_session` |
+| `ar_anchor_lost` | Tracking loses spatial lock | `recalibration_time_sec`, `trigger_cause` (fast_move, low_light, occlusion) |
+| `gesture_performed` | User interacts with AR overlay | `gesture_type` (tap, pinch, swipe, rotate), `target_element` (arrow, info_card, map_toggle), `success_boolean` |
+| `instruction_ignored` | User moves opposite to arrow >5s | `instruction_direction`, `user_actual_direction`, `duration_ignored_sec` |
+
+### D. Help & Friction
+| Event Name | Trigger | Key Properties |
+| :--- | :--- | :--- |
+| `help_overlay_viewed` | User opens help/legend | `overlay_type` (gesture_guide, legend, troubleshooting) |
+| `static_map_fallback` | User switches to 2D map view | `trigger_reason` (manual_toggle, auto_fallback_after_loss), `time_in_ar_before_switch_sec` |
+
+## 3. Critical Derived Metrics for Analysis
+Engineering does not need to calculate these, but must ensure raw data supports them:
+1.  **Confusion Index:** `(path_deviation_count + ar_anchor_lost_count + help_overlay_viewed_count) / session_duration_min`
+2.  **Gesture Success Rate:** `Count(gesture_performed where success=true) / Count(gesture_performed)` grouped by `gesture_type`.
+3.  **Efficiency Loss:** `time_to_destination_sec` correlated with `camera_feed_active` duration vs. `static_map_fallback` usage.
+
+## 4. Implementation Notes
+- **Naming Convention:** Use `snake_case` for all event names and properties.
+- **Timing:** All duration properties must be in milliseconds internally, reported in seconds for readability.
+- **Privacy:** Do not record video feeds or exact GPS coordinates; only relative distance and zone IDs.
+- **Validation:** Verify `ar_session_started` and `ar_session_ended` match 1:1 for closed sessions; investigate mismatches >2% as data loss.
+
+*Ensure the `gesture_performed` event includes a `latency_ms` property to detect input lag, a common AR friction point.*
+*Tag all beta users with `user_type: beta_tester` to exclude their data from future production baselines.*

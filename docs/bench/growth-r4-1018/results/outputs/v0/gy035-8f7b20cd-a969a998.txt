@@ -1,0 +1,41 @@
+**To:** Jane, Hardware Engineering Lead
+**From:** Product Analytics
+**Subject:** Firmware Logging Priorities for EcoTherm Launch (Nov 15)
+
+Per the constraint of limited device bandwidth, we will instrument only events that answer specific questions about energy value and retention. We reject "track everything" and vanity metrics like total app opens. The following taxonomy bridges physical hardware states with digital engagement to distinguish active energy saving from "set and forget" behavior.
+
+### 1. The North Star & Input Metrics
+*   **North Star:** **Weekly Active Energy Savings Events.** Defined as a user-initiated temperature adjustment that deviates from the default schedule by >2°F for >1 hour, occurring at least once per week. This proves the user is actively optimizing, not just installing.
+*   **Input Metrics:** Activation rate (device paired + first schedule set), Week-2 Retention of the core action (manual override or schedule edit), and Connectivity Uptime %.
+
+### 2. Critical Event Taxonomy (Firmware Requirements)
+Every event below must include a **stable, pseudonymous Device ID** (generated at first boot, persisted in NVM) to correlate offline physical actions with online app sessions. Do not use raw MAC addresses or PII in logs; route mapping to the secure vault per privacy compliance.
+
+| Event Name | Trigger Condition | Question Answered | Properties to Log |
+| :--- | :--- | :--- | : |
+| `device_pairing_success` | App confirms handshake with thermostat. | Did activation complete? | `firmware_version`, `wifi_signal_strength` |
+| `schedule_created` | User saves first automated routine. | Did they reach the "aha" moment? | `routine_type` (home/away/geofence), `source` (app/device) |
+| `temp_override_manual` | Physical dial turned or app slider moved >2°F. | **Core Value:** Are they actively managing comfort? | `source` (physical_dial/app), `delta_degrees`, `previous_mode` |
+| `connectivity_lost` | Wi-Fi disconnect > 5 mins. | How often do gaps occur? | `duration_seconds` (logged upon reconnect), `last_known_temp` |
+| `connectivity_restored` | Wi-Fi reconnects after loss. | Did we recover data integrity? | `queue_flushed_count` (events buffered offline), `sync_latency_ms` |
+| `energy_report_viewed` | User opens the savings summary in-app. | Do they care about the outcome? | `session_id`, `time_since_install_days` |
+
+### 3. Handling Offline Periods & Data Integrity
+Do not let offline gaps skew engagement metrics. The firmware must implement a **local circular buffer** (priority: `temp_override_manual` > `connectivity` > heartbeats).
+*   **Logic:** When connectivity is lost, queue critical state changes locally. Upon `connectivity_restored`, flush the queue with original timestamps.
+*   **Metric Correction:** Calculate engagement based on the *event timestamp*, not the *ingestion timestamp*. If a user adjusts the dial while offline, it counts toward the Day X retention cohort, not the day they reconnect.
+*   **Skew Guardrail:** If `connectivity_lost` duration exceeds 48 hours, flag the device as "Passive/Offline" in analytics rather than "Churned," preventing false negatives in retention reports.
+
+### 4. Reading the Funnel (Bottom-Up)
+Diagnose retention before acquisition.
+1.  **Retention:** Of the users who paired, what % performed a `temp_override_manual` in Week 2? If low, the hardware dial may be unintuitive or the default schedule is too rigid.
+2.  **Activation:** Of the shipped units, what % triggered `schedule_created` within 48 hours?
+3.  **Acquisition:** Only analyze shipment activation rates after confirming the core action is sticking.
+
+### This Week's Steps
+1.  **Engineering:** Implement the local circular buffer in firmware to ensure `temp_override_manual` events persist through Wi-Fi outages with original timestamps.
+2.  **Analytics:** Define the SQL query for "Weekly Active Energy Savings Events" using the `temp_override_manual` stream, excluding defaults.
+3.  **Decision Gate:** If Week-2 retention of manual overrides is <15% by Dec 15, pause marketing spend and investigate default schedule rigidity before scaling production.
+
+*Note: All metrics will be compared strictly against our internal baseline post-launch; no external industry benchmarks will be used to define success.*
+*PII and consent management for Device IDs must be finalized in the privacy compliance review before flashing production units.*

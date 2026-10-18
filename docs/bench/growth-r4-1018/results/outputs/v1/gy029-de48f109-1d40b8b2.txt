@@ -1,0 +1,35 @@
+# HealthKeep Instrumentation Strategy: Compliance-First Event Taxonomy
+
+**North Star Metric:** Weekly Active Patients Completing a "Verified Adherence Cycle" (defined as opening the app within a scheduled window and confirming an action without transmitting health specifics). This rejects vanity metrics like total app opens, which do not prove value or adherence.
+
+**Core Principle:** Measure *behavioral patterns* and *system interaction*, never *clinical content*. All events must be pseudonymous; the link between a user ID and their real identity exists only in the secure clinical database, never in the analytics pipeline.
+
+### Proposed Anonymized Event Taxonomy
+
+Every event below answers a specific product question while maintaining a zero-PII surface.
+
+| Event Name | Question Answered | Properties (Non-Sensitive Only) | Compliance Guardrail |
+| :--- | :--- | :--- | : |
+| `session_started` | Do patients return at the frequency required for monitoring? | `session_id` (UUID), `time_of_day_bucket` (e.g., "morning"), `device_os_version` | No user ID in clear text; no geolocation. |
+| `adherence_window_entered` | Are patients engaging during their prescribed times? | `window_id` (hashed), `is_scheduled_time` (boolean) | **Do not** send medication name, dosage, or condition. |
+| `action_confirmed` | Did the user complete the core value action? | `action_type` (e.g., "confirm", "snooze", "skip"), `latency_seconds` | **Do not** send what was confirmed. The event proves *completion*, not *content*. |
+| `education_viewed` | Does educational content correlate with higher retention? | `content_category_id` (hashed), `duration_seconds` | **Do not** send article titles or health topics. |
+| `alert_dismissed` | Are notifications causing fatigue or driving engagement? | `alert_trigger_source` (e.g., "system", "manual"), `time_since_last_alert` | No message body text. |
+
+### The Identifier Seam
+To track retention cohorts without violating HIPAA:
+1.  Generate a **stable, random UUID** for each patient upon first launch.
+2.  Store the mapping of `UUID <-> Real Patient ID` **only** in the secure, encrypted clinical database.
+3.  Send **only the UUID** to the analytics platform.
+4.  If a user deletes the app, the UUID is retired; do not attempt to re-identify them across devices without explicit, recorded consent.
+
+### Measurement Rules for Leadership
+*   **Dr. Arvind (Compliance):** No event property contains free-text input, medication names, diagnosis codes, or precise timestamps that could be cross-referenced to identify a specific individual's routine without the secure key. The analytics platform sees "User X did Action Y at 9 AM," but cannot know "User X is John Doe taking Lisinopril."
+*   **CTO (Architecture):** Instrumentation is limited to these five events. "Track everything" is prohibited; unused events increase attack surface and audit scope. We will validate the assumption that "app opens correlate with intake" by comparing the `action_confirmed` rate against clinical outcomes in the secure DB, not by logging the intake itself.
+
+### This-Week Steps
+1.  **Define the Hashing Salt:** Generate the cryptographic salt for `window_id` and `content_category_id` to ensure categories cannot be reverse-engineered.
+2.  **Draft the Data Flow Diagram:** Map exactly where the UUID is generated and prove the analytics pipeline receives no PII fields.
+3.  **Baseline Check:** Once live, report only the *rate* of `action_confirmed` per cohort; do not inspect individual user trails unless a bug is suspected.
+
+*Note: Any request to add properties like "medication_type" or "symptom_score" must be rejected as `UNVERIFIED` for safety until a privacy impact assessment explicitly approves the new schema.*

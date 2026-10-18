@@ -1,0 +1,56 @@
+# StarDrift Leaderboard Data Strategy & Instrumentation Plan
+
+## Critical Data Points for Integrity
+To ensure fair rankings and prevent double-counting across console, mobile, and PC, every score submission event must include the following immutable properties:
+
+| Property | Type | Purpose |
+|----------|------|---------|
+| `user_id` | String | Persistent account identifier (primary key). |
+| `session_id` | UUID | Unique match instance; regenerates on every lobby join. |
+| `device_id` | String | Hardware fingerprint to detect multi-device anomalies. |
+| `match_start_ts` | Unix Timestamp | Server-authoritative start time; prevents retroactive score injection. |
+| `match_end_ts` | Unix Timestamp | Server-authoritative end time; defines the valid submission window. |
+| `score_value` | Integer | The raw score achieved. |
+| `score_signature` | Hash | Cryptographic hash of (session_id + score_value + salt) to prevent tampering. |
+| `connectivity_status` | Enum | [`stable`, `degraded`, `reconnected`] to flag potential latency exploits. |
+| `platform` | Enum | [`pc`, `console`, `mobile`] for segmentation and anti-cheat heuristics. |
+
+## Handling Edge Cases: Connectivity Drops
+Your assumption that a unique `session_id` tied to a user account is sufficient is **incorrect** for handling network drops. It creates a race condition where a disconnected client might submit a stale score after reconnecting, or submit twice if the initial acknowledgment was lost.
+
+**Required Logic:**
+1.  **Server-Authoritative Validation:** The server must reject any score submission where `current_server_time` > `match_end_ts` + `grace_period` (e.g., 30 seconds).
+2.  **Idempotency Keys:** Clients must generate a unique `submission_token` per score attempt. If the server receives a duplicate token, it returns the original acknowledgment without re-processing the score.
+3.  **State Reconciliation:** If a drop occurs mid-match, the client must request the current authoritative game state from the server upon reconnection before resuming. Do not allow the client to "guess" the state and submit a final score based on local calculation alone.
+
+## Gaps in Current Logging Strategy
+The following gaps pose high risks for disputed rankings and must be addressed before the beta stress test:
+
+1.  **Missing Heartbeat Events:** Without periodic `match_heartbeat` events (every 15–30s), you cannot distinguish between a player who disconnected at 90% progress versus one who quit at 10% but claims a full match score.
+2.  **Lack of Client-Side Integrity Checks:** Logging only the final score allows easy manipulation. You must log key milestone events (e.g., `objective_completed`, `powerup_acquired`) to reconstruct the match trajectory if a score looks anomalous.
+3.  **No "Late Arrival" Buffer:** If a player switches devices mid-match, the new device must inherit the `session_id` and `match_start_ts` exactly. If these drift even by milliseconds due to local clock reliance, the server may treat it as a new session or reject the score. All timestamps must be synchronized to server time, not device time.
+4.  **Absence of Dispute Metadata:** Community Management cannot resolve tickets without context. Every score event must include a `replay_hash` or link to a server-side replay file to verify disputed rankings.
+
+## Recommended Event Schema Structure
+```json
+{
+  "event_name": "match_score_submitted",
+  "user_id": "usr_12345",
+  "session_id": "sess_abcde-67890",
+  "submission_token": "tok_xyz-98765",
+  "timestamp_server": 1718467200,
+  "payload": {
+    "score_value": 15400,
+    "score_signature": "sha256_hash_string",
+    "platform": "pc",
+    "connectivity_status": "reconnected",
+    "match_duration_ms": 845000,
+    "milestones_reached": ["first_blood", "zone_captured"]
+  }
+}
+```
+
+Implement these checks immediately to ensure the June 15 launch maintains competitive integrity.
+
+*Review required by Engineering Lead (schema validation) and Community Management (dispute workflow) by Friday.*
+*Beta stress test must simulate 5% forced disconnects to validate reconnection logic.*

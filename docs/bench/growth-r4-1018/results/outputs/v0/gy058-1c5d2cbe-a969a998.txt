@@ -1,0 +1,36 @@
+**Proposal: Minimal Viable Audit Event Taxonomy for HealthRecord Pro**
+
+**Objective:** Satisfy regulatory audit requirements (data access proof) while reducing log volume by >95% compared to the March pilot, ensuring storage sustainability and preserving security utility.
+
+**1. The North Star Metric for Compliance**
+*   **Metric:** "Verified Access Chain Completeness."
+*   **Definition:** The percentage of patient records accessed where the *who, when, why (context), and what (scope)* are immutably recorded, without capturing the *content* of the view itself.
+*   **Rejection of Vanity:** Total log count is a vanity metric; 4 million/day indicates noise, not value. We measure sufficiency for audit, not granularity of observation.
+
+**2. Minimal Viable Event Set (The "Must-Haves")**
+Instrument only these three event types. All other "view" sub-actions are excluded.
+
+| Event Name | Question Answered | Properties Captured | PII/PHI Handling |
+| :--- | :--- | :--- | : |
+| `record_access_initiated` | Who accessed which patient record and when? | `user_id` (role-based), `patient_id` (pseudonymous), `timestamp`, `session_id`, `access_reason_code` (e.g., "Treatment", "Billing"). | **Strip:** Diagnostic codes, notes content. **Keep:** Patient ID as a stable, pseudonymous token (hashed with salt) to link sessions without revealing identity in logs. |
+| `data_export_triggered` | Was data removed from the secure environment? | `user_id`, `patient_id`, `export_format`, `destination_type`, `record_count`. | **Strip:** Actual data content. **Keep:** Volume metadata only. |
+| `permission_elevation_used` | Did a user bypass standard restrictions? | `user_id`, `original_role`, `elevated_role`, `justification_text` (if entered), `duration`. | **Strip:** None specific, but flag for immediate security review. |
+
+**3. The Identifier Seam & Anonymization Strategy**
+*   **The Seam:** Unlike system observability (which avoids high-cardinality user labels), compliance auditing *requires* a stable per-user and per-patient identifier to reconstruct access chains.
+*   **Implementation:** Use a **pseudonymous ID** for `patient_id` in logs. This is a deterministic hash of the real patient ID + a secret salt.
+    *   *Utility:* Security teams can still query "Show all access for Patient Hash X" to detect patterns.
+    *   *Compliance:* The log file itself contains no Protected Health Information (PHI). The mapping table (Real ID ↔ Hash) is stored separately with stricter access controls, satisfying the request to anonymize diagnostic codes while maintaining review utility.
+*   **Routing:** Detailed PII handling, consent verification, and retention limits must be finalized per `privacy-compliance.md` (Domain Q); this proposal defines the *structure* only.
+
+**4. Expected Outcome & Validation**
+*   **Volume Reduction:** By logging the *event of access* rather than every *field viewed*, we project a reduction from 4M entries/day to approximately 150k–200k entries/day (assuming ~50 accesses per user/day).
+*   **Audit Sufficiency:** This set answers the core legal question: "Did an unauthorized person view this record?" It does not answer "Which specific line item did they glance at?"—a distinction rarely required for general compliance audits but massively expensive to store.
+
+**5. This-Week Steps**
+1.  **Define the Schema:** Finalize the JSON schema for the three events above, explicitly marking `diagnostic_code` fields as "EXCLUDED" in the documentation for the legal team.
+2.  **Pilot the Hashing Logic:** Implement the salted hashing function for `patient_id` in a staging environment and verify that security analysts can still trace a specific patient's access history using only the hash.
+3.  **Set the Guardrail:** Configure an alert that triggers if `record_access_initiated` volume exceeds 250k/day, indicating a potential logging loop or new noise source.
+
+*Note: This proposal assumes the "access_reason_code" is selected by the user or system context at the time of access; if not currently captured, this single field must be added to the UI/workflow to ensure audit validity.*
+*No external benchmarks were used; volume projections are derived strictly from the user's stated 4M/day pilot baseline.*

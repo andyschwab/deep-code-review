@@ -1,0 +1,34 @@
+# Event Taxonomy Migration Strategy for CloudRetail
+
+**Objective:** Unify conflicting event taxonomies (`purchase_complete` vs. `order_finalized`) into a single standard while preserving three years of historical data for longitudinal analysis.
+
+### 1. Naming Conventions & Standard Schema
+Adopt a single, canonical event name immediately: **`purchase_completed`**.
+*   **Rationale:** Uses past tense to denote a finished state, aligning with standard analytics conventions.
+*   **Action:** Define this as the sole source of truth in your new schema. Deprecate `purchase_complete` and `order_finalized` as ingestion endpoints. Future instrumentation must only emit `purchase_completed`.
+
+### 2. Property Standardization
+Before merging events, reconcile property keys (e.g., `order_id` vs. `transaction_ref`, `value` vs. `amount`).
+*   **Action:** Create a mapping dictionary where legacy keys map to new standard keys (e.g., `transaction_ref` → `order_id`).
+*   **Requirement:** Ensure currency codes (EUR) and decimal precision are identical across both legacy streams. If one system sends cents and the other euros, normalize to a single unit (e.g., minor units/cents) before merging.
+
+### 3. Backfilling Logic & Historical Data
+Do **not** overwrite raw historical logs. Mutating raw data breaks audit trails and introduces risk. Instead, implement a **logical backfill** via a transformation layer.
+*   **Strategy:** Create a unified "Gold" table or view that sits on top of the raw legacy data.
+*   **Logic:**
+    *   For records prior to the migration date: Apply a SQL/ETL transformation that renames `purchase_complete` and `order_finalized` to `purchase_completed` and maps their properties to the standard schema on-the-fly.
+    *   For records post-migration: Ingest directly as `purchase_completed`.
+*   **Longitudinal Integrity:** This approach ensures that queries running over the last three years see a consistent event name and property set, enabling accurate trend analysis without altering the underlying immutable logs.
+
+### 4. Validation & Reconciliation (The 15% Gap)
+Mapping names will not fix the 15% revenue discrepancy; it will only hide it. You must resolve the data quality issue before finalizing the schema.
+*   **Action:** Run a parallel comparison for the overlapping period. Join records from both systems on `order_id` and `timestamp`.
+*   **Diagnosis:** Identify if the gap stems from duplicate counting, dropped events, or differing definitions of "completed" (e.g., payment authorized vs. shipped).
+*   **Rule:** Do not approve the final schema until the discrepancy is explained and a correction rule (e.g., "prefer system A unless null") is codified in the transformation layer.
+
+### This-Week Steps
+1.  **Draft the Canonical Schema:** Document `purchase_completed` and the exact property mapping for the governance committee.
+2.  **Quantify the Discrepancy:** Produce a report isolating the specific orders causing the 15% revenue variance; the migration plan is `UNVERIFIED` without knowing the root cause of the data drift.
+
+*Note: Ensure user identifiers used for joining these records are pseudonymized per privacy compliance requirements.*
+*This plan assumes the raw event logs from both legacy systems are still accessible for the transformation layer.*

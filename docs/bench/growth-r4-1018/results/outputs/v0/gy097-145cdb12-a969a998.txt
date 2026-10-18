@@ -1,0 +1,67 @@
+# Event Taxonomy Specification: Semantic Search Launch
+**Audience:** Backend Engineering
+**Goal:** Measure candidate value (applications) and search quality, not just clicks.
+**Launch Date:** May 1
+**Baseline:** Legacy search CTR = 15% (Note: This is a vanity metric; success is defined by Application Rate).
+
+## 1. Core Events & Parameters
+Instrument only these events. Each must include `session_id`, `user_id` (pseudonymous), `timestamp`, and `search_variant` (control/semantic).
+
+### A. `search_query_submitted`
+*Triggers when a user executes a search.*
+- **Parameters:**
+  - `query_text`: The raw string entered.
+  - `query_length`: Character count.
+  - `filters_applied`: JSON object of active filters (e.g., `{location: "Stockholm", role: "Dev"}`).
+  - `result_count`: Number of jobs returned.
+  - `latency_ms`: Time to render results.
+
+### B. `search_result_viewed`
+*Triggers when the results list is rendered on screen.*
+- **Parameters:**
+  - `result_count`: Total jobs shown.
+  - `top_job_id`: ID of the first result.
+  - `top_job_relevance_score`: The internal semantic match score (0.0–1.0) for the top result.
+
+### C. `job_card_clicked`
+*Triggers when a user clicks a job from the list.*
+- **Parameters:**
+  - `job_id`: ID of the clicked job.
+  - `rank_position`: Integer position in the list (1, 2, 3...).
+  - `relevance_score`: The semantic match score for this specific job.
+  - `time_to_click_ms`: Time elapsed since `search_result_viewed`.
+  - *Why:* Distinguishes between high-ranking clicks and deep-dive behavior.
+
+### D. `search_refined` (Critical Hypothesis Check)
+*Triggers when a user modifies the query or filters immediately after viewing results.*
+- **Parameters:**
+  - `previous_query_text`: The query just abandoned.
+  - `previous_result_count`: Results from the abandoned query.
+  - `refinement_type`: Enum (`query_edit`, `filter_add`, `filter_remove`, `sort_change`).
+  - `time_to_refine_ms`: Time elapsed since `search_result_viewed`.
+  - *Why:* High frequency here indicates confusion or poor semantic matching, even if CTR is high.
+
+### E. `application_started`
+*Triggers when the user clicks "Apply".*
+- **Parameters:**
+  - `job_id`: ID of the job.
+  - `source_search_id`: Link back to the specific `search_query_submitted` event ID.
+  - `steps_to_apply`: Number of clicks from search to this action.
+
+### F. `application_submitted` (North Star Input)
+*Triggers on successful submission.*
+- **Parameters:**
+  - `job_id`: ID of the job.
+  - `source_search_id`: Link back to the specific `search_query_submitted` event ID.
+  - `completion_time_seconds`: Duration from `application_started`.
+  - *Why:* This is the true value metric. Clicks without applications are noise.
+
+## 2. Measurement Rules for Analytics Team
+1.  **North Star Metric:** Do not optimize for `job_card_clicked` rate. Optimize for **Applications per Search Session**.
+2.  **Funnel Diagnosis:** Read bottom-up. If `application_submitted` is flat but `job_card_clicked` rises, the semantic match is misleading (clickbait). If `search_refined` spikes, the semantic logic is confusing users.
+3.  **Identifier Seam:** Use a stable, pseudonymous `user_id` to track cohorts across sessions. Do not log PII (names, emails) in these events; route PII handling to `privacy-compliance.md`.
+4.  **Baseline Comparison:** Compare the new feature's *Application Rate* against the legacy 15% CTR baseline only to show the shift in behavior, not to claim equivalence. The legacy system has no `relevance_score`; treat comparisons of score-based segments as `UNVERIFIED` until data accumulates.
+
+## 3. This-Week Steps
+1.  **Engineering:** Implement the six events above with exact parameters by April 25; reject any "extra" logging that lacks a named question.
+2.  **Product:** Define the "bad signal" threshold for `search_refined` (e.g., if >20% of sessions refine within 5 seconds, the model is failing) to trigger an immediate rollback or hotfix post-launch.

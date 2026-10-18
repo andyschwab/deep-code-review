@@ -1,0 +1,50 @@
+# CloudRetail Event Taxonomy Migration Strategy
+
+## Executive Summary
+To resolve the 15% revenue discrepancy and enable unified reporting, CloudRetail must adopt a "Canonical Schema" approach. This strategy decouples raw ingestion from analytical output, allowing historical data to coexist with new standards without destructive overwriting.
+
+## Phase 1: Define the Canonical Schema (Weeks 1-2)
+Establish a single source of truth for event definitions before touching data pipelines.
+
+*   **Naming Convention:** Adopt `object_action` format (lowercase, underscores).
+    *   *Decision:* Standardize on `purchase_completed`.
+    *   *Deprecation:* Mark `purchase_complete` and `order_finalized` as legacy aliases.
+*   **Property Standardization:** Create a master dictionary for key properties (e.g., `revenue`, `currency`, `order_id`).
+    *   *Rule:* All monetary values must be normalized to EUR cents (integer) to avoid floating-point errors.
+    *   *Mapping:* Map legacy properties (e.g., `total_price`, `amt`) to the canonical `revenue` property.
+*   **Documentation:** Publish the "CloudRetail Event Dictionary" as the governing document for all future tracking.
+
+## Phase 2: The Dual-Write Migration Architecture (Weeks 3-6)
+Do not overwrite historical data. Instead, implement a transformation layer that normalizes data at query time or during pipeline processing.
+
+*   **Ingestion Layer:** Continue ingesting raw events with original names (`purchase_complete`, `order_finalized`) into a "Raw Zone" for auditability.
+*   **Transformation Layer (The Fix):** Build a dbt model or Spark job that:
+    1.  Reads from the Raw Zone.
+    2.  Applies a `CASE` statement to rename legacy events to `purchase_completed`.
+    3.  Normalizes property names and values.
+    4.  Writes to a "Clean Zone" used by dashboards.
+*   **Backfill Logic:** Run this transformation job against the full three-year historical dataset. This creates a unified historical view without altering the original source files.
+
+## Phase 3: Validation & Reconciliation (Weeks 7-8)
+Address the 15% discrepancy before going live.
+
+*   **Parallel Run:** Run legacy and new canonical dashboards side-by-side for two weeks.
+*   **Root Cause Analysis:** If the 15% gap persists after renaming, investigate:
+    *   *Duplicate firing:* Did one legacy system fire events twice?
+    *   *Timing differences:* Is one system recording at "checkout start" vs. "payment success"?
+    *   *Currency conversion:* Are historical FX rates applied consistently?
+*   **Sign-off:** Data Governance Committee validates that Clean Zone revenue matches the sum of verified legacy reports.
+
+## Phase 4: Governance & Future Proofing (Ongoing)
+*   **Deprecation Policy:** Legacy event names remain in the Raw Zone forever for audit but are hidden from standard BI tools.
+*   **Change Control:** Any new event requires approval against the Canonical Schema before engineering implementation.
+*   **Longitudinal Integrity:** Because the transformation logic includes a `source_system` tag, analysts can still filter by original taxonomy if specific legacy studies are required.
+
+## Recommended Immediate Actions for Committee Approval
+1.  **Budget Allocation:** Approve resources for the Transformation Layer engineering sprint (estimated 3 weeks).
+2.  **Tooling:** License or configure the chosen transformation tool (e.g., dbt, Snowflake Streams).
+3.  **Freeze:** Implement a temporary freeze on creating new custom events until the Canonical Schema is published.
+
+This approach ensures data integrity, preserves historical context, and resolves the current reporting conflict without data loss.
+
+*Note: The 15% discrepancy likely stems from definition mismatches (e.g., tax inclusion) rather than just naming; the reconciliation phase is critical. Ensure legal/compliance reviews the retention policy for raw legacy data.*

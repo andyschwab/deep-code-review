@@ -1,0 +1,75 @@
+# HighlandRoots Smart Path Tracking Plan
+
+## Objective
+Instrument the "Smart Path" feature to reconstruct user research narratives, validate the hypothesis that following ≥2 suggestions doubles subscription likelihood, and identify algorithmic dead-ends where users abandon research.
+
+## Core Events Schema
+
+Log these events with strict property consistency to enable sequence reconstruction without capturing PII.
+
+### 1. `smart_path_suggested`
+**Trigger:** When the algorithm displays a suggestion card to the user.
+**Properties:**
+- `suggestion_id`: Unique ID for the specific recommendation instance.
+- `suggestion_type`: e.g., "census_record", "birth_certificate", "relative_match".
+- `trigger_context`: e.g., "tree_depth_3", "missing_father", "geographic_gap".
+- `position_rank`: Integer (1, 2, 3) indicating order in the list.
+- `session_id`: Anonymous session identifier.
+- `user_state`: "logged_in_guest" or "subscriber".
+
+### 2. `smart_path_clicked`
+**Trigger:** When a user clicks a specific suggestion.
+**Properties:**
+- `suggestion_id`: Must match the ID from the `smart_path_suggested` event.
+- `suggestion_type`: Same as above.
+- `time_to_click_ms`: Milliseconds between suggestion display and click.
+- `click_sequence_in_session`: Integer (1st click, 2nd click, etc.).
+- `previous_action`: The last major action taken before this click (e.g., "viewed_profile", "searched_surname").
+
+### 3. `research_step_completed`
+**Trigger:** When a user successfully views the record or page resulting from a suggestion.
+**Properties:**
+- `suggestion_id`: Link back to the origin.
+- `content_depth`: Integer (how many generations deep the new data goes).
+- `time_on_record_ms`: Duration spent on the resulting page.
+- `action_taken`: e.g., "added_to_tree", "downloaded_pdf", "shared_link", "none".
+
+### 4. `research_dead_end`
+**Trigger:** Defined logically as a `smart_path_clicked` event followed by either:
+- A session end within 30 seconds.
+- A `research_step_completed` where `action_taken` is "none" AND `time_on_record_ms` < 5000.
+- A subsequent immediate return to the search bar (indicating the suggestion didn't help).
+**Properties:**
+- `suggestion_id`: The failing suggestion.
+- `failure_mode`: "bounce", "quick_exit", "irrelevant_content", "access_denied".
+- `tree_state_at_failure`: Snapshot of tree depth/gaps at moment of failure.
+
+### 5. `subscription_started` / `subscription_completed`
+**Trigger:** Standard conversion events.
+**Properties:**
+- `smart_paths_followed_count`: Integer count of `smart_path_clicked` events in this session.
+- `last_suggestion_type`: The type of suggestion that preceded the conversion intent.
+
+## Implementation Logic for Narrative Reconstruction
+
+To answer your specific questions without data noise:
+
+1.  **Validating the "2x Likelihood" Hypothesis:**
+    Query sessions where `smart_paths_followed_count` ≥ 2 versus those with 0 or 1. Compare the conversion rate of `subscription_completed`. Do not track every mouse movement; only log the discrete decision points listed above.
+
+2.  **Identifying Dead-Ends:**
+    Join `smart_path_suggested` and `research_dead_end` events. Group by `suggestion_type` and `trigger_context`. High frequencies of `failure_mode: "irrelevant_content"` for specific `trigger_context` values (e.g., "missing_father") indicate where the recommendation algorithm is suggesting logically sound but emotionally or historically unhelpful paths.
+
+3.  **Reconstructing the Narrative:**
+    Use `session_id` and `click_sequence_in_session` to order events chronologically. A valid research narrative looks like:
+    `suggested (census)` → `clicked` → `completed (added_to_tree)` → `suggested (birth_cert)` → `clicked` → `completed`.
+    Broken narratives will show gaps or immediate `research_dead_end` flags.
+
+## Data Quality Guardrails
+- **No PII:** Never log names, specific dates of birth, or locations in event properties. Use abstract states (e.g., "19th_century", "Scotland") instead.
+- **Deduplication:** Ensure `suggestion_id` is unique per impression to prevent inflating click-through rates if a user sees the same suggestion twice.
+- **Sampling:** If volume exceeds limits, sample 10% of logged-out guests but keep 100% of logged-in users to preserve conversion attribution accuracy.
+
+This schema provides the lead developer with clear trigger points and the head of content with the specific `failure_mode` data needed to refine recommendation logic before the holiday push.
+
+*Ensure the `suggestion_id` generation logic is deterministic so backend logs can be joined with frontend analytics if deeper debugging is required.*

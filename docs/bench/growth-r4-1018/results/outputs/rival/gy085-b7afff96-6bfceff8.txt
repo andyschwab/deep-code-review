@@ -1,0 +1,63 @@
+# Event Stream Unification Strategy: Luz to Lumina Transition
+
+## Executive Summary
+Do not rely solely on dashboard aliases for year-over-year (YoY) growth calculations. While aliases work for real-time monitoring, they often fail to backfill historical data correctly in some tools and obscure the root cause of data anomalies. Instead, implement a unified "canonical" event layer in your data warehouse (e.g., BigQuery, Snowflake) before visualization. This preserves raw data integrity while providing a clean view for the Lisbon team.
+
+## Step-by-Step Implementation Plan
+
+### Phase 1: Data Warehouse Normalization (Immediate)
+Create a SQL transformation model that maps legacy and new events to a single canonical name. Do not alter the raw ingestion tables.
+
+**Logic:**
+```sql
+SELECT
+  event_timestamp,
+  user_id,
+  CASE
+    WHEN event_name IN ('luz_add_to_cart', 'lumina_add_to_cart') THEN 'add_to_cart'
+    WHEN event_name IN ('luz_checkout_start', 'lumina_checkout_start') THEN 'checkout_start'
+    ELSE event_name
+  END AS canonical_event_name,
+  -- Preserve original for audit
+  event_name AS source_event_name,
+  -- Tag the version source
+  CASE
+    WHEN event_name LIKE 'luz_%' THEN 'legacy_app'
+    WHEN event_name LIKE 'lumina_%' THEN 'current_app'
+    ELSE 'unknown'
+  END AS app_version_source,
+  country,
+  ...other properties
+FROM raw_events_table
+WHERE country = 'PT' OR event_name NOT LIKE 'luz_%'
+```
+*Action:* Deploy this model to your BI tool (Looker, Tableau, PowerBI) as the primary data source for all Portugal-specific dashboards.
+
+### Phase 2: Historical Context & YoY Reporting
+To ensure accurate YoY growth reporting for Q4:
+1.  **Segment by Source:** Create a calculated field in your reports distinguishing `legacy_app` vs. `current_app`.
+2.  **Footnote Methodology:** All Q4 reports must include a disclaimer: *"YoY growth compares Sept 2023 (100% 'Luz' events) vs. Sept 2024 (Mixed 'Luz'/'Lumina' events unified via canonical mapping). Data integrity verified via warehouse transformation."*
+3.  **Validation:** Run a parallel count for one week comparing the sum of raw `luz_` + `lumina_` events against the new `canonical` count. They must match 1:1. If they do not, investigate property mismatches (e.g., if `luz_` missed a property that `lumina_` captures).
+
+### Phase 3: The Sunset Protocol (Cutoff Definition)
+Do not set a fixed calendar date for stopping support. Instead, use a dynamic adoption threshold to prevent skewing data if mobile updates lag.
+
+**The 90% Rule Implementation:**
+1.  **Monitor Weekly:** Calculate the rolling 7-day average of `current_app` events divided by total (`current_app` + `legacy_app`) events for the Portugal region.
+2.  **Trigger Condition:** Once `current_app` volume > 90% of total volume for 14 consecutive days:
+    *   **Action A:** Mark the `luz_` event stream as "Deprecated" in your data dictionary.
+    *   **Action B:** Update the SQL transformation to flag `luz_` events as `legacy_unsupported` rather than merging them. This isolates stragglers so they don't pollute main metrics.
+    *   **Action C:** Notify the Lisbon team that future reports will exclude pre-transition logic unless specifically requested for long-tail analysis.
+
+### Risk Mitigation for Mobile Clients
+Since legacy mobile clients may never update:
+*   **Isolation:** If `legacy_app` traffic drops below 1% but persists indefinitely, move these users to a separate "Legacy Cohort" segment in your analytics tool. Do not let them influence primary conversion rates after the cutoff.
+*   **Revenue Protection:** If the 12% revenue share is at risk due to broken tracking on old apps, prioritize a forced update campaign or deep-link redirect strategy over indefinite data patching.
+
+## Deliverable for Data Science & Marketing
+Provide the Lisbon team with two dashboard views:
+1.  **Unified View:** Uses the canonical SQL model for seamless trend lines.
+2.  **Audit View:** Shows the split between `luz_` and `lumina_` events to monitor the adoption curve toward the 90% threshold.
+
+*Note: Ensure your ETL pipeline handles case sensitivity strictly; 'Luz' and 'luz' must be treated identically before mapping.*
+*Note: Verify that event properties (e.g., currency, product ID) match exactly between old and new schemas before merging, or data quality will degrade.*

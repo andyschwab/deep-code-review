@@ -1,0 +1,40 @@
+# TaskFlow Accessibility Tracking Plan
+
+To validate the screen reader compatibility update, shift focus from vanity metrics (like session duration) to **task success** and **friction**. Longer sessions often indicate struggle, not engagement, for assistive technology users. Implement the following event structure to measure inclusivity goals quantitatively.
+
+### 1. Critical Workflow Completion (Time-to-Task)
+Prioritize **time-to-task completion** over error rates initially. Errors are noisy; successful completion proves the workflow is usable. Instrument the start and successful end of these three core flows:
+*   `project_creation_started` / `project_creation_completed`
+*   `task_assignment_started` / `task_assignment_completed`
+*   `report_export_started` / `report_export_completed`
+
+**Required Properties:** `user_agent_type` (e.g., "screen_reader"), `assistive_tool_name` (if detectable via user agent or explicit setting), `duration_seconds`, `step_count`.
+
+*Decision Logic:* Compare the median duration and step count of assistive technology users against sighted users. If the ratio exceeds 1.5x, the workflow contains friction points despite being "completable."
+
+### 2. Navigation & Landmark Efficiency
+Screen reader users rely on landmarks (headers, lists, regions) to skip content. Track if they are using these shortcuts or getting stuck in linear navigation.
+*   `landmark_skip_used`: Fired when a user jumps via ARIA landmarks (e.g., "Skip to Main Content").
+*   `linear_tab_sequence_depth`: Count the number of tab stops taken to reach a primary action.
+*   `heading_navigation_used`: Fired when a user navigates via heading levels (H1, H2, etc.).
+
+*Decision Logic:* High `linear_tab_sequence_depth` combined with low `landmark_skip_used` indicates your ARIA landmarks are missing or mislabeled, forcing users to tab through every element.
+
+### 3. Form Interaction & Error Recovery
+Forms are the highest friction point for accessibility. Do not just track submissions; track the *struggle*.
+*   `form_field_error_encountered`: Fired when a screen reader user triggers a validation error.
+*   `error_message_read`: Fired when the dynamic error message is exposed to the accessibility tree.
+*   `form_correction_attempt`: Fired when a user modifies a field immediately after an error.
+
+*Decision Logic:* If `form_field_error_encountered` is high but `form_correction_attempt` is low, users are likely abandoning the task because the error message was not perceivable or understandable.
+
+### 4. Dynamic Content Announcements
+Modern project tools update dynamically (e.g., adding a comment without reload). Verify these updates are announced.
+*   `live_region_triggered`: Fired when a dynamic update (toast notification, new comment) is pushed to the accessibility live region.
+*   `dynamic_content_interaction`: Fired when a user interacts with content that was updated dynamically within the last 5 seconds.
+
+### Implementation Notes for Data Team
+*   **Baseline Strategy:** Since you lack historical data, run a parallel track for 14 days post-launch comparing "Assistive Tech Detected" vs. "Standard Users." Do not use session duration as a success metric; use **Completion Rate** and **Step Efficiency**.
+*   **Privacy:** Ensure `assistive_tool_name` is aggregated (e.g., "NVDA," "JAWS," "VoiceOver") and never linked to individual PII in raw logs to prevent fingerprinting.
+
+**Immediate Action:** Prioritize instrumenting the `project_creation_completed` flow first, as this is your primary conversion event. If this flow fails for screen reader users, other metrics are irrelevant.

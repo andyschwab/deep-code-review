@@ -1,0 +1,37 @@
+### Event Taxonomy Unification Plan for RetailMix
+**Audience:** CTO and Lead Data Architect
+**Objective:** Standardize event definitions for CDP integration by August 30 without halting feature development.
+
+#### 1. The Strategy: "Map, Don't Break"
+Reject the binary choice between preserving legacy granularity or forcing a hard break. Instead, implement a **translation layer** at the ingestion point.
+*   **Action:** Map all variant events (`buy_complete`, `transaction_final`, `order_done`) to a single canonical event name (e.g., `purchase_completed`) with a unified property schema immediately upon ingestion into the CDP.
+*   **Legacy Support:** Preserve the original `event_name` as a metadata property (e.g., `source_legacy_name`) within the new canonical event. This allows finance dashboards to query the new stream using their old filters while new analytics build against the standard name.
+*   **Result:** Zero disruption to current finance reports; immediate data consistency for the new CDP.
+
+#### 2. Execution Timeline (3 Weeks)
+**Week 1: Audit & Definition (No Code Change)**
+*   **Task:** Inventory all existing event names triggering the "purchase" outcome across microservices.
+*   **Deliverable:** A mapping document linking every legacy name to the new canonical schema. Define the "Golden Properties" required for every `purchase_completed` event (e.g., `order_id`, `total_value`, `currency`, `user_id`).
+*   **Constraint:** Do not instrument new events yet. Only define the target state.
+
+**Week 2: The Translation Layer (Parallel to Feature Dev)**
+*   **Task:** Implement the mapping logic in the data pipeline or CDP ingestion rules, not in the microservices themselves. This decouples the cleanup from the application release cycle.
+*   **Deliverable:** A staging environment where legacy events are ingested, renamed, and enriched with the `source_legacy_name` property.
+*   **Verification:** Run parallel queries comparing the sum of legacy events vs. the new canonical count to ensure 1:1 fidelity.
+
+**Week 3: Validation & Cutover**
+*   **Task:** Validate finance dashboards against the new translated stream. Confirm that filtering by `source_legacy_name` yields identical results to the old raw tables.
+*   **Deliverable:** Sign-off from Finance on the new stream. Update documentation to mandate the canonical schema for all *new* feature development starting August 30.
+*   **Go-Live:** Point production CDP ingestion to the translation layer.
+
+#### 3. Resource Allocation & Risks
+*   **Team:** 1 Data Engineer (pipeline logic), 1 Analyst (validation/finance liaison). No application developers required if the translation happens at the pipeline/CDP level.
+*   **Risk Mitigation:** If the translation layer introduces latency >5 minutes, fallback to direct ingestion for critical real-time alerts while batch-processing the normalization overnight.
+*   **Decision Rule:** If the mapping document reveals >20% of events lack critical properties (like `order_id`), flag these as `UNVERIFIED` in the new system and prioritize fixing the source microservice *after* the August 30 deadline, rather than delaying the migration.
+
+#### 4. Immediate Next Steps (This Week)
+1.  **Freeze Schema:** Publish the canonical `purchase_completed` schema and property list to the engineering channel.
+2.  **Audit Query:** Run a distinct count query on the last 30 days of logs to identify the top 10 variant names for purchases; ignore long-tail noise until Week 2.
+3.  **Finance Sync:** Present the "translation layer" approach to the finance lead to confirm that querying `source_legacy_name` satisfies their reporting needs.
+
+**Note:** This approach treats the taxonomy cleanup as a data engineering task, not an application refactor, ensuring feature development remains unblocked. Historical granularity is preserved as metadata, eliminating the need for a disruptive hard break.

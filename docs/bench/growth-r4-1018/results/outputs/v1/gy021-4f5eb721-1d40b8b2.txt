@@ -1,0 +1,34 @@
+**To:** Marco, Lead Data Engineer
+**From:** Product Team, Lumina Retail
+**Subject:** AR Pilot Event Taxonomy – Westfield Mall (Launch: Nov 15)
+
+Instrument the following five events to validate the revenue hypothesis (20% spend lift) and diagnose session abandonment. Do not instrument generic metrics like "session duration" unless they answer a specific question about drop-off or value.
+
+1.  **`ar_session_started`**
+    *   **Question Answered:** What is the total acquisition volume, and what is the baseline abandonment rate immediately upon launch?
+    *   **Properties:** `kiosk_id`, `timestamp`, `mall_zone_location`.
+    *   **Why:** Establishes the top of the funnel. Without this, we cannot calculate the percentage of users who abandon before placing an item.
+
+2.  **`virtual_item_placed`**
+    *   **Question Answered:** Are users reaching the "activation" moment (visualizing furniture in their home)?
+    *   **Properties:** `item_sku`, `item_category` (e.g., sofa, lamp), `placement_attempt_number` (to detect frustration loops).
+    *   **Why:** This is the core value action. If users start but never place an item, the UX is the blocker, not the offer. Tracking the count helps distinguish browsing from serious intent.
+
+3.  **`ar_session_abandoned`**
+    *   **Question Answered:** Where in the flow do we lose users before they convert?
+    *   **Properties:** `last_action_type` (e.g., "viewed_catalog", "placed_item", "scanning_failed"), `session_duration_seconds`, `items_placed_count`.
+    *   **Why:** You noted we have no data on mid-session abandonment. This event captures the state at exit. If `last_action_type` is consistently "scanning_failed," we fix the camera logic; if it's "viewed_catalog," we fix the product selection.
+
+4.  **`qr_code_scanned`**
+    *   **Question Answered:** Did the user commit to taking the visualization home (the bridge to purchase)?
+    *   **Properties:** `session_id`, `items_in_scan` (count), `scan_success_boolean`.
+    *   **Why:** This is the primary conversion proxy for the kiosk. It correlates directly to the hypothesis: users who scan are the ones likely to return home and buy. A failed scan here is a critical revenue leak.
+
+5.  **`post_ar_purchase_attributed`**
+    *   **Question Answered:** Did the AR experience actually drive the 20% spend lift?
+    *   **Properties:** `transaction_id`, `total_basket_value`, `ar_items_in_basket` (boolean), `time_delta_from_scan` (e.g., purchased within 24h).
+    *   **Why:** This validates the core business assumption. We must link the `session_id` (via the QR scan) to the final transaction to compare the basket value of AR users vs. non-AR users. Without this property, we cannot measure the 20% lift.
+
+**Implementation Notes:**
+*   Ensure a stable, pseudonymous `session_id` persists across these five events to link the kiosk interaction to the eventual purchase without storing PII.
+*   Do not instrument "time spent" as a standalone metric; it is only useful when attached to the `ar_session_abandoned` event to diagnose friction.

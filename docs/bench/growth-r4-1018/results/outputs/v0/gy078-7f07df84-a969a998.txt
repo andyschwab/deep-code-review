@@ -1,0 +1,42 @@
+### Diagnosis Strategy: Checkout Completion Drop
+
+**Primary Hypothesis:** The September 1 payment gateway update introduced friction or technical failure at the authorization step, disproportionately affecting specific segments (likely mobile).
+
+**Immediate Data Cuts & Segmentation Plan**
+
+To isolate the failure point before Thursday, execute the following queries on your analytics platform. Do not estimate; pull exact counts from the last 30 days compared to the prior 30 days.
+
+1.  **Step-Level Funnel Drop-off (The "Where")**
+    *   **Action:** Break the checkout flow into micro-steps: *Checkout Start → Shipping Info → Payment Info Entry → Payment Authorization → Confirmation Page*.
+    *   **Metric:** Conversion rate between *Payment Info Entry* and *Payment Authorization*.
+    *   **Reading Rule:** If the drop occurs between entry and authorization, it is likely UI/UX friction (e.g., saved card field broken). If the drop occurs *at* authorization (user clicks "Pay" but never sees confirmation), it is likely a technical error or timeout.
+    *   **Decision Trigger:** If the drop is >20% at the authorization step specifically, prioritize engineering logs for API error codes over UX redesign.
+
+2.  **Platform & OS Segmentation (The "Who")**
+    *   **Action:** Segment the *Payment Authorization* success rate by:
+        *   Device Type (Mobile vs. Desktop vs. Tablet).
+        *   Mobile OS (iOS version vs. Android version).
+        *   Browser (Safari, Chrome, Firefox).
+    *   **Reading Rule:** Compare the post-Sept 1 rate against the pre-Sept 1 baseline for each segment.
+    *   **Decision Trigger:** If Mobile Safari shows a >30% drop while Desktop remains stable, the issue is likely related to iOS-specific payment handlers or autofill compatibility with the new gateway. Fix mobile first.
+
+3.  **Error Code vs. Abandonment Analysis (The "Why")**
+    *   **Action:** Correlate frontend events with backend logs using a stable session ID.
+        *   *Event A:* User clicks "Complete Purchase."
+        *   *Event B:* Gateway response received (Success/Fail/Error Code).
+        *   *Event C:* User navigates away (Abandonment).
+    *   **Metric:** Ratio of *Technical Errors* (non-200 responses, timeouts) vs. *Silent Abandonment* (no response recorded).
+    *   **Reading Rule:** A spike in specific error codes (e.g., "Decline," "Timeout," "Invalid Token") confirms a technical integration fault. High silent abandonment suggests the UI is freezing or the loading state is unclear, causing users to quit.
+    *   **Decision Trigger:** If >50% of drop-offs have associated error codes, this is a P0 engineering incident. If errors are low but abandonment is high, this is a UX/usability crisis.
+
+4.  **Saved Card vs. New Card Cohort**
+    *   **Action:** Segment users by "Returning Customer (Saved Card)" vs. "New Customer (Manual Entry)."
+    *   **Reading Rule:** Your hypothesis targets saved cards. If the drop is isolated to returning users, the tokenization logic in the new gateway is likely failing.
+    *   **Decision Trigger:** If returning users are failing at 2x the rate of new users, disable the "Saved Card" feature temporarily as a mitigation while fixing the tokenization bug.
+
+**This-Week Steps**
+1.  **Run the Step-Level Funnel query** immediately to confirm the drop is isolated to the *Authorization* step. If the drop is earlier (e.g., Shipping), the payment gateway hypothesis is incorrect, and you must investigate shipping calculation logic.
+2.  **Pull the Mobile vs. Desktop breakdown** by tomorrow noon. If Mobile is the sole driver, allocate all engineering resources to mobile gateway compatibility testing; do not waste time on desktop fixes.
+3.  **Prepare the "Stop/Triage" call:** If the data shows a specific OS failure (e.g., iOS 17), recommend a temporary banner warning users or a fallback payment method for that segment until the patch is deployed.
+
+*Note: All metrics above must be calculated from your actual analytics data; no benchmarks are provided as performance thresholds are unique to your baseline. Ensure session IDs used for log correlation are pseudonymized to comply with privacy standards.*

@@ -1,0 +1,43 @@
+**Proposal: Dual-Horizon Fraud Model Monitoring Dashboard**
+
+**Objective:** Validate the new fraud model's safety against the current baseline (1.5% false positive rate) within a 7-day window, balancing immediate operational feedback with delayed ground truth.
+
+**1. The North Star Metric**
+*   **Net Fraud Loss per Million Transactions:** This is the only metric that matters. It combines the cost of undetected fraud (chargebacks) and the cost of errors (manual review labor + lost goodwill from false positives). Do not optimize for "accuracy" or "detection rate" in isolation; optimize for net loss reduction.
+
+**2. Event Taxonomy (Instrument Only These)**
+Every event below answers a specific decision question. Do not instrument generic "transaction processed" logs for this dashboard.
+*   `model_decision_emitted`: Records the model's score, the decision (approve/block/flag), and the version ID. *Question: Is the model behaving as expected in real-time?*
+*   `manual_review_outcome`: Records the agent's verdict (fraud/legit) and time-to-decision for flagged transactions. *Question: Are we overwhelming operations (false positives)?*
+*   `chargeback_received`: Records the chargeback amount, reason code, and links back to the original `transaction_id`. *Question: Did fraud slip through (false negatives)?*
+*   `label_latency_checkpoint`: A daily batch job matching `chargeback_received` against `model_decision_emitted` to update the "known fraud" set. *Question: How much truth do we have right now?*
+
+**3. The Dual-Horizon Reading Strategy**
+You cannot wait weeks for chargebacks to deploy. Use a two-tiered approach:
+
+*   **Horizon A: Immediate Proxy (Days 0–2)**
+    *   **Metric:** Manual Review Confirmation Rate.
+    *   **Logic:** Since chargebacks lag, use the support team's manual review verdict as the immediate proxy for "false positive" and "confirmed fraud."
+    *   **Threshold:** If the new model's "Flagged → Confirmed Fraud" rate drops below the current baseline while the "Flagged → Legit" rate rises, the model is degrading.
+    *   **Action:** If the manual review queue volume increases by >10% without a corresponding rise in confirmed fraud, trigger an immediate rollback. This protects operations from false positive spikes instantly.
+
+*   **Horizon B: Lagged Truth (Days 3–45)**
+    *   **Metric:** Early Chargeback Capture Rate.
+    *   **Logic:** Most fraud chargebacks arrive within 14–30 days. Do not wait for 100% of labels. Calculate the "cumulative chargeback rate" daily for cohorts aged 7, 14, and 30 days.
+    *   **Comparison:** Compare the *slope* of the chargeback curve for the new model vs. the old model. If the new model's 7-day chargeback slope is flatter than the old model's historical 7-day slope, it is safer.
+    *   **Correction:** Apply a statistical correction factor based on historical "late-arriving" chargebacks (e.g., if historically 80% of chargebacks arrive by day 14, treat the day-14 count as 1.25x the final expected count for rough estimation).
+
+**4. Deployment Decision Matrix for the CRO**
+To sign off by next Friday, run a **5% canary deployment** of the new model alongside the old one (shadow mode or low-volume live traffic).
+
+*   **Ship:** If Net Fraud Loss (projected) is lower AND Manual Review Volume is ≤ current baseline +5%.
+*   **Extend:** If chargeback data is insufficient (<7 days old) but manual review proxies are neutral. Extend the canary to 10% traffic for 7 more days.
+*   **Stop:** If Manual Review Volume spikes >10% OR the 3-day early chargeback slope exceeds the baseline by >0.1%.
+
+**5. This-Week Steps**
+1.  **Define the Query:** Build the daily aggregation job that joins `model_decision_emitted` with `manual_review_outcome` for T+1 feedback and `chargeback_received` for T+7/T+14 cohorts.
+2.  **Set the Tripwire:** Hard-code the alert: "Rollback if manual review volume > 2,050/day (current baseline +5%) for 4 consecutive hours."
+3.  **Baseline the Slope:** Extract the historical 7-day chargeback accumulation curve for the current model to serve as the comparison line for the new model's early data.
+
+*Note: Manual review is an imperfect proxy for false negatives; only chargebacks provide true labels. The "Early Chargeback Capture" slope is the critical leading indicator to avoid waiting months.*
+*Ensure all user identifiers in these events are pseudonymized and routed to privacy compliance protocols before dashboard ingestion.*

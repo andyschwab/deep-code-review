@@ -1,0 +1,43 @@
+### PathFinder Beta Instrumentation Specification (v1.0)
+
+**Target Audience:** Mobile Engineering Team
+**Implementation Deadline:** End of Month
+**Phase:** MVP Beta (5,000 users)
+
+**Core Principle:** Instrument only events that answer a named question. Do not track "everything." Every event below maps to a specific diagnostic need for the beta launch.
+
+#### 1. North Star & Outcome Metrics
+*Question: Does the user successfully reach their destination faster or with less effort than without AR?*
+
+| Event Name | Trigger Condition | Properties |
+| :--- | :--- | :--- |
+| `navigation_session_started` | User initiates AR navigation to a specific store/point. | `destination_id`, `user_cohort`, `starting_floor`, `device_model`, `os_version` |
+| `navigation_session_completed` | User arrives within 5m of destination OR manually cancels. | `destination_id`, `duration_seconds`, `status` (success/cancelled), `distance_traveled_meters`, `time_to_destination_seconds` |
+| `navigation_abandoned` | User exits the AR view before reaching the destination or canceling normally. | `destination_id`, `elapsed_time_seconds`, `last_known_floor`, `failure_context` (e.g., "lost_tracking", "manual_exit") |
+
+#### 2. Leading Indicators (Confusion & Friction)
+*Question: Are 'camera usage duration' and 'path deviation' correlating with failure or long completion times?*
+
+| Event Name | Trigger Condition | Properties |
+| :--- | :--- | :--- |
+| `ar_camera_active_tick` | Aggregated every 10 seconds while AR camera view is active. | `session_id`, `tracking_quality` (high/med/low/lost), `lighting_estimate` (bright/dim) |
+| `path_deviation_detected` | User moves >3 meters off the calculated optimal path. | `session_id`, `deviation_distance_meters`, `correction_time_seconds`, `floor_location` |
+| `re_routing_triggered` | The system recalculates the path due to user position. | `session_id`, `trigger_reason` (deviation/obstacle), `new_eta_seconds` |
+
+#### 3. Granular Interaction Diagnostics
+*Question: Which specific AR gestures or UI interactions are causing struggle?*
+
+| Event Name | Trigger Condition | Properties |
+| :--- | :--- | :--- |
+| `ar_gesture_attempted` | User performs a recognized gesture (pinch, swipe, tap-to-lock). | `session_id`, `gesture_type`, `success_boolean`, `attempts_count` (for multi-tap), `ui_element_targeted` |
+| `ar_ui_interaction` | User taps non-gesture UI buttons (e.g., "Recenter", "Switch to 2D Map"). | `session_id`, `button_id`, `context_state` (e.g., "tracking_lost") |
+| `tracking_loss_event` | AR framework loses environmental tracking. | `session_id`, `duration_lost_seconds`, `recovery_method` (auto/user_recenter) |
+
+---
+
+**Critical Implementation Notes:**
+1.  **Identifier Seam:** All events must include a `stable_pseudonymous_user_id` to enable cohort retention analysis across sessions; do not use raw PII. Route any PII handling to the privacy compliance protocol.
+2.  **Vanity Check:** Do not instrument "AR View Opened" as a success metric. Success is defined strictly by `navigation_session_completed` with `status=success`. High opens with low completions indicate a discovery-to-value leak, not growth.
+
+**This Week's Step:**
+Engineering to implement the schema above by [Date]; Product to define the specific threshold for `path_deviation_detected` (e.g., is 3 meters too sensitive for a wide mall corridor?) based on a quick walk-through test before code freeze.

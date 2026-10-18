@@ -1,0 +1,32 @@
+### Event Taxonomy Unification Plan for RetailMix CDP Migration
+
+**Objective:** Standardize event definitions to enable CDP integration by August 30 without halting feature development or breaking finance dashboards.
+
+**1. Immediate Inventory & Mapping (Week 1)**
+*   **Action:** Audit all existing event names (`buy_complete`, `transaction_final`, `order_done`) against the core business question: "Did a user complete a purchase?"
+*   **Deliverable:** A single "Source of Truth" dictionary mapping every legacy variant to one canonical event name (e.g., `purchase_completed`).
+*   **Rule:** If an event does not answer a specific, named business question, mark it for deprecation, not migration. Do not instrument "just in case."
+
+**2. The Hybrid Migration Strategy (Addressing the Unknown)**
+*   **Decision:** Do **not** force a hard break. Finance dashboards rely on historical continuity; a hard break creates `UNVERIFIED` gaps in trend analysis.
+*   **Execution:** Implement an **aliasing layer** within the CDP ingestion pipeline.
+    *   Map all legacy variants to the new canonical schema immediately for forward-looking data.
+    *   Preserve raw legacy payloads in a separate "legacy" namespace for historical queries only.
+    *   Update finance dashboards to point to the new canonical stream, backed by the aliasing layer. This resolves integration errors while maintaining report continuity.
+
+**3. Execution Timeline (3-Week Sprint)**
+*   **Week 1:** Finalize the canonical schema and aliasing map. Define the "core action" for retail (purchase) and its required properties (order_id, value, currency).
+*   **Week 2:** Deploy the aliasing logic in the staging environment. Run parallel queries: compare the new canonical stream against legacy raw logs to verify 1:1 data fidelity.
+*   **Week 3:** Switch production traffic to the new schema. Monitor specifically for data drops in the finance cohort. Deprecate old logging calls in microservices gradually as part of routine maintenance, not a blocking refactor.
+
+**4. Resource Allocation & Guardrails**
+*   **Team:** Assign one data architect to own the schema dictionary; assign two engineers to build the ingestion aliases. Feature development continues uninterrupted as this is an infrastructure overlay.
+*   **Guardrail Metric:** "Finance Report Continuity." If the variance between legacy and new stream totals exceeds 0.1% during parallel testing, halt the switch.
+*   **Identifier Seam:** Ensure the `user_id` passed during these events is stable and pseudonymous to enable cross-session retention analysis. Route any PII handling to the privacy compliance protocol; do not embed raw PII in event properties.
+
+**This Week's Steps:**
+1.  **Define:** Draft the canonical `purchase_completed` schema and list every current variant that maps to it.
+2.  **Verify:** Run a query on last month's data using the proposed mapping to confirm it reconciles with the finance team's current revenue total.
+3.  **Decide:** Present the aliasing strategy to the CTO with the specific tripwire: "If parallel testing shows >0.1% variance, we extend the timeline; otherwise, we switch on [Date]."
+
+**Note:** This plan assumes the CDP supports server-side aliasing; if not, the engineering effort shifts to the application layer. No external benchmarks for "clean data" are applied; success is defined solely by reconciliation with RetailMix's own historical financial records.

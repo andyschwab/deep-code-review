@@ -1,0 +1,35 @@
+# StyleVision AR Beta: Instrumentation Plan (Closed Beta)
+
+**North Star Metric:** Weekly Active Users completing a "Save to Room" action (indicates validated intent beyond curiosity).
+**Primary Hypothesis to Test:** Does interaction depth (rotations/resizes) correlate with "Save to Room," or is it purely time-based?
+
+## 1. Core Engagement Events (Answering "What drives intent?")
+*Instrument only these to validate the hypothesis. Do not track every touch coordinate.*
+
+| Event Name | Trigger | Properties | Question Answered |
+| :--- | :--- | :--- | : |
+| `ar_session_started` | Camera view opens with a model loaded. | `item_id`, `category`, `network_type`, `device_model` | What is the raw acquisition into the experience? |
+| `ar_interaction_performed` | User completes a discrete manipulation gesture. | `item_id`, `interaction_type` (enum: `rotate`, `resize`, `texture_swap`), `duration_ms`, `step_count` | Which specific actions correlate with conversion? Is resizing more predictive than rotating? |
+| `ar_session_ended` | Camera view closes. | `session_duration_ms`, `total_interactions`, `ended_with_save` (bool) | What is the drop-off rate, and does session length predict the outcome? |
+| `item_saved_to_room` | User clicks "Save" or "Add to Cart" from AR. | `item_id`, `time_to_save_ms`, `interaction_count_prior` | **The North Star.** Did the user derive value? |
+
+## 2. Technical Stability Events (Answering "Is performance killing retention?")
+*Do not stream frame rates. Log only when thresholds breach usability.*
+
+| Event Name | Trigger | Properties | Question Answered |
+| :--- | :--- | :--- | :--- |
+| `ar_performance_degraded` | Frame rate drops below 20fps for >2 seconds OR tracking lost >1s. | `avg_fps_window`, `tracking_loss_duration_ms`, `device_thermal_state` | Are technical glitches causing silent abandonment before `ar_session_ended`? |
+| `ar_load_failed` | Model fails to instantiate within 5s. | `error_code`, `model_size_mb`, `network_latency_ms` | Is the acquisition funnel leaking due to load times? |
+
+## 3. Implementation Constraints & Rules
+*   **Identifier Seam:** All events must include a `pseudonymous_user_id` (stable across sessions) to enable cohort retention analysis. Do not use raw device IDs; route PII handling to privacy compliance.
+*   **No Vanity Metrics:** Do not instrument "camera_opened" without the subsequent `ar_session_started` confirmation. Do not track "time_spent" as a raw counter; derive it from start/end timestamps.
+*   **Beta Scope:** This plan is for the **MVP stage**. It focuses strictly on Activation (did they try it?) and Retention (did they save it?). Do not add referral or revenue events yet unless the "Save" action directly triggers a checkout.
+
+## This Week's Steps
+1.  **Handover:** Deliver this table to mobile devs by Thursday with the explicit instruction: "If an event does not answer one of the named questions above, do not implement it."
+2.  **Baseline Definition:** Before July 1, define the current "Save to Room" rate from any alpha testing as your baseline. If no data exists, mark the initial beta result as `UNVERIFIED` until 500 sessions are collected.
+3.  **Analysis Prep:** Pre-commit to reviewing the `ar_interaction_performed` breakdown after the first 1,000 sessions to determine if `resize` or `rotate` is the leading indicator of a save.
+
+*Note: Technical metrics use thresholds (e.g., <20fps) rather than continuous streams to avoid high-cardinality noise that conflicts with system observability standards.*
+*All benchmark comparisons must be made against your own Day 1–7 beta trends, not external industry averages.*

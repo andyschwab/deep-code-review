@@ -1,0 +1,30 @@
+# Event Unification Strategy: 'Luz' to 'Lumina' Transition
+
+**Audience:** Data Science Team, Regional Marketing Lead (Lisbon)
+**Objective:** Unify fragmented event streams for accurate Q4 reporting and YoY growth analysis without losing historical context.
+
+### Step 1: Implement a Logical Alias Layer (Do Not Rewrite History)
+Do not alter raw historical data. Instead, create a transformation layer in your data warehouse (e.g., a SQL view or dbt model) that normalizes event names at query time. Map both `luz_add_to_cart` and `lumina_add_to_cart` to a canonical name, such as `unified_add_to_cart`.
+*   **Action:** Add a metadata column `event_source_version` ('legacy_luz' vs 'new_lumina') to every unified row. This preserves the ability to audit data integrity and isolate legacy client behavior if needed.
+
+### Step 2: Validate Data Integrity Before Aggregation
+Before trusting the unified stream for Q4 reports, verify that the aliasing logic does not double-count or drop events during the transition overlap period (post-Sept 10).
+*   **Action:** Run a reconciliation query comparing the sum of raw `luz_*` + `lumina_*` events against the count of `unified_*` events for the period of Sept 10–Present. Any discrepancy indicates a logging error or mapping failure that must be fixed before reporting.
+
+### Step 3: Define the "Legacy Support" Cutoff Protocol
+You cannot arbitrarily stop supporting old event names based solely on app version adoption if those clients still generate revenue. The cutoff must be driven by **event volume**, not just install base, to protect the 12% revenue stream from Portugal.
+*   **Trigger Condition:** Monitor the daily share of `unified_add_to_cart` events originating from `event_source_version = 'legacy_luz'`.
+*   **Cutoff Rule:** When the legacy event volume drops below **1% of total daily events** for 14 consecutive days *after* the 90% app adoption milestone is reached, declare the "End of Life" for the `luz_` prefix.
+*   **Post-Cutoff Action:** After this date, flag any remaining `luz_` events as anomalies (likely stuck processes or bots) rather than valid user traffic. Do not merge them into the primary metric unless explicitly investigated.
+
+### Step 4: Adjust Year-Over-Year (YoY) Comparisons
+Comparing Q4 2024 (mixed naming) to Q4 2023 (pure `luz_` naming) requires explicit annotation to prevent misinterpretation of "growth" that is actually just schema noise.
+*   **Action:** In all Q4 dashboards, include a footnote stating: *"Q4 2024 metrics include unified events from both 'Luz' and 'Lumina' schemas. Historical Q4 2023 data reflects 'Luz' schema only. Growth rates are calculated on the unified logical layer."*
+*   **Verification:** Ensure the Data Science team runs a cohort analysis separating users who updated pre-Sept 10 vs. post-Sept 10 to confirm the rebranding did not negatively impact retention independent of the naming change.
+
+### Step 5: Finalize Q4 Reporting Governance
+*   **Immediate:** Deploy the unified view for the Marketing Lead to use in draft reports.
+*   **Weekly:** Review the legacy event volume percentage.
+*   **Decision Point:** Once the cutoff rule (Step 3) is met, formally deprecate the `luz_` alias in documentation and update data dictionaries to reflect `lumina_` as the sole source of truth moving forward.
+
+**Note:** This strategy relies on your internal event volume data to set the cutoff; no external benchmark for "acceptable legacy traffic" exists. If the 90% adoption target is met but legacy event volume remains high, investigate whether high-value users are disproportionately failing to update before enforcing the cutoff.

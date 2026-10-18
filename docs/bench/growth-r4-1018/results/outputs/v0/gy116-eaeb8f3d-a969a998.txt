@@ -1,0 +1,36 @@
+# Data Remediation & Standardization Strategy for Series B Due Diligence
+
+**Objective:** Reconstruct a single source of truth for the conversion funnel to satisfy auditor scrutiny by October 15, ensuring trend continuity without artificial spikes.
+
+### 1. Event Taxonomy Standardization (The "Golden Name")
+Adopt **`add_to_cart`** as the canonical event name immediately. This follows snake_case conventions common in data warehousing and aligns with your most frequent historical usage.
+*   **Action:** Update all tracking plans and instrumentation libraries across web, iOS, and Android to fire only `add_to_cart` effective immediately.
+*   **Governance:** Enforce a strict schema where any new event variant triggers a build failure. No "just in case" events; every event must answer a specific funnel question.
+
+### 2. Historical Data Reconstruction (The Mapping Logic)
+Do not overwrite raw logs. Instead, create a **transformation layer** in your data warehouse (SQL view or dbt model) that maps legacy variants to the golden name for all historical analysis.
+*   **Mapping Rule:**
+    ```sql
+    CASE
+      WHEN event_name IN ('add_to_cart', 'addToCart', 'item_added') THEN 'add_to_cart'
+      ELSE event_name
+    END AS standardized_event_name
+    ```
+*   **Continuity Check:** Run a parallel count of the three legacy names summed together vs. the new standardized count for a sample week. If the variance is >0.1%, investigate platform-specific payload differences before signing off. This proves to auditors that the "spike" is a visualization artifact of consolidation, not actual growth.
+
+### 3. Handling the Transition Gap
+To prevent artificial spikes in dashboards during the three-week cleanup:
+*   **Dashboard Logic:** Update all executive and investor-facing dashboards to query the **transformation layer**, not the raw event table. This ensures the historical trend line appears smooth immediately, as the mapping logic retroactively normalizes the past six months.
+*   **Documentation:** Publish a "Data Lineage Memo" attached to every chart. It must state: *"Data standardized on [Date] via mapping logic [Link to SQL]. Pre-standardization raw counts available in appendix."* This transparency satisfies auditor requirements for data hygiene without hiding the remediation effort.
+
+### 4. Auditor Trust & Verification
+*   **Pre-Commit the Method:** Before running the full backfill, document the mapping logic and have your external auditors review the SQL transformation rules. Their sign-off on the *method* protects you if minor discrepancies arise later.
+*   **Variance Report:** Generate a one-page report showing the volume contribution of each legacy name (`addToCart` vs. `item_added`) over the last 6 months. This demonstrates that no single platform's data was lost, only renamed.
+
+### This-Week Steps
+1.  **Define & Freeze:** Finalize the `add_to_cart` schema and merge the SQL mapping logic into your production data pipeline by Wednesday.
+2.  **Validate:** Run the variance check on last month's data; if the sum of legacy events equals the new standardized count within 0.1%, proceed to full historical backfill.
+3.  **Document:** Draft the Data Lineage Memo for the CFO to attach to the budget approval, explicitly stating that dashboard continuity is preserved via the transformation layer.
+
+**Note:** Do not attempt to "guess" missing properties for old events; if a legacy event lacks a required property (e.g., `currency`), mark those specific rows as `UNVERIFIED` in your quality report rather than fabricating values.
+**Note:** Ensure user identifiers used for cohorting across these events are pseudonymous; route any PII handling details to your privacy compliance protocol.

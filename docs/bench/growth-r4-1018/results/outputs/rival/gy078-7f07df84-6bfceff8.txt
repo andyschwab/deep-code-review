@@ -1,0 +1,41 @@
+# Diagnosis Strategy: Checkout Completion Drop
+
+To isolate the failure point between the steady add-to-cart rate (18%) and the plummeting checkout completion (65% → 42%), execute the following data cuts immediately. Since current logs do not distinguish between abandonment and technical errors, you must correlate frontend behavior with backend response codes.
+
+### 1. Segment by Device and Operating System
+Your primary hypothesis targets mobile friction. Break down the checkout funnel specifically for mobile users, then slice further by OS version.
+*   **Cut:** Mobile iOS vs. Mobile Android vs. Desktop.
+*   **Deep Dive:** Within Mobile, segment by OS version (e.g., iOS 16 vs. 17, Android 13 vs. 14).
+*   **Look For:** A disproportionate drop in completion rates for specific OS versions post-September 1. If mobile completion is 20% while desktop remains near 60%, the issue is likely mobile-specific rendering or API compatibility.
+
+### 2. Segment by Payment Method and Card Type
+The update involved saving credit card details. Failure may be isolated to specific card networks or saved-card tokenization.
+*   **Cut:** New Card Entry vs. Saved Card Usage.
+*   **Deep Dive:** Break down by card network (Visa, Mastercard, Amex) and issuer type (Debit vs. Credit).
+*   **Look For:** If "Saved Card" usage has a near-zero completion rate while "New Card" entry holds steady, the tokenization logic in the new gateway is failing. If a specific card network fails, the gateway integration may lack proper support for that provider's 3D Secure flow.
+
+### 3. Time-Series Analysis Around Deployment
+Correlate the drop precisely with the September 1 deployment to rule out seasonal trends.
+*   **Cut:** Daily checkout completion rate from August 25 to present.
+*   **Look For:** A sharp cliff on September 1. A gradual decline suggests a compounding issue (e.g., cache buildup, accumulating bad tokens), while an immediate drop confirms the deployment as the root cause.
+
+### 4. Error Code vs. Exit Point Correlation
+Since logs currently mix abandonment with errors, you must separate them by analyzing the last recorded event before exit.
+*   **Cut:** Users who exited on the "Payment Authorization" screen vs. "Review Order" screen.
+*   **Action:** Filter for backend HTTP 4xx/5xx responses occurring within 5 seconds of the user exiting the payment screen.
+*   **Look For:** A spike in specific error codes (e.g., `400 Bad Request` for malformed card data, `502 Bad Gateway` for timeout) that matches the timeline of the drop. If 80% of drop-offs on the payment screen coincide with a specific error code, you have identified the technical failure.
+
+### 5. Browser and App Version Segmentation
+If you have a native app or support specific browsers, friction may be environment-specific.
+*   **Cut:** Native App (iOS/Android) vs. Mobile Web (Chrome, Safari, Firefox).
+*   **Look For:** Discrepancies between web and app environments. The gateway update might have broken the WebView implementation in the app while leaving the mobile web experience intact, or vice versa.
+
+### Immediate Data Request List for Engineering
+To enable these cuts, request the following raw log exports immediately:
+1.  Checkout session logs from Aug 25–Present, including: `user_id`, `device_type`, `os_version`, `browser/app_version`, `payment_method_type`, `card_network`, `step_reached`, `exit_timestamp`, and `backend_error_code`.
+2.  Gateway API response logs from Sept 1–Present, filtered for failed authorizations, including: `request_payload`, `response_code`, `error_message`, and `latency_ms`.
+
+Present these segmented funnel charts to leadership. The segment with the steepest deviation from the baseline identifies your culprit.
+
+*Ensure all rate calculations use matching observation windows for numerator and denominator to avoid skewing results.*
+*Prioritize the "Saved Card" vs. "New Card" split first, as it directly tests your primary hypothesis.*

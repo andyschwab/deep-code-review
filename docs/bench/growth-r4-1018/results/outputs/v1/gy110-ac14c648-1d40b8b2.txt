@@ -1,0 +1,53 @@
+# Dark Mode Impact Evaluation Plan for Engineering Leadership
+
+**Decision Context:** Determine whether to default Dark Mode for new users based on productivity impact, not just adoption.
+**Test Status:** A/B Test started July 5th; 10,000 users exposed; 60% manual adoption rate observed in Day 1.
+**Primary Hypothesis:** Dark Mode increases evening session duration by ≥15% without degrading code quality.
+
+## 1. North Star & Input Metrics
+Reject "adoption rate" as the success metric; it measures preference, not value.
+*   **North Star:** **Net Productive Output per Session** (defined below).
+*   **Input Metrics:**
+    *   *Adoption:* % of exposed users enabling Dark Mode.
+    *   *Retention:* % of adopters still using Dark Mode in Week 2.
+    *   *Guardrail:* Syntax error rate / build failure rate.
+
+## 2. Event Taxonomy (Instrument Only What Answers a Question)
+Do not instrument "everything." Add these specific events to answer named questions:
+*   `theme_toggled` (Properties: `from_light`, `to_dark`, `time_of_day`): *Does adoption correlate with evening usage?*
+*   `code_commit` (Properties: `session_duration`, `theme_state`, `lines_changed`): *Does output volume change?*
+*   `syntax_error_detected` (Properties: `theme_state`, `error_type`): *Does readability degrade?*
+*   `undo_action` (Properties: `theme_state`, `time_since_typing`): *Proxy for correction friction/readability issues.*
+
+**Identifier Seam:** Ensure `user_id` is stable across sessions to track individual cohorts, distinct from ops logs.
+
+## 3. Reading the Funnel (Bottom-Up)
+Analyze in this order to avoid wasting acquisition on a broken experience:
+1.  **Retention (The Leak Check):** Of the 60% who turned it on Day 1, how many reverted to Light Mode within 48 hours? If reversion >10%, the feature has a usability flaw regardless of session time.
+2.  **Activation (Core Value):** Compare `session_duration` for Dark Mode users vs. Light Mode users *only* during evening hours (18:00–02:00 local time). A global average dilutes the specific hypothesis about eye strain.
+3.  **Output (Productivity):** Correlate `theme_state` with `commits_per_session`.
+
+## 4. Interpreting Conflicting Signals
+If **Session Time ↑** but **Commit Frequency ↓**:
+*   **Diagnosis:** Users are lingering due to comfort (eye strain reduced) but typing slower due to readability issues, OR they are distracted.
+*   **Action:** Check the `undo_action` rate and `syntax_error_detected` rate.
+    *   If errors/undos are **higher** in Dark Mode: Readability is compromised. **Do not default.** Iterate on contrast ratios.
+    *   If errors/undos are **flat/lower**: Users are likely engaging in reading-heavy tasks (code review, debugging) rather than typing. This is a net positive for productivity. **Proceed to default.**
+
+## 5. Experiment Rigor & Decision Rule
+*   **Peeking Warning:** The current "Day 1" data is `UNVERIFIED` for causal claims. Do not declare a win yet.
+*   **Pre-commitment:** Run the test for **14 days** (until July 19th) to capture a full weekly cycle and stabilize variance.
+*   **Primary Metric:** `commits_per_evening_session` (weighted by `syntax_error_rate`).
+*   **Guardrail:** `syntax_error_rate` must not increase by >2% relative to control.
+*   **Stop/Ship Criteria:**
+    *   **Ship as Default:** If Evening Session Duration ↑ ≥10% AND Commit Frequency is statistically flat or ↑ AND Error Rate ≤ Control +2%.
+    *   **Extend Test:** If confidence intervals overlap zero on primary metric after 14 days.
+    *   **Stop:** If Error Rate increases >2% or Reversion Rate >15%.
+
+## This Week's Steps
+1.  **Verify Instrumentation:** Confirm `syntax_error_detected` and `theme_state` are logging correctly on the backend by EOD tomorrow.
+2.  **Cohort Query:** Run a SQL query grouping `session_duration` by `theme_state` and `hour_of_day` for the first 3 days; look specifically for the 18:00–02:00 window.
+3.  **Hold Decision:** Do not change defaults until the 14-day mark (July 19th) to avoid false positives from early novelty effects.
+
+*Note: Qualitative readability is proxied here by error/undo rates; direct sentiment requires a separate survey pulse, not A/B telemetry.*
+*All benchmarks above are derived from your internal baseline; no external industry standards were applied.*

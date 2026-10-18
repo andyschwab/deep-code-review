@@ -1,0 +1,47 @@
+# EcoTherm Tracking Plan for Firmware Implementation
+
+**Objective:** Correlate physical device usage with app engagement to validate energy savings and active adoption, prioritizing low-bandwidth events for firmware v1.0.
+
+## Core Philosophy
+Do not track every temperature change. Instead, track **intent** (user action) and **state changes** (system result). This reduces data volume while capturing whether users are actively managing energy or ignoring the device.
+
+## Critical Event List (Firmware Priority)
+
+These events must be logged locally and synced to the app/cloud when connectivity is restored.
+
+| Event Name | Trigger Condition | Key Properties | Why It Matters |
+| :--- | :--- | :--- | : |
+| `device_installed` | First successful power-up & Wi-Fi handshake | `firmware_version`, `install_date` | Baseline for adoption cohort; distinguishes "in-box" from "active." |
+| `temp_setpoint_changed` | User physically turns dial or presses buttons on device | `source: physical`, `old_temp`, `new_temp`, `hvac_mode` | **Primary Adoption Metric.** Proves the user is interacting with the hardware, not just the app. |
+| `app_command_received` | Device receives instruction from mobile app | `command_type`, `app_version` | Validates the digital bridge; correlates app sessions to physical outcomes. |
+| `connectivity_lost` | Wi-Fi signal drops below threshold for >5 mins | `last_signal_strength`, `uptime_hours` | Marks the start of an offline gap; prevents false "churn" classification. |
+| `connectivity_restored` | Wi-Fi reconnects successfully | `offline_duration_seconds`, `pending_events_count` | **Crucial for Data Integrity.** Allows you to backfill events and calculate true offline duration. |
+| `energy_report_generated` | Device calculates local energy usage (daily/weekly) | `kwh_estimate`, `avg_temp_diff`, `report_period` | Direct proxy for "saving energy." Can be generated locally and synced later. |
+| `factory_reset` | Hard reset performed on device | `trigger_method` | Indicates severe frustration or installation failure. |
+
+## Handling Offline Periods & Engagement Metrics
+
+To prevent connectivity issues from skewing engagement data, implement the following logic in the firmware and analytics pipeline:
+
+1.  **Local Buffering:** Store `temp_setpoint_changed` events in a local ring buffer (last 50 events) if Wi-Fi is down. Sync immediately upon `connectivity_restored`.
+2.  **Timestamping:** Every event must carry the **local device timestamp**, not the sync timestamp. This allows accurate reconstruction of user behavior timelines.
+3.  **The "Active User" Definition:**
+    *   **Do not** define active users solely by app logins.
+    *   **Define** an "Active EcoTherm User" as a device that has recorded at least one `temp_setpoint_changed` (physical or app) within the last 7 days.
+    *   **Exclude** offline periods from "inactive" calculations. If a device is offline for 48 hours but sends a temperature change immediately upon reconnection (dated during the offline window), the user is **active**.
+
+## Energy Savings Correlation Strategy
+
+Since you cannot log continuous temperature streams due to bandwidth:
+
+*   **Track Deltas, Not Constants:** Only log when the setpoint changes by >1°F. Constant temperatures imply the system is maintaining, not that the user is disengaged.
+*   **HVAC Runtime Estimation:** If the firmware can estimate runtime (e.g., relay closed), log a daily summary `hvac_runtime_minutes`. Correlate high runtime with small setpoint deltas to identify inefficiency.
+*   **The "Set and Forget" Signal:** If `device_installed` occurs, followed by zero `temp_setpoint_changed` events for 14 days, flag as "Passive Install." This distinguishes true adoption from shelf-ware.
+
+## Implementation Notes for Jane (Engineering)
+
+*   **Payload Size:** Keep JSON payloads minimal. Use integer codes for `hvac_mode` (e.g., 1=Heat, 2=Cool) rather than strings to save bytes.
+*   **Retry Logic:** Implement exponential backoff for syncing buffered events to prevent network storms when 10,000 units reconnect simultaneously after an outage.
+*   **Privacy:** Ensure no specific location data or Wi-Fi SSIDs are included in the event properties.
+
+This plan focuses on the minimum viable signals to prove the device is being used to manage energy, bridging the physical-digital gap without overwhelming the firmware.

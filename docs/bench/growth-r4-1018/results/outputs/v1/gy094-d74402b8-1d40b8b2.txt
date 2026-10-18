@@ -1,0 +1,45 @@
+### Data Reconciliation & Cleanup Plan for April 5 Deployment
+
+**Objective:** Resolve the 3,800-ride discrepancy (45,000 recorded vs. 41,200 billed) by distinguishing between GPS signal loss errors and legitimate long-duration rentals, ensuring accurate billing without data loss.
+
+#### 1. Immediate Triage: Segment the "In-Use" Population
+Do not apply a single time threshold yet. Query the current "in-use" fleet and segment into three cohorts based on available telemetry:
+*   **Cohort A (Static Anomaly):** Scooters with no GPS movement (>0 km/h) for >4 hours but still marked "in-use." *Diagnosis:* High probability of GPS drop in underground parking.
+*   **Cohort B (Moving Long-Duration):** Scooters showing continuous or intermittent movement over >4 hours. *Diagnosis:* Likely legitimate tourist rentals; do not auto-close.
+*   **Cohort C (Signal Gap):** Scooters with a last known location at a known signal-blackspot (e.g., mapped underground garages) and no subsequent data. *Diagnosis:* Probable infrastructure failure.
+
+#### 2. Decision Rules for Missing End-Events
+Implement the following logic in the billing engine to reconstruct missing end-events:
+
+*   **Rule for Cohort A (Static > 4 Hours):**
+    *   **Action:** Auto-terminate the ride.
+    *   **End Time Estimation:** Set the end-time to the timestamp of the *last valid heartbeat* before the 4-hour static period began.
+    *   **Rationale:** A mobility scooter cannot remain "in-use" without movement or a stop event for this duration unless the signal is lost. Charging beyond the last known signal is unverifiable and risks customer dispute.
+
+*   **Rule for Cohort B (Moving > 4 Hours):**
+    *   **Action:** Flag for manual review; do not auto-terminate.
+    *   **Verification:** Cross-reference with battery drain rates. If the battery level suggests the ride should have ended (e.g., <5% remaining) but the session is open, estimate end-time based on battery depletion curves.
+    *   **Billing:** Bill only up to the point of plausible battery life or last verified GPS ping if battery data is missing. Mark as `UNVERIFIED` in the dashboard until reviewed.
+
+*   **Rule for Cohort C (Known Blackspots):**
+    *   **Action:** If the last location is a mapped underground garage, assume the ride ended upon entry.
+    *   **End Time Estimation:** Use the timestamp of entry into the geofenced blackspot.
+    *   **Exception:** If the user has a history of long-distance rentals (top 5% of user duration), flag for manual confirmation via SMS before closing.
+
+#### 3. Billing Estimation Formula for Corrupted Data
+For any ride where the end-event is reconstructed, apply this formula to calculate the billable duration ($D_{bill}$):
+
+$$D_{bill} = \min(T_{last\_heartbeat}, T_{battery\_depletion}, T_{geofence\_entry}) - T_{start}$$
+
+*   **$T_{last\_heartbeat}$:** Timestamp of the last successful GPS/telemetry ping.
+*   **$T_{battery\_depletion}$:** Estimated time when battery would hit 0% based on discharge rate (use only if GPS is missing >1 hour).
+*   **$T_{geofence\_entry}$:** Timestamp entering a known no-signal zone (if applicable).
+
+**Guardrail:** If the calculated $D_{bill}$ results in a charge >€50 (approx. 5 hours), trigger a "Pending Review" status in the finance dashboard rather than auto-charging. This prevents large erroneous charges while allowing legitimate long rides to be validated.
+
+#### 4. Implementation Steps for Engineering (Due April 5)
+1.  **Backfill Script:** Run a one-time script to apply the above rules to the existing 3,800 discrepancy rides. Generate a CSV of "Reconstructed Rides" showing original vs. corrected duration and estimated revenue impact.
+2.  **Real-Time Patch:** Deploy the logic to the event ingestion pipeline to auto-close static sessions >4 hours moving forward, preventing new accumulation.
+3.  **Finance Handoff:** Provide the finance team with the "Reconstructed Rides" report by EOD April 4, highlighting any rides marked `UNVERIFIED` (Cohort B) that require manual customer contact.
+
+**Note:** This approach prioritizes preventing overcharging (which drives churn) over capturing every possible minute of unverified usage. The 4-hour threshold is a heuristic; if >10% of flagged "tourist" rides are legitimately longer, adjust the static threshold to 6 hours in the next iteration.

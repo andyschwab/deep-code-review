@@ -1,0 +1,44 @@
+### Engineering Requirements: Chatbot Escalation Instrumentation
+
+**Objective:** Capture structured failure data at the moment of human handoff to identify recurring breakdown patterns without degrading user experience.
+
+**1. Event Taxonomy & Data Schema**
+Instrument a single primary event: `support_escalation_triggered`. Do not instrument every message; capture only the transition state.
+
+*   **Event Name:** `support_escalation_triggered`
+*   **Question Answered:** "What specific intent or complexity caused the bot to fail and require human intervention?"
+*   **Required Properties:**
+    *   `session_id`: Stable pseudonymous identifier (to track the user journey without PII).
+    *   `timestamp`: ISO 8601 format.
+    *   `turn_count`: Integer (number of bot-user exchanges). *Note: Validate if >4 is the true threshold later; do not hardcode logic yet.*
+    *   `last_bot_intent`: String (the bot's classified intent for the final message, e.g., "shipping_delay_lookup").
+    *   `last_user_utterance`: String (truncated to 250 chars; the specific query that broke the loop).
+    *   `escalation_reason_code`: Enum [`user_requested`, `confidence_threshold_low`, `max_turns_exceeded`, `exception_detected`].
+    *   `sentiment_score`: Float (-1.0 to 1.0, derived from the last user message).
+    *   `resolution_outcome`: String (populated post-handoff: [`resolved_human`, `abandoned`, `callback_scheduled`]).
+
+**2. In-Interface Feedback Mechanism**
+Replace intrusive pop-ups with a passive, context-aware signal collected *after* the handoff is confirmed.
+
+*   **Trigger:** Display a single thumbs-up/down widget only after the user is connected to a human agent or receives a ticket number.
+*   **Action:** If "Thumbs Down" is selected, expand a single optional text field labeled "What did the bot miss?"
+*   **Data Link:** Bind this feedback to the `session_id` of the `support_escalation_triggered` event.
+*   **Constraint:** Do not show this widget if the user explicitly requested "Speak to human" in the first turn (this is a preference, not a failure).
+
+**3. Analysis Logic for Failure Modes**
+Structure the data to answer these three specific questions next week:
+*   **The Loop Trap:** Is `turn_count` > 4 correlated with `sentiment_score` < -0.5, or are users frustrated even at turn 2?
+*   **The Intent Gap:** Which `last_bot_intent` values have the highest escalation rate? (e.g., if "customs_delay" spikes, the bot lacks that knowledge base).
+*   **The False Negative:** Are users escalating (`user_requested`) even when `confidence_threshold` was high? (Indicates tone/persona mismatch, not understanding).
+
+**4. Implementation Guardrails**
+*   **Privacy:** Ensure `last_user_utterance` is scrubbed of tracking numbers or addresses before storage, or flag for `privacy-compliance` review.
+*   **Volume:** Sample 100% of escalations; do not sample. This is a diagnostic phase.
+*   **Definition of Done:** Dashboard shows a Pareto chart of `last_bot_intent` vs. `escalation_reason_code` by Friday.
+
+**Reading Rule:** If `escalation_reason_code` is `max_turns_exceeded` but `sentiment_score` is positive, the "broken loop" assumption is false; the user is engaged in complex problem-solving. Do not optimize for shorter conversations in that segment.
+
+**This Week's Step:** Implement the `support_escalation_triggered` event schema above and deploy the passive feedback widget. By Friday, group escalations by `last_bot_intent` to present the top three failure categories to the board. Do not attempt to fix the bot until the top intent gap is quantified.
+
+*Note: Retention of the core action (successful self-service resolution) is the North Star here; acquisition of new tickets is irrelevant to this fix.*
+*Ensure the `session_id` remains pseudonymous; route any raw PII handling to your privacy compliance protocol.*

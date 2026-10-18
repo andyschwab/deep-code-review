@@ -1,0 +1,42 @@
+### Instrumentation Plan: SwiftChat Voice Messaging (MVP)
+
+**Audience:** VP of Product, Lead Backend Engineer
+**Goal:** Validate viral growth and core value within a 6-week window without overwhelming the data team.
+
+#### 1. The North Star (Customer Value)
+**Metric:** *Weekly Active Users completing a "Successful Voice Exchange."*
+*   **Definition:** A user who records a message, sends it, and the recipient plays it for >3 seconds within 7 days.
+*   **Why:** Latency and clarity are hygiene factors; the business only grows if users actually exchange value. Do not track cumulative downloads or raw signups (vanity).
+
+#### 2. Event Taxonomy (Answer Named Questions Only)
+Instrument **only** these four events. Ignore all others until V2.
+
+| Event Name | Question It Answers | Properties to Capture | Decision Rule |
+| :--- | :--- | :--- | : |
+| `voice_message_sent` | **Activation:** Do users try the feature? | `user_id`, `message_duration_sec`, `network_type` | If <20% of active users send one in Week 1, the entry point is broken. Fix UI before optimizing speed. |
+| `voice_message_played` | **Retention/Value:** Is the content consumed? | `user_id`, `play_duration_sec`, `time_since_sent_sec` | If play rate <50% of sent messages, clarity or delivery is failing. Prioritize bug fixes over new features. |
+| `voice_message_replayed` | **Virality Signal:** Is the content engaging enough to hear twice? | `user_id`, `original_sender_id`, `replay_count` | **Track this.** If replay rate >15%, we have a viral hook for the marketing pitch. If lower, ignore "social sharing" features for now. |
+| `share_invite_clicked` | **Growth:** Are users manually driving acquisition? | `user_id`, `share_channel` (SMS, Link, etc.) | Only instrument if `replayed` is high. If users aren't replaying, they won't share. |
+
+**Explicitly Ignored for V2:**
+*   Detailed audio quality scores (use crash reports + `played` failure as a proxy).
+*   Granular latency percentiles (track only "timeout/failure" events; if `sent` succeeds, latency is "good enough" for MVP).
+*   Social graph mapping (too heavy; rely on `share_invite_clicked` counts).
+
+#### 3. Implementation Constraints & Seam
+*   **Identifier:** You must implement a stable, pseudonymous `user_id` persisted across sessions to link sender and receiver. *Note: This inverts standard ops advice to avoid high-cardinality labels; product retention requires following the user.*
+*   **Privacy:** Do not record audio content or metadata containing PII. Route consent logic to the compliance review.
+*   **Volume:** Cap event batching to reduce backend load. If `replayed` events spike, sample at 10% but alert on the aggregate trend.
+
+#### 4. Reading the Data (Bottom-Up)
+Do not look at acquisition yet. Read in this order:
+1.  **Retention:** Of users who received a message, how many `played` it? If this leaks, acquisition spend is wasted.
+2.  **Activation:** Of active users, how many `sent` a message?
+3.  **Virality:** Of those who played, how many `replayed` or `clicked share`?
+
+#### 5. This Week's Steps
+1.  **Engineer:** Implement the four events above with the specified properties. Ensure `user_id` stability.
+2.  **VP Product:** Define the "Successful Voice Exchange" threshold (e.g., >3s play) in the analytics dashboard.
+3.  **Both:** Ignore all other metrics. If `replayed` is <10% after 2 weeks, cancel planned "social sharing" features and focus on audio clarity bugs.
+
+*Note: No benchmarks for "good" replay rates are asserted here; compare only against your own Week 1 baseline. If data is missing, the metric is UNVERIFIED.*

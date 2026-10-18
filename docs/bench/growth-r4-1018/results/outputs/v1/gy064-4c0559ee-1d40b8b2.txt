@@ -1,0 +1,40 @@
+### Incident Response Plan: 'add_to_cart' Duplication Audit
+**Audience:** CTO, Fraud Detection Team | **Deadline:** 3 Weeks
+
+#### Phase 1: Validate Scope & Isolate Root Cause (Days 1–5)
+*Goal: Confirm the 18% figure and identify the specific device/OS correlation without altering data.*
+
+1.  **Query Segmentation:** Run an analytical query on raw event logs (not aggregated dashboards) for the period post-March 12th. Group by `session_id`, `device_model`, `os_version`, and `app_version`.
+    *   *Filter:* Sessions where `event_name = 'add_to_cart'` count > 1 within a 2-second window.
+    *   *Output:* A heat map showing duplication rates per device/OS combination. This confirms if the issue is universal on mobile or isolated to specific clients (e.g., "iOS 17 on iPhone 14").
+2.  **Code Correlation:** Cross-reference the identified device/OS clusters with the March 12th release notes. If the duplication correlates strictly with a specific SDK version or OS update rolled out that day, the race condition hypothesis is **verified**. If the pattern is random across all versions, investigate server-side idempotency failures instead.
+3.  **Deliverable:** A one-page report stating the exact scope (e.g., "Duplication affects 22% of iOS 16+ sessions, 0% of Android") and the confirmed technical root cause.
+
+#### Phase 2: Stop the Bleed (Immediate)
+*Goal: Prevent further contamination of the data stream.*
+
+1.  **Hotfix Deployment:** Implement an idempotency key check on the client or ingestion layer. Generate a unique hash per `session_id` + `product_id` + `timestamp_window` (e.g., 5 seconds). Drop any subsequent event matching this hash.
+2.  **Shadow Mode Validation:** Before enforcing the drop, run the logic in "shadow mode" for 24 hours to log how many events *would* have been dropped. Verify this matches the historical duplication rate observed in Phase 1.
+3.  **Deliverable:** Confirmation that the incoming stream is now deduplicated, with a log of dropped events for the validation window.
+
+#### Phase 3: Historical Data Correction (Days 6–14)
+*Goal: Clean six months of data while preserving Year-Over-Year (YoY) integrity.*
+
+1.  **Do Not Overwrite Raw Logs:** Never delete or alter the original raw event stream. This violates audit trails.
+2.  **Create a "Cleaned" View:** Build a new transformation layer (SQL view or materialized table) that applies the deduplication logic retroactively.
+    *   *Logic:* For every `session_id` + `product_id`, keep only the first event within a 5-second window.
+    *   *Tagging:* Add a boolean column `is_corrected_duplication` to every cleaned row.
+3.  **YoY Preservation Strategy:** To prevent distorting YoY comparisons:
+    *   Generate two parallel metric sets for the affected period: `gross_conversion` (raw) and `net_conversion` (cleaned).
+    *   In the audit report, explicitly state: "YoY growth for Q2 2023 vs Q2 2024 is calculated using `net_conversion` to ensure apples-to-apples comparison against future data. Raw data remains available for forensic reconstruction."
+4.  **Deliverable:** A updated data dictionary defining the new `net_conversion` metric and the SQL logic used to generate it.
+
+#### Phase 4: Audit Preparation (Days 15–21)
+*Goal: Provide transparent evidence for the fraud detection team.*
+
+1.  **Reconciliation Report:** Produce a table showing the impact of the correction by month.
+    *   Columns: `Month`, `Raw Add-to-Cart Count`, `Corrected Count`, `Variance %`, `Estimated Revenue Impact`.
+2.  **Guardrail Check:** Verify that legitimate multi-item adds (adding two different products in quick succession) were not falsely flagged. Sample 50 corrected sessions manually to ensure no valid user actions were lost.
+3.  **Final Sign-off:** Present the Reconciliation Report and the Root Cause analysis to the CTO. Confirm that the "Cleaned" view is now the default source for all executive dashboards.
+
+**Note:** All historical corrections must be documented as a "data quality adjustment" in the audit trail, not hidden. Do not attempt to estimate "true" conversion rates for periods prior to March 12th unless similar patterns are found; limit the scope to the known incident window.

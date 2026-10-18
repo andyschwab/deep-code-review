@@ -1,0 +1,41 @@
+# Minimal Viable Audit Logging Proposal for HealthRecord Pro
+
+## Executive Summary
+To meet healthcare compliance standards (HIPAA/HITECH) while resolving the 4M/day log overflow, we propose shifting from "log everything" to "log material access." This reduces projected volume by ~95% while satisfying regulatory requirements for accountability and breach detection.
+
+## 1. Mandatory Events (The "Must-Haves")
+Regulators require proof of *who* accessed *what* and *when*, not every cursor movement or scroll. Track only these four core events:
+
+| Event | Trigger | Required Properties | Compliance Purpose |
+|-------|---------|---------------------|--------------------|
+| `record_accessed` | User opens a patient record | `user_id`, `role`, `patient_id`, `timestamp`, `access_reason` (if prompted) | Proves authorized viewing |
+| `record_modified` | Data is saved/updated | `user_id`, `fields_changed` (list), `previous_value_hash` (optional) | Integrity & change tracking |
+| `export_printed` | Data exported, printed, or downloaded | `user_id`, `format` (PDF/CSV), `record_count` | Detects data exfiltration |
+| `auth_failure` | Failed login or permission denial | `user_id`, `ip_address`, `failure_reason` | Security monitoring |
+
+**Excluded (Nice-to-Have):** Scroll depth, time-on-page, tab switching, search queries within a record, or hovering over fields. These generated the bulk of your 4M daily entries but offer negligible audit value.
+
+## 2. Data Anonymization Strategy
+To balance utility for security reviews with patient privacy in logs:
+
+*   **Diagnostic Codes (ICD-10/CPT):** Do not log the full code in plain text if the log storage is not encrypted at the same level as the clinical database.
+    *   *Approach:* Log only the **code category** (first 3 characters, e.g., `E11` for Type 2 Diabetes) instead of the full specificity (`E11.65`). This allows security teams to spot unusual access patterns (e.g., an HR user viewing oncology records) without exposing specific diagnoses in the audit trail.
+    *   *Exception:* If a specific code access is the subject of a breach investigation, retrieve the full detail from the secure clinical database using the `record_accessed` event ID, rather than storing it in the general log stream.
+*   **Patient Identifiers:** Never log names or SSNs. Use internal `patient_id` only.
+*   **User Identifiers:** Log `user_id` and `role`, but map to names only via the secure IAM system during an actual investigation.
+
+## 3. Projected Impact
+*   **Volume Reduction:** Eliminating passive view events (scrolls, hovers) and focusing on active access (`record_accessed`) typically reduces log volume by 90-98%. Your 4M/day should drop to <200k/day.
+*   **Storage Cost:** Corresponding 95%+ reduction in storage costs.
+*   **Query Performance:** Smaller datasets mean faster audit queries during investigations.
+
+## 4. Implementation Roadmap
+1.  **Immediate:** Disable logging for non-material events (scrolls, hovers, search-inside-record).
+2.  **Week 1:** Implement category-level masking for diagnostic codes in the log pipeline.
+3.  **Week 2:** Validate that `record_accessed` + `export_printed` captures 100% of required "Right of Access" and breach scenarios.
+4.  **August Audit:** Present the reduced log set as "Risk-Based Auditing," a recognized best practice that focuses on material events rather than noise.
+
+This approach satisfies legal requirements for accountability while ensuring the system remains performant and cost-effective.
+
+*Note: Confirm specific state-level healthcare regulations (e.g., CMIA in California) for any unique local mandates before final sign-off.*
+*Ensure your "access_reason" field is mandatory in the UI for sensitive records to strengthen the audit trail.*

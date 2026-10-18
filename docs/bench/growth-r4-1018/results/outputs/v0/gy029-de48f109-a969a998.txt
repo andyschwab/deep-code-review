@@ -1,0 +1,39 @@
+# HealthKeep Instrumentation Strategy: Compliance-First Event Taxonomy
+
+**Audience:** Dr. Arvind (Compliance Officer) and CTO
+**Objective:** Measure engagement depth and adherence proxies without storing PII or specific health data.
+
+### 1. The North Star & Input Metrics
+*   **North Star:** Weekly Active Patients completing a "Verification Loop" (a generic term for the core value action, decoupled from specific drug names).
+*   **Input Metrics:** Day-1 Retention of the Verification Loop; Frequency of Loop completion per active user.
+*   **Rejection of Vanity:** Raw "App Opens" are rejected as a primary metric. As noted in your assumption, an open does not equal intake; measuring opens alone creates noise and risks inferring sensitive behavior patterns without confirmation.
+
+### 2. Proposed Anonymized Event Taxonomy
+Every event below answers a specific product question while maintaining a zero-PII surface. No event contains medication names, dosages, patient IDs, or timestamps precise enough to reconstruct a medical schedule.
+
+| Event Name | Question Answered | Properties (Allowed) | Properties (Explicitly Forbidden) |
+| :--- | :--- | :--- | : |
+| `session_start` | Did the user return today? | `device_type`, `app_version`, `locale` | `user_id`, `ip_address`, `exact_timestamp` (round to hour) |
+| `flow_entered` | Did the user attempt the core workflow? | `flow_id` (generic UUID, e.g., "flow_A"), `entry_point` | `medication_name`, `dosage`, `prescriber_id` |
+| `step_completed` | Where do users drop off in the workflow? | `step_index` (integer), `duration_bucket` (e.g., "0-5s") | `step_name` (if descriptive), `input_text`, `camera_capture_status` |
+| `verification_submitted` | **Core Action:** Did the user complete the loop? | `success_boolean`, `retry_count` | `photo_hash`, `ocr_result`, `medication_type` |
+| `reminder_dismissed` | Are reminders useful or annoying? | `trigger_source` (e.g., "local_push"), `time_since_install_bucket` | `scheduled_time`, `reminder_content` |
+
+### 3. The Identifier Seam & Privacy Architecture
+To measure retention cohorts without violating HIPAA:
+*   **Stable Pseudonymous ID:** Generate a random, non-reversible UUID at first launch stored only on the device. This ID is sent with events to link sessions for cohort analysis (e.g., "Do users who installed in Week 1 return in Week 2?").
+*   **No PII Routing:** This UUID must **never** be linkable back to a real-world identity within the analytics pipeline. The mapping table (Real ID ↔ Analytics UUID) stays strictly in the secure clinical database, never exported to the analytics tool.
+*   **Data Minimization:** Properties like `duration_bucket` replace exact timestamps to prevent reconstructing a patient's specific dosing schedule from event logs.
+
+### 4. Implementation Guardrails
+*   **Instrumentation Stage:** Since you are pre-launch (targeting 5,000 by Jan 30), instrument **only** the events above. Do not add "debug" events or capture screen views that might accidentally render PII.
+*   **Compliance Verification:** Before shipping, run a schema audit: if any event property can be combined to identify a specific person or their specific medication regimen, it is `UNVERIFIED` and must be removed.
+*   **Adherence Proxy:** Report adherence to clinical partners as "% of active users completing `verification_submitted`," explicitly stating this is a *behavioral proxy* derived from anonymized aggregates, not a clinical record.
+
+### This-Week Steps
+1.  **Define `flow_id` mapping:** Create a static document mapping generic UUIDs to internal workflows for the engineering team, ensuring no descriptive names leak into the data stream.
+2.  **Audit the SDK:** Configure the analytics SDK to automatically strip IP addresses and round all timestamps to the nearest hour before transmission.
+3.  **Draft the Data Flow Diagram:** Visualize the separation between the clinical database (PII) and the analytics pipeline (Pseudonymous UUIDs) for Dr. Arvind's sign-off.
+
+*Note: This strategy measures behavior, not clinical outcomes. Any correlation between "app engagement" and "health improvement" must be validated via secure clinical trials, not analytics dashboards.*
+*Do not attempt to calculate current adherence rates; without live data, any figure is `UNVERIFIED`.*

@@ -1,0 +1,50 @@
+### Conversion Funnel Definition for CasaFind (Spain)
+**Audience:** Product Director
+**Objective:** Distinguish between mobile UX friction and offline conversion leakage to prioritize Q3 roadmap.
+
+**1. The North Star Metric**
+*   **Metric:** Weekly Verified Connections (WVC).
+*   **Definition:** The count of unique users who successfully complete a verified contact action (form submission + OTP success OR click-to-call tracked via proxy) within a 7-day window.
+*   **Why:** Page views are vanity; raw form submissions ignore verification failure. WVC rises only when value (a confirmed lead) is delivered.
+
+**2. The Revised Funnel (Bottom-Up Diagnosis)**
+Stop analyzing acquisition first. Diagnose where the 30% traffic increase fails to become WVC.
+
+*   **Step A: Property Engagement (Activation)**
+    *   *Event:* `property_view_detail` (Mobile vs. Desktop).
+    *   *Question:* Are mobile users actually viewing full details or bouncing immediately?
+*   **Step B: Intent Signal**
+    *   *Event:* `contact_action_initiated` (Click on "Call Agent" or "Submit Form").
+    *   *Question:* Is the drop-off before or after the user decides to act?
+*   **Step C: Verification Friction (The Hypothesis)**
+    *   *Event:* `otp_request_sent` → `otp_verification_success` / `otp_verification_fail`.
+    *   *Question:* Does the failure rate spike specifically on mobile after Aug 20th? If `otp_verification_fail` is high on mobile but low on desktop, the UX is broken.
+*   **Step D: The "Offline Leak" (The Unknown)**
+    *   *Event:* `agent_phone_number_revealed` (Click to reveal masked number).
+    *   *Question:* Are users revealing the number but not completing the digital track?
+    *   *Action:* Implement a **proxy call tracking** system (dynamic number insertion) for mobile web. If `phone_revealed` is high but `verified_connection` is flat, users are calling agents directly, bypassing our attribution.
+
+**3. Event Taxonomy & Instrumentation Plan**
+Do not instrument "everything." Add only these events to answer specific questions:
+
+| Event Name | Properties | Question Answered |
+| :--- | :--- | :--- |
+| `contact_action_initiated` | `device_type`, `property_id`, `action_type` (call/form) | Are users trying to convert? |
+| `otp_verification_attempt` | `device_type`, `carrier` (if available) | Is the verification step being reached? |
+| `otp_verification_result` | `success` (bool), `error_code` | Is the mobile interface causing verification failure? |
+| `phone_number_revealed` | `property_id`, `agent_id` | Are users getting the data they need without our tracking? |
+
+**4. Reading the Data: Decision Rules**
+*   **Scenario 1 (Broken UX):** `contact_action_initiated` is stable, but `otp_verification_fail` spikes on mobile post-Aug 20.
+    *   *Action:* Prioritize fixing the mobile OTP input/SMS delivery.
+*   **Scenario 2 (Offline Leak):** `phone_number_revealed` increases 30% (matching traffic), but `verified_connection` is flat.
+    *   *Action:* The UX works; the business model leaks. Prioritize "Click-to-Call" tracking integration or agent commission reconciliation features.
+*   **Scenario 3 (False Growth):** `property_view_detail` duration drops significantly on mobile.
+    *   *Action:* The new interface makes properties hard to read. Prioritize UI layout fixes over conversion logic.
+
+**5. This Week's Steps**
+1.  **Instrument:** Deploy `otp_verification_result` and `phone_number_revealed` events immediately.
+2.  **Query:** Run a cohort analysis comparing `otp_verification_fail` rates for Mobile vs. Desktop for the period Aug 20–Present.
+3.  **Decide:** If mobile failure rate > 15% higher than desktop, the Q3 priority is **UX Repair**. If failure rates are equal but `phone_number_revealed` is high, the Q3 priority is **Attribution/Tracking Infrastructure**.
+
+*Note: All metrics must be compared to CasaFind's own pre-August 20 baseline; no external real estate benchmarks are used. PII from phone numbers must be routed to privacy compliance protocols before storage.*
