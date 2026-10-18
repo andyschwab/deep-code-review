@@ -199,6 +199,21 @@ try:
         assert p.returncode != 0 and "not found" in (p.stdout + p.stderr)  # missing base is an error
         (r / "docs/bench/new/ledger.jsonl").unlink()
         assert run("--changed", "HEAD~1").returncode == 1
+        (r / "docs/bench/new/ledger.jsonl").write_text((new / "ledger.jsonl").read_text())
+        # a bench that landed on main after the branch point must join the disjointness corpus
+        g("checkout", "-q", "-b", "landed", "HEAD~1")
+        landed = bench(r / "docs", "bench/landed", W(30, "e"), W(30, "f"))
+        (landed / "scenarios_held.json").write_text((new / "scenarios_held.json").read_text())  # overlaps new's held
+        g("add", "-A"); g("commit", "-qm", "landed after branch point")
+        g("checkout", "-q", "main")
+        shutil.rmtree(landed, ignore_errors=True)  # git leaves the empty outputs/ dir behind
+        g("update-ref", "refs/remotes/origin/main", "landed")
+        p = run("--changed", "HEAD~1")  # default --against origin/main
+        assert p.returncode == 1 and "other benches" in p.stdout, p.stdout
+        assert run("--changed", "HEAD~1", "--against", "landed").returncode == 1
+        assert run("--changed", "HEAD~1", "--against", "HEAD~1").returncode == 0  # ref without it: clean
+        p = run("--against", "no-such-ref")
+        assert p.returncode != 0 and "not found" in (p.stdout + p.stderr)  # explicit missing ref fails closed
     finally:
         shutil.rmtree(r)
 finally:
