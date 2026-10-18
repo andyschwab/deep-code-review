@@ -106,10 +106,16 @@ enforced only by the fixtures in `evals/evals.json`.
    waiting a week or a quarter loses).
 5. **Evidence.** Every claim cites a source (file:line, number, doc fetched)
    or is marked `assumed` plus the check that would settle it. Recompute the
-   requester's own figures and dates (totals, timelines) before relying on them.
-6. **Close with ONE decision** (go, no-go or go-if: never a menu), its **kill
-   criteria** (observable tripwire, date, action when it fires), the
-   **leading metric** to watch and a review date.
+   requester's own figures and dates before relying on them: totals, units x
+   duration against the time or capacity available, ROI and payback, calendar.
+   Open the answer with each mismatch and its corrected number, and size the
+   call from the corrected figures.
+6. **Close with ONE decision** (go, no-go or go-if: never a menu). If the plan
+   commits real money, make it a capped, time-boxed first step and name the
+   cap. **Kill criteria**: one observable metric with a numeric threshold (the
+   requester's own when given and sound), a date inside that first window, and
+   the named pivot or stop action when it fires; then the **leading metric**
+   to watch and a review date.
 
 A hard call of the owner's own (pivot, quit, big irreversible spend, no board
 to check it) also reads `references/decision-hygiene.md`: door class, outside
