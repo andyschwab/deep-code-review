@@ -1,0 +1,24 @@
+### Pre-Launch Testing Strategy and Circuit Breaker Plan
+
+**1. Synthetic News Scenario Simulation**
+Since you cannot integrate external fact-checking APIs, you must construct a local "adversarial news corpus" to test the model's resilience. Create a structured dataset of headlines categorized into three distinct groups:
+*   **Satire & Ambiguity:** Curate real-world examples of satirical financial news (e.g., from known satire sites) and ambiguous headlines that rely on sarcasm or double meanings. Label these explicitly as "Do Not Trade."
+*   **Hallucination Triggers:** Generate nonsensical or contradictory headlines (e.g., "Company X stock soars 500% after declaring bankruptcy") designed to trigger over-confidence in LLMs. Label these as "High Risk/No Trade."
+*   **Ground Truth Controls:** Use verified historical headlines with known market outcomes to ensure the bot still functions correctly on valid data.
+
+Run your trading bot against this local dataset in a sandboxed environment that mimics your live news feed latency. Do not connect to real brokerage APIs. Measure the "False Positive Rate"—the percentage of satire or hallucination triggers that result in a buy/sell signal. If the bot attempts to trade on more than 0% of the "Do Not Trade" labeled items, the model is not ready for deployment.
+
+**2. Confidence-Based Circuit Breaker Mechanism**
+Implement a hard-coded logic gate between the sentiment analysis output and the order execution engine. This mechanism must operate independently of the LLM's generative text.
+*   **Confidence Scoring:** Require the model to output a normalized confidence score (0.0 to 1.0) alongside every trade recommendation. This score should reflect the model's certainty regarding the factual nature and sentiment clarity of the headline.
+*   **Dynamic Thresholds:** Set a conservative initial threshold (e.g., 0.85). Any signal with a confidence score below this threshold is automatically rejected, and no order is sent to the broker.
+*   **Volatility Kill-Switch:** Implement a secondary breaker based on trade frequency. If the bot attempts to execute more than $N$ trades within $T$ milliseconds (indicating a potential hallucination loop), the system must hard-lock all outgoing orders for a cooldown period (e.g., 5 minutes) and alert the development team.
+*   **Logging for Audit:** Every rejected trade due to low confidence must be logged with the originating headline and the score. This data is critical for post-market analysis to tune thresholds without risking capital.
+
+**3. Execution Timeline for Monday Launch**
+*   **Immediate:** Generate the adversarial dataset (approx. 500 headlines).
+*   **T-minus 24 Hours:** Run the sandbox simulation. If the False Positive Rate > 0%, raise the confidence threshold incrementally until false positives cease, even if it reduces valid trade capture. Safety takes precedence over profit in V1.
+*   **T-minus 12 Hours:** Deploy the circuit breaker logic to the staging environment and verify it blocks mock low-confidence trades.
+*   **Market Open:** Enable the bot with the circuit breaker active. Assign one developer to monitor the rejection logs exclusively for the first hour of trading.
+
+**Note:** Given the high stakes of financial loss, if the model cannot distinguish satire from fact with near-perfect accuracy in your sandbox, consider delaying the launch or restricting the bot to "paper trading" (simulated money) for the first week. No amount of testing can guarantee zero hallucinations in probabilistic models; the circuit breaker is your only true safety net.

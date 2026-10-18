@@ -1,0 +1,39 @@
+### Pre-Launch Anti-Cheat Review Strategy
+
+**1. Telemetry Correlation Logic (No Schema Changes)**
+Since new logging fields cannot be added, utilize existing timestamped rows to create a "Context Window" analysis during the detection phase. When the AI flags a player for "glitchy behavior" (e.g., erratic movement or impossible action speeds), immediately query the existing telemetry for that specific user ID within a ±2-second window of the flag event.
+
+Correlate the behavioral anomaly with these existing metrics:
+*   **Packet Inter-Arrival Time:** Calculate the variance in time between existing received packets. High variance indicates network jitter rather than local manipulation.
+*   **Action Timestamp Gaps:** Compare the server-received timestamp against the client-sent timestamp (if currently logged). Large discrepancies suggest latency, not speed hacks.
+*   **Input Frequency Drops:** A sudden drop to zero inputs followed by a burst is often a lag spike "unspooling," whereas cheats usually maintain consistent, inhumanly perfect intervals.
+
+**Rule:** If the behavioral anomaly coincides with high packet variance or timestamp gaps exceeding a defined threshold (e.g., >150ms deviation), suppress the automatic ban and tag the event as "Latency-Probable."
+
+**2. Graduated Response System**
+Replace the binary "Ban/No-Ban" output with a three-tier scoring system for the tournament duration:
+
+*   **Tier 1: Warning (Score 1–2 flags)**
+    *   *Trigger:* Single anomaly detected without corroborating evidence of malicious intent, or anomalies correlated with network instability.
+    *   *Action:* Log the event internally. Send an in-game notification to the player: "Unusual activity detected. Please check your connection. No penalty issued."
+    *   *Outcome:* No restriction on play.
+
+*   **Tier 2: Probationary Shadow-Ban (Score 3+ flags or High-Confidence Anomaly)**
+    *   *Trigger:* Repeated anomalies or high-confidence detection that lacks network correlation but isn't definitive.
+    *   *Action:* Do not disconnect the player. Instead, flag their account for "Post-Match Review." Allow them to finish the current match to avoid disrupting the tournament flow, but queue their replay data for immediate human inspection.
+    *   *Outcome:* Player continues playing but is marked for priority moderator review within 15 minutes of match end.
+
+*   **Tier 3: Immediate Suspension (Score 5+ flags or Definitive Signature)**
+    *   *Trigger:* Only for anomalies that are mathematically impossible regardless of latency (e.g., interacting with objects not rendered to the client) or confirmed unauthorized software signatures.
+    *   *Action:* Immediate match termination and account suspension.
+    *   *Outcome:* Human moderator reviews the case within 1 hour to confirm before making the ban permanent.
+
+**3. Human-in-the-Loop Workflow**
+Establish a "War Room" dashboard for the eight-person team. During the tournament, the AI does not execute final bans; it populates a prioritized queue based on the tiers above.
+*   **Moderators** review Tier 2 cases first, looking at the correlated network data. If network jitter explains the behavior, clear the flag.
+*   **Escalation:** Only if a player accumulates multiple Tier 2 confirmations within a short window does the system recommend a Tier 3 action.
+
+This approach ensures that legitimate players suffering from poor connectivity or using accessibility tools (which may alter input timing) are not prematurely removed from the tournament, while maintaining strict security against blatant cheating.
+
+*Note: Ensure all thresholds for "high variance" are calibrated using historical data from your current database before the tournament starts.*
+*This strategy relies entirely on query-side logic, respecting your infrastructure freeze.*

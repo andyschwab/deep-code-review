@@ -1,0 +1,28 @@
+**Urgent Audit Plan and Containment Strategy for Minor Location Data**
+
+**Immediate Containment (Do This Now)**
+Do not attempt a partial fix or a "temporary configuration" that relies on complex logic. Given the risk of exposing minor location data to unauthorized advertising partners, the only safe immediate action is a **hard disable** of all outbound data flows to third-party services.
+1.  **Network-Level Block:** Implement an immediate firewall rule or network policy at the egress point of your environment that denies all traffic to known advertising partner domains and IP ranges. If specific allow-lists exist for essential non-advertising services, switch to a strict allow-list mode; otherwise, block all external egress from the data processing module.
+2.  **Feature Flag Kill-Switch:** Activate a global feature flag that returns a null or error state for any function calling third-party recommendation APIs. This ensures the application logic itself does not attempt to serialize or send minor location data, regardless of the pipeline state.
+3.  **Communication:** Notify authorized guardians via an in-app banner that "Activity Recommendations are temporarily unavailable due to a safety update," without disclosing the specific data leak risk to avoid panic or exploitation.
+
+**Audit Method: Deterministic Data Tracing**
+Since you cannot refactor the pipeline and lack bandwidth for complex runtime instrumentation, use a **deterministic replay audit** with synthetic data. Do not test with real user data.
+
+1.  **Construct Synthetic Probes:** Create a set of 5–10 synthetic user profiles containing unique, high-entropy "canary" strings in the location fields (e.g., `LAT: 51.5074_X99Z`, `LNG: -0.1278_Y88W`). These strings must be unique per test case to trace specific paths.
+2.  **Isolated Replay Environment:** Spin up a mirror of your production data routing logic in an isolated staging environment. If a full mirror is impossible, run the specific routing functions locally with the synthetic payloads.
+3.  **Packet Capture and Log Analysis:**
+    *   Inject the synthetic probes into the system.
+    *   Enable verbose logging specifically for the data serialization and network transmission layers.
+    *   Run a packet capture (e.g., using `tcpdump` or Wireshark) on the egress interface during the test run.
+    *   **Verification Criterion:** Search all logs and captured packets for the unique canary strings. If a canary string appears in any outbound payload destined for an advertising domain or an unverified third-party endpoint, the isolation has failed.
+4.  **Path Mapping:** Document every hop where the canary string was observed. This creates your "harm inventory" of exposure points without needing to read the entire legacy codebase.
+
+**Decision Gate for Launch**
+Do not launch the feature for the school term unless the following conditions are met:
+*   The hard disable of third-party sharing is confirmed active in production.
+*   The synthetic audit shows **zero** instances of canary strings leaving the trusted environment.
+*   Legal counsel has reviewed the incident of potential exposure to advertising partners, as this likely triggers mandatory breach notification laws regarding minors' data (e.g., UK GDPR).
+
+**Note:** A "temporary configuration" is insufficient for high-stakes data involving minors; a hard network block is required until the pipeline is proven safe.
+**Note:** Any discovery of actual data leakage to advertisers must be treated as a reportable data breach immediately; do not delay legal consultation for the sake of the launch date.

@@ -1,0 +1,22 @@
+**Urgent Audit Plan and Containment Strategy**
+
+**1. Immediate Containment (Effective Immediately)**
+Do not wait for the audit to complete. Execute a "circuit breaker" configuration change today:
+*   **Global Toggle:** Implement a hard-coded feature flag or environment variable (e.g., `DISABLE_THIRD_PARTY_SHARING=true`) that forces all outbound data streams to advertising partners to return a null payload or drop the connection at the application layer.
+*   **Network Egress Block:** If application-layer changes are too risky given the legacy code, instruct your cloud infrastructure team to update firewall rules or security groups to deny all outbound traffic to known ad-tech IP ranges and domains, whitelisting only essential operational services (e.g., payment processors, emergency services).
+*   **Verification:** Run a single synthetic transaction (a test user location update) and monitor network logs to confirm zero bytes leave the perimeter for ad endpoints.
+
+**2. Targeted Data Flow Audit (48-Hour Sprint)**
+Since full refactoring is impossible, focus exclusively on the suspected leak path using a "follow-the-data" approach:
+*   **Trace Entry Points:** Identify the exact function where minor location data enters the system. Insert temporary, high-verbosity logging *only* at this entry and at every hand-off point to external libraries or microservices. Do not log the actual coordinates; log a unique trace ID and the destination module name.
+*   **Map the Hand-offs:** Manually trace the code path from the entry point to any module labeled "analytics," "ads," "partners," or "recommendations." In legacy systems, look for global event emitters or message bus subscriptions that might inadvertently broadcast location events to unintended listeners.
+*   **The "Adversarial" Test:** Create a test account flagged as "minor." Inject a unique, dummy location coordinate (e.g., a specific impossible coordinate like 0.0001, 0.0001). Monitor all external network traffic and third-party dashboards (if accessible) for this specific coordinate. If this coordinate appears in any ad-partner log or network packet capture, the leak is confirmed.
+*   **Review Data Contracts:** Examine the schema definitions sent to third parties. Look for recent changes where a "user_id" or "context" object might have been expanded to include "location" without updating the filtering logic.
+
+**3. Launch Decision Gate**
+*   **Stop Condition:** If the adversarial test reveals *any* leakage of the dummy coordinate to an unauthorized partner, the feature **cannot launch**. No amount of compliance review overrides a confirmed data leak of minor location data.
+*   **Partial Launch Option:** If the audit confirms the leak is isolated to the "activity recommendation" module, consider launching the core location-sharing feature with the recommendation engine permanently disabled until a proper fix is engineered.
+
+**Critical Notes**
+*   **Legal Duty:** Because this involves real-time location data of minors, a confirmed leak likely triggers mandatory breach notification laws in the UK/EU; consult legal counsel immediately if the adversarial test fails.
+*   **No Certification:** This plan identifies risks; it does not certify the system as "safe." Only a negative result from the adversarial test combined with the active circuit breaker allows for a risk-based launch decision.

@@ -1,0 +1,43 @@
+### Validation Framework for Automated Typhoon Alerts
+
+Given the high-stakes nature of evacuation warnings and your constraint of a single data source, you must treat every automated alert as a potential safety incident until proven otherwise. Do not attempt to "certify" the system as safe; instead, build a **Harm Inventory** and a **Human-in-the-Loop (HITL) Gate**.
+
+**1. The Harm Inventory (MAP)**
+Before writing tests, explicitly record the worst-case scenarios for your users:
+*   **False Positive (Panic/Cost):** Issuing an evacuation order for a non-existent storm, causing unnecessary economic loss, traffic hazards, and future alert fatigue.
+*   **False Negative (Physical Harm):** Failing to warn of an imminent typhoon due to model error or data gaps.
+*   **Over-Reliance:** Users assuming the app is infallible because it lacks uncertainty indicators.
+*   **Single-Source Blindness:** The specific risk that your sole data provider has a localized error you cannot cross-verify.
+
+**2. Simulation & Measurement Plan (MEASURE)**
+You requested a method to simulate conflicting inputs. Since you lack a second live data source, you must synthetically generate "conflict" within your test harness to probe your decision threshold.
+
+*   **Test Row A: The "Ghost Storm" Probe (False Positive Control)**
+    *   **Input:** Feed the model historical data from clear-sky days in Seoul, but inject a synthetic "spike" in pressure/wind speed that mimics a typhoon signature *only* in the primary data stream.
+    *   **Expected Behavior:** The system should flag this as "Unverified" or "Low Confidence" due to lack of corroboration from secondary internal checks (e.g., radar imagery if available, or temporal consistency checks), NOT issue an alert.
+    *   **Metric:** Zero false alerts on 1,000 runs of clear-sky data with synthetic spikes.
+    *   **Stop Condition:** If >0 false alerts occur, the threshold is too sensitive. Block launch.
+
+*   **Test Row B: The "Silent Typhoon" Probe (False Negative Control)**
+    *   **Input:** Feed known typhoon data but degrade the signal quality to match your licensing limits (e.g., lower resolution, delayed updates).
+    *   **Expected Behavior:** The system must either alert or explicitly state "Data Insufficient – Monitor Official Channels." It must never say "Safe."
+    *   **Metric:** 100% detection or 100% "Insufficient Data" escalation.
+    *   **Stop Condition:** Any "Safe" classification during degraded typhoon conditions blocks launch.
+
+*   **Test Row C: Adversarial Injection**
+    *   **Input:** Simulate corrupted packets or out-of-range values from your single provider.
+    *   **Goal:** Ensure the system fails closed (no alert) rather than interpreting garbage as a storm.
+
+**3. Managing Residual Risk (MANAGE)**
+*   **Mandatory Human Gate:** Because evacuation is irreversible and costly, **do not fully automate the final push notification.** The algorithm should generate a "Recommended Alert" that requires a human operator to click "Confirm" before it reaches users. Full autonomy for evacuation orders is the failure mode you must prevent.
+*   **Defined Uncertainty Tiers:** Never show a raw probability (e.g., "87% chance"). Instead, display defined text tiers:
+    *   *Confirmed:* Multi-variable agreement (Alert sent).
+    *   *Corroborated:* Strong signal, minor inconsistencies (Human review required).
+    *   *Unverified:* Single-source anomaly, no internal consistency (No alert; log for review).
+*   **Transparency Artifact:** Publish a **Model Card** with your app update. It must state: "This system relies on a single international data source. It is an aid, not a replacement for official government evacuation orders." List the specific limitations of your data provider.
+
+**4. Governance**
+Name one owner responsible for reviewing every false positive/negative. Re-evaluate the threshold immediately if the data provider changes their API or model version.
+
+**Note:** Legal requirements for emergency disclosures in South Korea must be routed to local counsel; this framework does not assert legal compliance.
+**Note:** Do not invent a "0% error rate." Report results as "Unverified" until the above tests are run and passed.

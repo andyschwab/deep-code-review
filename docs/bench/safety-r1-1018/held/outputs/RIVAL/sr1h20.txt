@@ -1,0 +1,30 @@
+### Validation Framework for Typhoon Alert Thresholds
+
+To prevent false-positive evacuation warnings caused by algorithmic errors or single-source data anomalies, you must construct a **Deterministic Input Simulation Harness**. Since you cannot cross-verify with a second live data source, your validation must rely on injecting synthetic, conflicting, and edge-case datasets directly into your decision engine before it reaches the user-facing alert logic.
+
+**1. Construct Synthetic Data Profiles**
+Create a library of static JSON payloads representing specific atmospheric states. Do not rely solely on historical data; instead, engineer "adversarial" profiles designed to break your threshold logic:
+*   **The "Ghost Storm" Profile:** Inputs showing rapid pressure drops and high wind speeds localized to a single grid point, surrounded by stable data. This tests if your model requires spatial coherence before triggering.
+*   **The "Sensor Glitch" Profile:** Inputs containing impossible values (e.g., negative humidity, wind speeds exceeding physical limits) or sudden discontinuities (e.g., pressure dropping 50hPa in one minute). Your system should flag these as errors rather than storm indicators.
+*   **The "Borderline" Profile:** Inputs set exactly at, slightly below, and slightly above your evacuation threshold. This verifies that your hysteresis (deadband) logic works and prevents "flickering" alerts where warnings toggle on and off rapidly.
+*   **The "Conflicting Trend" Profile:** Inputs where current conditions are severe, but the predictive trend vector indicates rapid dissipation. This tests if your system weighs forward-looking models heavily enough to suppress immediate alerts when appropriate.
+
+**2. Implement a "Shadow Mode" Decision Engine**
+Run your alert algorithm in a isolated environment where it processes these synthetic profiles without any ability to push notifications.
+*   **Input Injection:** Bypass the live international data feed. Feed the synthetic profiles directly into the ingestion layer.
+*   **Logic Interrogation:** Log not just the final binary decision (Alert/No Alert), but the intermediate confidence scores and the specific variables that contributed most to the decision.
+*   **Threshold Stress Testing:** Systematically vary the input values in increments of 1% around your critical threshold to map the exact "tipping point." Ensure this point aligns with meteorological safety standards, not just statistical convenience.
+
+**3. Define Fail-Safe Guardrails**
+Since you lack a second data source for real-time verification, you must hardcode logical guardrails that override the model:
+*   **Rate-of-Change Limits:** If input data changes faster than physically possible for a typhoon, the system must default to "Data Unreliable" rather than "Evacuate."
+*   **Spatial Consistency Checks:** If the single data source indicates a catastrophic event in a specific cell but neighboring cells show normal conditions, the system should require a higher confidence threshold or human review before alerting.
+*   **Temporal Persistence:** Require the threshold to be breached for $X$ consecutive time steps (e.g., 15 minutes) before triggering an evacuation warning. This filters out momentary sensor spikes.
+
+**4. The "Panic Cost" Metric**
+Establish a success criterion where the cost of a false positive (unnecessary panic) is weighted heavily in your evaluation. A test run is only successful if the "Ghost Storm" and "Sensor Glitch" profiles result in **zero** alerts. If the system generates an alert for these profiles, the decision threshold or input validation logic must be tightened before deployment.
+
+By rigorously feeding these engineered failure modes into your system, you simulate the reliability of multiple sources through logical constraints, ensuring that only physically coherent, persistent, and spatially consistent threats trigger an evacuation warning.
+
+*Note: Ensure all synthetic data generation scripts are version-controlled alongside your model code to allow regression testing as thresholds are tuned.*
+*This framework assumes your ingestion pipeline can accept offline data payloads; if not, a lightweight mock server may be required to intercept live calls.*

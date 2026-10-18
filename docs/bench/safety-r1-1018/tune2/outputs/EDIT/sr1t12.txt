@@ -1,0 +1,23 @@
+### Pre-Launch Verification Protocol: Banned Profile Isolation
+
+**Phase 1: Manual QA Spot-Check Checklist (Immediate Execution)**
+Your QA team must execute these steps on a staging environment mirroring production data lag:
+1.  **Seed Known-Bad Actors:** Insert 10 test profiles with "severe policy violation" flags into the database. Manually trigger the synchronization lag scenario.
+2.  **High-Risk Queue Sampling:** Generate 50 match queues for users in high-density locations. Manually verify that *zero* seeded banned profiles appear.
+3.  **Flag Propagation Audit:** For any match generated, cross-reference the user ID against the master ban list using your internal logging tool's raw query interface. Confirm the "banned" status is visible in the log stream before the match is rendered.
+4.  **Edge Case Stress Test:** Specifically test profiles banned within the last 24 hours, as these are most susceptible to lag-induced reappearance.
+
+**Phase 2: Automated Fail-Safe Mechanism (Infrastructure Logic)**
+Implement this logic gate within your existing matching service code before the marketing campaign:
+*   **Hard Block Rule:** Modify the final matching function to perform a synchronous, real-time lookup against the authoritative "Ban List" table immediately before returning any result to the frontend.
+    *   *Logic:* `IF user.status == "BANNED" THEN exclude_from_results REGARDLESS of sync_state.`
+*   **Default-Deny Fallback:** If the internal logging tool or ban database times out or returns an error due to lag, the system must default to **not showing the match** rather than risking a false positive.
+*   **Log-Only Bypass Prevention:** Ensure the ban check occurs *after* the compatibility score calculation but *before* data serialization. Do not rely on the cached profile data used for scoring; fetch the current status flag explicitly.
+
+**Phase 3: Launch Governance**
+*   **Owner Assignment:** Designate one engineer as the "Safety Gate Owner" responsible for reviewing the Phase 1 results.
+*   **Kill Switch:** Prepare a configuration flag to instantly disable the new matching algorithm and revert to the previous version if any banned profile is detected in production logs within the first 24 hours.
+
+**Notes:**
+This protocol treats the reappearance of banned users as a critical safety failure requiring a hard code gate, not just monitoring.
+Do not launch the marketing campaign until the "Hard Block Rule" is verified in a production-like environment.

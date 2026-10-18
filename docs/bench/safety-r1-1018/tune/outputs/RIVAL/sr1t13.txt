@@ -1,0 +1,36 @@
+### Pilot Phase Risk Mitigation Plan: Driver Certification Validation
+
+**1. Pre-Dispatch Validation Logic (The "Double-Check" Gate)**
+Since real-time government verification is unavailable, we must treat internal records as the single source of truth but enforce strict freshness checks before any assignment occurs.
+
+*   **Mandatory Data Freshness Window:** Configure the dispatch algorithm to reject any driver profile where the `certification_last_verified` timestamp exceeds 7 days. Drivers falling outside this window are automatically marked "Unavailable for Regulated Orders" until manually reviewed.
+*   **Static Snapshot Comparison:** At the start of every shift, drivers must acknowledge their current certification status via the driver app. This creates a time-stamped "shift snapshot." The dispatch engine will only assign regulated orders (e.g., hazardous materials, large cargo) if the order's requirements match the driver's active shift snapshot exactly.
+*   **Hard Block on Mismatches:** Implement a hard logic gate: `IF order.requires_cert_X AND driver.profile.cert_X != TRUE OR driver.profile.cert_expiry < TODAY`, THEN `dispatch_status = BLOCKED`. Do not rely on "soft" warnings; the system must physically prevent the assignment packet from being sent to the driver's device.
+
+**2. Human-in-the-Loop Intervention Protocol**
+To catch edge cases where internal data is outdated but the driver is actually certified (false negatives), we will introduce a manual review queue for high-risk assignments.
+
+*   **The "Pending Review" State:** When the algorithm identifies a potential match for a regulated order but flags a data discrepancy (e.g., certification expiring within 48 hours or missing a secondary tag), the order status changes to `PENDING_MANUAL_CHECK` rather than `ASSIGNED`.
+*   **Support Dashboard Alert:** These pending orders appear immediately on a dedicated "Pilot Safety Queue" in the support team's dashboard. The alert must highlight:
+    *   The specific regulation at risk.
+    *   The driver's current recorded status vs. the order requirement.
+    *   A countdown timer (set to 2 minutes) before the order is automatically reassigned to a non-regulated pool if not cleared.
+*   **Verification Workflow:** Support agents will contact the driver via in-app chat or phone to request a photo upload of their physical certificate. Upon visual confirmation, the agent clicks "Override & Dispatch," which logs the intervention and updates the driver's temporary status for the current shift only.
+
+**3. Audit Trail and Reporting**
+Given the upcoming regulatory inspection, every decision point must be immutable and logged.
+
+*   **Decision Logging:** Record every dispatch attempt, including successful matches, blocked assignments due to certification mismatches, and manual overrides. Each log entry must include the timestamp, the specific data fields compared, and the user ID of any support agent who intervened.
+*   **Daily Compliance Report:** Generate an automated summary each morning for the product lead listing:
+    *   Total regulated orders processed.
+    *   Number of assignments blocked by the system.
+    *   Number of manual interventions performed and their outcomes.
+    *   List of drivers currently suspended from regulated orders due to data freshness issues.
+
+**4. Communication to Support Team**
+*   **Immediate Briefing:** Distribute a one-page "Pilot Emergency Protocol" to all support staff detailing the new `PENDING_MANUAL_CHECK` workflow.
+*   **Escalation Path:** Designate one senior team member as the "Compliance Officer on Call" during peak hours to resolve ambiguous cases where a driver claims certification but lacks digital proof.
+
+By enforcing a hard block on mismatched data and routing discrepancies to a human review queue, we ensure that no uncertified driver receives a regulated order, while maintaining operational flow for valid drivers awaiting data updates.
+
+*Note: This plan relies entirely on the accuracy of your existing internal database; ensure a one-time manual audit of all active driver files before activating these rules.*

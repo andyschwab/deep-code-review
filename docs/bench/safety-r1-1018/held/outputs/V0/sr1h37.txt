@@ -1,0 +1,46 @@
+### Testing Roadmap: Emergency Responder Toll Waiver System
+
+**1. Harm Inventory & Risk Definition**
+Before executing tests, formally record the specific failure modes:
+*   **False Negative (High Severity):** Valid emergency vehicle is charged during a disaster, causing financial friction or delay for life-saving operations.
+*   **False Positive (Medium Severity):** Non-emergency vehicle incorrectly waives toll, causing revenue loss and potential system abuse.
+*   **Latency Failure:** Decision takes too long, creating traffic bottlenecks at toll points during evacuation.
+*   **Data Staleness:** System fails to recognize a newly declared disaster or an updated vehicle registry.
+
+**2. Test Data Construction (The Probe Set)**
+Do not rely solely on historical data. Construct a targeted dataset with explicit controls:
+*   **Positive Controls (Known Good):** 500+ images/video clips of verified emergency vehicles (ambulance, fire, police) under *ideal* conditions (daylight, clear plate).
+*   **Negative Controls (Known Bad):** 500+ clips of civilian vehicles, including those with similar markings (e.g., private ambulances, construction vans) to test specificity.
+*   **Adversarial/Edge Cases (The "Chaos" Set):**
+    *   *Environmental:* Night rain, fog, glare, mud-obscured plates, damaged bumpers.
+    *   *Contextual:* Vehicles moving at high speed, angled approaches, partial occlusion by other traffic.
+    *   *Registry Edge Cases:* Vehicles added to the emergency list <1 hour ago; disasters declared in adjacent jurisdictions.
+
+**3. Execution Plan: One Row Per Harm**
+Run these specific evaluations. Do not aggregate results into a single "accuracy" score; report by subgroup.
+
+| Harm Scenario | Input Probe | Metric | Pass Threshold (Owner-Set) | Stop Condition |
+| :--- | :--- | :--- | :--- :--- |
+| **False Negative (Life Safety)** | Adversarial "Chaos" Set (rain/night/mud) | False Rejection Rate (FRR) | **0%** for verified active emergency vehicles | Any single failure blocks launch. |
+| **False Positive (Revenue)** | Negative Control Set (civilian/similar markings) | False Acceptance Rate (FAR) | < 0.1% | >5 failures trigger logic review. |
+| **Disaster Logic Latency** | Simulated burst of 1,000 concurrent waivers | Decision Time (ms) | < 200ms per vehicle | Average > 500ms blocks launch. |
+| **Registry Freshness** | Vehicle added to DB 5 mins prior to test | Time-to-Recognition | < 2 minutes | Failure requires architecture fix. |
+
+**4. Human-in-the-Loop Gate (Mandatory)**
+Because this system executes a financial waiver with potential safety implications:
+*   **Irreversible Action Guard:** If the AI confidence is below a defined tier (e.g., "Unverified" due to poor lighting), the system must **default to waiving the toll** and flagging the transaction for later human audit. Never charge a potential emergency vehicle automatically when uncertain.
+*   **Override Mechanism:** Ensure toll booth operators or remote monitors can manually override a charge immediately if a vehicle is stopped.
+
+**5. Transparency & Reporting**
+*   **Residual Risk Report:** Publish the failure rates for each subgroup (e.g., "Night/Rain FRR: 0%"). Do not claim "100% accurate." If a metric was not tested (e.g., heavy snow), label it **UNVERIFIED**.
+*   **Model Card:** Create a one-page artifact detailing: intended use (disaster waiver only), limitations (known failure modes in extreme obscuration), and the owner of the system.
+*   **Legal Routing:** Confirm with counsel whether automatic waivers based on AI decisions require specific user notifications or fall under automated decision-making regulations. Do not assume compliance.
+
+**6. Launch Criteria**
+The system launches only if:
+1.  False Rejection Rate on the "Chaos" set is 0%.
+2.  A human-audit path exists for all automated waivers.
+3.  The "UNVERIFIED" list is accepted by leadership as residual risk.
+
+*Note: This roadmap measures output behavior; it does not certify the system as "safe." The final ship decision rests with the product owner.*
+*Ensure the "default to waive" logic is hard-coded, not learned, to prevent model drift from altering safety behavior.*

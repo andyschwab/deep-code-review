@@ -1,0 +1,47 @@
+### Emergency Pricing Override Protocol
+
+**1. Emergency Zone Identification (Data Ingestion Layer)**
+Implement a real-time ingestion pipeline that polls the following public data feeds every 60 seconds. A zone is flagged as an "Emergency Zone" if any single trigger reaches a critical threshold or if two moderate thresholds are met simultaneously within a 5km radius.
+
+*   **Government Alerts:** Parse RSS/JSON feeds from local emergency management agencies (e.g., Toronto Emergency Management) for keywords: "Evacuation," "Shelter-in-place," "State of Emergency," "Flood," "Fire."
+*   **Seismic & Weather APIs:** Monitor for earthquake magnitude >4.0 or Environment Canada severe weather warnings (tornado, blizzard, extreme heat) specific to grid coordinates.
+*   **Traffic Anomalies:** Detect sudden drops in average speed (<5 km/h) combined with a spike in stationary vehicles >3 standard deviations above the hourly baseline, indicating gridlock or evacuation routes.
+*   **Social Sentiment (Optional/Secondary):** Use a lightweight keyword filter on geotagged public social data for terms like "help," "trapped," or "emergency" if official feeds have latency.
+
+**2. Automatic Pricing Caps (Logic Layer)**
+Insert a middleware function between the model's output and the user-facing fare display. This function executes *after* the dynamic pricing model calculates the surge multiplier but *before* the price is shown.
+
+*   **Logic Flow:**
+    ```python
+    def final_price_calculation(base_fare, model_surge_multiplier, zone_id):
+        if is_emergency_zone(zone_id):
+            # Hard cap multiplier to 1.0x (no surge) or a fixed small buffer (e.g., 1.2x)
+            # to cover driver risk without exploiting demand.
+            effective_multiplier = min(model_surge_multiplier, 1.2)
+            log_alert(zone_id, model_surge_multiplier, effective_multiplier)
+            return base_fare * effective_multiplier
+        else:
+            return base_fare * model_surge_multiplier
+    ```
+*   **Cap Rules:**
+    *   **Level 1 (Watch):** Moderate weather/traffic. Cap multiplier at **2.0x**.
+    *   **Level 2 (Critical):** Official evacuation order or disaster declaration. Cap multiplier at **1.0x** (Base fare only).
+    *   **Duration:** The cap remains active for the duration of the official alert plus a 2-hour cooldown period to prevent premature reversion during cleanup.
+
+**3. Monitoring and Alerting Dashboard**
+Deploy a real-time dashboard for the operations team with the following components:
+
+*   **Override Counter:** A live count of how many ride requests were suppressed by the cap in the last hour.
+*   **Zone Heatmap:** Visual overlay of active Emergency Zones on the city map.
+*   **Drift Alert:** Trigger an immediate page to the on-call engineer if the model's *uncapped* surge multiplier exceeds **5.0x** in any zone for more than 10 minutes, indicating a potential feedback loop or data anomaly.
+*   **Driver Supply Monitor:** If pricing is capped at 1.0x during high demand, monitor driver acceptance rates. If acceptance drops below 40%, trigger a non-monetary alert (push notification) to drivers highlighting "High Need Areas" rather than increasing price.
+
+**4. Deployment Checklist (Pre-Rollout)**
+*   **Feature Flag:** Wrap the entire override logic in a feature flag (`emergency_pricing_override`) set to `ON` by default but toggleable instantly.
+*   **Dry Run:** Run the logic in "shadow mode" for 24 hours prior to the festival. Log what the price *would* have been versus the capped price without affecting users, to validate trigger sensitivity.
+*   **Communication:** Prepare template communications for users explaining that "surge pricing is temporarily disabled due to local emergency conditions" to manage expectations.
+
+This approach requires no model retraining, relies on external deterministic signals, and ensures ethical pricing during crises while maintaining system stability.
+
+*Note: Ensure legal counsel reviews the specific cap thresholds (1.0x vs 1.2x) to align with local transportation regulations regarding "price gouging" definitions.*
+*Recommendation: Conduct a tabletop simulation with fake disaster data tomorrow to verify the latency between feed updates and price caps.*
