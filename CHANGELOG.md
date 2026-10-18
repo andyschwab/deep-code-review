@@ -3,6 +3,20 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.597.0] — 2026-10-19
+
+### Added
+- Operating layer: `outcome_claim_guard.py` (Stop, plus PreToolUse on Bash) checks that delivery claims are measured. On Stop it reads the final reply and flags an outcome claim ("fixed", "faster", "improved", "done", "ends the risk", "no longer") about the pipeline, gates, trains, queues or merges, and output counts reported as progress ("9 PRs merged and 4 lanes spawned"). A reply passes if it gives a before and after on an outcome metric (lead time, gate or CI minutes, landed per hour, failure rate) tied to a merged sha or PR, or if it says honestly that the work is unmeasured. On `gh pr create` and `gh pr merge` whose diff touches pipeline paths (workflows, git hooks, train, gate and CI scripts; policy `outcome_guard_paths` overrides the globs) it requires a `pipeline_profile.py compare` verdict line in the PR body or a commit message: KEEP passes, while REVERT, UNVERIFIED or no verdict is denied in block mode and advised otherwise. Policy `outcome_guard` (`off|warn|block`, default `warn`; env `PERUN_OUTCOME_GUARD` overrides it). The default is `warn` because a replay over real coordinator replies put well over 10% of flags on honest replies. Block mode stops a reply once and never loops (`stop_hook_active`). It fails open. Tests: `scripts/test_outcome_claim_guard.py` (run in CI).
+
+size-budget-raise: .claude/skills/agentic-delivery/SKILL.md 23989→23993 one route to outcome_claim_guard.py
+size-budget-raise: .claude/skills/INDEX.md 11074→11098 INDEX.md is rebuilt from the scripts, which now include outcome_claim_guard.py
+
+### Added
+- `docs/bench/judge-calib-1018/`: calibration of the growth round-5 judge slot-1 skew (GLM-5.1, GLM-5.2, gpt-oss_120b; frozen judge, both orders, 60 spent round-4 and round-5 held-out outputs, PCSS only, $0). Identical pairs end in "tie" (359 of 360 verdicts), and a pair with a real gap gives slot-1 0.45 to 0.52 with 0.97 to 1.00 correct picks, so the judges do not carry a general position bias; the round-5 skew (0.62 to 0.67) comes from close contests, where 41 to 42 percent of skill-versus-rival pairs are decided by slot alone and the judge takes slot 1 in 80 to 93 percent of them. No skill, rival row or past verdict changes; a protocol fix (capability and resolution gates in place of the pooled slot-1 gate) is proposed in the README for the owner to preregister, not applied.
+
+### Added
+- `docs/bench/judge-gate-sim-1018/`: preregistered offline replay and simulation of a judge with a slot-1 bonus (item 4 of the Proposal in `docs/bench/judge-calib-1018/`; spent growth round-4 and round-5 verdicts plus 2000-repetition synthetic runs at true win rates 0.45 to 0.60, n = 150, both orders, splits 0.5; no model calls, $0). Verdict FAIL against the preregistered bar (|bias| at most 0.01, coverage at least 0.93): the bonus shrinks win rates and paired differences toward 0.5 rather than leaving them unbiased, with a worst-cell |bias| of 0.0018 at delta 0, 0.027 at delta 0.2 and 0.055 at delta 0.4, and the resolved share falls as delta grows. Every cell passes only up to delta 0.05. No skill, rival row or past verdict changes.
+
 ## [1.596.0] — 2026-10-18
 
 ### Changed
