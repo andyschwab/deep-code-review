@@ -1,0 +1,31 @@
+### Safety Review Plan: Pregnancy Restriction Enforcement
+
+**1. Synthetic Data Augmentation & Tagging**
+Since historical data lacks medical flags, immediately generate a parallel synthetic dataset. Create specific "Pregnant Worker" personas with varied attributes:
+*   **Gestational Stages:** Early, mid, and late-term to test varying restriction windows.
+*   **Restriction Types:** Night shift bans (e.g., 8 PM–6 AM), heavy lifting prohibitions (>20 lbs), and standing duration limits.
+*   **Data Completeness Scenarios:** Create profiles where the "pregnancy" flag is present but specific restriction dates are missing, or where the flag is buried in unstructured notes rather than structured fields.
+Map these personas to specific employee IDs and inject them into the test environment alongside real historical demand data.
+
+**2. Constraint-First Test Scenarios**
+Design test cases where safety constraints directly conflict with production efficiency. The system must fail to schedule rather than violate a restriction.
+*   **The "Critical Gap" Test:** Simulate a scenario where a pregnant worker is the *only* available staff for a night shift or heavy-lift role due to high demand or absenteeism. Verify the system leaves the shift unfilled or flags it for human review rather than assigning the restricted worker.
+*   **The "Optimization Pressure" Test:** Run the scheduler with an objective function weighted 90% toward efficiency/cost and 10% toward compliance. Verify that the hard constraint (safety) overrides the optimization goal.
+*   **Boundary Condition Testing:** Test assignments exactly at the start and end of restricted windows (e.g., a shift starting at 7:59 PM vs. 8:01 PM) to ensure no off-by-one errors bypass the night shift ban.
+
+**3. Incomplete Data Handling Verification**
+Test how the algorithm behaves when medical data is ambiguous or missing.
+*   **Default-Deny Logic:** If a worker's profile has a "medical accommodation" tag but no specific details, verify the system defaults to the most restrictive safe schedule (e.g., no night shifts, no heavy lifting) rather than assuming full availability.
+*   **Unstructured Data Parsing:** If the system ingests text notes, feed it variations of phrasing (e.g., "expecting," "medical leave soon," "doctor note on file") to ensure natural language processing components correctly trigger safety flags.
+
+**4. Automated Regression & Assertion Suite**
+Implement a pre-deployment gate that runs these scenarios automatically.
+*   **Hard Assertions:** Any schedule output containing a restricted worker in a forbidden slot causes an immediate build/test failure.
+*   **Audit Trail Validation:** Ensure every generated schedule includes a log explaining *why* a worker was excluded from a shift (e.g., "Excluded: Night Shift Restriction Active"). This provides evidence for compliance auditors.
+*   **Manual Override Simulation:** Test if a human supervisor can override the safety block. If overrides are allowed, the system must require a mandatory reason code and secondary approval, logging the event as a high-risk exception.
+
+**5. Stakeholder Walkthrough**
+Before the deadline, conduct a "red team" session with a representative from HR and a floor manager. Present them with the edge cases (critical gaps, missing data) and the system's proposed solutions. Confirm that the "unfilled shift" outcome is an acceptable business risk compared to the liability of an unsafe assignment.
+
+**Note:** Prioritize "default-deny" logic for any ambiguous medical data to ensure safety over efficiency.
+**Note:** Document all test failures and manual overrides meticulously to demonstrate due diligence for the compliance deadline.

@@ -1,0 +1,28 @@
+### Offline Geographic Bias Evaluation Plan
+
+**1. Construct a Counterfactual Test Dataset**
+Since you cannot access real-time explanations, you must generate a synthetic batch dataset that isolates geography as the only variable. Create pairs of synthetic user profiles where every attribute (income, credit score, debt-to-income ratio, employment history) is identical, except for the zip code.
+*   **Control Group:** Use zip codes from affluent areas currently known to have high approval rates.
+*   **Test Group:** Use zip codes from the specific neighborhoods you suspect are being penalized.
+*   **Volume:** Generate at least 1,000 pairs per suspect zip code to ensure statistical significance. Ensure these profiles span the full range of your credit score and income distributions to detect if bias is concentrated in specific risk tiers.
+
+**2. Execute Batch Simulation**
+Run this synthetic dataset through your existing batch credit-limit algorithm. Since your infrastructure relies on batch reporting, schedule this as a standard nightly or ad-hoc batch job. Do not alter the model or infrastructure; treat the model as a black box. Capture the raw output file containing the recommended credit limits for every synthetic profile.
+
+**3. Perform Pairwise Difference Analysis**
+Once the batch job completes, export the results to your standard analysis environment (e.g., SQL, Python, or Excel).
+*   Join the results back to your input dataset on the unique profile ID.
+*   Calculate the **Limit Differential** for each pair: `Limit(Control Zip) - Limit(Test Zip)`.
+*   If the model is neutral, this differential should be zero (or within a negligible margin of error due to floating-point precision).
+*   Aggregate the differentials by zip code. Calculate the mean and median reduction for each suspect zip code.
+
+**4. Quantify Disparate Impact**
+To determine if the observed differences constitute discriminatory bias under fair lending principles:
+*   **Statistical Testing:** Apply a t-test or Mann-Whitney U test to determine if the limit differences are statistically significant (p-value < 0.05).
+*   **Adverse Impact Ratio:** Calculate the ratio of the average limit offered to the protected geographic group versus the control group. If the ratio is below 0.8 (the "four-fifths rule" often used in employment and lending compliance), this indicates substantial adverse impact.
+*   **Interaction Check:** Segment the analysis by credit score buckets. Determine if the geographic penalty disappears for high-credit users but appears for marginal ones, which suggests the model is using zip code as a proxy for risk in a way that correlates with protected classes.
+
+**5. Document and Remediate**
+Compile a report detailing the specific zip codes, the magnitude of the limit reduction, and the statistical confidence levels. Since you cannot retrain the model immediately without real-time tools, propose a **post-processing rule** for the batch job: if a user falls into a flagged zip code and their calculated limit is below the control average for their risk profile, automatically adjust the limit to the control baseline before the file is loaded into the legacy system. This acts as an immediate firewall against discrimination while you plan a long-term model retrain.
+
+**Note:** Ensure your synthetic data generation logic is reviewed by legal counsel to confirm it adequately simulates the protected class correlations relevant to your specific jurisdiction. This method detects outcome bias but does not prove intent; however, it provides the quantitative evidence required for a pre-launch audit hold.

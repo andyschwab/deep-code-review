@@ -1,0 +1,30 @@
+### Contingency Plan and Testing Protocol for Medical Appointment Scheduler
+
+**1. Static Data Snapshot and Baseline Verification**
+Immediately create a read-only snapshot of the current production database state. Since the interface is immutable, all testing must occur against a cloned environment that mirrors this exact data state. Verify the snapshot integrity by manually cross-referencing five random active cancer patient records and their assigned slots against the live system. This establishes the "ground truth" before any simulation begins.
+
+**2. Synthetic High-Volume Simulation Strategy**
+Construct a dataset of synthetic referral notes that specifically target edge cases likely to cause double-booking. Do not use real patient data. The dataset must include:
+*   **Identical Urgency Scores:** Multiple referrals with the exact same triage priority and required specialist type.
+*   **Boundary Timestamps:** Requests arriving within milliseconds of each other for the last available slot in a specific category.
+*   **Resource Conflicts:** Scenarios where one patient requires two specialists who have overlapping availability windows.
+
+Run these simulations in batches of increasing volume (10, 50, 100 concurrent requests) against the cloned environment. Because you cannot modify the database interface, the simulation must act as an external load generator, sending requests exactly as the live frontend would.
+
+**3. Conflict Detection and Verification Protocol**
+Since the system cannot be altered to add logging, verification must be post-execution forensic analysis. After each simulation batch:
+*   **Export the Schedule:** Extract the full appointment roster from the cloned database.
+*   **Automated Diff Check:** Run a script to identify any time slot assigned to more than one patient ID.
+*   **Priority Audit:** For every double-booking found, manually review the input referral notes to determine if the algorithm prioritized the correct patient based on urgency criteria.
+*   **Timeline Impact Assessment:** Calculate the delay introduced for the displaced patient. If the delay exceeds the clinical safety threshold defined in your referral guidelines, flag this as a critical failure.
+
+**4. The "Human-in-the-Loop" Contingency**
+Given the go-live constraint and legacy limitations, assume the software may fail to prevent conflicts under extreme load. Implement a mandatory manual verification step for the first two weeks of operation:
+*   **The "Double-Check" Window:** No appointment confirmation is sent to the patient until a human scheduler reviews the allocated slot against a live view of the specialist's calendar.
+*   **Emergency Override Protocol:** Define a clear chain of command for resolving detected conflicts. If a double-book is discovered, the senior clinician on call must immediately decide which patient retains the slot based on real-time clinical status, while the administrative team manually reschedules the displaced patient within 4 hours.
+*   **Rollback Trigger:** If more than three double-booking incidents occur in a single day, suspend automatic allocation immediately. Revert to manual scheduling by phone until the engineering team can patch the logic (post-go-live).
+
+**5. Documentation and Sign-off**
+Document every simulated conflict, the system's response, and the manual resolution time. Present this log to the clinical lead and hospital administration 24 hours before go-live. Explicitly state that the system is being launched with a manual safety net due to the unmodifiable legacy interface. Obtain written acknowledgment from leadership that the "Human-in-the-Loop" protocol is active and staffed.
+
+*Note: This plan relies entirely on external simulation and manual oversight since the database interface cannot be changed. Ensure all synthetic data is strictly segregated from real patient records to maintain compliance.*

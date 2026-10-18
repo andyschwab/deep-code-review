@@ -1,0 +1,41 @@
+### Validation Plan: Automated Parking Fine Obscuration Detection
+
+**1. Harm Inventory & Scope**
+The primary risk is **false positives** (innocent drivers fined due to lighting/dirt misidentified as intentional obscuration) leading to financial harm and loss of trust. Secondary risks include **bias** if certain vehicle colors or plate types fail more often in specific weather, and **over-reliance** if operators blindly accept system flags.
+
+**2. Measurement Strategy (Runnable Test Rows)**
+Do not assert accuracy. Construct an evaluation dataset mirroring real-world variance, as hardware cannot be upgraded. Create one test row per environmental factor:
+
+*   **Probe Set A (Lighting):** Images of clean plates at dawn, dusk, night (with/without streetlights), and heavy shadow.
+    *   *Positive Control:* Clean plate in low light (must NOT flag).
+    *   *Negative Control:* Intentionally obscured plate in low light (must flag).
+    *   *Metric:* False Positive Rate (FPR) per lighting condition.
+    *   *Stop Condition:* If FPR > 0% for any lighting condition, the system cannot auto-issue fines for that condition; it must route 100% to manual review.
+*   **Probe Set B (Weather/Obstruction):** Images of clean plates with rain streaks, snow accumulation, mud splatter, and fog.
+    *   *Positive Control:* Clean plate with rain/mud (must NOT flag as "intentional obscuration").
+    *   *Negative Control:* Plate covered by a physical object (must flag).
+    *   *Metric:* Precision of "obscuration" classification.
+    *   *Stop Condition:* Any instance where environmental dirt triggers an "obscured" fine without human verification blocks launch for that weather type.
+*   **Probe Set C (Demographic/Vehicle Bias):** Subset analysis by plate color (light vs. dark), vehicle type, and angle.
+    *   *Metric:* Disparity in error rates between groups.
+    *   *Stop Condition:* Significant disparity requires model re-tuning or segmented thresholds before launch.
+
+**3. Management Controls (The Human Gate)**
+Given the high stakes (financial penalty, legal liability) and the identified technical limitations (no hardware upgrade, environmental variance):
+*   **Irreversible Action Gate:** No fine shall be issued automatically. All system flags must pass through a **human-in-the-loop review** before a notice is generated. The system should act as a *triage* tool, not a *judge*.
+*   **Uncertainty Rendering:** If the model confidence is low or the environment matches a known high-error profile (e.g., heavy rain), the UI must display a "Unverified – Requires Senior Review" tier rather than a raw percentage.
+*   **Transparency Artifact:** Draft a **Model Card** documenting:
+    *   *Intended Use:* Triage for potential plate obscuration.
+    *   *Limitations:* Explicitly list weather/lighting conditions where performance is `UNVERIFIED` or known to degrade.
+    *   *Data Provenance:* Source of training images and gaps (e.g., "limited snow data").
+    *   *Owner:* Name the specific engineer responsible for monitoring error logs post-launch.
+
+**4. Governance & Legal Routing**
+*   **Ownership:** Assign a specific owner to re-review performance weekly or after any model/data change.
+*   **Legal Duty:** Whether this automated decision constitutes a regulated action requiring specific citizen disclosures under local municipal law or the EU AI Act (if applicable) is a legal determination. **Route immediately to counsel** to define disclosure requirements; do not assume compliance based on technical testing alone.
+
+**Definition of Done for Launch:**
+The system launches only when the harm inventory is complete, the evaluation dataset proves the False Positive Rate is measurable (not zero, but quantified), and a mandatory human review gate is enforced for all potential fines. If the deadline prevents full environmental testing, the scope of automation must shrink to "manual review only" until data is gathered.
+
+*Note: Never certify the system as "unbiased" or "safe"; report residual risk and let the city council make the final ship decision based on the measured error rates.*
+*Ensure the "Model Card" is published alongside the deployment for public transparency.*

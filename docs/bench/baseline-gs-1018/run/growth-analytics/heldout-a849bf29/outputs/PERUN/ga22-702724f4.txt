@@ -1,0 +1,39 @@
+**FitVerse Event Schema & Instrumentation Plan**
+**To:** Sarah, Engineering Lead
+**From:** Alex
+**Date:** October 24, 2023
+**Deadline:** October 30, 2023
+
+**1. North Star Metric Definition**
+Reject "cumulative downloads" or "raw session count" as primary metrics; these are vanity indicators that rise regardless of value delivery.
+*   **North Star:** Weekly Active Users completing ≥3 sessions with >15 mins duration (indicating sustained habit formation).
+*   **Input Metrics:** Activation rate (first session completion), Day-7 Retention, Multiplayer Class Join Rate.
+
+**2. Core Event Taxonomy (MVP Scope)**
+Instrument only events that answer specific product questions. Do not track "everything."
+
+| Event Name | Question Answered | Required Properties |
+| :--- | :--- | :--- |
+| `session_started` | Did the user successfully launch a workout? | `user_id` (pseudonymous), `mode` (solo/multi), `class_id`, `device_type` |
+| `session_completed` | Did the user finish the core value loop? | `user_id`, `duration_seconds`, `calories_estimated`, `completion_rate` (0-1) |
+| `intensity_sample` | Does movement correlate to retention? | `user_id`, `timestamp`, `intensity_score` (normalized 0-100), `heart_rate_zone` (if available) |
+| `social_interaction` | Does multiplayer drive higher retention? | `user_id`, `class_id`, `interaction_type` (voice/chat/high-five), `peer_count` |
+| `satisfaction_submitted` | Validation of the intensity hypothesis. | `user_id`, `session_id`, `score` (1-5), `verbatim_feedback` (optional) |
+
+**3. Data Structure & Flexibility**
+*   **Identifier Seam:** Use a stable, pseudonymous `user_id` for cohort analysis across sessions. Do not use raw PII (email/name) in event streams; route PII mapping to the secure privacy compliance layer.
+*   **Property Design:** All numeric properties (e.g., `intensity_score`) must be normalized floats (0.0–1.0) or integers to allow future algorithm changes without schema breaks.
+*   **Unknown Factor Strategy:** For "social interaction quality," do not attempt to infer sentiment automatically yet. Instrument explicit `interaction_type` tags and correlate them against `session_completed` and `satisfaction_submitted`. If `multiplayer` users show higher retention than `solo` users controlling for intensity, the hypothesis holds.
+
+**4. Implementation Guardrails**
+*   **Sampling:** If `intensity_sample` fires >10Hz, downsample to 1Hz client-side before sending to reduce pipeline load.
+*   **Validation:** Any event missing `user_id` or `timestamp` must be dropped at the ingestion edge.
+*   **Hypothesis Check:** The assumption that "movement intensity correlates to satisfaction" is currently **UNVERIFIED**. This schema enables the test: compare average `intensity_score` against `satisfaction_submitted` scores post-launch. Do not assert correlation until data confirms it.
+
+**This Week's Steps:**
+1.  Implement the five events above with the specified properties by Oct 30.
+2.  Build a dashboard showing `session_completed` rate split by `mode` (solo vs. multi) to immediately validate the social hypothesis.
+3.  Define the "activation" threshold (e.g., 3 sessions in 7 days) in the analytics tool to track the North Star from Day 1.
+
+*Note: Ensure the `user_id` generation logic aligns with the privacy-compliance.md requirements before finalizing the schema.*
+*Do not add additional events until the launch data validates these core questions.*

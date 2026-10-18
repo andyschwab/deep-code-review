@@ -1,0 +1,49 @@
+# LogiTrack Instrumentation Specification v1.0
+**Target Launch:** June 1st | **Implementation Deadline:** May 10th
+**Scope:** Dispatcher Efficiency & Performance under Unstable Connectivity
+
+## 1. Core Hypothesis
+Real-time location ping latency is the primary driver of driver satisfaction, but **dashboard load time** and **data synchronization success rates** are the critical constraints on dispatcher efficiency in low-connectivity zones.
+
+## 2. Technical Performance Events
+*Capture system behavior without blocking the main thread. Send these asynchronously.*
+
+| Event Name | Trigger Condition | Required Properties |
+| :--- | :--- | :--- |
+| `app_init_started` | Application shell begins loading | `dispatcher_id`, `region_code`, `connection_type` (4g/3g/wifi/unknown) |
+| `app_init_completed` | Dashboard becomes interactive (TTI) | `load_duration_ms`, `failed_resource_count`, `initial_sync_status` (success/partial/failed) |
+| `data_sync_attempt` | Background job requests shipment updates | `batch_size`, `expected_shipment_count` |
+| `data_sync_completed` | Background job finishes | `duration_ms`, `success_count`, `failed_count`, `retry_count`, `avg_latency_ms` |
+| `location_ping_received` | New GPS coordinate processed | `shipment_id`, `ping_latency_ms` (server receipt - driver send), `data_freshness_seconds` |
+| `connection_state_change` | Browser network status API fires | `old_state`, `new_state` (online/offline/slow-2g) |
+
+## 3. Behavioral Efficiency Events
+*Measure dispatcher interaction patterns that indicate friction or workarounds.*
+
+| Event Name | Trigger Condition | Required Properties |
+| :--- | :--- | :--- |
+| `manual_refresh_triggered` | User clicks refresh/reload button | `time_since_last_auto_sync`, `consecutive_failures_prior` |
+| `shipment_detail_retry` | User re-clicks a shipment card after initial load failure | `shipment_id`, `attempt_number`, `time_between_attempts_ms` |
+| `filter_adjustment` | User changes map/view filters | `filter_type`, `result_count`, `render_time_ms` |
+| `session_abandonment` | User closes tab while `sync_status` != 'completed' | `session_duration_ms`, `pending_shipment_count`, `last_error_code` |
+| `task_completion` | Dispatcher marks a shipment as "Dispatched" or "Resolved" | `task_type`, `time_to_complete_ms`, `sync_errors_during_task` |
+
+## 4. Implementation Constraints & Guidelines
+To ensure instrumentation does not degrade application speed:
+
+1.  **Asynchronous Transmission:** All analytics events must be queued locally and sent via `requestIdleCallback` or a dedicated background worker. Never block the UI thread waiting for an analytics response.
+2.  **Sampling Strategy:**
+    *   `location_ping_received`: Sample at 10% for regions with >500 daily pings to reduce volume; 100% for regions with <50 daily pings.
+    *   All other events: 100% capture.
+3.  **Payload Limits:** Keep individual event payloads under 4KB. Do not include full shipment objects; transmit only IDs and metrics. Enrich data server-side.
+4.  **Offline Queueing:** If the browser is offline, store events in IndexedDB. Flush the queue only when `connection_state_change` reports "online" and `data_sync_completed` succeeds.
+5.  **Privacy:** Hash `dispatcher_id` and `shipment_id` before transmission if sending to third-party tools. Do not transmit PII.
+
+## 5. Success Metrics Definition
+*   **Efficiency Score:** Ratio of `task_completion` events to `manual_refresh_triggered` events per session.
+*   **Connectivity Friction Index:** Average `retry_count` on `data_sync_completed` correlated with `connection_type`.
+*   **Perceived Latency:** Delta between `location_ping_received` (server time) and the next `filter_adjustment` or `shipment_detail_retry` (user action time).
+
+Implement these events in the staging environment by May 15th for validation.
+
+*Note: Ensure the backend team configures the data pipeline to handle high-volume burst traffic during morning shift starts (6:00 AM CST).*

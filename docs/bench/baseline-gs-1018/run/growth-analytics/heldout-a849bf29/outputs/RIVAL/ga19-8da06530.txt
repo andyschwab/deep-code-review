@@ -1,0 +1,53 @@
+### Recommended North Star Metric: Risk-Adjusted Net Value (RANV)
+
+Do not choose between "on-time repayment %" (a rate) and "net recovered funds" (a volume). Choosing only the rate encourages rejecting risky but profitable users, stalling growth. Choosing only the volume encourages reckless lending to hit targets, increasing defaults.
+
+Instead, adopt **Risk-Adjusted Net Value (RANV)** as your North Star. This metric measures the actual economic value created per loan cohort, accounting for both revenue and loss.
+
+**Definition:**
+$$RANV = (\text{Total Principal Repaid} + \text{Total Interest/Fees Collected}) - (\text{Total Principal Disbursed} + \text{Total Cost of Capital} + \text{Total Operational Cost per Loan})$$
+
+**Why this balances your goals:**
+1.  **Aligns with Sustainability:** It automatically penalizes defaults. A high-volume loan that defaults contributes negatively to RANV, discouraging the behavior that caused your 12% default rate.
+2.  **Preserves Growth:** It does not penalize lending to "riskier" demographics *if* the interest pricing adequately covers the expected loss and generates profit. It shifts the focus from "avoiding risk" to "pricing risk correctly."
+3.  **Handles Volatility:** In Nigeria's volatile economy, nominal Naira values fluctuate. By subtracting the cost of capital (which rises with inflation/risk), RANV reflects real profitability better than gross disbursement volume.
+
+**Secondary Guardrail Metrics:**
+*   **Day-30 Partial Repayment Rate:** Track the correlation you mentioned. Use this as an early warning signal. If partial repayments drop, full defaults will likely rise in 60 days.
+*   **Approval Rate by Segment:** Ensure you aren't over-correcting and rejecting 90% of applicants.
+
+---
+
+### Tracking Plan for Board Presentation (Due Jan 15)
+
+To support RANV, you must move from tracking "loan events" to tracking "loan lifecycles."
+
+**1. Core Event Schema (Update Existing Tracking)**
+You need to link every event to a `loan_id` and `user_segment` (e.g., age, location, income bracket).
+
+| Event Name | Trigger | Essential Properties |
+| :--- | :--- | :--- |
+| `loan_disbursed` | Funds sent to user | `loan_id`, `principal_amount`, `interest_rate`, `term_days`, `user_segment`, `risk_score_at_approval` |
+| `repayment_received` | User makes a payment | `loan_id`, `payment_amount`, `days_since_disbursement`, `is_partial` (boolean), `payment_method` |
+| `loan_defaulted` | Loan passes due date + grace period | `loan_id`, `outstanding_principal`, `days_overdue`, `last_payment_date` |
+| `loan_completed` | Final payment clears debt | `loan_id`, `total_repaid`, `profit_margin` (calculated) |
+
+**2. Implementation Strategy for Volatile Markets**
+*   **Cohort-Based Reporting:** Do not report monthly totals. Report by **Disbursement Week**.
+    *   *Reason:* A loan disbursed on Jan 2nd cannot be judged against a loan disbursed on Jan 30th within the same month report.
+    *   *Action:* Group all loans by the week they were issued. Calculate RANV for each cohort at Day 30, Day 60, and Day 90.
+*   **Real-Time Data Layer:** Ensure your backend pushes `repayment_received` events to your analytics tool (GA4/Mixpanel/Segment) instantly. In high-inflation environments, the value of money recovered today is higher than next week; latency distorts RANV.
+*   **Segmentation Dimensions:** You must slice RANV by:
+    *   **Geography:** (e.g., Lagos vs. Kano) to identify regional economic shocks.
+    *   **Loan Size:** Small loans may have higher default rates but lower absolute loss impact.
+    *   **Acquisition Channel:** Identify if specific marketing channels bring users with higher RANV, not just higher volume.
+
+**3. Immediate Next Steps**
+1.  **Audit Data:** Verify you can calculate `profit_margin` per loan today. If not, engineering must prioritize this calculation before Jan 15.
+2.  **Backfill Cohorts:** Run a historical analysis of the past 50,000 loans. Calculate what the RANV would have been for each month. This will likely show that your "best" months by volume were actually your worst by value.
+3.  **Define Targets:** Set a RANV target (e.g., "Positive RANV of 500 Naira per loan by Day 60") rather than a volume target.
+
+Presenting RANV demonstrates to the board that you understand the unit economics of lending, not just the top-line growth.
+
+*Note: Ensure your cost of capital input is updated weekly to reflect current Nigerian market rates for accurate RANV calculation.*
+*Do not track "on-time %" as a primary success metric; use it only to trigger collections workflows.*
