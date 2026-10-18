@@ -17,3 +17,6 @@ Disclosures:
 - Three judge records (c9c r5-h37 in tune, v0 r9-005 and c9c r9-134 in held-out) were incomplete after an unparsed reply and were completed by rerunning the driver; complete records are never overwritten.
 - prompts/perun_idea-critic_v0.txt is the SKILL.md at origin/main when the round started (version stamp 1.593.0); the shipped file equals prompts/perun_idea-critic_c9c.txt byte for byte.
 - The tune baseline for v0 is the single v0 sample already judged in rounds 5 and 6 (identical text apart from the version stamp).
+- Disjointness was checked against the bench corpus at freeze time. Against the later main (after bizops-r4-1018 landed), held-out
+  scenario r9-080 shares 19 of 183 6-word shingles (0.104) with one bizops-r4-1018 model output; the overlap comes from text written
+  after the freeze, so it cannot have leaked into this run.
