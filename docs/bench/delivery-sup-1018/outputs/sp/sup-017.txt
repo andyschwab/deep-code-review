@@ -1,0 +1,30 @@
+### Delivery Plan: Emergency Manifest Handoff Patch
+
+**Objective:** Patch the dispatch server's security vulnerability with zero downtime and no dropped manifests during the active inspection window.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Core Infra - Preparation):** Immediately draft the code patch targeting only the vulnerable logic. Do not touch the `global-protocols` file. Prepare the deployment script for a "blue-green" style swap or hot-reload, ensuring the new instance pre-establishes connections to the inspector portal before traffic shifting.
+*   **Lane B (Safety Officer & Jane Smith - Authorization):** Initiate the dual-approval workflow in the gatekeeper tool now. Provide them with the audit report and the specific code diff. Their approval is the primary gate; do not wait for CI completion to start this conversation.
+*   **Lane C (QA/Verification - Staging):** Run the CI pipeline on the patch immediately. Since staging lacks the hardware encryption module, execute a "logic-only" test suite focusing on checksum validation and manifest parsing. Manually verify that the checksum algorithm produces identical outputs for sample data in both the old and new logic blocks.
+
+**Parallel Execution:** Lanes A, B, and C run simultaneously. Lane A cannot merge until Lane B approves. Lane C results inform Lane A but do not block the approval request.
+
+#### 2. Gates & Checks
+*   **Gate 1 (Pre-Commit):** The patch must be reviewed internally by a senior engineer not involved in writing the fix to ensure no `global-protocols` changes were accidentally included.
+*   **Gate 2 (CI Success):** The pipeline must pass on the exact revision `HEAD` of the patch branch. If the network flakiness causes a failure, manually retry once; if it fails twice, proceed with a manual verification of the build artifacts if policy allows, documenting the reason.
+*   **Gate 3 (Dual Approval):** The gatekeeper tool must show explicit "Approved" status from both Jane Smith and the Safety Officer. No deployment proceeds without this digital signature.
+*   **Gate 4 (Pre-Swap Checksum):** Before switching traffic, run a live checksum validation test against a non-production manifest ID on the *new* instance to confirm the logic holds in the production environment (without sending data to the regulator).
+
+#### 3. Review Strategy
+*   **Code Review:** Performed by a senior Core Infra engineer independent of the patch author. Focus strictly on the security fix and isolation from the shared protocol file.
+*   **Deployment Review:** The Safety Officer acts as the deployment reviewer. They must witness the pre-swap checksum check (Gate 4) via screen share or logged output before giving the final "Go" for traffic shifting.
+*   **Independence:** The code reviewer cannot be the same person who drafted the patch. The Safety Officer's approval is independent of the CI pass/fail status; they are approving the risk, not just the build.
+
+#### 4. Landing & Merge
+*   **Timing:** Initiate the swap 90 minutes before the inspection window opens. This allows a 45-minute CI buffer and a 45-minute deployment/validation window.
+*   **Mechanism:** Deploy the new instance alongside the old one. Warm up the connection to the inspector portal. Once Gate 4 passes, shift the load balancer weight to 100% on the new instance. Do not terminate the old instance until 30 minutes of stable traffic is observed on the new one.
+*   **Human Decision:** The Safety Officer must explicitly authorize the traffic shift after seeing the live checksum verification.
+*   **Rollback Strategy:** Since data transmission is irreversible, "rollback" means reverting the load balancer to the old instance immediately if the new instance drops connections or fails checksum validation within the first 5 minutes. The old instance remains hot and ready. No data can be "un-sent," so the focus is on stopping further corruption instantly.
+*   **Post-Landing:** Monitor the regulator's ledger acknowledgment for the first 10 manifests processed by the new version. Confirm receipt with the inspection team lead.
+
+**Critical Constraint:** Do not attempt to modify the `global-protocols` file. If the fix requires it, the plan halts, and leadership must be notified that the 4-hour deadline cannot be met without violating change board policy.

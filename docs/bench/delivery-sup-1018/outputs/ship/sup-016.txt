@@ -1,0 +1,62 @@
+**Delivery Plan: Resilient Real-Time Currency Conversion**
+
+**Scope & Constraints**
+Target: `payment-core` repo. Region: Europe (behind feature flag).
+Constraints: No DB migrations during business hours; shared config file (`rate-cache`) schema must remain backward compatible; CI budget cap ($45/min, 12-min hard kill); production access restricted to on-call.
+
+**Lane Decomposition**
+
+1.  **Lane A: Core Logic & Caching Strategy (Builder)**
+    *   **Work:** Implement the conversion service wrapper. Logic: Attempt live fetch with strict timeout (e.g., 200ms). On failure/timeout, serve last-known-good rate from local memory/redis, marking response metadata as `stale: true`. Ensure auto-refresh logic triggers asynchronously upon feed recovery.
+    *   **Parallelism:** Can run parallel to Lane B.
+    *   **Serialization:** Must complete before Lane C (Integration).
+
+2.  **Lane B: Feature Flag & Config Safety (Builder)**
+    *   **Work:** Introduce the "Europe" feature flag gating. Update `rate-cache` configuration *only* via additive fields to ensure backward compatibility with the six other microservices. Verify the billing aggregator still starts with the new config.
+    *   **Parallelism:** Runs parallel to Lane A.
+    *   **Serialization:** Must merge before Lane C.
+
+3.  **Lane C: Resilience Verification (QA)**
+    *   **Work:** Simulate provider outage (mock timeout). Assert: Transaction succeeds, rate is served, `stale` flag present. Simulate recovery. Assert: Cache updates automatically.
+    *   **Environment:** Isolated worktree. Must handle flaky network tests (implement retry logic locally before CI).
+    *   **Dependency:** Requires Lanes A and B merged to integration branch.
+
+4.  **Lane D: Cost & Performance Audit (Security/Performance)**
+    *   **Work:** Verify CI build time stays under 10 minutes (buffer for the 12-min kill). Analyze memory footprint of the cache. Ensure no PII leaks in stale-rate logs.
+    *   **Dependency:** Runs on the exact SHA of Lane C's verification.
+
+**Gates & Checks**
+
+*   **G1 Spec:** Define timeout thresholds, stale-data TTL, and exact feature flag key. Pin base SHA.
+*   **G2 Plan:** Confirm config schema compatibility check is automated. Set per-lane token budget.
+*   **G4 Implement:**
+    *   Lane A/B: Unit tests included. Commit messages reference ticket.
+    *   **Check:** Local build < 8 minutes.
+*   **G5 Verify (Exact Revision):**
+    *   Run integration suite on the merged integration branch SHA.
+    *   **Flake Mitigation:** If network tests fail, auto-retry up to 3 times *only* if failure signature matches known flake. Otherwise, block.
+    *   **UI/E2E:** Verify checkout flow in Europe context completes without error during simulated outage.
+*   **G6 Review:**
+    *   **Reviewer 1 (Senior Eng):** Logic correctness, backward compatibility of config.
+    *   **Reviewer 2 (Senior Eng):** Resilience patterns, timeout values.
+    *   **Reviewer 3 (CTO):** Risk assessment for volatile markets, feature flag strategy.
+    *   *Constraint:* Builder cannot review their own code.
+
+**Landing & Release**
+
+*   **Integration:** Merge Lanes A and B to a staging branch. Run Lane C against this SHA. Once green, merge to `main` (or release branch) via merge train to avoid CI contention.
+*   **Human Gates (Required):**
+    *   **Pre-Deploy:** Explicit approval from two senior engineers + CTO required before enabling the flag in production.
+    *   **Deploy:** Execution restricted to the on-call engineer. No automated deploys to prod.
+    *   **Migration:** If any DB change was needed (unlikely per plan), it must be scheduled for non-business hours.
+*   **Rollback Plan:**
+    *   Immediate toggle-off of the "Europe" feature flag (no code revert needed).
+    *   If config breakage occurs: Revert `rate-cache` config commit (verified by billing aggregator smoke test).
+*   **Post-Deploy (G9):** Monitor error rates and `stale` flag frequency in Europe region for 1 hour.
+
+**Risk Mitigation**
+*   **CI Budget:** If build approaches 10 minutes, fail fast and optimize tests; do not risk the 12-min kill.
+*   **Config Breakage:** Lane B must include a dry-run start of the billing aggregator in CI.
+*   **Data Consistency:** "Stale" rates are acceptable for continuity; explicit logging ensures auditability for later reconciliation.
+
+**Next Step:** Await owner confirmation on timeout thresholds and feature flag naming convention to finalize G1 Spec.

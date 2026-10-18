@@ -1,0 +1,61 @@
+### Delivery Plan: Cross-Platform Sync Conflict Guardrails
+
+**Objective:** Implement strict purchase-ledger matching to block account merges with conflicting histories, flagging mismatches for manual review.
+**Deadline:** Pre-holiday event (Next Tuesday).
+**Constraints:** Read-only `purchase-ledger`, 45m CI pipeline, sharded DB (24h dual-write), no real payment data in staging.
+
+#### 1. Work Lanes & Parallelism
+
+**Lane A: Core Logic & Guardrails (Builder)**
+*   **Owner:** Senior Engineer (Platform Team).
+*   **Work:** Implement sync logic in `core-sync`. Add pre-merge check: compare purchase ledger hashes/IDs. If mismatch $\rightarrow$ abort merge, write conflict record to `support_review_queue`.
+*   **Constraint:** Strict read-only access to `purchase-ledger`. No write attempts.
+*   **Parallelism:** Can run parallel to Lane B, but must finish before Lane C.
+
+**Lane B: Mock Data & Local Verification (QA)**
+*   **Owner:** QA Engineer.
+*   **Work:** Create local mock datasets simulating identical usernames with divergent purchase ledgers. Verify Lane A's logic blocks these locally without hitting CI.
+*   **Parallelism:** Runs parallel to Lane A.
+
+**Lane C: Schema Migration Prep (Database Admin)**
+*   **Owner:** Senior DBA.
+*   **Work:** Prepare dual-write schema changes for sharded regions. Script the 24-hour dual-write window.
+*   **Dependency:** Must coordinate with Lane A's data structure requirements. Serialized after Lane A design is frozen.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec (Now):** Define exact "match" criteria (e.g., total spend, specific SKU IDs). Confirm "flag for manual review" workflow (ticket creation vs. DB flag).
+*   **G3 Design Review:** Verify read-only enforcement on `purchase-ledger`. Confirm dual-write strategy for sharded DB.
+*   **G4 Implementation:**
+    *   **Check:** Static analysis to ensure zero write operations to `purchase-ledger`.
+    *   **Check:** Unit tests (Lane B mocks) passing locally.
+*   **G5 Verification (Staging):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Action:** Deploy to staging. Run mock conflict scenarios. Verify conflict records appear in `support_review_queue`.
+    *   **Note:** Do not trigger full 45m CI unless code changes touch unrelated shared modules. Use targeted test suites.
+*   **G6 Security & Logic Review:**
+    *   **Reviewer:** Senior Engineer (NOT the Builder from Lane A).
+    *   **Focus:** Confirm irreversible security alerts are not triggered by read logic. Validate conflict flagging cannot be bypassed.
+
+#### 3. Review Strategy
+
+*   **Code Review:** Independent Senior Engineer (Platform Team) reviews Lane A. Must verify read-only compliance and conflict handling logic.
+*   **Security Review:** AppSec specialist validates that no write paths exist to `purchase-ledger` and that conflict data is sanitized before support review.
+*   **QA Sign-off:** QA Engineer confirms local mocks successfully triggered the block and flagging mechanism.
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:**
+    *   Target: Release branch.
+    *   **Human Gate:** Requires explicit approval from a Senior Engineer with 'Deploy-Prod' rights. No auto-merge.
+    *   **Timing:** Merge only after G6 pass and successful staging verification.
+*   **Deployment:**
+    *   **Phase 1:** Enable dual-write schema (Lane C) 24 hours prior to logic activation.
+    *   **Phase 2:** Feature flag the new sync logic. Enable for 5% of regions initially.
+    *   **Phase 3:** Full rollout post-monitoring.
+*   **Rollback Plan:**
+    *   **Trigger:** Any instance of revenue loss, item duplication, or false-positive blocking of valid users.
+    *   **Action:** Immediate feature flag toggle-off. Revert merge if schema allows; otherwise, disable sync endpoint.
+    *   **Contingency:** If conflict queue floods, pause all cross-platform syncs manually.
+
+**Immediate Next Step:** Draft G1 Spec confirming the exact definition of "purchase ledger match" and the manual review ticket format. Await owner approval before coding.

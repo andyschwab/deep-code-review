@@ -1,0 +1,57 @@
+### Delivery Plan: NexusPay Crash Recovery Hardening
+
+**Scope:** Backend durability for `processing` transactions in the Gold-Cluster. No UI changes.
+**Constraint:** High CI cost (40 credits/55 mins), flaky `transaction_validator`, irreversible reverts, `global_state.bin` lock (02:00–03:00 UTC).
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Design) – Conductor + Product Analyst**
+    *   **Work:** Define the exact handshake between the in-memory queue and the durable ledger. Specify the "immediate write" contract before acknowledgment.
+    *   **Output:** ADR detailing the persistence protocol and failure modes.
+    *   **Parallelism:** Runs first; blocks all other lanes.
+*   **Lane B (Implementation) – Builder**
+    *   **Work:** Implement the write-ahead logic and shutdown signal handler in an isolated worktree.
+    *   **Constraint:** Must not touch `global_state.bin` during 02:00–03:00 UTC.
+    *   **Parallelism:** Starts after Lane A approves the ADR.
+*   **Lane C (Independent Verification) – QA**
+    *   **Work:** Create a test harness simulating abrupt termination during peak load. Verify zero loss of `processing` transactions.
+    *   **Constraint:** Cannot run full CI on every commit due to cost/time. Must run locally or on a dedicated cheap runner first.
+    *   **Parallelism:** Runs parallel to Lane B once the interface is stable, but final verification waits for Lane B's completion.
+*   **Lane D (Security & Risk) – Security + Lead Risk Officer (Marcus Thorne)**
+    *   **Work:** Review the ledger integrity guarantees. Prepare the manual override justification for the flaky `transaction_validator`.
+    *   **Serialization:** Must complete before the final merge decision.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** ADR approved by Conductor. Base SHA pinned.
+*   **G4 (Implementation Complete):** Builder submits patch.
+    *   *Check:* Local unit tests pass (must cover shutdown signals).
+    *   *Check:* Code review by Security (independent of Builder).
+*   **G5 (Verification):**
+    *   *Environment:* Isolated Gold-Cluster staging (not main).
+    *   *Timing:* Scheduled outside 02:00–03:00 UTC to avoid `global_state.bin` lock.
+    *   *Action:* Run full CI once on the exact candidate SHA.
+    *   *Flake Handling:* If `transaction_validator` fails, QA reproduces locally. If unreproducible, flag for Marcus Thorne's manual override. Do not retry CI blindly (cost prohibitive).
+*   **G6 (Review):**
+    *   *Reviewer:* Security Lead (independent of Builder).
+    *   *Focus:* Data consistency, atomicity of the write, and rollback safety.
+    *   *Requirement:* Explicit sign-off on the "irreversible revert" risk.
+
+#### 3. Review Strategy
+*   **Builder** never reviews their own code.
+*   **Security Lead** performs the primary technical review.
+*   **Marcus Thorne** provides the specific risk acceptance for the flaky check and production deploy authorization.
+*   **QA** provides the functional receipt (zero loss proof).
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** Single commit to the integration branch after G6 approval.
+*   **Human Decision Gate:**
+    *   Marcus Thorne must explicitly approve the production deploy and the `transaction_validator` override if triggered.
+    *   Owner approves the final "Go/No-Go" given the irreversible revert constraint.
+*   **Deployment:**
+    *   Execute only outside the 02:00–03:00 UTC window.
+    *   Monitor ledger write latency and error rates immediately post-deploy.
+*   **Rollback:**
+    *   Since binary reverts are irreversible after the hourly snapshot, **no rollback path exists** once the snapshot cycle completes.
+    *   *Mitigation:* The G5 verification must be exhaustive. If a critical flaw is found post-deploy but pre-snapshot, immediate manual intervention is required. If post-snapshot, a forward-fix patch is the only option.
+    *   *Contingency:* Feature flag the new persistence logic if possible, allowing logical rollback without binary reversion.
+
+**Next Step:** Draft the ADR (Lane A) defining the persistence contract for owner review before any code is written.

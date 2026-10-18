@@ -1,0 +1,28 @@
+### Delivery Plan: Session-Locked Dynamic Currency Conversion
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Core Logic - Serialized):** Senior Engineer Raj Patel implements the rate-locking mechanism in the billing engine. This must occur first, as it modifies the critical `rate-calculation` module. No other lane touches this code.
+*   **Lane B (Mock Services - Parallel):** A separate engineer builds the mock real-time forex feed for Staging. Since Staging lacks live feeds, this mock must simulate rate volatility to prove the "lock" holds steady despite external fluctuations. This runs parallel to Lane A's initial design phase but must merge only after Lane A's interface is defined.
+*   **Lane C (Frontend Dashboard - Parallel):** A UI engineer implements the "Locked Rate" display on the usage dashboard. This work relies on the API contract defined by Lane A but can proceed using mock JSON responses until Lane A is ready for integration.
+
+**2. Gates & Checks**
+*   **Gate 1 (Unit Verification):** Before any integration, Lane A must pass unit tests verifying that the session timestamp correctly snapshots the rate. This runs on every commit to the feature branch.
+*   **Gate 2 (Integration Check):** Once Lane A and Lane B merge to a shared integration branch, trigger the mock-driven integration test. Verify that a simulated rate change *during* a session does not alter the billed amount.
+*   **Gate 3 (Regression Filter):** Trigger the full nightly regression suite ($120 cost) **only once**, immediately before the final review. To mitigate the known flaky Tuesday timezone check: if the suite runs on a Tuesday and fails only on timezone logic, a manual verification of the timestamp output is required to clear the gate. Do not re-run the suite for this specific failure unless other errors exist.
+*   **Revision Control:** All checks run on the specific merge commit of the feature branch into `staging`. No checks run on `main` until final approval.
+
+**3. Review Process**
+*   **Code Review (Independent):** The code in Lane A (billing engine) requires an independent review by a Senior Engineer **other than** Raj Patel (e.g., from the Platform Squad) to ensure no side effects in the monolithic core. Raj Patel provides the final approval for the merge to the rate module but cannot be the sole reviewer.
+*   **Logic Review:** Finance must review a test report demonstrating three scenarios: (1) Rate lock at session start, (2) Rate fluctuation during session, (3) Correct billing at session end. This confirms margin protection.
+*   **Compliance Review:** The Compliance Lead reviews the data flow to ensure the "locked rate" displayed to users matches the billed rate exactly, satisfying transparency requirements.
+
+**4. Landing & Merge Strategy**
+*   **Staging Deployment:** Deploy to Staging only after Gate 3 passes and both independent code reviews are approved.
+*   **Production Sign-off:** Production deployment is blocked until **both** the CTO and the Compliance Lead provide explicit written sign-off. This is a hard gate; no automated bypasses.
+*   **Merge Window:** Merge to `main` and deploy during a low-traffic window (e.g., 2:00 AM local time) to minimize exposure if issues arise.
+*   **Rollback Plan:**
+    *   **Trigger:** If support tickets regarding billing discrepancies spike within 1 hour of launch, or if the dashboard displays mismatched rates.
+    *   **Action:** Immediately revert the merge commit to `main`. Since the historical rate archive is read-only, no data cleanup is needed for past records; the system simply reverts to the previous billing logic for new sessions.
+    *   **Communication:** Notify Enterprise Account Managers immediately to manage client expectations if a rollback occurs.
+
+**Critical Constraint:** Do not attempt to patch historical records. The feature applies strictly to new sessions initiated after the deployment timestamp.

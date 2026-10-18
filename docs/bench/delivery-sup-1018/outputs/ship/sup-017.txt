@@ -1,0 +1,61 @@
+**Delivery Plan: Zero-Downtime Manifest Handoff Patch**
+
+**Strategy:** Blue-Green Swap with Traffic Drain. We will deploy the patched instance alongside the live one, drain connections, switch traffic, and verify checksums before terminating the vulnerable instance. No data rollback is possible; prevention of drop/delay is the only success metric.
+
+### 1. Lanes & Serialization
+
+*   **Lane A: Build & Pre-Verify (Builder)**
+    *   **Work:** Patch the dispatch server code. Compile against the existing `global-protocols` schema (no modifications). Run unit tests and static analysis.
+    *   **Constraint:** Must complete before Lane B starts.
+    *   **Output:** Immutable artifact (SHA) and build receipt.
+
+*   **Lane B: Staging Simulation (QA)**
+    *   **Work:** Deploy artifact to staging. Since hardware encryption is missing, simulate the crypto module via mock interfaces. Verify checksum logic explicitly.
+    *   **Constraint:** Runs parallel to Lane C prep, but requires Lane A's artifact.
+    *   **Output:** Functional receipt confirming checksum integrity despite missing hardware.
+
+*   **Lane C: Production Prep (Release Engineer)**
+    *   **Work:** Provision the new "Green" instance in the Acme Logistics cluster. Configure networking but keep it disconnected from the live inspector stream. Pre-warm caches.
+    *   **Constraint:** Must be ready before the 4-hour window closes.
+
+*   **Lane D: The Swap (Conductor + Humans)**
+    *   **Work:** Execute the cutover script: Stop new connections to "Blue" (old), wait for active handoffs to complete (drain), switch load balancer to "Green", resume connections.
+    *   **Serialization:** **Strictly sequential** after Lanes A, B, and C are green.
+
+### 2. Gates & Checks
+
+*   **G2 (Plan):** Confirm patch does not touch `global-protocols`. Verify drain logic handles the "inspection window" timing.
+*   **G4 (Implement):** Code freeze on the patch. Artifact SHA recorded.
+*   **G5 (Verify - Staging):** QA signs off on checksum validation using mocks. **Hard Gate:** If checksum logic fails in simulation, abort.
+*   **G6 (Review):**
+    *   **Security Review:** Independent audit of the patch diff (no builder self-review). Focus: Does the fix close the gap without introducing latency?
+    *   **QA Review:** Verification of the staging receipt.
+*   **G7 (Integration):** The "Green" instance is up and healthy in Prod, but receiving zero traffic.
+*   **G8 (Release - Human Gate):**
+    *   **Approvers:** Jane Smith AND Safety Officer.
+    *   **Trigger:** Presentation of G5/G6 receipts and the cutover script.
+    *   **Action:** Dual approval in the internal gatekeeper tool to authorize the traffic switch.
+
+### 3. Execution & Landing
+
+**The Cutover Window (T-Minus 4 Hours):**
+1.  **Deploy:** Bring "Green" online (Lane C complete).
+2.  **Drain:** Signal "Blue" to stop accepting *new* manifest sessions. Allow existing sessions to finish naturally (monitored via active connection count).
+3.  **Switch:** Once active connections hit zero (or a safe minimum threshold defined in the runbook), flip the load balancer to "Green".
+4.  **Verify:** Immediately trigger a test manifest handoff. Validate the checksum on the regulator's ledger side (read-only check).
+5.  **Terminate:** Only after successful verification, decommission "Blue".
+
+**Rollback Strategy:**
+*   **Data:** Impossible (ledger is immutable).
+*   **Service:** If "Green" fails checksum validation or drops connections immediately post-switch, instantly flip the load balancer back to "Blue" (if "Blue" was not yet terminated) or restart "Blue" from the last known good state.
+*   **Risk:** If the vulnerability is exploited during the switch, the patch is applied retroactively; the focus is on maintaining the *stream* continuity to avoid automatic compliance halts.
+
+**Human Decisions Required:**
+1.  **Go/No-Go:** Jane Smith and Safety Officer must approve the specific SHA and the cutover script before the drain begins.
+2.  **Abort Criteria:** The Conductor must have explicit authority to abort the swap if active sessions do not drain within 15 minutes, preventing a hard timeout during the inspection window.
+
+**Cost Control:**
+*   One CI run only. No retries on flaky network checks; manual verification of network stability before triggering the 200-credit build.
+
+**Success Metric:**
+Zero dropped manifests, zero delayed handoffs, checksum validated on the first post-patch transmission.

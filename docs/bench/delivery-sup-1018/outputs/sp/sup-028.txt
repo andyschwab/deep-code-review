@@ -1,0 +1,69 @@
+# Delivery Plan: Legacy SMS to NexusGate Migration
+
+## Lanes & Parallelism
+
+**Lane A: Integration & Logic (Dev Team)**
+*   **Work:** Implement NexusGate adapter, dual-write logic (Legacy + Nexus), and read-path switching.
+*   **Parallel:** Can proceed immediately alongside Lane B.
+*   **Constraint:** Must not modify the `delivery-audit` volume structure; only append.
+
+**Lane B: Infrastructure & Simulation (SRE/Security)**
+*   **Work:** Provision NexusGate credentials, configure load balancers for burst handling, and build a high-fidelity "rate-limit mirror" test harness (since staging mocks are inaccurate).
+*   **Parallel:** Runs concurrently with Lane A.
+*   **Serialization Point:** Must complete before Lane C begins.
+
+**Lane C: Audit & Compliance (Compliance Officer)**
+*   **Work:** Verify dual-write schema ensures zero data loss. Review legal sufficiency of the cutover script.
+*   **Serialization:** Must sign off before the maintenance window opens.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Baseline (T-Minus 24 Hours)**
+*   **Revision:** Specific commit hash `abc123` (pre-migration).
+*   **Check:** Static analysis confirming no modifications to legacy audit volume logic.
+*   **Runner:** Automated CI (triggered once to save costs).
+
+**Gate 2: High-Fidelity Burst Test (T-Minus 4 Hours)**
+*   **Environment:** The new "rate-limit mirror" harness (not standard staging).
+*   **Check:** System sustains peak trading volume with latency <200ms.
+*   **Runner:** SRE Team. Failure triggers immediate abort.
+
+**Gate 3: Dual-Approval Lock (Maintenance Window Start)**
+*   **Requirement:** Explicit written approval from Security Lead AND Compliance Officer.
+*   **Check:** Verification that rollback keys are backed up (rotation is irreversible).
+*   **Runner:** Release Manager.
+
+## Review Strategy
+
+**Independent Technical Review**
+*   **Reviewer:** Senior Engineer from a neutral team (e.g., Platform Engineering, not Billing/Security).
+*   **Scope:** Code review of the dual-write mechanism and the fallback switch.
+*   **Timing:** Before Gate 1.
+*   **Independence:** Must not be an author of the integration code.
+
+**Compliance Review**
+*   **Reviewer:** Compliance Officer.
+*   **Scope:** Verification that the `delivery-audit` log format remains immutable and legally valid during the transition.
+*   **Timing:** Before Gate 3.
+
+## Landing & Rollback
+
+**The Cutover (During Maintenance Window)**
+1.  **Enable Dual-Write:** Start sending to Legacy and NexusGate simultaneously. Verify NexusGate receipts match Legacy receipts in real-time.
+2.  **Switch Read-Path:** Update 2FA flows to consume confirmations from NexusGate.
+3.  **Monitor:** Watch latency metrics strictly.
+
+**Rollback Protocol**
+*   **Trigger:** Latency spikes >200ms for >60 seconds OR any 2FA failure rate >0.1%.
+*   **Action:** Flip configuration flag to revert 2FA consumption to Legacy provider immediately.
+*   **Critical Constraint:** Since key rotation is irreversible, a "rollback" reverts traffic flow only. If NexusGate keys were rotated during the failed attempt, a manual emergency patch is required to re-establish trust with Legacy if the handshake was broken. *Mitigation: Do not rotate Legacy keys until NexusGate is stable for 48 hours.*
+
+**Final Merge**
+*   **Condition:** 24 hours of stable production traffic post-cutover.
+*   **Action:** Remove Legacy provider code and dual-write logic.
+*   **Approval:** Final sign-off by Security Lead to close the ticket.
+
+**Human Decisions Required**
+1.  Go/No-Go decision at Gate 3 (Security + Compliance).
+2.  Authorization to proceed with key rotation (only after successful cutover).
+3.  Declaration of "Stable State" to retire Legacy code.

@@ -1,0 +1,40 @@
+**Delivery Plan: Custom Metric Builder with Historical Guardrails**
+
+**Strategy**
+We will deploy behind a feature flag, isolating new logic to timestamps ≥ Q3. The legacy engine remains the source of truth for all pre-Q3 data. No migration scripts will touch the `HistoricalArchive` partition.
+
+**Lanes & Parallelism**
+1.  **Lane A (Builder Implementation):** Develop the custom metric builder in an isolated worktree. Logic must strictly filter `timestamp >= Q3_START`. Unit tests verify no writes occur for older dates.
+2.  **Lane B (Guardrail Verification):** Independent worker writes integration tests targeting the `LegacyDataValidator` suite. These tests assert that any attempt to modify pre-Q3 data fails silently or throws a specific `ProtectedEraError`. This lane runs parallel to Lane A but must finish before G5.
+3.  **Lane C (Compliance Artifact):** Draft the compliance memo detailing the isolation mechanism for the Compliance Officer. This is serialized after Lane A's code is frozen but before G8.
+
+**Gates & Checks**
+*   **G1 (Spec):** Define "Q3 Start" timestamp explicitly in the spec. Pin base SHA.
+*   **G3 (Design):** Architectural Decision Record (ADR) confirming the `HistoricalArchive` partition is read-only for this feature.
+*   **G4 (Implement):** Lane A commits code + unit tests. Lane B commits integration tests.
+*   **G5 (Verify):**
+    *   Run full regression on the exact merge commit SHA.
+    *   **Specific Check:** Execute Lane B's guardrail tests. If `LegacyDataValidator` fails, inspect logs; if it's the known flake (no actual data change), mark as non-blocking per repo facts. If it indicates data modification, BLOCK.
+    *   Verify feature flag defaults to OFF.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (not Lane A author) reviews logic.
+    *   **Security/Compliance Review:** Compliance Officer reviews the G3 ADR and G5 test receipts. **Hard Gate:** No deployment without written sign-off.
+*   **G7 (Integrate):** Merge to release branch. Re-run critical subset of CI (cost control) on the final SHA.
+
+**Human Decisions**
+*   **Compliance Approval:** The Compliance Officer must explicitly approve the G6 package. Engineering lead approval is insufficient.
+*   **Cache Purge:** A human operator must manually purge the global rate-limit cache post-deploy.
+*   **Feature Flag Flip:** The actual enabling of the builder for enterprise clients is a separate human action after G9.
+
+**Landing & Rollback**
+*   **Merge:** Merge via train only after G6 green.
+*   **Deploy:** Deploy with feature flag OFF.
+*   **Verification (G9):** Enable flag for 1% internal traffic. Verify no writes to `HistoricalArchive` via database audit logs.
+*   **Rollback:** If data integrity is questioned, immediately disable the feature flag. Since no historical data was modified, a code rollback is secondary; the primary safety is the flag toggle. The `HistoricalArchive` remains untouched by design, eliminating the need for data restoration.
+
+**Cost Control**
+*   CI runs once on the final integration SHA. Do not retry unless a genuine blocker (non-flake) occurs.
+*   Lane B's specific guardrail tests run locally or in a lightweight pipeline before triggering the full 55-minute suite to catch logic errors early.
+
+**Output Contract**
+Final delivery includes: The merged SHA, the Compliance Officer's written approval artifact, the G5 test receipt showing zero pre-Q3 modifications, and the manual cache-purge confirmation log.

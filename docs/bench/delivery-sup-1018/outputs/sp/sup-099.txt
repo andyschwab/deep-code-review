@@ -1,0 +1,65 @@
+# Delivery Plan: NovaPay Wallet Integration
+
+## Lanes & Parallelism
+
+**Lane A: Infrastructure & Security (Serialized First)**
+*   **Owner:** Ledger Team + Security Lead
+*   **Work:** Define the new isolated storage namespace schema and access paths. Draft the database migration script.
+*   **Constraint:** Must complete before any application code touches the new store.
+
+**Lane B: Application Logic (Parallel to Lane C)**
+*   **Owner:** Checkout Team
+*   **Work:** Implement NovaPay adapter, beta-group feature flag logic, and source-specific logging tags.
+*   **Constraint:** Must use mock interfaces until Lane A finalizes the storage contract.
+
+**Lane C: Validation & Compliance (Parallel to Lane B)**
+*   **Owner:** QA + Security Lead
+*   **Work:** Develop the "cross-contamination" test suite specifically checking for shared memory addresses between legacy and new modules.
+
+## Gates & Checks
+
+**Gate 1: Design Sign-off (Revision: `main`)**
+*   **Check:** Jane Smith and Security Lead approve the isolation architecture and namespace design.
+*   **Stop Condition:** No code written until this signature is obtained.
+
+**Gate 2: Migration Dry-Run (Revision: Feature Branch Head)**
+*   **Check:** Execute migration script against a local disposable cluster. Verify irreversibility safeguards are documented.
+*   **Location:** Local/Dev environment only. **Never** run against production before final merge.
+
+**Gate 3: Isolation Simulation (Revision: Pre-Merge Candidate)**
+*   **Check:** Run the 45-minute data-integrity simulation.
+*   **Pass Criteria:** Zero shared memory addresses detected; zero legacy vault interactions.
+*   **Note:** Due to the flaky network-check job, a timeout requires immediate manual retry by an on-call engineer before this gate clears.
+
+**Gate 4: Staging Verification (Revision: Pre-Merge Candidate)**
+*   **Check:** Deploy to staging. Verify beta-group visibility and logging tags.
+*   **Limitation:** Acknowledge that hardware security module (HSM) isolation cannot be fully validated here; rely on Gate 3 for memory isolation proof.
+
+## Review Process
+
+**Independent Code Review:**
+*   **Reviewer 1:** Jane Smith (Ledger Team) – Focus: `payments-core` module integrity, no modifications to existing validation logic.
+*   **Reviewer 2:** Security Lead – Focus: Strict data isolation, namespace separation, and logging correctness.
+*   **Constraint:** Reviewers must be distinct from the implementers in Lanes B and C.
+
+**Compliance Audit:**
+*   **Timing:** Post-Gate 3, Pre-Merge.
+*   **Action:** Formal sign-off confirming no cross-contamination risk based on simulation results.
+
+## Landing Strategy
+
+**Merge Protocol:**
+1.  **Freeze:** Stop all merges to `main` during the 45-minute simulation window.
+2.  **Merge:** Upon successful simulation and dual approval, merge to `main`.
+3.  **Deployment:** Deploy to production with the feature flag **OFF** by default.
+
+**Human Decisions Required:**
+*   **Go/No-Go on Migration:** A human lead must explicitly trigger the irreversible database migration script in production after verifying the backup.
+*   **Beta Rollout:** Product Owner must authorize flipping the feature flag for the beta group.
+
+**Rollback Plan:**
+*   **Code:** Revert the merge commit immediately if post-deployment logging shows errors.
+*   **Data:** Since the migration is irreversible, a "rollback" involves deploying a patch that deactivates the new namespace and routes all traffic back to the legacy path. The orphaned NovaPay data remains in the new namespace but becomes inaccessible.
+*   **Trigger:** Any evidence of cross-contamination or corruption of primary transaction history triggers immediate reversion.
+
+**Timeline:** All gates must clear by Thursday EOD to allow for Friday deployment.

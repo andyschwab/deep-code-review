@@ -1,0 +1,65 @@
+# Delivery Plan: Legacy Trailer ID Purge
+
+## Lanes & Parallelism
+
+**Lane A: Backend Refactoring (Serialized)**
+1.  **Mapping Logic:** Develop the translation layer in `LegacyTrailers` to map old IDs to universal asset keys. This must be completed before any index changes.
+2.  **Index Pipeline:** Refactor the search indexing pipeline to utilize the new mapping logic.
+3.  **Audit Integration:** Implement logging for translated queries. *Constraint:* Code must be reviewed twice before merging due to irreversibility.
+
+**Lane B: Frontend Preservation (Parallel to Lane A)**
+1.  **Search Bar:** Verify acceptance of legacy formats. No UI changes are required, but regression tests must confirm no deprecation warnings appear.
+
+**Lane C: Infrastructure & Compliance (Parallel to Lane A/B)**
+1.  **Staging Dry-Run:** Prepare the staging environment to generate the schema migration dry-run report required by Marcus Thorne.
+2.  **CI Optimization:** Configure build jobs to run strictly outside North American peak hours to avoid double costs and ensure the <12 minute limit.
+
+## Gates & Checks
+
+**Gate 1: Sandbox Verification (Pre-Merge)**
+*   **Revision:** Latest `develop` branch commit containing Lane A changes.
+*   **Action:** Execute full test suite in the sandbox environment.
+*   **Check:** Verify audit logs capture translated queries correctly. Since logs are irreversible, this specific test must pass 100% before proceeding.
+*   **Owner:** QA Lead (Independent of Developer).
+
+**Gate 2: Schema Migration Approval (Pre-Production)**
+*   **Revision:** Release Candidate (RC) build.
+*   **Action:** Run dry-run report in Staging against a clone of the `us-west` shard.
+*   **Check:** Validate report shows no data loss or locking issues during index rebuilds.
+*   **Approver:** Senior Engineer Marcus Thorne. *Hard Stop:* No deployment without his signed approval on the dry-run report.
+
+**Gate 3: CI Performance Check**
+*   **Action:** Monitor pipeline duration.
+*   **Check:** Build must complete in under 12 minutes. If exceeded, the build fails automatically to prevent cost overruns.
+
+## Review Strategy
+
+**Code Review (Independent)**
+*   **Reviewer 1 (Logic):** Senior Backend Engineer (not the author). Focus: Mapping accuracy and edge cases in ID translation.
+*   **Reviewer 2 (Compliance):** Security/Compliance Officer. Focus: Audit log integrity and ensuring no PII is exposed during translation.
+*   **Constraint:** Reviews must occur asynchronously to allow for global time zones, but both must approve before Gate 2.
+
+**Frontend Regression Review**
+*   **Reviewer:** Frontend Lead.
+*   **Focus:** Confirming zero UI changes and absence of deprecation warnings when legacy IDs are entered.
+
+## Landing Strategy
+
+**Deployment Window**
+*   **Timing:** Saturday 02:00 – 04:00 EST (Outside North American business hours).
+*   **Region Strategy:** Deploy to non-critical regions first. Monitor `us-west` shard connectivity closely; if flakiness is detected, pause index rebuilding for that shard manually until stability returns.
+
+**Merge Protocol**
+1.  Merge to `main` only after Gates 1, 2, and 3 are cleared.
+2.  Trigger automated deployment script.
+3.  **Human Decision Point:** The on-call SRE must manually verify the `us-west` shard health post-deployment before enabling full traffic routing.
+
+**Rollback Plan**
+*   **Trigger:** If audit logs fail to write or search results return >5% errors within 30 minutes of launch.
+*   **Action:** Revert the `main` branch to the previous stable tag.
+*   **Data Mitigation:** Since audit logs are irreversible, a cleanup script (pre-approved by Compliance) will run post-rollback to flag and isolate any erroneous logs generated during the failed window.
+*   **Communication:** Immediate notification to FleetOps stakeholders regarding temporary search limitations.
+
+**Post-Landing**
+*   Verify Q3 audit readiness by sampling translated logs.
+*   Decommission `LegacyTrailers` directory only after 30 days of stable operation.

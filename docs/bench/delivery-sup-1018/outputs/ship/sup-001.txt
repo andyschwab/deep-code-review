@@ -1,0 +1,49 @@
+**Delivery Plan: Fraud Rule v4.2 (Zero False Positives)**
+
+**Strategy:** Isolate the mutable configuration conflict, execute a cost-controlled shadow verification, and enforce a human-gated activation window before the board review.
+
+### 1. Lanes & Serialization
+*   **Lane A (Configuration Isolation - Builder):**
+    *   **Task:** Refactor the `LedgerCore` config access to prevent the 30-second lock collision between the rules engine and billing scheduler during updates.
+    *   **Constraint:** Must complete before Lane B starts to ensure a stable base for testing.
+    *   **Worktree:** Dedicated isolated worktree; no shared state with billing.
+*   **Lane B (Shadow Verification - QA):**
+    *   **Task:** Deploy Rule v4.2 with the `shadow-mode` toggle enabled. Replay the last 48 hours of traffic.
+    *   **Constraint:** Runs only after Lane A merges. Must explicitly handle the "Tuesday flake" in `Shadow-Validate` by retrying once with a fixed seed or ignoring latency timeouts if the logic pass is green.
+    *   **Cost Control:** Limit CI runs to two attempts max due to the 400-credit cost.
+*   **Lane C (Activation Script - Release):**
+    *   **Task:** Prepare the production toggle command and the specific database rollback script (acknowledging the audit log wipe risk).
+    *   **Constraint:** Parallel to Lane B, but requires Lane A's code to be merged.
+
+### 2. Gates & Checks
+*   **G2 (Plan):** Define the token budget for Lane B (max 2 CI runs). Confirm the exact SHA for the 48-hour traffic replay dataset.
+*   **G4 (Implement):**
+    *   Lane A commits the config refactor.
+    *   Lane C commits the activation/rollback scripts.
+    *   **Check:** Static analysis on the config change to ensure no billing logic regression.
+*   **G5 (Verify - Shadow):**
+    *   **Revision:** Exact SHA from Lane A + Lane B's test harness.
+    *   **Condition:** `Shadow-Validate` must report **0 false positives** against platinum-tier settlements.
+    *   **Flake Handling:** If `Shadow-Validate` fails on Tuesday latency, inspect logs; if the failure is purely timeout-based and not logic-based, mark as `UNVERIFIED` and retry once. If it fails twice, escalate to manual log review (do not auto-retry indefinitely).
+    *   **UI/Evidence:** Generate a receipt showing zero declined platinum transactions.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Security/QA agent (not the Builder from Lane A).
+    *   **Focus:** Verify the shadow mode truly disables enforcement and that the config lock fix does not introduce race conditions.
+*   **G7 (Integrate):** Merge Lanes A, B, and C into the integration branch. Run one final integration check on the combined SHA.
+
+### 3. Human Gates & Landing
+*   **G8 (Release Approval):**
+    *   **Approver:** Chief Risk Officer (CRO).
+    *   **Timing:** Must occur **before 6 PM** on the day of verification.
+    *   **Input:** Present the G5 receipt (0 false positives) and the G6 security verdict.
+    *   **Decision:** Explicit authorization to switch from `shadow-mode` to `active-enforcement`.
+*   **Deployment Window:**
+    *   Execute the toggle only after CRO approval and before the board review.
+    *   **Rollback Protocol:** If false positives appear post-activation, execute the database rollback immediately. **Warning:** This will wipe the last hour of audit logs. The operator must manually archive current logs before triggering the rollback if possible, or accept the data loss as the cost of stopping chargebacks.
+
+### 4. Risk Mitigation
+*   **Cost:** Strict cap on CI retries.
+*   **Data Integrity:** The rollback procedure includes a mandatory "pause and archive" step for audit logs if the system allows, otherwise, the risk is accepted by the CRO at G8.
+*   **Timing:** If CRO is unreachable by 5:30 PM, the deployment is aborted for the day to avoid unapproved changes before the board review. The system remains in `shadow-mode` (safe) until approval.
+
+**Status:** Ready for G2 specification upon owner confirmation of the traffic dataset location.

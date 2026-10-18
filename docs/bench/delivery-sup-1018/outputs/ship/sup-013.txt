@@ -1,0 +1,35 @@
+**Delivery Plan: Real-Time Usage Alerts (Isolated)**
+
+**Lanes & Parallelism**
+*   **Lane A (Builder - Notifications):** Implement the alert service logic in a dedicated worktree. Crucially, integrate strict resource cgroups/limits (CPU/Memory) directly into the service configuration to prevent starvation of the batch jobs.
+*   **Lane B (QA - Concurrency):** Construct a localized load-harness script. Since staging lacks throttling, this script must simulate peak load *and* the 02:00–04:00 UTC database write lock locally.
+*   **Serialization:** Lane A must complete the core implementation before Lane B can finalize the concurrency harness. However, Lane B can draft the harness skeleton in parallel while Lane A codes.
+*   **Lane C (Security/Compliance):** Review data flow for PII in alerts and verify that the "silent fail" behavior of the DB lock does not mask security errors.
+
+**Gates & Checks**
+*   **G1 Spec:** Define exact resource limits (e.g., max 2GB RAM, 20% CPU) based on historical batch job headroom.
+*   **G4 Implement:** Lane A commits code with a `FULL` review scope on the immutable base SHA. Tests must include a unit test asserting the resource limit configuration exists.
+*   **G5 Verify (Critical):**
+    *   **Revision:** Exact SHA from Lane A.
+    *   **Action:** Run Lane B's local harness. We must observe the alert service throttling itself *before* the invoice generator attempts its 02:00 UTC write.
+    *   **Pass Condition:** Invoice generation latency remains within baseline variance; alert latency meets SLA. If the harness cannot replicate production throttling, the gate is `UNVERIFIED` and requires a canary strategy instead of full approval.
+*   **G6 Review:**
+    *   **Independent QA:** Verifies the local harness results and resource limit enforcement.
+    *   **Independent Security:** Verifies no data leakage in alerts.
+    *   **Constraint:** Neither reviewer is the Builder.
+
+**Landing Strategy**
+*   **Integration (G7):** Merge to the integration branch only after G5 passes on the exact SHA. A fresh integration build (partial, targeting only changed modules to save the $45/55min cost) must run to ensure no merge conflicts affect the DB lock logic.
+*   **Human Gates (G8):**
+    *   **Dual Approval Required:** Explicit written approval from Jane Smith (Finance) and the on-call SRE is mandatory before enabling the feature flag.
+    *   **Decision Format:** Present two options: (A) Deploy with hard resource caps and immediate rollback on any batch delay; (B) Delay launch to build a staging throttling replica. Recommendation is A, provided local harness passes.
+*   **Rollback:**
+    *   **Trigger:** Any increase in invoice generation time >5% during the 02:00–04:00 window post-deploy.
+    *   **Mechanism:** Immediate feature flag toggle to OFF. No code revert required initially.
+    *   **Verification:** Confirm batch job completion time returns to baseline in the next cycle.
+
+**Risk Mitigation**
+*   **Database Silence:** Since DB write conflicts fail silently, the alert service must implement a "circuit breaker" that detects inability to write and pauses processing rather than retrying aggressively.
+*   **Cost Control:** CI runs are restricted to `DIFF` scope for lanes; full pipeline runs only once at G7 integration.
+
+**Next Step:** Await confirmation of the specific resource headroom metrics from the Finance team to finalize the G1 Spec limits.

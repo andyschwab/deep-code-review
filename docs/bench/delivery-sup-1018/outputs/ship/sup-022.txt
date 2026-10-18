@@ -1,0 +1,45 @@
+**Delivery Plan: Payment Gateway Migration (G0–G10)**
+
+**Scope & Constraints**
+Migrate `billing-core` to the new provider while preserving the "3 retries over 7 days" logic for expired cards. No changes to `transaction-logger`. Deployment requires dual human approval (Jane Smith + Security Lead). Rollback is irreversible; success depends on pre-deploy verification.
+
+**Work Lanes & Serialization**
+*   **Lane A (Spec & Mapping) [Product Analyst]:** Define the exact API mapping for retry payloads. Output: A testable spec including the "3 retries/7 days" state machine. **Must complete before Lane B.**
+*   **Lane B (Implementation) [Builder]:** Implement the new gateway adapter in an isolated worktree. Logic must queue failed transactions identically to the current system. **Blocked by Lane A.**
+*   **Lane C (Simulation Harness) [Builder/QA]:** Since staging lacks a retry simulator, build a lightweight local mock that injects "expired card" failures and verifies the queueing logic. **Runs parallel to Lane B.**
+*   **Lane D (Security & Compliance) [Security]:** Review the new provider's data handling against the frozen `transaction-logger` constraints. **Runs parallel to Lane B.**
+
+**Gates & Verification (Exact Revisions)**
+*   **G1 (Spec):** Owner approves the retry logic spec.
+*   **G4 (Implement):** Builder commits code. Base SHA pinned.
+*   **G5 (Verify):**
+    *   Run Lane C's mock against Lane B's build. Evidence: Logs showing exactly three re-queue events over a simulated 7-day window.
+    *   CI Pipeline: Run once on the exact merge commit. If flaky, isolate and retry manually; do not merge on green-if-flaky.
+    *   **Critical:** Verify no writes to `transaction-logger` occur outside existing interfaces.
+*   **G6 (Review):**
+    *   **Code:** Independent senior engineer (not the Builder) reviews Lane B.
+    *   **Security:** Security Lead reviews Lane D findings.
+    *   **Deep Code Review:** Full scan on the exact G5 SHA.
+*   **G7 (Integrate):** Merge to integration branch. Re-run CI on the final integrated SHA.
+
+**Human Gates & Decisions**
+*   **G8 (Release Approval):** Requires explicit written approval from **Jane Smith** AND the **Security Lead**.
+    *   *Ask Format:* "Deploy new gateway to production? A: Proceed with cutover (Recommended, contract expires in 45 days). B: Delay (Risk: punitive rates)."
+*   **No Rollback:** Since token incompatibility makes reversion impossible, G5 verification must include a "dry-run" analysis of pending jobs to ensure zero loss.
+
+**Landing Strategy**
+1.  **Merge Train:** Lane B merges only after G6 passes on the exact SHA.
+2.  **Deployment:** Triggered only after G8 approval.
+3.  **Post-Deploy (G9):** Monitor real-time retry queues for 24 hours. Compare queue depth against baseline. Any deviation triggers immediate incident response (though technical rollback is impossible, traffic can be routed to a maintenance mode if logic fails).
+
+**Risk Mitigation**
+*   **CI Cost:** Profile tests first (`scripts/pipeline_profile.py`). Run only affected suites to avoid 50-minute timeouts.
+*   **Staging Gap:** Lane C's local mock is the primary evidence for retry logic; staging E2E is secondary.
+*   **Irreversibility:** The "point of no return" is the traffic switch. Ensure all pending retries are flushed or migrated before the switch.
+
+**Timeline**
+*   Days 1–3: Lanes A, C, D complete.
+*   Days 4–7: Lane B implementation and G5 verification.
+*   Day 8: G6 Review and G7 Integration.
+*   Day 9: Human Approval (G8) and Deployment.
+*   Buffer: 36 days remaining before contract expiry.

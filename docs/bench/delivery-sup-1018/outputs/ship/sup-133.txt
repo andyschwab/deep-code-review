@@ -1,0 +1,49 @@
+### Delivery Plan: Rural Zoning Map Optimization
+
+**Objective:** Reduce initial map load time to <2s on 3G by replacing full-county fetch with viewport-prioritized progressive loading.
+
+#### 1. Work Lanes & Serialization
+*   **Lane A (Data Strategy & API Contract):**
+    *   *Actor:* Backend Engineer.
+    *   *Work:* Define tile/viewport API endpoints; implement server-side spatial indexing for partial fetches; establish pagination cursors for parcel details.
+    *   *Constraint:* Must complete before Lane B can finalize integration tests.
+*   **Lane B (Frontend Refactor):**
+    *   *Actor:* Frontend Engineer.
+    *   *Work:* Replace monolithic fetch with viewport-aware loader; implement lazy-loading for detailed parcels; add loading states for low-bandwidth indicators.
+    *   *Parallelism:* Can start immediately using mock API contracts from Lane A's design doc.
+*   **Lane C (Performance Verification):**
+    *   *Actor:* QA Engineer (Independent).
+    *   *Work:* Simulate 3G network conditions; measure Time-to-Interactive (TTI) on legacy tablet emulators; verify asset bundle size remains under the static bucket limit.
+    *   *Serialization:* Must wait for Lane B's build artifact.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Immediate):** Freeze the "viewport-first" data contract. Define exact metrics for "under 2 seconds" (e.g., TTI on 3G profile).
+*   **G3 Design (Before Code):** Architect review of the spatial indexing strategy to ensure it doesn't explode database load.
+*   **G4 Implement:**
+    *   *Base SHA:* Pin to current `main` head before branching.
+    *   *Check:* Run unit tests locally. **Skip** the full 45-minute geographic validation suite during iterative development; run only the targeted coordinate conversion unit tests to avoid flake-induced false negatives.
+*   **G5 Verify (Exact Revision):**
+    *   *Environment:* Staging environment with network throttling enabled.
+    *   *Criteria:* Initial view renders <2s on 3G simulation. Detailed data loads only on click.
+    *   *Asset Check:* Verify build output size < static bucket limit. If exceeded, fail immediately.
+*   **G6 Review:**
+    *   *Reviewer:* Senior Logistics Lead (or delegated Architect if Lead is unavailable).
+    *   *Scope:* Independent review of Lane A and B changes. Must explicitly verify the removal of the "fetch all" pattern.
+    *   *Flake Mitigation:* If CI fails on coordinate conversion, trigger a single manual re-run. Two failures require a code fix, not a retry.
+
+#### 3. Landing & Human Decisions
+*   **Integration:** Merge Lanes A and B into a release candidate branch. Run the full 45-minute validation suite **once** on this combined SHA to minimize cloud credit usage.
+*   **Human Gate (Deployment):**
+    *   *Approver:* Senior Logistics Lead.
+    *   *Timing:* Must be scheduled Monday–Thursday due to Friday unavailability.
+    *   *Decision:* Explicit approval required to push to production given the critical nature of the budget review meetings.
+*   **Rollback Plan:**
+    *   If TTI >2s or crash occurs in production: Immediately revert to the previous stable SHA.
+    *   Feature Flag: Wrap the new loading strategy in a flag. If issues arise, disable the flag to revert to the old (slow but stable) behavior while fixing bugs, preventing total outage.
+
+#### 4. Risk Mitigation
+*   **Cloud Costs:** Limit full CI runs to the final integration SHA only.
+*   **Flaky Tests:** Isolate coordinate conversion tests; treat parallel execution failures as suspect until reproduced sequentially.
+*   **Storage Lockout:** Enforce strict bundle size limits in the local build step before pushing to CI.
+
+This plan prioritizes the critical path for next week's meetings while respecting infrastructure constraints and personnel availability.

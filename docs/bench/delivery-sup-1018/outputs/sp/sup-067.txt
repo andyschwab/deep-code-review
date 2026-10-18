@@ -1,0 +1,30 @@
+### Delivery Plan: Q3 CDR Backfill
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Code Implementation):** One senior engineer modifies the ingestion script in `core-ledger`. The logic must introduce a runtime flag (e.g., `--suppress-gl`) that bypasses the general ledger adjustment trigger while permitting updates to the customer billing portal tables.
+*   **Lane B (Data Preparation):** A data engineer isolates the 4,200 Q3 records. They must validate that all dates are pre-October 1st to anticipate the known flaky check and prepare a manual override request for the shift lead.
+*   **Lane C (Compliance):** A second senior engineer from the Finance Technology group begins the mandatory review process immediately upon code commit. This lane runs parallel to Lane B but blocks the merge.
+
+**Serialization Constraint:** Lane A must complete and commit before Lane C can finalize their review. Lane B can run entirely in parallel but must finish before the final execution window.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Commit):** The engineer in Lane A must verify locally that the `--suppress-gl` flag correctly prevents `INSERT` statements into the `adjustments` table while allowing billing portal updates. No database schema changes are permitted.
+*   **Gate 2 (CI Pipeline):** The commit triggers the 55-minute CI pipeline against the legacy mainframe sandbox.
+    *   *Contingency:* If the pipeline fails due to the known flaky check on pre-October dates, the shift lead must manually override the `invoice-generation` module failure. This override must be documented in the ticket before proceeding.
+*   **Gate 3 (Finance Approval):** The second senior approver (Lane C) must explicitly sign off on the code review. The merge to the release branch is strictly forbidden without two distinct approvals from the Finance Technology group.
+
+**3. Review Process**
+*   **Independent Code Review:** The implementation requires two independent reviews from the Finance Technology group. Neither approver may be the author of the code.
+*   **Data Verification:** Before the full backfill, a dry-run must be executed in a non-production environment (if available before 02:00 UTC) or on a isolated subset of records to confirm zero general ledger entries are generated. The output logs must be reviewed by the Finance approver to confirm the suppression flag functions as intended.
+
+**4. Landing & Merge Strategy**
+*   **Merge Window:** The merge to the release branch must occur early enough to allow the 55-minute CI pipeline to complete well before the 02:00 UTC irreversible deployment window.
+*   **Human Decision Points:**
+    1.  **Shift Lead Approval:** Required solely if the CI pipeline triggers the false positive on pre-October dates.
+    2.  **Finance Sign-off:** Two seniors must approve the merge request.
+    3.  **Go/No-Go:** A final verification of the dry-run logs by the Product Owner is required before triggering the production batch.
+*   **Execution:** Once merged and CI passes, the script runs against the 4,200 records.
+*   **Rollback Plan:** Since the database schema is immutable and the deployment is irreversible after 02:00 UTC, there is no technical "undo" for the deployment itself.
+    *   *Mitigation:* If the script erroneously writes to the general ledger, the rollback is purely financial: Finance must immediately post a reversing lump-sum entry to cancel the duplicate adjustments. The code change itself cannot be reverted once the batch window closes; any fix would require a new hotfix cycle.
+
+**Critical Path:** Code Commit → Dual Finance Review → CI Pipeline (with potential Shift Lead override) → Merge → Pre-02:00 UTC Execution.

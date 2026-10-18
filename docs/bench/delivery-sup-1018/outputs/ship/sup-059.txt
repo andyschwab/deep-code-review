@@ -1,0 +1,38 @@
+### Delivery Plan: Payment Timeout Logic Fix
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Test Design):** Product Analyst defines the exact timeout threshold and retry logic. Must specify how `retry-count` metadata distinguishes a "slow bank" from a "failed transaction" without schema changes.
+    *   *Parallel:* None. This blocks implementation.
+*   **Lane B (Implementation):** Builder modifies the payment service logic in an isolated worktree. Uses existing `retry-count` field to suppress duplicate retries when a pending state is detected. Includes unit tests for edge cases (late confirmation).
+    *   *Dependency:* Requires Lane A output.
+*   **Lane C (Staging Verification Prep):** QA prepares the staging environment and isolates the `bank-simulation` script. Configures manual log inspection procedures since the automated test is flaky.
+    *   *Parallel:* Can run alongside Lane B.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Owner approves the logic for handling late confirmations using existing fields.
+*   **G4 (Build):** Builder commits patch. Runs local `fast-check` suite only (to save CI credits). Unit tests must pass locally before push.
+*   **G5 (Verify):** Deploy to Staging (manual trigger).
+    *   *Check 1:* Run `bank-simulation` with induced latency.
+    *   *Check 2 (Mandatory):* Manual inspection of transaction logs to confirm exactly one charge per request, even when the bank response exceeds the timeout. Automated pass/fail from the flaky test is ignored; human log verification is the gate.
+*   **G6 (Review):** Security and Ledger Team peer review. Focus: race conditions in `retry-count` updates and idempotency guarantees. Reviewer must be independent of the Builder.
+
+**3. Review Strategy**
+*   **Code Review:** Senior Engineer (not the Builder) reviews the diff against the base SHA.
+*   **Logic Verification:** QA verifies the staging behavior. The Builder cannot self-verify the fix against the staging logs.
+*   **Security:** Specific check on whether the creative reuse of `retry-count` introduces any state corruption risks under high concurrency.
+
+**4. Landing & Human Decisions**
+*   **Merge:** Once G5 (manual log verification) and G6 are green, the PR is marked ready.
+*   **Human Gate (G8):** Explicit approval required from **Jane Smith**. No merge occurs without her sign-off.
+*   **Deployment Window:** Merge is permitted immediately after approval, but production deployment is locked to the **Tuesday maintenance window**.
+*   **Rollback Plan:** If duplicate charges persist post-deploy:
+    1.  Revert the merge immediately.
+    2.  Disable the payment endpoint for affected regions if reversion fails.
+    3.  Trigger incident response per `incident-response.md`.
+
+**5. Constraints & Risks**
+*   **CI Cost:** Only `fast-check` suite runs in CI. Full suite skipped unless a critical regression is suspected.
+*   **Flaky Test:** The `bank-simulation` failure is expected noise. Success is defined strictly by manual log evidence in staging, not the CI green checkmark for that specific test.
+*   **Schema Immortality:** No database migrations. Logic must rely entirely on existing `retry-count` semantics.
+
+**Next Step:** Await owner confirmation on the proposed timeout threshold and retry suppression logic (Lane A) before generating the implementation patch.

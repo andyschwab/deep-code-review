@@ -1,0 +1,48 @@
+# Delivery Plan: Secure Transit Tracking with Route Masking
+
+## Lanes & Parallelism
+**Lane A (Configuration & Data):** Define the geofencing polygon coordinates for government zones. Create the static placeholder logic (last known safe point or fixed dummy coordinate). This lane runs independently of code changes.
+**Lane B (Core Logic):** Modify the shared routing library to intercept location streams. Implement the mask detection algorithm: if `vehicle_id` + `timestamp` intersects `geofence_poly`, swap payload with placeholder. Ensure the internal dispatch flag bypasses this logic.
+**Lane C (Interface Verification):** Update API contract tests to assert that public endpoints return masked data while internal endpoints return raw data for the same vehicle ID during a security event.
+
+**Serialization Constraint:** Lane B cannot finalize until Lane A provides the exact coordinate format. Lane C waits for Lane B's build artifact.
+
+## Gates & Checks
+**Gate 1: Logic Freeze (Revision `feat/mask-logic-v1`)**
+Before merging to staging, a dry-run simulation must verify the masking algorithm against historical GPS traces of sensitive routes.
+*Check:* Verify zero leakage of real coordinates in public output logs.
+*Constraint:* Do not touch production audit logs; verify via read-only shadow tables.
+
+**Gate 2: Integration Build (Revision `release/candidate-1`)**
+Trigger the 45-minute CI pipeline only after Lane A and B are code-reviewed and merged.
+*Check:* Successful completion of legacy simulation tests.
+*Cost Control:* If the build fails, halt all further attempts until the root cause is fixed locally to avoid cloud penalties.
+
+**Gate 3: Cache Validation (Staging Environment)**
+Deploy to staging and manually flush the geofencing cache.
+*Check:* Confirm the system detects new zone configurations within 5 minutes post-flush, acknowledging the 6-hour production cache window.
+
+## Review Protocol
+**Independent Code Review:**
+The Lead Engineer (non-author) must review Lane B's masking logic. Focus: Ensure the "internal dispatch" bypass cannot be triggered by public API headers.
+**Compliance Audit:**
+The Safety Compliance Officer reviews the test results from Gate 1. They must sign off on the "zero leakage" proof before Gate 2 triggers. This review is strictly separate from the engineering approval.
+
+## Landing Strategy
+**Deployment Window:**
+Scheduled during low-traffic hours to mitigate risk if the cache flush behaves unexpectedly.
+
+**Merge Process:**
+1. Merge `release/candidate-1` to `main`.
+2. Deploy to production (requires dual approval token: Lead Engineer + Safety Officer).
+3. **Manual Trigger:** Operations team must execute the cache flush immediately post-deployment to activate new geofences.
+
+**Rollback Plan:**
+If real locations leak or internal dispatch loses visibility:
+1. Revert the deployment immediately (standard rollback).
+2. **Critical Note:** Since audit logs are immutable, any leaked data during the incident window remains in the DB. A separate mitigation ticket will be required to flag/redact those specific log entries at the application read-layer.
+
+**Human Decisions Required:**
+1. Final approval of geofence coordinates (Lane A).
+2. Authorization to flush production cache (Operations).
+3. Go/No-Go decision post-Gate 3 based on Compliance Officer's signature.

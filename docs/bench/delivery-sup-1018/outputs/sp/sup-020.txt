@@ -1,0 +1,38 @@
+### Delivery Plan: Hardening Ingestion Against Spoofed Identities
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Security Logic - Serialized First):** Implement strict certificate chain verification in the ingestion pre-filter. This must be completed and unit-tested before any integration work begins to ensure the core logic is sound.
+    *   *Constraint:* Must strictly avoid modifying the `firmware-validation` module interface to prevent triggering the 72-hour audit lock.
+*   **Lane B (Error Handling & Legacy Support - Parallel to A):** Develop the specific error code response for malformed requests and update the `legacy-harness` simulation scripts to expect this new behavior without breaking existing flaky Tuesday network throttling patterns.
+*   **Lane C (Deployment Config - Parallel to A & B):** Prepare the seamless deployment configuration (blue/green or canary) to ensure zero downtime during business hours.
+
+**Serialization Point:** Lanes A and B must merge only after Lane A's unit tests pass. Integration testing cannot start until both are merged.
+
+**2. Gates & Checks**
+*   **Gate 1 (Local/Pre-Commit):** Developer runs unit tests for Lane A locally. Verification: Certificate rejection logic works; firmware module interface is untouched.
+*   **Gate 2 (CI - Gold Tier):** Submit PR to `staging` branch.
+    *   *Runner:* Request one 'gold-tier' runner.
+    *   *Check 1:* Run Lane A unit tests.
+    *   *Check 2:* Run Lane B legacy harness simulation (avoid scheduling on Tuesday mornings).
+    *   *Check 3:* Verify no changes detected in `firmware-validation` interface (automated diff check).
+    *   *Timeout:* Set job timeout to 50 minutes to account for queueing; fail if queue exceeds 40.
+*   **Gate 3 (Integration):** Run the full integration suite on the merged A+B code against the staging environment. Verify graceful rejection with the new error code and successful pass-through for valid certified firmware.
+
+**3. Review Process**
+*   **Code Review:** Assigned to a Senior Platform Engineer *not* on the Platform Reliability team (to ensure independence).
+    *   *Focus:* Verify certificate logic correctness, error code specificity, and absolute isolation of the firmware validation module.
+*   **Security Review:** Mandatory review by the **Security Lead**.
+    *   *Focus:* Confirm spoofing vector is closed and error handling does not leak information.
+*   **Compliance Review:** Mandatory review by the **Compliance Officer**.
+    *   *Focus:* Certify that the legacy harness results remain valid and the firmware audit trail is unbroken.
+
+**4. Landing Strategy**
+*   **Approval:** The merge to `main` requires explicit dual approval (Security Lead + Compliance Officer) via the repository policy engine. No merge occurs without both signatures.
+*   **Deployment Window:** Deploy during non-business hours (e.g., 02:00 - 04:00 local time) to satisfy the "no downtime during business hours" requirement, even though the mechanism is seamless.
+*   **Rollback Plan:**
+    *   *Trigger:* If error rates spike >1% or legacy harness failures occur in production.
+    *   *Action:* Immediate revert of the merge commit via the CI pipeline.
+    *   *Fallback:* If revert fails, switch traffic 100% to the previous stable blue environment.
+*   **Human Decision Point:** The Compliance Officer must manually sign off on the "Legacy Harness Validity" report generated from the staging integration run before the final merge button becomes active.
+
+**Risk Mitigation:** To avoid the 72-hour audit lock, the code review must explicitly confirm zero lines changed in the firmware validation interface. If any change is detected, the PR is rejected immediately before human review.

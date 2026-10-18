@@ -1,0 +1,46 @@
+# Delivery Plan: Legacy Wishlist Deprecation
+
+## Lanes & Parallelism
+
+**Lane A: Data Migration (Serialized First)**
+*   **Owner:** Backend Engineer
+*   **Action:** Execute irreversible database migration script to move historical entries to the archive store.
+*   **Constraint:** Must complete before Lane B starts. Once started, this cannot be rolled back.
+*   **Verification:** Confirm row counts match between source and archive; ensure no data loss.
+
+**Lane B: Backend Logic & Redirects (Parallel with Lane C)**
+*   **Owner:** Backend Engineer
+*   **Action:** Disable legacy input forms/API endpoints. Implement 301 permanent redirects for all deep links to preserve SEO. Update background jobs to handle migrated records gracefully.
+*   **Constraint:** Depends on Lane A completion.
+*   **Verification:** Unit tests for redirect logic; integration tests for background job stability (ignoring flaky network timeout if logs show success).
+
+**Lane C: Frontend Cleanup (Parallel with Lane B)**
+*   **Owner:** Frontend Engineer
+*   **Action:** Remove UI badges and hide legacy wishlist components.
+*   **Constraint:** Independent of Lane A, but should deploy simultaneously with Lane B to prevent UI errors.
+*   **Verification:** Visual regression tests; confirm badges are absent.
+
+## Gates & Checks
+
+1.  **Pre-Migration Gate:** Code freeze on wishlist modules. Backup database snapshot taken.
+2.  **Migration Gate (Post-Lane A):** Automated script verifies 100% data transfer. Manual sign-off required before proceeding to Lane B.
+3.  **Staging Gate:** Deploy Lanes B and C to staging.
+    *   **Check:** Run full CI pipeline (45 mins).
+    *   **Check:** Verify redirect rules propagate (wait for hourly search index + 6-hour cache window or force cache clear in staging).
+    *   **Check:** Generate dry-run report showing zero 404s on deep links and successful background job execution.
+4.  **Production Approval Gate:** Senior Engineer Jane Smith reviews the staging dry-run report. No deployment proceeds without her explicit approval.
+
+## Review Strategy
+
+*   **Code Review:** Backend changes reviewed by a Senior Backend Engineer (not the author). Frontend changes reviewed by a Senior Frontend Engineer. Cross-squad review required for the migration script.
+*   **Independent Verification:** QA team performs a dedicated "SEO Preservation" audit on staging, checking a sample of deep links for 301 status codes before Jane Smith's final review.
+*   **Flaky Test Handling:** Integration suite failures related to network timeouts are accepted if application logs confirm successful data processing.
+
+## Landing & Rollback
+
+*   **Merge Strategy:** Merge Lane A (migration) first. Wait for confirmation. Then merge Lanes B and C together in a single deployment window to ensure frontend/backend consistency.
+*   **Deployment Window:** Schedule during low-traffic hours to minimize impact if issues arise. Allow 7 hours post-deploy for full search index/cache propagation before declaring success.
+*   **Human Decision:** Jane Smith must approve the production deploy based on the staging dry-run.
+*   **Rollback Plan:**
+    *   **Frontend/Backend (Lanes B/C):** Immediate revert of code deployment if 404 errors spike or background jobs fail critically.
+    *   **Data (Lane A):** **No technical rollback possible** due to irreversible column drops. Recovery requires restoring from the pre-migration database snapshot, which necessitates a full service outage. This risk mandates the strict Pre-Migration Gate and data verification steps.

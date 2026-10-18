@@ -1,0 +1,71 @@
+# Delivery Plan: Multi-Audio Track Switching with A/V Sync Guard
+
+## Lanes & Parallelism
+
+**Lane A: Core Playback Logic (Stream Team)**
+*   **Work:** Implement audio track selector UI hook and the underlying stream switching logic within `core-playback`.
+*   **Constraint:** Must not reload the player instance.
+*   **Parallelism:** Can run concurrently with Lane B, provided interface contracts are defined first.
+
+**Lane B: Sync Guard Engine (Sync Specialist)**
+*   **Work:** Develop the A/V synchronization monitor. This component calculates the offset between video frames and the new audio stream.
+*   **Critical Constraint:** Must enforce the <50ms drift limit. If exceeded, it must trigger an immediate micro-correction or revert.
+*   **Dependency:** Requires the "interface contract" from Lane A (exact trigger points for switching).
+
+**Lane C: Test Harness & Staging Validation (QA Automation)**
+*   **Work:** Configure the `long-form-sync` suite for the new feature.
+*   **Serialization:** Must wait for code freeze in Lanes A & B.
+*   **Specific Action:** Execute manual verification scripts **only** in the pre-prod cluster. Do not rely on staging for sync accuracy metrics due to the mock CDN's fixed 200ms latency artifact.
+
+## Gates & Checks
+
+**Gate 1: Interface Contract Review (Pre-Code)**
+*   **When:** Before implementation begins.
+*   **What:** Define the exact function signatures for track switching and the data structure for sync offsets.
+*   **Who:** Lead Architect + Jane Smith.
+*   **Revision:** Working doc on `develop` branch.
+
+**Gate 2: Unit Test Pass (Local)**
+*   **When:** Before pushing to CI.
+*   **What:** Verify logic without touching `timecode-utils` to avoid triggering false-positive nightly build failures.
+*   **Who:** Implementers (Lanes A & B).
+
+**Gate 3: Integration Suite (`long-form-sync`)**
+*   **When:** After merging to the release candidate branch.
+*   **Cost/Time:** $45 / 22 minutes per run.
+*   **Strategy:** Limit runs to maximum 3 attempts. If failed twice, revert to manual code audit rather than blind retrying to save budget.
+*   **Revision:** Specific Release Candidate (RC) tag.
+
+**Gate 4: Pre-Prod Sync Verification**
+*   **When:** After Gate 3 passes.
+*   **What:** Manual measurement of lip-sync drift using real CDN streams.
+*   **Acceptance:** Drift must remain ≤50ms across 10 consecutive switches.
+*   **Who:** QA Lead (independent of implementers).
+
+## Review Process
+
+**Primary Code Review**
+*   **Reviewer:** Jane Smith (Mandatory).
+*   **Secondary Reviewer:** Senior Engineer from a different squad (to ensure independence from the Stream Team).
+*   **Focus:** Ensure no modifications were made to `timecode-utils` unless absolutely unavoidable and wrapped in exception handling to prevent nightly build pollution.
+
+**Sync Logic Audit**
+*   **Reviewer:** Sync Specialist (if not the author) or External Consultant.
+*   **Focus:** Mathematical proof of the correction algorithm. Verify that the "micro-correction" does not cause visible freezing.
+
+## Landing Strategy
+
+**Merge Protocol**
+1.  Merge to `release-candidate` only after Gate 4 success.
+2.  Tag build as immutable artifact.
+
+**Production Deployment**
+*   **Method:** Canary deployment to 5% of international regions first.
+*   **Human Decision Point:** Go/No-Go for 100% rollout requires sign-off from Product Marketing (due to launch dependency) and Lead SRE.
+*   **Rollback Plan:**
+    *   Since production artifacts are immutable for 24 hours, rollback **cannot** involve redeploying the previous binary immediately if the new one is already hashed.
+    *   **Contingency:** The feature must include a "Kill Switch" configuration flag. If drift >50ms is detected in production telemetry, the flag disables multi-audio switching instantly, reverting users to the default stream without a code redeploy.
+    *   **Hard Rollback:** If the kill switch fails, traffic must be routed back to the previous immutable artifact version via load balancer configuration (infrastructure change, not code change).
+
+**Post-Launch**
+*   Monitor `audio-switch-error-rate` and `av-drift-report` dashboards for 2 hours before full global enablement.

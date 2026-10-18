@@ -1,0 +1,58 @@
+### Delivery Plan: Non-Blocking Data Masking Prototype
+
+**Objective:** Implement dynamic, role-based data masking in the `query-engine` module with zero latency regression (target <6s for complex queries).
+
+#### 1. Lanes & Parallelism
+Work is split into three lanes to maximize parallel execution while respecting ownership constraints.
+
+*   **Lane A (Core Logic - Serialized):** Owned by the implementer, blocked on Jane Smith's design approval.
+    *   Develop the dynamic masking interceptor within `query-engine`.
+    *   Implement role-resolution logic that bypasses the flaky `role-check` service during local/CI validation (mocking only).
+    *   Integrate with the central policy file reader (read-only initially).
+*   **Lane B (Performance Benchmarking - Parallel):** Runs alongside Lane A.
+    *   Establish a baseline using current staging data (sanitized snapshots).
+    *   Script the "complex query" suite to run repeatedly, calculating the 95th percentile latency.
+    *   Prepare the comparison harness to measure delta between masked and unmasked runs.
+*   **Lane C (Policy & Compliance - Parallel):**
+    *   Draft the specific masking rules for the prototype in a isolated policy draft file (not yet committed to central).
+    *   Prepare the rollback script and VP sign-off request template (pre-cautionary).
+
+*Serialization Point:* Lane A cannot merge until Lane B confirms the prototype meets the <6s threshold. Lane C's rules cannot be committed to the central policy file until the final go/no-go decision.
+
+#### 2. Gates & Checks
+All checks run on a dedicated Git worktree branch `feat/non-blocking-masking-prototype` to avoid polluting main.
+
+*   **Gate 1: Design Review (Pre-Code):**
+    *   **Trigger:** Before any code is written in Lane A.
+    *   **Action:** Implementer presents the interception strategy to Jane Smith.
+    *   **Pass Criteria:** Written approval from Jane confirming the approach avoids the execution hot-path.
+*   **Gate 2: Local Performance Gate (Pre-CI):**
+    *   **Trigger:** After Lane A implementation and Lane B baseline are ready.
+    *   **Action:** Run the benchmark suite locally against the staging snapshot.
+    *   **Pass Criteria:** Average latency ≤ 5.5s (buffer for CI variance). If >6s, fail immediately; do not push.
+*   **Gate 3: CI Regression (Targeted Only):**
+    *   **Trigger:** Only after Gate 2 passes.
+    *   **Action:** Trigger *only* the `query-engine` unit tests and the specific performance benchmark job. Avoid full monorepo regression ($45/55min cost).
+    *   **Pass Criteria:** Unit tests pass; Benchmark job reports <6s.
+    *   **Mitigation:** If `role-check` flakiness causes a false negative in CI, the pipeline must be configured to treat that specific service check as "non-blocking" for this prototype branch, relying instead on the mocked verification in Lane A.
+
+#### 3. Review Strategy
+*   **Code Review:**
+    *   **Reviewer:** Jane Smith (mandatory for `query-engine`).
+    *   **Secondary Reviewer:** One member from the Data Platform squad (non-owner) for logic sanity.
+    *   **Constraint:** Reviewers must verify that no caching or pre-processing logic was introduced.
+*   **Performance Review:**
+    *   **Reviewer:** Lead of the Marketing Power Users (or their delegate).
+    *   **Artifact:** A side-by-side report of baseline vs. prototype latency metrics.
+    *   **Independence:** This reviewer is independent of the implementation team and validates the "user experience" constraint.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    *   The code merges to `main` only after both Code and Performance Reviews are signed off.
+    *   **Critical Human Decision:** The central policy file update requires VP-level sign-off. The code merge can happen with masking *disabled* by default; the policy activation is a separate, manual operational step.
+*   **Rollback Plan:**
+    *   **Code Level:** Standard Git revert of the `feat/non-blocking-masking-prototype` merge.
+    *   **Data/Policy Level:** If the policy file was activated and causes issues, execute the pre-prepared manual database rollback script. This action triggers the VP-level notification automatically.
+    *   **Timeline:** Rollback must be executable within 15 minutes of detection.
+
+**Risk Note:** The irreversibility of policy commits means the prototype must run in "audit-only" mode (logging what *would* be masked) before active masking is enabled in production.

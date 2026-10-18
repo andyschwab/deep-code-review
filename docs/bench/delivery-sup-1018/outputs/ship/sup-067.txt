@@ -1,0 +1,44 @@
+### Delivery Plan: Q3 CDR Backfill (No GL Duplication)
+
+**Objective:** Ingest 4,200 Q3 CDRs to update billing portals while suppressing General Ledger (GL) entries to prevent double-counting against manual corrections.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Logic Implementation):** Modify the ingestion script to accept a `--suppress-ledger` flag. When active, the script routes records to the billing portal update path but bypasses the GL adjustment trigger.
+    *   *Constraint:* Must not alter the database schema (immutable).
+    *   *Parallelism:* Can run simultaneously with Lane B.
+*   **Lane B (Data Preparation & Dry-Run):** Isolate the 4,200 specific CDRs. Execute a dry-run of the *current* production script against a read-only replica to capture the exact SQL/API calls currently generated. This establishes the baseline for "what must not happen" regarding GL entries.
+    *   *Parallelism:* Runs parallel to Lane A.
+*   **Lane C (Flake Mitigation):** Prepare the manual override protocol for the known 'invoice-generation' flaky check (dates prior to Oct 1st). Document the exact shift lead contact and approval string required.
+    *   *Dependency:* None, but must be ready before G5.
+
+**Serialization Point:** Lane A and B must merge for integration testing (G5). Lane C is a procedural prerequisite for G5/G6.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Define the `--suppress-ledger` behavior explicitly. Confirm with Finance Tech that bypassing the trigger satisfies the "no second entry" requirement without needing a schema change.
+*   **G3 (Design):** Verify the code path ensures zero writes to the `adjustments` table or GL interface when the flag is set, while confirming billing portal updates still occur.
+*   **G4 (Implement):** Commit changes to a dedicated worktree. Include unit tests mocking the GL interface to prove no calls are made when the flag is active.
+*   **G5 (Verify - Staging):**
+    *   **Exact Revision:** The specific SHA from G4.
+    *   **Action:** Run the backfill in Staging *before* the 02:00 UTC irreversible window.
+    *   **Critical Check:** Assert zero new rows in the GL adjustment logs for the test accounts. Assert correct updates in the billing portal.
+    *   **Flake Handling:** If the 'invoice-generation' check fails due to pre-Oct dates, engage the shift lead immediately for the manual override; do not retry automatically.
+*   **G6 (Review):**
+    *   **Reviewer 1:** Senior Finance Tech Engineer (Independent of Builder). Validates the GL suppression logic.
+    *   **Reviewer 2:** Second Senior Finance Tech Engineer (Independent of Builder & Reviewer 1). Mandatory for `core-ledger`.
+    *   **Scope:** Full diff against the base SHA. Focus on the conditional logic gating the GL call.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    *   Target: Release branch of `core-ledger`.
+    *   Requirement: Two explicit approvals from Finance Tech group (G6).
+    *   CI Pipeline: Trigger the 55-minute sync. Monitor for the known flaky failure; have the shift lead on standby for immediate override if the date check triggers falsely.
+*   **Human Gates (Must Approve):**
+    1.  **Merge Authorization:** The two senior Finance Tech approvers must explicitly approve the PR.
+    2.  **Deployment Timing:** Confirmation that deployment occurs *before* the 02:00 UTC window to avoid the irreversible batch state during the test.
+    3.  **Flake Override:** Shift lead authorization if the CI pipeline flags the pre-Oct date error.
+*   **Rollback Plan:**
+    *   Since deployment to Staging is irreversible after 02:00 UTC, the backfill must be executed and verified *before* this time.
+    *   If GL entries are accidentally created: Immediate manual reversal by Finance (pre-coordinated).
+    *   If the script fails mid-run: The script must be idempotent for the billing portal (safe to re-run with flag) but must guarantee GL silence. If GL silence fails, halt immediately.
+
+**Risk Note:** The 55-minute CI cost ($45/run) dictates that local verification (Lane A/B dry-runs) must be exhaustive before triggering the pipeline. Only one pipeline run should be necessary.

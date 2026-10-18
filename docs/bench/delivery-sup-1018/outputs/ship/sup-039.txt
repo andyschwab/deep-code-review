@@ -1,0 +1,55 @@
+### Delivery Plan: Retroactive Regulatory Limit Enforcement
+
+**Objective:** Enforce new transaction caps on the pending queue immediately, ensuring zero legacy items bypass the new rules before the audit, without a full system restart.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Idempotency Design) [Conductor + Compliance Analyst]:**
+    *   Define the exact numeric caps per high-risk zone.
+    *   Draft the idempotency logic to prevent duplicate rejections using existing keys.
+    *   **Constraint:** Must be signed off by the Compliance Officer (offline until 4 PM) before code merge.
+    *   **Parallel:** Runs concurrently with Lane B.
+*   **Lane B (Logic Implementation) [Builder]:**
+    *   Isolated worktree. Implement the filter logic in the `pending-queue` processor.
+    *   Ensure logic reads the new config dynamically (no restart required).
+    *   Add unit tests specifically for "legacy item rejection" and "idempotency key reuse."
+    *   **Serialization:** Must wait for Lane A's spec finalization before committing.
+*   **Lane C (Config & Migration Prep) [DevOps]:**
+    *   Prepare the global rate-limiter config update for Production.
+    *   Draft the irreversible database migration script for the new limit columns.
+    *   **Serialization:** Do not execute migration until Lane B is verified and human approval is granted.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Compliance Officer reviews Lane A's cap definitions and idempotency strategy. *Hard Gate: No code merge without this signature.*
+*   **G4 (Implementation):** Builder commits code to a feature branch. Base SHA pinned.
+*   **G5 (Verification - Staged):**
+    *   Deploy to a non-Production isolated environment first.
+    *   Run a subset of the integration suite (only tests touching the queue processor) to validate idempotency.
+    *   **Check:** Verify no duplicate rejection events occur in logs.
+    *   **Check:** Confirm config reload happens without process restart.
+*   **G6 (Independent Review):**
+    *   **Security/Compliance Review:** Independent reviewer (not the Builder) audits the logic against the mandate.
+    *   **Code Review:** Senior Engineer verifies the idempotency implementation.
+*   **G7 (Integration):** Merge to the integration branch. Trigger the full 40-minute suite *once* on the exact final SHA.
+
+#### 3. Review Strategy
+*   **Code:** Reviewed by a Senior Engineer independent of the Builder.
+*   **Compliance:** Reviewed by the Compliance Officer (post-4 PM).
+*   **Security:** Focused review on the irreversibility of the DB migration and the safety of the dynamic config reload.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge Lane B to the integration branch after G6 approval.
+    2.  Wait for the 40-minute CI suite to pass (Green on exact SHA).
+*   **Human Gates (Dual Approval Required):**
+    *   **Gate 1:** Lead Architect approval on the code merge.
+    *   **Gate 2:** Compliance Officer approval (available 4 PM) on the config values and migration timing.
+*   **Deployment Sequence:**
+    1.  Apply DB migration (Irreversible point of no return).
+    2.  Push global rate-limiter config update (triggers dynamic reload).
+    3.  Monitor `pending-queue` logs for immediate rejection of legacy items.
+*   **Rollback Plan:**
+    *   **Config:** Revert the global rate-limiter file to the previous version (instant effect).
+    *   **Code:** Revert the merge if idempotency fails (requires redeployment).
+    *   **Data:** *No rollback possible for the DB migration.* Mitigation: Manual script to restore rejected items if false positives occur, pending audit reconciliation.
+
+**Critical Path:** The Compliance Officer's availability at 4 PM dictates the earliest possible deployment time. All preparation (Lanes A, B, C) must be complete and verified before then to ensure immediate execution upon approval.

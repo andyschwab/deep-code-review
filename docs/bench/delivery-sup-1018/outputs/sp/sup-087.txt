@@ -1,0 +1,46 @@
+### Delivery Plan: Advocate Profile Nightly Sync
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Infrastructure - Parallel):** Provision a dedicated cloud-based runner for the nightly job to reduce compute costs compared to the on-premise cluster. This runner must have network access to the partner's production sandbox and our internal database.
+*   **Lane B (Logic Development - Parallel):** Develop the aggregation and formatting script within the `connector-monolith` service.
+    *   *Constraint:* Logic must query updates from the previous day only.
+    *   *Constraint:* Output must strictly match the partner's CSV schema.
+    *   *Constraint:* Include a hard stop alert trigger if the process reaches 03:45 UTC without successful transmission.
+*   **Lane C (Validation Data - Serialized after B):** Prepare a static, verified dataset representing "yesterday's updates" to test the CSV generation. This cannot be tested against the partner's staging environment due to flakiness; it must be validated locally against the schema spec.
+
+#### 2. Gates & Checks
+*   **Gate 1: Code Freeze & Security Scan**
+    *   *Trigger:* Developer commits to feature branch.
+    *   *Action:* Run the mandatory 45-minute CI security scan on the shared library dependencies.
+    *   *Pass Criteria:* Zero critical vulnerabilities. No changes to shared libs allowed without re-scan.
+*   **Gate 2: Data Integrity Dry-Run**
+    *   *Trigger:* Post-CI build artifact.
+    *   *Action:* Execute the job in "dry-run" mode on the new cloud runner using the Lane C validation dataset.
+    *   *Check:* Verify generated CSV matches schema exactly. Verify row count matches source query.
+    *   *Constraint:* Do not attempt network transmission to partner staging.
+*   **Gate 3: Compliance Approval (Human Gate)**
+    *   *Trigger:* Successful Dry-Run + Security Scan Pass.
+    *   *Action:* Submit deployment request package to Compliance Lead.
+    *   *Timing:* Must be completed before Friday 17:00 local time to avoid weekend unavailability.
+    *   *Requirement:* Explicit written approval documenting the irreversible nature of the batch and the accuracy verification steps taken.
+
+#### 3. Review Strategy
+*   **Code Review:** Performed by a Senior Backend Engineer independent of the author. Focus on the aggregation logic, time-window calculation (UTC), and the 03:45 alert condition.
+*   **Schema Review:** Performed by a Data Steward. Compare the generated CSV sample against the partner's official schema documentation.
+*   **Operational Review:** Performed by the On-Call Lead. Verify the alerting mechanism integrates with the existing paging system and triggers correctly at the 03:45 threshold.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge code to `main` only after Compliance Lead approval is attached to the ticket.
+    2.  Deploy to the new cloud runner environment immediately after merge (assuming approval was pre-obtained).
+*   **Activation:**
+    *   Enable the cron scheduler on the cloud runner for the 02:00 UTC window.
+    *   Initial run will be monitored live by the engineer on-call.
+*   **Rollback Plan:**
+    *   *Scenario:* Job fails to generate CSV or fails schema validation.
+    *   *Action:* Disable the cron scheduler immediately. No data is sent, so no external rollback is needed.
+    *   *Scenario:* Job sends incorrect data (irreversible).
+    *   *Action:* There is no technical rollback. The protocol is immediate manual notification to the partner team before their processing begins (04:00 UTC cutoff) to request manual discard of the file. This requires the On-Call Lead to have the partner's emergency contact ready.
+*   **Human Decision Points:**
+    *   Compliance Lead approval is mandatory before the first production run.
+    *   If the 03:45 alert fires, the On-Call engineer must decide whether to force-kill the job (risking no file) or let it finish late (risking rejection). The default instruction is to kill and alert.

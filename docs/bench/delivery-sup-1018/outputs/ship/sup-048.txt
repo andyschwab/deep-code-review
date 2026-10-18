@@ -1,0 +1,52 @@
+### Delivery Plan: Legacy Kiosk UI Retirement
+
+**Objective:** Migrate identity verification logic to the new streamlined design while preserving large-button layout, doubled timeouts, and hardware compatibility for elderly users, without firmware updates.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Logic Migration - Serial First):** Extract identity verification logic from the legacy module and integrate it into the new streamlined design component.
+    *   *Constraint:* Must complete before Lane B to ensure the target component exists.
+    *   *Writer:* Builder.
+*   **Lane B (Accessibility Configuration - Parallel to C):** Implement demographic detection to apply extra-large fonts and double timeout durations. Ensure no new `device-drivers` calls are introduced.
+    *   *Writer:* Builder (different worktree than A).
+*   **Lane C (Network Simulation - Parallel to B):** Create a test harness simulating slow rural network conditions (high latency/low bandwidth) specifically for the verification flow.
+    *   *Writer:* QA.
+*   **Lane D (Hardware Compatibility - Serialized after A+B):** Run the `hardware-compat` check against the combined changes on the existing hardware profile.
+    *   *Writer:* QA.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Define "elderly demographic" detection trigger and exact font/timeout metrics. Pin base SHA.
+*   **G2 (Plan):** Confirm no `device-drivers` modifications. Map Lane D to avoid Tuesday CI flakiness.
+*   **G3 (Design):** ADR confirming UI changes are CSS/config only, requiring no firmware touch.
+*   **G4 (Implement):**
+    *   Lane A & B commit patches with unit tests.
+    *   Lane C commits simulation script.
+*   **G5 (Verify):**
+    *   **Local Stack:** Bring up kiosk emulator.
+    *   **Functional:** Run Lane C simulation against Lane A+B build. Verify transaction completion under slow network.
+    *   **Hardware:** Execute `hardware-compat` check. If it fails on a Tuesday, flag for manual re-run by Director Jane Smith; do not auto-retry.
+    *   **Accessibility:** Generate report for Accessibility Board sign-off (mandatory pre-merge).
+*   **G6 (Review):**
+    *   **Code:** Independent review by Security team (no Builder self-review).
+    *   **QA:** Verification receipt from Lane C & D.
+    *   **Compliance:** Accessibility Board approval artifact.
+*   **G7 (Integrate):** Merge lanes into integration branch. Re-run affected checks on final SHA.
+
+#### 3. Review Strategy
+*   **Independent QA:** QA team verifies Lane C (network) and Lane D (hardware) results. They do not review their own simulation code; a senior engineer reviews the test logic.
+*   **Security:** Reviews logic migration (Lane A) for data handling integrity during the transition.
+*   **Accessibility Board:** Human review of the visual layout and timeout behavior. Their sign-off is a hard gate.
+
+#### 4. Landing & Human Decisions
+*   **Merge Train:**
+    1.  Wait for Accessibility Board sign-off (Human Gate).
+    2.  If `hardware-compat` failed due to Tuesday flake, obtain manual re-run approval from Director Jane Smith (Human Gate).
+    3.  Merge to staging branch.
+*   **Deployment Window:**
+    *   Deploy to Oakwood staging clinic **before 2:00 PM** on a non-Tuesday.
+    *   **Hard Stop:** No deploys after 2:00 PM due to irreversibility.
+*   **Rollback:**
+    *   Since production deploys are irreversible post-2 PM, the rollback plan is a **re-deploy of the previous stable SHA** immediately upon failure detection before the cutoff.
+    *   If failure occurs after 2 PM, the system remains on the old version (deployment aborted), and a hotfix plan is drafted for the next morning.
+*   **Final Verification:** On-site observation at Oakwood clinic confirming elderly users can complete check-in within the doubled timeout on the slow network.
+
+**Risk Mitigation:** CI pipelines are expensive; only run full suites on the final integrated SHA. Use local emulation for iterative testing in Lanes A, B, and C to preserve budget credits.

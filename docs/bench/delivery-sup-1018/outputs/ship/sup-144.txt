@@ -1,0 +1,60 @@
+### Delivery Plan: Multi-Audio Track Switching with A/V Sync Guard
+
+**Scope & Constraints**
+Target: `core-playback` monorepo.
+Critical Path: A/V sync drift ≤50ms; no player reload/freeze.
+Constraints: `long-form-sync` suite ($45, 22m) required; `timecode-utils` fragile (avoid modification); Staging latency (200ms) invalidates sync checks (must use Pre-Prod).
+Appetite: Time-boxed to 3 days for implementation + verification before launch.
+
+#### 1. Lanes & Parallelism
+**Lane A: UI/Control Layer (Builder)**
+*   **Work:** Implement track selection dropdown and event listeners in the player controls. Ensure switching logic triggers an audio stream swap without re-initializing the video decoder.
+*   **Isolation:** Dedicated worktree `wt-ui-switch`.
+*   **Dependency:** None. Can run in parallel with Lane B.
+
+**Lane B: Sync Guard Engine (Builder)**
+*   **Work:** Implement the synchronization guard. Calculate timestamp delta between video frame and new audio stream upon switch. If drift >50ms, apply micro-seek or frame-drop correction. **Strict Constraint:** Do not modify `timecode-utils`; wrap calls or implement local offset logic to avoid fragile dependency triggers.
+*   **Isolation:** Dedicated worktree `wt-sync-guard`.
+*   **Dependency:** None. Parallel with Lane A.
+
+**Lane C: Integration & Regression (QA)**
+*   **Work:** Prepare test matrices for international language pairs. Configure Pre-Prod environment access. Script the "switch-during-playback" journey to capture drift metrics.
+*   **Isolation:** Read-only access to main; executes on Pre-Prod cluster.
+*   **Dependency:** Waits for Lane A+B merge to integration branch.
+
+**Serialization Point:** Lanes A and B must merge to a single integration SHA before Lane C executes the `long-form-sync` suite.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Confirm acceptance criteria: "Switch < 200ms visible delay," "Drift < 50ms measured," "No full reload." Pin base SHA.
+*   **G3 Design:** Explicitly document the `timecode-utils` bypass strategy to prevent future breakage.
+*   **G4 Implement:**
+    *   Lane A: Unit tests for UI state transitions.
+    *   Lane B: Unit tests for timestamp delta calculation (mocked streams).
+*   **G5 Verify (Critical):**
+    *   **Environment:** Pre-Prod cluster ONLY (Staging rejected due to 200ms mock latency).
+    *   **Action:** Run `long-form-sync` suite on the exact integrated SHA.
+    *   **Evidence:** Logs showing max drift <50ms across 50 switch events. Screenshot/video proof of seamless switch.
+*   **G6 Review:**
+    *   **Code:** Independent review by Senior Engineer (not Jane Smith, not Builder).
+    *   **Security/Privacy:** Verify no PII leakage in track selection logs.
+    *   **Approval:** Jane Smith (mandatory).
+
+#### 3. Landing & Rollback
+*   **Integration:** Merge Lanes A+B to `integration-branch`. Run `long-form-sync`. If red, fix in isolated worktrees; do not hotfix on branch.
+*   **Human Gate (G8):**
+    *   **Decision:** Jane Smith approves deployment manifest.
+    *   **Condition:** Green `long-form-sync` receipt + Pre-Prod drift verification.
+*   **Deployment:**
+    *   Deploy to Production.
+    *   **Constraint:** Irreversible for 24 hours.
+*   **Rollback Strategy:**
+    *   Since artifacts are immutable and deployment is irreversible for 24h, the "rollback" is a **feature flag kill-switch**.
+    *   **Pre-condition:** The switch feature must be behind a config flag defaulting to OFF.
+    *   **Action:** If drift >50ms detected in production (via monitoring), flip flag to OFF immediately to revert users to single-track mode. No code redeploy needed.
+
+#### 4. Risk Mitigation
+*   **False Positives:** If `timecode-utils` triggers nightly build failures, document the skip-rationale in the PR body; do not refactor the library.
+*   **Cost Control:** Limit `long-form-sync` runs to final integration SHA and one retry if flaky. Max budget $90.
+*   **Drift Monitoring:** Add immediate alerting on A/V delta >40ms in production post-launch.
+
+**Next Step:** Await confirmation of the base SHA and Pre-Prod access credentials to initiate Lane A and B.

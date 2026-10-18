@@ -1,0 +1,28 @@
+### Delivery Plan: Parallel Permit Portal Launch
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Digital Frontend):** Develop and unit-test the new online intake form. This runs in parallel with Lane B.
+*   **Lane B (Legacy Assurance):** Verify the `PaperQueue` visibility in the admin dashboard and ensure no code changes touch the immutable `PaperQueue` table structure. This runs in parallel with Lane A.
+*   **Lane C (Data Integration):** Implement and test the dual-write logic ensuring both digital and paper entries correctly populate `MasterCitizenDB`. This lane begins only after Lane A’s core logic is stable to prevent schema conflicts.
+*   **Serialization Point:** Lanes A and B must complete before Lane C begins integration testing. All code must be merged into a single release candidate branch before the CI pipeline triggers.
+
+**2. Gates & Checks**
+*   **Pre-Build Gate:** Before triggering the 55-minute CI pipeline, a manual code review must confirm no migrations target the `PaperQueue` table. If a migration is detected, the build is aborted immediately to save credits and prevent irreversible locks.
+*   **CI Execution:** Trigger the pipeline on the release candidate revision only.
+    *   *Flaky Check Handling:* If the `AccessibilityAudit` fails with `RenderTimeout`, verify logs explicitly cite font scaling. If confirmed, mark as a false negative and proceed. Any other failure blocks deployment.
+*   **Staging Verification:** Since staging lacks postal mocks, verify paper workflow using static fixtures only. Confirm digital entries appear in `MasterCitizenDB` alongside fixture data. Do not attempt end-to-end postal testing here.
+
+**3. Independent Review**
+*   **Technical Review:** Performed by the Lead Architect. Focuses on the dual-write architecture, ensuring no regression in the legacy path and confirming the `PaperQueue` remains untouched.
+*   **Compliance Review:** Performed independently by Jane Smith (Compliance Officer). She must verify that the paper pathway remains visible and accessible in the admin dashboard and that the digital form meets legal accessibility standards (ignoring known font scaling false negatives).
+*   **Constraint:** Neither reviewer may be the developer who wrote the dual-write logic. Both must sign off on the *exact same* release candidate revision that passed CI.
+
+**4. Landing & Rollback**
+*   **Approval Gate:** Deployment to production is forbidden until written approval is received from *both* the Lead Architect and Jane Smith.
+*   **Database Safety:** Immediately prior to the switch, take a full database snapshot. This is mandatory given the irreversible nature of the `PaperQueue` table.
+*   **The Switch:** Flip the public-facing switch to enable the digital form. The legacy mail-in queue remains active by default; no action is needed to keep it running, only to verify its visibility post-launch.
+*   **Rollback Protocol:** If `MasterCitizenDB` shows corruption or missing entries from either source post-launch:
+    1.  Immediately disable the new digital intake form (feature flag off).
+    2.  Restore the database from the pre-launch snapshot.
+    3.  Notify stakeholders that the digital launch is paused; paper operations continue uninterrupted.
+*   **Human Decision:** The "Go/No-Go" decision rests solely on the dual signatures. No automated deployment occurs without them.

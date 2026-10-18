@@ -1,0 +1,65 @@
+**Delivery Plan: StreamFlow Surge Stabilization**
+
+**G0/G1: Intake & Spec (Conductor + Product Analyst)**
+*   **Scope:** Tune internal load balancers and cache eviction logic in `core-media`.
+*   **Constraints:** Zero new spend, no new servers, target 4k concurrent users/region (2x current), deadline: next Friday.
+*   **Non-Goals:** Database schema changes (rollback is irreversible), new feature flags.
+*   **Output:** Testable spec pinned to current `main` SHA. Defines "stability" as <1% error rate at 4k concurrency for 30 mins.
+
+**G2: Plan & Budget (Conductor)**
+*   **Work Graph:** Three parallel lanes, one serialized integration.
+*   **Budget Cap:** Each lane capped at $5.00 token spend; total CI cost limit enforced (max 2 full runs per lane).
+*   **Risk:** `global-throttle.yaml` conflicts. **Mitigation:** Lane 1 claims exclusive write access to this file; others propose patches via code-only logic.
+
+**Lanes (Parallel Execution)**
+
+*   **Lane 1: Load Balancer Tuning (Builder A)**
+    *   **Work:** Adjust connection timeouts, keep-alive settings, and worker thread pools in the LB config.
+    *   **Isolation:** Dedicated worktree.
+    *   **Verification:** Simulated 4k concurrency load test (local containerized).
+    *   **Output:** Patch + local test receipt showing connection drop rate <1%.
+
+*   **Lane 2: Cache Eviction Optimization (Builder B)**
+    *   **Work:** Refine eviction policies (LRU vs. LFU) for viral content patterns.
+    *   **Isolation:** Dedicated worktree.
+    *   **Verification:** Replay of recorded viral traffic trace against cache simulator.
+    *   **Output:** Patch + simulation receipt showing hit-rate improvement under spike conditions.
+
+*   **Lane 3: Flaky Gate & CI Stabilization (QA Lead)**
+    *   **Work:** Isolate the `latency-gate` flake. If CPU-induced, implement a retry-with-backoff or resource-isolation fix in the test harness, not a blind ignore.
+    *   **Isolation:** Dedicated worktree.
+    *   **Verification:** Run suite under high CPU load; prove determinism.
+    *   **Output:** Patch to CI config + proof of stability.
+
+**G3: Design Review (Security + Architect)**
+*   **Trigger:** Before implementation merges.
+*   **Focus:** Ensure LB changes don't create DoS vectors; verify cache logic doesn't leak PII during eviction.
+*   **Gate:** Explicit sign-off on ADRs for tuning parameters.
+
+**G4/G5: Implementation & Verification**
+*   **Exact Revision:** All lanes branch from the pinned G1 SHA.
+*   **Checks:**
+    *   Lane 1 & 2: Must pass local load sim *before* pushing.
+    *   Lane 3: Must pass stress test of the CI suite itself.
+    *   **CI Strategy:** Single aggregated PR for G7 to avoid multiple 50-min/300-credit runs. If individual lane validation fails locally, do not push.
+
+**G6: Independent Review**
+*   **Reviewer:** Senior SRE (independent of Platform Reliability team).
+*   **Scope:** Full diff review + audit of load test methodology.
+*   **Constraint:** Reviewer must verify the `global-throttle.yaml` merge conflict resolution is safe.
+
+**G7: Integration**
+*   **Owner:** Conductor.
+*   **Action:** Merge lanes into a temporary integration branch. Run *one* full CI pipeline.
+*   **Condition:** `latency-gate` must be green (no flakiness). If red, revert immediately and debug Lane 3.
+
+**G8: Release (Human Gate)**
+*   **Approvers:** Jane Smith + On-Call Lead (Dual approval required).
+*   **Timing:** Must occur outside the 4-hour freeze window preceding the sports finals.
+*   **Rollback Plan:** Since DB migration is irreversible, this release contains *only* config/logic tuning. Rollback is a simple revert of the config commit. **Contingency:** If instability occurs post-deploy, revert immediately; do not attempt hot-fixes during the event.
+
+**Failure Mode Handling**
+*   If any lane exceeds budget or fails twice locally, escalate to Conductor for re-scope (e.g., reduce target concurrency slightly or simplify cache logic).
+*   If CI flake persists despite Lane 3's fix, manual verification of the specific test case is required before G8.
+
+**Final Deliverable:** A single PR containing tuned LB config, optimized cache logic, and stabilized CI, verified at 4k concurrency, ready for dual-approval deploy.

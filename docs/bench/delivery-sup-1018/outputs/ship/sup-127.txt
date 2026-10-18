@@ -1,0 +1,50 @@
+**Delivery Plan: Transaction History Cache Migration**
+
+**Strategy:** Zero-downtime dual-write with read-through fallback. No session invalidation; no stale balance exposure.
+
+### 1. Lanes & Parallelism
+*   **Lane A (Implementation - Builder):** Isolate `global-config.yaml` logic. Implement dual-write adapter: writes go to Old + New; reads default to Old, with a feature flag to switch to New. Ensure "Balance Consistency" reads bypass cache entirely (source of truth) during the transition window.
+    *   *Constraint:* Must not trigger DB write-lock until G5 verification.
+*   **Lane B (Verification - QA):** Build a load-test harness simulating "Past Activity" peak traffic. Script a "mid-migration refresh" scenario to assert balance accuracy against the database source of truth.
+    *   *Parallel:* Runs against Lane A's feature-flagged build in Staging.
+*   **Lane C (Coordination - Conductor):** Draft the deployment runbook. Define the exact 4-minute freeze window for cache warm-up. Coordinate with owners of the three other microservices sharing `global-config.yaml` to ensure config schema compatibility.
+
+**Serialization:** Lane A must complete code changes before Lane B begins load testing. Lane C's runbook must be approved before G8.
+
+### 2. Gates & Checks
+*   **G1 (Spec):** Pin base SHA. Define acceptance: "Balance display latency <200ms under load; zero stale balances during flag flip."
+*   **G3 (Design):** ADR confirming dual-write strategy and the "bypass cache for balance" rule. Explicitly document the irreversible 4-minute deposit freeze trigger.
+*   **G4 (Implement):** Commit dual-write adapter. Unit tests must cover flag-flip race conditions.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Action:** Deploy to Staging (Manual Approval: Jane Smith).
+    *   **Check:** Run Lane B's load test. Assert "Balance Consistency" check passes 10/10 times. Verify "Past Activity" latency improvement.
+    *   **Critical:** Confirm no active sessions dropped during flag toggle.
+*   **G6 (Review):**
+    *   **Security:** Independent review of the dual-write logic to ensure no data leakage between user sessions.
+    *   **QA:** Sign-off on load test receipts.
+    *   **Constraint:** If "Balance Consistency" fails >2 times, gate blocks automatically.
+
+### 3. Review Independence
+*   **Builder** implements Lane A.
+*   **QA** executes Lane B and owns G5 pass/fail.
+*   **Security** reviews data isolation in the new cache layer (independent of Builder).
+*   **Conductor** aggregates evidence; does not write code or approve own work.
+
+### 4. Landing & Human Decisions
+*   **Merge Train:**
+    1.  Merge Lane A to integration branch (G7).
+    2.  Trigger Staging deploy (Human: Jane Smith).
+    3.  Once G5 receipts are green, schedule Production window.
+*   **Human Gates (Owner Approval Required):**
+    *   **Staging Deploy:** Jane Smith must approve.
+    *   **Production Cutover:** Owner must approve the specific time window for the 4-minute deposit freeze.
+    *   **Feature Flag Flip:** Owner must authorize the switch from Old to New cache in Production.
+*   **Rollback Plan:**
+    *   If "Balance Consistency" fails in Production: Immediately flip feature flag back to Old cache (instant revert).
+    *   If data corruption detected: Halt deposits, restore from pre-migration backup (last resort).
+*   **Post-Deploy (G9):** Monitor "Past Activity" latency and error rates for 1 hour. Verify no stale balances reported by users.
+
+**Cost Control:** CI runs scheduled off-peak if possible to avoid $45/min queue costs. Load tests capped at 30 minutes.
+
+**Risk Mitigation:** The 4-minute freeze is irreversible; timing is critical. Dual-write ensures no data loss; read-bypass ensures no stale balances.

@@ -1,0 +1,61 @@
+### Delivery Plan: Real-time Inventory Sync for Flash Sales
+
+**Scope & Constraints**
+Target: Eliminate 4-minute lag; ensure atomic stock deduction under 10k concurrent users; prevent negative inventory.
+Constraints: Logistics Squad ownership; Tuesday deploy window (Marcus Lee sign-off); CI cost ($45/run, 50m); `global-stock` config locked business hours; flaky DB replication checks; irreversible production writes.
+
+#### 1. Lanes (Parallel vs. Serialized)
+
+*   **Lane A: Core Concurrency Logic (Builder)**
+    *   **Work:** Implement database-level locking or atomic decrement logic for checkout. Ensure transaction isolation prevents race conditions on the last unit.
+    *   **Parallelism:** Can run parallel to Lane B, but must finish before Lane C.
+    *   **Serialization:** Must complete before integration testing.
+
+*   **Lane B: Load Simulation Harness (QA)**
+    *   **Work:** Create synthetic dataset (since staging sanitizes weekly). Script 10k concurrent user simulation targeting the checkout endpoint.
+    *   **Parallelism:** Runs parallel to Lane A.
+    *   **Serialization:** Must be ready before Lane C.
+
+*   **Lane C: Integrated Stress Verification (QA + Builder)**
+    *   **Work:** Deploy Lane A to isolated staging worktree. Run Lane B harness. Verify zero negative counts and sub-second sync propagation.
+    *   **Serialization:** Dependent on A and B completion. Requires exclusive access to staging DB.
+
+*   **Lane D: Config & Pipeline Prep (DevOps)**
+    *   **Work:** Prepare `global-stock` config update. Schedule application during overnight window (config lock). Optimize CI trigger to avoid flaky replication false alarms (add retry logic or specific ignore rules for known flake).
+    *   **Serialization:** Config change must occur overnight before final Tuesday build.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec (Now):** Define acceptance: "Zero negative inventory in 10k concurrent test," "Sync latency < 1s." Pin base SHA.
+*   **G3 Design Review (Independent Architect):** Review locking strategy *before* coding. Must explicitly address the "two people, one unit" race condition.
+*   **G4 Implementation:** Code committed to feature branch. Unit tests included (cost-free, local).
+*   **G5 Verification (Staging):**
+    *   **Exact Revision:** The specific SHA from G4.
+    *   **Check:** Run 10k load test. **Pass Condition:** 0 negative counts, 0 oversells.
+    *   **Flake Mitigation:** If DB replication check fails, manually verify logs to distinguish false alarm from real lag before failing the gate.
+*   **G6 Security/Logic Audit:** Independent review of transaction logic by a senior engineer not involved in Lane A. Focus on deadlock potential and rollback safety.
+
+#### 3. Review Strategy
+
+*   **Code Review:** Performed by a senior backend engineer outside the Logistics Squad (to ensure independence from the deploy team).
+*   **QA Sign-off:** QA lead validates the load test receipts.
+*   **Security/Logic:** Focused audit on the atomicity of the decrement operation.
+*   **Constraint:** No self-approval. Builder cannot approve their own concurrency logic.
+
+#### 4. Landing & Rollback
+
+*   **Merge Train:**
+    1.  Lane D applies config overnight (pre-Tuesday).
+    2.  Lane A merges to integration branch only after G5/G6 pass on the exact SHA.
+    3.  Final CI run triggered on integration branch (Cost: $45).
+*   **Human Decision Gate:**
+    *   **Who:** Marcus Lee.
+    *   **When:** Tuesday deploy window.
+    *   **Input:** G5 load test receipts, G6 audit report, CI green status.
+    *   **Action:** Manual sign-off for production promotion.
+*   **Rollback Plan:**
+    *   Since production writes are irreversible, code rollback alone cannot fix oversells.
+    *   **Strategy:** Feature flag the new logic. If negative inventory appears or sync lags >5s in production, immediately flip flag to revert to legacy (laggy but safe) behavior.
+    *   **Remediation:** Any oversold items trigger the separate finance refund workflow immediately; no database soft-delete attempted.
+
+**Risk Note:** The flaky DB replication check requires manual triage during the 50-minute CI window. Do not auto-fail on this specific error without log verification to prevent blocking the Tuesday window unnecessarily.

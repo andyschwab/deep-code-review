@@ -1,0 +1,40 @@
+### Delivery Plan: Automated Credit Limit Adjustments
+
+#### 1. Lanes and Parallelism
+Work is split into three parallel lanes to maximize efficiency while respecting dependencies:
+
+*   **Lane A (Logic & Safety):** Develops the core adjustment algorithm within `LedgerCore`. This includes the "human-first" guard logic that checks for manual flags/tags before any calculation.
+*   **Lane B (Audit & Logging):** Implements the immutable audit trail. This runs parallel to Lane A but must interface with the same database schema changes.
+*   **Lane C (Infrastructure & Config):** Prepares the deployment configuration and identifies the specific Tuesday change freeze window required for updating `global_rules.json`.
+
+**Serialization Points:**
+*   Database schema migrations (required by Lanes A and B) must be merged and applied before any logic relying on new columns is deployed.
+*   Updates to `global_rules.json` are strictly serialized to the Tuesday maintenance window. No other lane can merge config changes affecting this file until the window opens.
+
+#### 2. Gates and Checks
+All checks run on the specific feature branch revision immediately prior to any merge attempt.
+
+*   **Gate 1: Unit & Integration Suite:** Runs on every push. Due to the 45-minute CI duration and cloud costs, this suite is mandatory before any review begins.
+    *   *Flaky Check Mitigation:* The known flaky notification service check is isolated. If it fails, it triggers an automatic retry sequence (max 3 attempts) before marking the build red. Manual intervention is only required if all retries fail.
+*   **Gate 2: Dual Approval Trigger:** Once CI passes, the merge request automatically locks and requests approval from two specific roles:
+    1.  Senior Backend Engineer (Payments Squad)
+    2.  Collections Lead
+    *   *Constraint:* The merge button remains disabled until both approvals are recorded.
+*   **Gate 3: Dry-Run Verification:** Before production deployment, the logic runs in a "dry-run" mode against a production snapshot. This generates a report of accounts that *would* be changed, explicitly listing any accounts skipped due to manual overrides. The Collections Lead must sign off on this report.
+
+#### 3. Review Strategy
+Reviews are independent and role-specific to ensure both technical safety and business correctness.
+
+*   **Technical Review:** Conducted by a Senior Backend Engineer *not* on the Payments squad (to ensure fresh eyes). Focus: Concurrency safety, idempotency of the batch job, and the irreversibility safeguard.
+*   **Business Logic Review:** Conducted exclusively by the Collections Lead. Focus: Verification that the "manual override" detection logic correctly identifies all known flag types and negotiation tags. They must verify the dry-run report samples.
+*   **Audit Review:** A compliance officer reviews the logging format to ensure it meets weekly audit requirements before the feature is enabled.
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:** The feature merges behind a feature flag, defaulting to "OFF."
+*   **Deployment Window:**
+    *   Code deployment can occur any day after dual approval.
+    *   Activation of the automation (flag flip) and `global_rules.json` updates occur only during the Tuesday change freeze window.
+*   **Human Decision Point:** The final "Go/No-Go" for flipping the feature flag to "ON" requires a verbal confirmation from the Collections Lead during the Tuesday window, based on the dry-run report.
+*   **Rollback Plan:**
+    *   *Pre-Batch:* If issues are detected before the nightly batch job runs, the feature flag is immediately switched to "OFF." No code revert is needed.
+    *   *Post-Batch:* Since limit changes are irreversible once the batch runs, there is no technical rollback for affected accounts. The contingency plan is purely procedural: immediate manual reversal by the Collections team using the audit logs to identify affected accounts, followed by a hotfix to patch the logic error before the next cycle.

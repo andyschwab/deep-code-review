@@ -1,0 +1,35 @@
+# Delivery Plan: Offline Browsing & Cart Sync
+
+## Lanes & Parallelism
+**Lane A (Frontend Caching):** The Web/Field Team modifies the service worker in `nexus-client` to cache product pages instantly. This lane includes updating the hardcoded cache version in the shared config file.
+**Lane B (Sync Logic):** The same team implements the local queue for cart mutations and the rehydration logic to sync upon reconnection, ensuring duplicate prevention.
+**Lane C (Backend Readiness):** Jane Smith (Owner) reviews the `cart-sync-engine` to ensure it can handle batched, idempotent requests from the new sync logic.
+
+*Parallel Execution:* Lanes A and B run in parallel within the `nexus-client` repo. Lane C runs concurrently but must complete before final integration testing.
+*Serialization:* The cache version update (Lane A) must be coordinated with the deployment of the other three micro-frontends sharing that config. This requires a synchronized release window.
+
+## Gates & Checks
+**Gate 1: Unit & Integration (Local):** Developers run targeted unit tests for the service worker and sync queue locally. Do not trigger the full CI suite yet to save container resources.
+**Gate 2: Network Simulation (Staging Adjusted):** Deploy to staging. Because the mocked network layer produces false positives on packet loss, engineers must manually verify offline behavior using browser DevTools "Offline" mode and physical network disconnection, rather than relying solely on automated staging connectivity tests.
+**Gate 3: Schema Approval:** Before merging any code that alters the payload structure sent to `cart-sync-engine`, Jane Smith must explicitly approve the schema change via a manual sign-off in the pull request.
+**Gate 4: CI Finalization:** Once Lanes A, B, and C are green locally and schema-approved, trigger the full 45-minute CI suite exactly once on the release candidate revision.
+
+## Review Strategy
+**Code Review:** Two senior frontend engineers cross-review the service worker and sync logic. Neither reviewer may be the author of the code they inspect.
+**Schema Review:** Jane Smith performs an independent review strictly limited to the data contract between the client and `cart-sync-engine`.
+**UX Review:** A product designer verifies the "no loading spinners/error messages" requirement by watching a recorded session of a user transitioning from online to offline and back.
+
+## Landing & Rollback
+**Deployment Coordination:** Since the cache version is shared, deploy the updated `nexus-client` and the three dependent micro-frontends in a single coordinated batch during a low-traffic window outside business hours. This avoids irreversible production states during active sessions.
+
+**Rollout:** Enable the feature flag for 5% of users initially. Monitor cart sync success rates and error logs for 2 hours. If stable, expand to 50%, then 100%.
+
+**Rollback Plan:** If data integrity issues arise (duplicates or lost carts):
+1. Immediately revert the feature flag to disable offline syncing.
+2. If the cache version caused conflicts in other micro-frontends, revert the shared config file to the previous hash and redeploy all four services.
+3. Notify field sales teams to pause operations until stability is confirmed.
+
+**Human Decisions Required:**
+1. Jane Smith's approval on schema changes.
+2. Release Manager sign-off for the coordinated multi-service deployment window.
+3. Go/No-Go decision after the 5% canary based on data integrity metrics.

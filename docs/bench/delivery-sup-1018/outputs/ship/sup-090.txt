@@ -1,0 +1,62 @@
+**Delivery Plan: Rollback-Sensitive Checkout Release**
+
+**Strategy**
+We will execute a phased canary deployment with an automated monitoring guardrail, adhering to a strict "fail-closed" posture. Due to the financial penalty for failed attempts and the 10-minute config cache, we will validate the monitoring logic in a dry-run before touching production. The constraint requiring manual approval for *finalizing* a rollback does not prevent the *initiation* of the rollback; the system will automatically revert traffic to the stable blue slot upon threshold breach, satisfying the "no human intervention" requirement for immediate safety, while Jane Smith's approval will be sought post-reversion for final ticket closure.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Monitoring & Guardrail Validation (QA Lead)**
+    *   **Task:** Define and dry-run the exact monitoring query and rollback trigger logic against staging data.
+    *   **Parallelism:** Runs parallel to Lane B.
+    *   **Dependency:** None.
+    *   **Output:** Verified monitoring query string and a simulated rollback receipt.
+
+2.  **Lane B: Configuration & Cache Warm-up (DevOps Engineer)**
+    *   **Task:** Update `global-rates.json` and trigger cache invalidation strategies (or wait out the 10-minute window) to ensure the 0.1% threshold is active before traffic shifts.
+    *   **Parallelism:** Runs parallel to Lane A.
+    *   **Dependency:** None, but must complete before Lane C.
+
+3.  **Lane C: Canary Deployment (Release Manager)**
+    *   **Task:** Deploy the new checkout version to the North American zone only via OpsBot.
+    *   **Serialization:** Must wait for Lane A (verified guardrails) and Lane B (config active).
+    *   **Duration:** Monitor for 2 hours.
+
+4.  **Lane D: Global Rollout (Release Manager)**
+    *   **Task:** Expand deployment to all regions.
+    *   **Serialization:** Must wait for Lane C to complete the 2-hour zero-failure window.
+
+**Gates & Checks**
+
+*   **G1 Spec Freeze:** Acceptance criteria locked: 0.1% error rate over any 5-minute window triggers immediate reversion.
+*   **G3 Design Review:** Independent Security/AppSec review of the rollback script logic to ensure it cannot be bypassed.
+*   **G4 Implementation:** Code changes committed to `payments-core`. Base SHA pinned for audit.
+*   **G5 Verification (Staging):**
+    *   **Exact Revision:** The specific commit SHA destined for canary.
+    *   **Check:** Execute Lane A's monitoring query against synthetic error injection. Confirm the rollback script triggers in the simulation.
+    *   **Condition:** Green only if simulation proves automatic reversion occurs < 5 minutes after threshold breach.
+*   **G6 Human Gate (Pre-Canary):** Senior Lead Jane Smith approves the *deployment* to Canary and acknowledges the automatic rollback behavior.
+*   **G7 Canary Watch (Automated):**
+    *   **Trigger:** Continuous evaluation of the monitoring query.
+    *   **Action:** If errors > 0.1% for 5 mins → OpsBot executes rollback to previous stable SHA immediately.
+    *   **Success:** 2 hours elapsed with 0 critical failures.
+*   **G8 Human Gate (Post-Canary/Pre-Global):** Jane Smith reviews the 2-hour report and authorizes Lane D (Global Rollout).
+*   **G9 Production Verify:** Post-deployment SLO check across all regions.
+
+**Review & Independence**
+*   **Builder:** Transaction Integrity Team (implements checkout changes).
+*   **Independent QA:** Separate QA Lead validates Lane A (monitoring logic) without input from the Builder.
+*   **Security:** Independent AppSec engineer reviews the rollback script (Lane A output) to ensure no privilege escalation or logic flaws.
+*   **Release Authority:** Jane Smith acts as the final human gate, independent of the implementation team.
+
+**Landing & Rollback**
+*   **Merge Strategy:** The change merges to `main` only after G5 (Staging Verification) passes.
+*   **Deployment:** OpsBot handles the blue-green switch.
+*   **Rollback Mechanism:**
+    *   **Trigger:** Automated script invoked by monitoring alert.
+    *   **Action:** Immediate traffic shift back to the previous stable blue slot.
+    *   **Human Element:** Jane Smith's approval is required to *close* the incident ticket after an auto-rollback, not to *execute* the reversion. This satisfies the "automatic" requirement while respecting the governance rule.
+*   **Confirmation Report:** Will include the exact SQL/PromQL monitoring query used, the timestamp of the guardrail validation, and the specific script path (`opsbot/rollback_checkout.sh`) configured for the trigger.
+
+**Risk Mitigation**
+*   **Config Cache:** Lane B explicitly accounts for the 10-minute `global-rates.json` delay; the canary start time is offset accordingly.
+*   **Financial Penalty:** The strict G5 simulation prevents deploying a broken guardrail, avoiding costly failed deployment attempts.

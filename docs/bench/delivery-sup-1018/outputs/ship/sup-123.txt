@@ -1,0 +1,41 @@
+**Delivery Plan: Global Cache Migration with Instant Override**
+
+**Lanes & Parallelism**
+*   **Lane A (Architecture & Spec):** Define the "Emergency Bypass" mechanism (e.g., specific header, query param, or edge rule) that forces a fresh fetch (<10s) while keeping standard assets cached. Map the exact config file split between Staging/Prod to prevent shared syntax errors. *Serialized:* Must complete before Lane B.
+*   **Lane B (Implementation):** Implement the bypass logic in the frontend monolith and update the admin panel to trigger the emergency flag. Isolate the geo-routing flake by adding a retry/backoff specifically for Tuesday windows. Create a new, region-agnostic purge script (replacing the NA-only version). *Parallel:* Can run alongside Lane C once Lane A's spec is frozen.
+*   **Lane C (QA & Simulation):** Build a test harness simulating global nodes to verify <10s propagation for emergency flags and aggressive caching for standard assets. Verify offline fallback logic remains intact. *Serialized:* Waits for Lane B's build artifact.
+
+**Gates & Checks**
+*   **G1 (Spec Freeze):** Review Architecture ADR. **Check:** Explicit proof that Staging/Prod config divergence is handled without syntax errors.
+*   **G4 (Build):** Compile frontend monolith. **Check:** CI build must complete under 12 minutes (cost gate). If exceeded, fail immediately; do not retry blindly.
+*   **G5 (Verification):** Run Lane C's simulation against the exact SHA from G4. **Check:** Emergency update reflected globally in <10s in simulation; standard assets show high cache hit rate; offline fallback serves local content. Geo-routing test must pass outside Tuesday maintenance windows or prove retry logic works.
+*   **G6 (Independent Review):**
+    *   *Code:* Senior Engineer (not Lane B author) reviews logic, focusing on the config split and purge script scope.
+    *   *Security/Compliance:* Compliance Officer reviews the admin panel permissions ensuring only authorized staff can trigger emergency bypass.
+*   **G7 (Integration):** Merge to integration branch. Re-run G5 checks on the merged SHA.
+
+**Review Strategy**
+*   **Builder (Lane B)** cannot self-approve.
+*   **QA (Lane C)** provides independent pass/fail receipts based on simulation logs, not builder assertions.
+*   **Compliance Officer** acts as the mandatory human gate for admin panel changes.
+*   **Lead Architect** must sign off on the caching strategy ADR before implementation begins.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Feature flag the emergency bypass logic. Merge behind the flag initially.
+*   **Human Decisions Required:**
+    1.  **Lead Architect:** Approves the caching ADR (G1).
+    2.  **Compliance Officer:** Approves admin panel access changes (G6).
+    3.  **Deployment Owner:** Authorizes the production flip of the feature flag (G8).
+*   **Rollback Plan:**
+    *   *Code Level:* Revert the merge commit if G5 fails on the integrated SHA.
+    *   *Runtime Level:* Toggle the feature flag off via admin panel (instant effect, no redeploy).
+    *   *Cache Level:* If stale data persists, run the new global purge script manually.
+*   **Post-Landing:** Monitor geo-routing logs specifically during the next Tuesday maintenance window to confirm flake resolution.
+
+**Constraints & Risks**
+*   **Cost:** CI builds >12 mins are terminated; optimization is mandatory.
+*   **Shared Config:** Any syntax error breaks Staging and Prod; linting must be strict.
+*   **Irreversibility:** No direct DB writes to content tables; all changes must go through the app layer.
+*   **Flakiness:** Geo-routing tests scheduled outside Tuesday nights to avoid false negatives.
+
+This plan ensures urgent delivery for hurricane season while maintaining strict controls over shared infrastructure and compliance requirements.

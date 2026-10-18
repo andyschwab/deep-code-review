@@ -1,0 +1,41 @@
+### Delivery Plan: Zero-Downtime Auth Library Rollout
+
+**Lanes & Parallelism**
+Work is split into three parallel lanes to maximize speed while respecting constraints:
+1.  **Library Lane (Owner: Senior Backend Eng):** Implement dual-token support (old/new formats) in the auth module. This code must be backward compatible by default.
+2.  **Service Lane (Owner: Service Owners):** Prepare twelve microservices for the dependency bump. Since they share a locked manifest, this lane focuses on updating local integration tests to simulate the new library version without changing the manifest yet.
+3.  **Validation Lane (Owner: QA Automation):** Develop a "partial deployment" simulation script. Since staging lacks the hardware load balancer, this script must artificially introduce race conditions and mixed-version traffic patterns to detect concurrency bugs early.
+
+**Serialization Points**
+*   **Manifest Lock:** No service can update its `package.lock` (or equivalent) until Jane Smith (Platform Lead) approves the shared dependency manifest update. This is the primary bottleneck.
+*   **Audit Service Caution:** The Audit Logging Service must be the *last* service updated. Because its ledger writes are irreversible, it requires a manual "green light" check after the other eleven services prove stable with the new library.
+
+**Gates & Checks**
+*   **Gate 1: Unit Compatibility (Local):** Before any CI run, the Library Lane must prove via local unit tests that a single instance can validate both token types simultaneously.
+*   **Gate 2: The "Three-Shot" CI Strategy:** Given the limit of three full-fleet CI runs daily:
+    *   *Run 1 (Morning):* Test Library Lane + 2 high-traffic services. Focus: Token parsing correctness.
+    *   *Run 2 (Afternoon):* Test Library Lane + remaining 10 services + Inter-service communication checks. Focus: Mixed-version handshake stability.
+    *   *Run 3 (Emergency Buffer):* Reserved strictly for regression fixes if Run 2 fails.
+*   **Gate 3: Staging Concurrency Simulation:** The Validation Lane's script must run against the staged build. Success is defined as zero dropped requests during simulated rolling restarts with mixed token payloads.
+
+**Review Process**
+*   **Code Review:** Independent cross-review required. A backend engineer from a non-payments service must review the Auth Library code to ensure no domain-specific assumptions leaked in.
+*   **Strategy Review:** Jane Smith must review the rolling update sequence specifically for the Audit Service placement.
+*   **Independence:** The reviewer of the Auth Library must not be the author of the integration tests, ensuring the tests actually challenge the implementation rather than confirming biases.
+
+**Landing Strategy**
+1.  **Approval:** Jane Smith approves the manifest change containing the new auth version.
+2.  **Phased Rollout (Production):**
+    *   **Phase A:** Deploy to 10% of instances across *non-critical* services first. Monitor error logs for token rejection spikes.
+    *   **Phase B:** If stable for 30 minutes, expand to 50% of all services (excluding Audit).
+    *   **Phase C:** Full fleet rollout for all services except Audit.
+    *   **Phase D (Manual Gate):** Human verification of Phase C metrics. If clean, manually trigger the Audit Service update.
+3.  **Merge:** The change merges to `main` only after Phase C success. The Audit Service update is a separate, follow-up commit to allow isolated rollback.
+
+**Human Decisions & Rollback**
+*   **Human Decision:** The "Go/No-Go" call between Phase C and Phase D (Audit Service) requires a human to verify live compliance ledger integrity.
+*   **Rollback Protocol:**
+    *   *Before Audit Update:* If any service fails, immediately revert the deployment configuration to the previous version. The dual-token support ensures users with new tokens (issued during the brief failure window) can still log in once the old version is restored, as the old library will be updated to reject unknown formats gracefully rather than crashing.
+    *   *After Audit Update:* If the Audit Service fails, the system enters a "degraded mode" where auth succeeds but audit logs are queued locally until a fix is deployed. No rollback of the ledger is possible; the focus shifts to patching the live instance.
+
+This plan ensures continuous availability by leveraging dual-token support, respects the CI budget through targeted testing waves, and isolates the highest-risk component (Audit) behind a manual safety gate.

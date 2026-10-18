@@ -1,0 +1,66 @@
+### Delivery Plan: MFA Enforcement with Disaster Fallback
+
+**Scope:** Enforce MFA for `CoreAccess` admins; implement verified fallback for `Field-Remote` users.
+**Constraints:** No global toggle; manual verification mandatory; immutable `emergency_bypass` table; high-cost CI.
+
+#### 1. Lanes & Parallelism
+*Worktrees must be isolated. One writer per worktree.*
+
+*   **Lane A (Spec & Schema) – [Serialized First]**
+    *   **Owner:** Product Analyst + Security Hat.
+    *   **Work:** Define exact `Field-Remote` tag logic. Design `emergency_bypass` write-once schema (idempotency keys). Draft "Disaster Mode" activation protocol.
+    *   **Output:** ADR-001 (Schema), Spec-001 (Logic).
+    *   **Dependency:** None. Blocks all others.
+
+*   **Lane B (Implementation) – [Parallel after Lane A Spec]**
+    *   **Owner:** Builder (Identity Team).
+    *   **Work:** Implement MFA enforcement gate. Build fallback generator (codes/token support). Integrate `Field-Remote` check. **Crucial:** Write migration script for `emergency_bypass` with dry-run mode; no direct writes yet.
+    *   **Output:** Patch set, Unit Tests, Migration Dry-Run Script.
+    *   **Dependency:** Lane A Spec.
+
+*   **Lane C (Crisis Simulation) – [Parallel after Lane B Code Freeze]**
+    *   **Owner:** QA + Disaster Response Liaison.
+    *   **Work:** Execute manual crisis simulation in `Region-Sim`. Simulate zero-signal scenarios. Verify fallback activation time < 30s.
+    *   **Output:** Manual Verification Receipt (signed), Video evidence of fallback success/failure.
+    *   **Dependency:** Lane B Code Freeze (exact SHA).
+
+*   **Lane D (Security Audit) – [Parallel after Lane B Code Freeze]**
+    *   **Owner:** Independent Security Engineer (not Builder).
+    *   **Work:** Review logic for bypass leakage. Verify `emergency_bypass` immutability constraints. Attempt to bypass MFA without `Field-Remote` tag.
+    *   **Output:** Security Verdict (Pass/Fail), Pen-test summary.
+    *   **Dependency:** Lane B Code Freeze (exact SHA).
+
+#### 2. Gates & Checks
+*Every gate requires an exact SHA. No "latest branch" approvals.*
+
+*   **G1 (Spec Freeze):** Owner + Security Lead approve ADR-001. **Check:** Does spec explicitly prevent global lockout?
+*   **G3 (Design Review):** Architecture review of `emergency_bypass` writes. **Check:** Is the write-once constraint enforced by DB schema, not just app logic?
+*   **G5 (Verification):**
+    *   **CI Run:** Triggered once on Lane B's final SHA. Cost: $45. Time: 55m.
+    *   **Manual Gate:** Lane C's signed receipt from `Region-Sim`. **Hard Condition:** If network sim fails, manual walkthrough required. Unit tests alone are insufficient.
+*   **G6 (Independent Review):**
+    *   **Code:** Deep review by Senior Engineer (non-Builder).
+    *   **Security:** Lane D's verdict. Any "High" finding blocks merge.
+*   **G7 (Integration):** Merge to `staging-integration`. Re-run critical path manually.
+
+#### 3. Review Strategy
+*   **Builder** cannot review their own code or the security implications.
+*   **Security Lead** reviews Lane D's findings, not the code directly (leverages specialist).
+*   **Disaster Response Director** reviews Lane C's simulation receipt (usability/safety), not code.
+*   **Final Audit:** One consolidated PR body linking Spec, Security Verdict, and Simulation Receipt.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:** Squash merge to `main` only after G7.
+*   **Human Approvals Required (G8):**
+    1.  **Security Lead:** Confirms no bypass leakage.
+    2.  **Disaster Response Director:** Confirms simulation success and fallback viability.
+    *   *Both signatures mandatory before merge button is active.*
+*   **Deployment:**
+    *   Deploy to Production behind a feature flag `mfa_enforcement_v2` (OFF by default).
+    *   **Rollout:** Enable for 1% of `Field-Remote` users first. Monitor for 24h.
+*   **Rollback Plan:**
+    *   **Trigger:** Any reported lockout of `Field-Remote` during active incident OR `emergency_bypass` write error.
+    *   **Action:** Immediate flag flip to OFF (no code revert needed initially).
+    *   **Data Recovery:** If `emergency_bypass` corrupted, initiate 4-hour cold storage restore. **Owner Decision Required** to authorize restore.
+
+**Risk Note:** The `emergency_bypass` table is immutable. The migration script must be run in a transaction that verifies constraints before committing. If the transaction fails, the deploy halts automatically. No partial writes allowed.

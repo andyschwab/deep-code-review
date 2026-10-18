@@ -1,0 +1,61 @@
+### Delivery Plan: Latency Compensation Refactor
+
+#### 1. Lanes and Parallelism
+Work is split into three lanes to maximize parallelism while respecting serialization constraints.
+
+*   **Lane A (Core Logic - Serial Dependency):** Implement the new latency calculation path in `core-simulation/combat-engine`. This lane must strictly isolate changes to pending transaction handlers. No modifications to archival modules.
+*   **Lane B (Validation Harness - Parallel):** Develop a standalone replay script that ingests the last three months of historical logs. This script runs locally or on a dev sandbox, bypassing the flaky CI validator initially. It compares bit-for-bit hashes of resolved states against the baseline.
+*   **Lane C (Documentation & Compliance - Parallel):** Draft the change impact statement for the Compliance Officer, detailing why the archival module remains untouched and how the new path avoids state schema modifications.
+
+**Serialization Point:** Lane A must complete unit testing before Lane B can execute the full three-month replay against the new binary. Lane B must pass before requesting CI resources.
+
+#### 2. Gates and Checks
+All checks run on a specific feature branch revision `feat/latency-refactor-v1` before any merge attempt.
+
+*   **Gate 1: Local Determinism Check (Pre-CI):**
+    *   **Runner:** Lane B script on a developer workstation.
+    *   **Input:** The compiled artifact from Lane A + 3 months of historical log dumps.
+    *   **Pass Criteria:** Zero diffs in resolved state files. If any diff appears, the build fails immediately without consuming CI credits.
+*   **Gate 2: Unit & Integration Suite:**
+    *   **Runner:** CI Pipeline (isolated cluster).
+    *   **Trigger:** Only after Gate 1 passes locally.
+    *   **Pass Criteria:** All unit tests pass; new latency logic passes specific pending-transaction integration tests.
+*   **Gate 3: Historical Hash Validator (Flaky Mitigation):**
+    *   **Runner:** CI Pipeline.
+    *   **Strategy:** Run during off-peak hours (system load < 50%) to avoid the known 80% load flakiness.
+    *   **Retry Protocol:** If failed, verify system load metrics. If load > 80%, manual re-trigger only after load drops. If load < 80% and fail, treat as a hard block.
+*   **Gate 4: State Schema Lock Verification:**
+    *   **Runner:** Automated pre-commit hook.
+    *   **Check:** Ensures `state-schema` file has zero modifications. Any touch here aborts the pipeline immediately to prevent irreversible migration.
+
+#### 3. Review Process
+Reviews are independent and sequential to ensure separation of concerns.
+
+*   **Technical Review:**
+    *   **Reviewer:** Senior Nexus Team Engineer (not the author).
+    *   **Focus:** Code isolation. Verify no imports or side effects touch the archival serialization module. Confirm the new logic applies exclusively to pending transaction flags.
+*   **Compliance Review:**
+    *   **Reviewer:** Compliance Officer.
+    *   **Focus:** Audit trail integrity. Review the output of Gate 1 (local replay report) showing zero diffs. Verify the change impact statement (Lane C).
+*   **Architecture Review:**
+    *   **Reviewer:** Lead Architect.
+    *   **Focus:** System stability. Confirm no dependency on hardware acceleration cards that differ between Staging and Production, ensuring the replay results are valid for live deployment.
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:** Squash merge to `main` only after dual approval.
+*   **Approval Workflow:**
+    1.  Technical Review approved.
+    2.  Compliance Officer approves via secure gateway (attaching Gate 1 report).
+    3.  Lead Architect approves via secure gateway.
+*   **Deployment:**
+    *   Deploy to Staging first. Run a smoke test with synthetic pending transactions.
+    *   Deploy to Production during a low-traffic maintenance window.
+*   **Rollback Plan:**
+    *   **Trigger:** Any discrepancy in live hash audits or increased error rates in pending transactions.
+    *   **Action:** Immediate revert of the squash commit. Since the archival module and `state-schema` were untouched, rollback is purely a code reversion with no database migration required.
+    *   **Constraint:** If the new logic has already processed pending transactions that subsequently resolved, a data patch script (pre-written in Lane A) must be ready to recalculate those specific entries using the old logic if a revert occurs.
+
+**Human Decisions Required:**
+1.  Scheduling the CI run for Gate 3 to ensure low system load.
+2.  Final dual approval signatures on the secure gateway.
+3.  Authorization to proceed if the Staging smoke test reveals hardware acceleration discrepancies.

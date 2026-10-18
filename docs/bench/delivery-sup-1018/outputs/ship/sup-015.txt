@@ -1,0 +1,36 @@
+### Delivery Plan: Duplicate Reminder Prevention
+
+**1. Lanes & Parallelism**
+*   **Lane A (Analysis & Spec):** Isolate the race condition in the reminder logic and the UTC/local time discrepancy. Define the "exactly-once" algorithm using the existing `sent_logs` table without schema changes.
+    *   *Constraint:* Must complete before Lane B starts.
+*   **Lane B (Implementation):** Modify the notification service to check `sent_logs` with a database-level unique constraint or transactional lock before sending. Normalize timestamp handling to UTC internally.
+    *   *Parallelism:* None. Dependent on Lane A.
+*   **Lane C (Verification):** Build a simulation of a queue outage (hours of backlog) and verify that only one message fires per appointment upon recovery. Measure schedule generation latency to ensure no regression.
+    *   *Parallelism:* Can prepare test harness while Lane B codes, but execution requires Lane B's build.
+*   **Lane D (Billing Impact Review):** Since `sent_logs` is shared, verify that the new locking logic does not deadlock or slow down the Billing Module.
+    *   *Parallelism:* Runs concurrently with Lane C once Lane B produces a candidate build.
+
+**2. Gates & Checks**
+*   **G1 (Spec Freeze):** Owner approves the "exactly-once" logic design and the UTC normalization strategy.
+*   **G4 (Build):** Code committed to a dedicated worktree. Unit tests added for the race condition.
+*   **G5 (Verify):**
+    *   Run full CI pipeline ($45 cost, 55 mins) **once** on the exact commit SHA.
+    *   Execute `queue-drain` integration test. If it fails on a Tuesday, inspect logs; if logs show successful message deduplication, mark as green (ignore network latency flake).
+    *   **Critical Check:** Verify the daily schedule generation time remains within baseline limits.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (independent of Builder) reviews the locking mechanism and time handling.
+    *   **Domain Review:** Billing Team Lead reviews the `sent_logs` access pattern to ensure no contention.
+
+**3. Landing & Human Decisions**
+*   **Integration:** Merge to the integration branch only after G6 approval. A final "smoke test" build will run on the merged SHA.
+*   **Human Gate (Deploy):**
+    *   **Approver:** Director of Operations (mandatory signature).
+    *   **Condition:** Production deploys are irreversible. The Director must sign off on the rollback plan (which is effectively "fix forward" or manual DB cleanup, as reversion is impossible).
+*   **Rollback:** Since deploys are irreversible, there is no technical rollback. The contingency is a feature flag kill-switch (if available) or a hotfix patch. If the fix causes deadlocks, the notification service must be manually restarted with the previous binary (if infrastructure allows) or the queue drained manually.
+
+**4. Risk Mitigation**
+*   **Privacy Compliance:** The verification receipt must explicitly state "Zero duplicates observed in 10,000 simulated backlog messages" to satisfy the compliance flag.
+*   **Cost Control:** Only one full CI run is authorized before the merge train. Re-runs require Conductor approval.
+*   **Time Zone Bug:** The fix must explicitly document the UTC conversion in the code comments to prevent future regression, addressing the undocumented README discrepancy.
+
+**Next Step:** Await owner approval of the spec (Lane A output) regarding the specific locking strategy for `sent_logs` to ensure Billing alignment before coding begins.

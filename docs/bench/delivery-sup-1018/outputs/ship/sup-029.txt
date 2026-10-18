@@ -1,0 +1,69 @@
+**Delivery Plan: TempLog to FrostGuard Migration**
+
+**Strategy:** Dual-Write Cutover with 48-Hour Parallel Verification. Zero-downtime is achieved by writing to both systems simultaneously before switching reads, ensuring no data gaps during the transition.
+
+### 1. Lanes & Serialization
+
+*   **Lane A: Schema & Contract (Serialized First)**
+    *   **Owner:** Builder + Architect.
+    *   **Work:** Define FrostGuard ingestion schema; draft database migration scripts.
+    *   **Constraint:** Must complete before implementation. Requires manual approval board (Tuesday only).
+    *   **Parallelism:** None. Blocks all other lanes until schema is ratified.
+
+*   **Lane B: Dual-Write Implementation**
+    *   **Owner:** Builder (isolated worktree).
+    *   **Work:** Implement adapter pattern in `logistics-core`. Modify ingestion service to write to CoolStream (legacy) and FrostGuard (new) simultaneously. Add local buffering logic for connection hiccups.
+    *   **Parallelism:** Can run concurrently with Lane C (Test Harness) once Lane A is complete.
+
+*   **Lane C: Verification Harness & Flaky Test Fix**
+    *   **Owner:** QA (independent of Builder).
+    *   **Work:** Build a comparison tool to diff CoolStream vs. FrostGuard streams byte-for-byte. Isolate and fix the `sensor-handshake` flaky test to prevent CI timeouts. Optimize CI pipeline to run under 20 minutes.
+    *   **Parallelism:** Runs parallel to Lane B.
+
+*   **Lane D: Runbook & Rollback Prep**
+    *   **Owner:** DevOps Lead.
+    *   **Work:** Draft cutover procedure, rollback steps (switch back to CoolStream-only), and monitoring dashboards.
+    *   **Parallelism:** Runs parallel to Lanes B and C.
+
+### 2. Gates & Checks
+
+*   **G0/G1 (Spec & Plan):** Confirm "zero data loss" definition and buffer replay requirements. **Gate:** QA Lead sign-off on spec before code starts.
+*   **G2 (Schema Approval):** Submit DB changes to the manual approval board. **Gate:** Board approval (Tuesday). If missed, schedule for next Tuesday; do not proceed without it.
+*   **G3 (Design Review):** Review dual-write logic for race conditions and buffer overflow risks. **Gate:** Architect approval.
+*   **G4 (Implementation):** Code complete with unit tests. **Check:** CI must pass green on the exact commit SHA, including the fixed `sensor-handshake` test.
+*   **G5 (Verification):**
+    *   **Local:** Replay historical data through the new pipeline; verify buffer recovery on simulated disconnects.
+    *   **Staging:** Deploy to a mirrored environment. Run the comparison harness.
+    *   **Gate:** QA Lead verifies 100% data match and instant replay capability.
+*   **G6 (Security & Compliance):** Verify FrostGuard API key handling and audit log completeness. **Gate:** Security review.
+*   **G7 (Integration):** Merge to integration branch. Re-run full suite on the merged SHA.
+
+### 3. Review Protocol
+
+*   **Code Review:** Senior Engineer (not the Builder) reviews Lane B code. Focus on error handling and buffer logic.
+*   **QA Review:** QA Lead independently verifies Lane C results. They must confirm the comparison harness ran against the *exact* production-mirror SHA.
+*   **Security Review:** Independent security check on new credentials and data egress.
+*   **Constraint:** Builder never reviews their own code. QA never approves their own test harness.
+
+### 4. Landing & Human Decisions
+
+*   **Pre-Cutover (T-48 Hours):**
+    *   **Action:** Deploy dual-write capability to production.
+    *   **Human Decision:** Senior DevOps Engineer Jane Smith must approve deployment tokens.
+    *   **Verification:** Begin 48-hour parallel comparison. Monitor dashboards continuously.
+
+*   **Cutover (T-0, before midnight deadline):**
+    *   **Action:** Switch read-source to FrostGuard. Disable CoolStream writes.
+    *   **Human Decision:** QA Lead must sign off on the 48-hour comparison report. Jane Smith approves the final config switch.
+    *   **Timing:** Must occur before the legacy contract expires at midnight.
+
+*   **Post-Cutover:**
+    *   **Action:** Decommission CoolStream integration code after 1 week of stability.
+    *   **Rollback:** If data mismatch >0% or latency spikes, immediately revert config to CoolStream-only (pre-prepared switch). Jane Smith authorizes emergency token use if needed.
+
+**Risk Mitigation:**
+*   **CI Timeouts:** The flaky test fix in Lane C is mandatory before any merge.
+*   **Board Delay:** Schema work (Lane A) starts immediately to hit the Tuesday board meeting.
+*   **Data Gap:** Dual-write ensures continuity even if FrostGuard ingestion lags; buffer replays missing chunks instantly.
+
+**Final Gate:** No merge to production without the QA Lead's explicit written sign-off on the parallel comparison results.

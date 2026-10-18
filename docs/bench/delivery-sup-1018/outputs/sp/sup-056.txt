@@ -1,0 +1,32 @@
+### Delivery Plan: Invoice Generation Acceleration
+
+**Lanes & Parallelism**
+*   **Lane A (Optimization):** Backend Engineering optimizes the aggregation logic in `core-ledger`. Focus: Reduce historical partition scan time via indexing or query refactoring.
+*   **Lane B (Validation Harness):** Data Engineering prepares a isolated 2TB snapshot environment. This runs parallel to Lane A but must complete before the final gate.
+*   **Serialization Point:** Lane A cannot merge until Lane B confirms data integrity. Lane A development must pause between 01:00–03:00 UTC to avoid locking shared read replicas during analytics ingestion.
+
+**Gates & Checks**
+1.  **Local Verification (Dev Machine):** Before any remote push, the engineer must run a local dry-run against a sampled dataset to prove the new logic produces identical totals to the legacy run. No code leaves the workstation without this mathematical proof.
+2.  **CI Gate (Revision `opt-candidate-01`):** Trigger the full pipeline only once the local verification passes.
+    *   *Constraint:* Do not trigger if the current time is near the 50-minute window risk or during the 01:00–03:00 UTC replica lockout.
+    *   *Success Criteria:* Total runtime < 3 hours AND reconciliation test passes.
+    *   *Flake Handling:* If the run finishes after 02:00 UTC and reports a "network timeout," inspect logs. If data integrity checksums match, disregard the timeout error as a known staging flake.
+3.  **Cost Gate:** Limit pipeline triggers to maximum two attempts per day to prevent budget overruns ($45/run).
+
+**Review Process**
+*   **Code Review:** Performed by a Senior Backend Engineer *not* on the Finance Platform team to ensure objectivity. They verify the query optimization strategy and confirm no schema changes were introduced.
+*   **Compliance Review:** Independent review by the Compliance Officer. They do not review code logic but verify the audit trail: confirming the reconciliation test passed and the output schema remains bit-for-bit identical to the legacy format.
+*   **Independence:** The Code Reviewer cannot be the same person who wrote the optimization. The Compliance Officer acts as a distinct gate from the Lead Architect.
+
+**Landing Strategy**
+*   **Merge Authority:** Requires dual approval digital signatures: Lead Architect (technical safety) AND Compliance Officer (regulatory safety). No merge occurs without both.
+*   **Deployment Window:** Deploy immediately following successful CI validation, provided it is outside the 01:00–03:00 UTC analytics window.
+*   **Rollback Protocol:**
+    *   *Trigger:* If the production job exceeds 3.5 hours on the first live run, or if any client reports a total mismatch.
+    *   *Action:* Immediate revert to the previous stable git tag. The system defaults to the slower (5h) but proven-accurate legacy path rather than risking incorrect billing data.
+    *   *Notification:* Automated alert to the Finance Platform lead and On-Call SRE.
+
+**Human Decisions Required**
+1.  **Approval to Spend:** Confirmation to authorize the $45 CI run cost.
+2.  **Flake Adjudication:** If the CI fails with a timeout after 02:00 UTC, a human must manually inspect logs to certify data integrity before overriding the failure.
+3.  **Final Go/No-Go:** The Lead Architect and Compliance Officer must explicitly sign off on the merge request; this cannot be auto-merged.

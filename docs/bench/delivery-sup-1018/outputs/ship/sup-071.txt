@@ -1,0 +1,58 @@
+**Delivery Plan: Meridian Trust Bank Settlement Backfill**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Conductor/Spec):** Draft the "Backfill Specification" document. This defines the exact SFTP paths, the date range filter (Oct 12–18), the `manual-backfill` audit flag schema, and the silence protocol for reconciliation alerts.
+    *   *Constraint:* Must be completed before any code is written.
+*   **Lane B (Builder):** Develop the ingestion script in an isolated worktree.
+    *   *Scope:* Fetch from archived SFTP, parse records, inject into ledger with audit flags.
+    *   *Constraint:* Must **not** modify the `reconciliation-engine` library. Logic must reside entirely within the settlement service or a standalone utility to avoid the Change Advisory Board (CAB) meeting.
+    *   *Parallelism:* Can run concurrently with Lane C once Lane A is approved.
+*   **Lane C (Security/AppSec):** Independent threat modeling of the script design from Lane A.
+    *   *Focus:* SFTP credential handling, injection risks, and audit trail integrity.
+    *   *Parallelism:* Runs parallel to Lane B.
+*   **Lane D (QA/Finance Liaison):** Define the "Silence Protocol" verification steps.
+    *   *Task:* Create a test case ensuring the backfill does not trigger daily reconciliation alerts or recalculate monthly totals.
+    *   *Serialization:* Must wait for Lane B's draft to verify logic, but can prepare test data now.
+
+**2. Gates & Checks**
+*   **G1 (Spec Approval):** Lane A output reviewed by Product Owner. Confirms scope is strictly Oct 12–18 and audit flags are mandatory.
+*   **G3 (Design Review):** Lane B (Code) + Lane C (Security) review.
+    *   *Check:* Verify no changes to `reconciliation-engine`. Confirm credentials are sourced from existing secure vaults, not hardcoded.
+    *   *Revision:* Exact commit SHA of the script.
+*   **G5 (Verification):**
+    *   *Environment:* Staging (acknowledging data limitations).
+    *   *Check:* Run script against sanitized data to verify syntax and flagging logic.
+    *   *Limitation:* Explicitly mark "Timing/Timeout reproduction" as `UNVERIFIED` due to staging constraints. Reliance shifts to G6 (Human Review) and G9 (Production Verify).
+*   **G6 (Independent Review):**
+    *   *Reviewer 1:* Senior Engineer (non-author) for code quality and idempotency.
+    *   *Reviewer 2:* Security Officer for credential safety.
+    *   *Reviewer 3:* Compliance Officer for audit flag correctness.
+
+**3. Landing & Human Decisions**
+*   **Merge Strategy:**
+    *   The script lands on a feature branch.
+    *   **Human Gate 1 (Pre-Merge):** Dual approval required from **Platform Lead** AND **Compliance Officer**. This is a hard block; no automated merge.
+    *   Once approved, merge to the integration branch.
+*   **CI Pipeline:**
+    *   Trigger the 55-minute pipeline only *after* human pre-approval to avoid wasting budget on unapproved code.
+    *   If the fraud-simulation check fails, the lane stops. Do not retry automatically; escalate to the Builder.
+*   **Deployment (G8):**
+    *   **Human Gate 2 (Execution):** The actual execution of the script in Production is a separate, gated action.
+    *   *Procedure:* The script is deployed but not run. A designated operator (with auditor presence) triggers the execution during a low-traffic window.
+*   **Rollback:**
+    *   Since DB writes are irreversible, "rollback" means a compensating transaction script.
+    *   *Requirement:* Lane B must include a `reverse-backfill` script that deletes rows tagged `manual-backfill` for the specific date range. This script also requires dual approval before deployment.
+
+**4. Verification & Closure**
+*   **G9 (Production Verify):**
+    *   Immediately after execution, Finance runs the daily reconciliation report.
+    *   *Success Criteria:* Records appear for Oct 12–18; no false positive alerts; monthly totals remain unchanged except for the added rows; audit logs show `manual-backfill`.
+*   **G10 (Learn):**
+    *   Document the API timeout root cause.
+    *   Propose a non-code fix (e.g., retry policy configuration) to prevent future gaps, separating it from this emergency backfill ticket.
+
+**Summary of Constraints:**
+*   **No** modifications to `reconciliation-engine`.
+*   **No** automated merging; dual human sign-off mandatory.
+*   **No** CI runs until humans pre-approve.
+*   **Execution** is manual, audited, and distinct from deployment.

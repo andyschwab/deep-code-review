@@ -1,0 +1,47 @@
+### Delivery Plan: Weekend-Ready Refund Approval Workflow
+
+**Strategy:** Isolate the fallback logic to prevent regression in the core ledger. Serialize the integration with the rate-limited Risk endpoint. Parallelize UI updates and documentation.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Core Logic - Serialized):** Implement the 4-hour timeout queue and the <50 unit auto-approval rule.
+    *   *Constraint:* Must run in a dedicated worktree. Cannot share state with Lane B during implementation.
+    *   *Dependency:* None.
+*   **Lane B (Polling Adapter - Serialized):** Refactor the Risk Team poller to handle the new "timeout" state without exceeding the 60 req/hour limit.
+    *   *Constraint:* Must serialize with Lane A for integration testing to verify rate limits are respected under load.
+*   **Lane C (Dashboard & Docs - Parallel):** Update the admin dashboard to flag "Auto-Approved: Pending Review" items and draft the Monday review SOP.
+    *   *Constraint:* Read-only access to core logic specs; can run parallel to A and B.
+
+#### 2. Gates & Checks (Exact Revisions)
+*   **G0/G1 (Intake/Spec):** Conductor validates the "4-hour" and "<50 units" constraints against the ticket. *Output:* Pinned base SHA `abc123`.
+*   **G2 (Plan):** Define token budgets for Lane A and B. Explicitly map the rate-limit logic to prevent CI credit waste.
+*   **G3 (Design):** ADR confirming the queue persistence mechanism (database vs. memory) and the "Monday Review" data schema.
+*   **G4 (Implement):**
+    *   Lane A/B: Unit tests written *before* logic.
+    *   Lane C: Visual regression snapshots for the new dashboard flag.
+*   **G5 (Verify):**
+    *   **Critical:** Spin up the local stack. Simulate a weekend scenario (Risk endpoint silent for 4h). Verify auto-approval triggers *only* for <50 units.
+    *   **Rate Limit Check:** Run a burst test to ensure polling stays under 60/hr.
+    *   **Flake Mitigation:** If the notification module check fails, verify it is the known flake (no functional impact) and proceed with manual override evidence, logging the skip.
+*   **G6 (Review):**
+    *   **Security:** Independent review of the auto-approval boundary (ensure no path allows >50 units).
+    *   **QA:** Independent verification of the "Monday Review" flag visibility.
+    *   *Reviewer Constraint:* Neither reviewer can be the Builder from Lane A or B.
+
+#### 3. Landing & Human Decisions
+*   **Integration (G7):** Merge Lanes A, B, and C into a temporary integration branch. Run one full CI suite (consuming 1 of 3 daily credits).
+    *   *Condition:* Must pass on exact SHA `def456`.
+*   **Human Gate (G8 - Deploy):**
+    *   **Required Approvals:** Two Senior Leads + Risk Director.
+    *   **Timing:** Must occur before 18:00 UTC daily snapshot window.
+    *   **Action:** Human approves the push to 'gold'.
+*   **Rollback Plan:**
+    *   Since deploys are irreversible after the snapshot window, the rollback strategy is a **feature flag toggle**.
+    *   *Pre-condition:* The auto-approval logic must be wrapped in a config flag defaulting to `OFF`.
+    *   *Execution:* If anomalies appear Monday, toggle flag to `OFF` immediately; no code revert required until next cycle.
+
+#### 4. Risk Mitigation
+*   **CI Cost:** Limit full runs to the final integration SHA only. Use targeted test suites for intermediate lane checks.
+*   **Weekend Gap:** The system defaults to "Hold" if the queue mechanism fails; no refunds process if the fallback crashes (fail-closed).
+*   **Verification:** Post-deploy (G9), monitor the first 10 refund requests Saturday morning. Confirm dashboard flags appear correctly.
+
+**Next Step:** Conductor to draft the G1 Spec with the pinned base SHA and present the ADR for the queue mechanism for immediate owner approval.

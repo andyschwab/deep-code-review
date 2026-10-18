@@ -1,0 +1,69 @@
+# Delivery Plan: MFA Enforcement with Disaster Fallback
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+*Owner: Senior Backend Engineer*
+1.  **Schema Prep:** Define the `Field-Remote` tag logic and emergency code generation algorithm. *Constraint:* Must be reviewed before any write to the immutable `emergency_bypass` table.
+2.  **MFA Enforcement:** Implement the global MFA toggle logic restricted to non-tagged admins.
+3.  **Fallback Integration:** Implement the emergency code verification path specifically for `Field-Remote` users.
+
+**Lane B: Simulation & Verification (Parallel to Lane A Step 1)**
+*Owner: Crisis Simulation Group + QA Lead*
+1.  **Environment Setup:** Manually configure the `Region-Sim` environment to mimic high-latency/disconnected states (compensating for missing staging simulators).
+2.  **Test Scripting:** Prepare manual verification scripts for offline authentication flows.
+
+**Lane C: Security & Compliance (Parallel to Lane A Step 2)**
+*Owner: Security Lead*
+1.  **Algorithm Audit:** Review the entropy and storage method for emergency codes.
+2.  **Access Review:** Verify the three vault-key holders are available for the deployment window.
+
+## Gates & Checks
+
+**Gate 1: Design Freeze (Before Coding)**
+*   **Check:** Architecture review of the `emergency_bypass` write-once logic.
+*   **Revision:** `main` branch, latest commit hash pinned.
+*   **Pass Criteria:** Written sign-off from Security Lead confirming no path exists to accidentally lock out a `Field-Remote` user during code generation.
+
+**Gate 2: Code Complete (Pre-Merge)**
+*   **Check:** Static analysis and unit tests (local only; skip CI to save cost/time until final).
+*   **Revision:** Feature branch `feat/mfa-disaster-fallback`.
+*   **Pass Criteria:** Zero critical vulnerabilities; 100% coverage on new fallback logic.
+
+**Gate 3: The "Hurricane" Test (Mandatory Manual)**
+*   **Check:** Live execution in `Region-Sim` by the Crisis Simulation Group.
+*   **Revision:** Deployed to staging mirror with manual latency injection.
+*   **Pass Criteria:** Successful login by a `Field-Remote` test account with *zero* network connectivity using emergency codes; successful MFA challenge for standard admins.
+*   **Stop Condition:** Any false negative in auth flow halts the pipeline.
+
+**Gate 4: Final CI Run**
+*   **Check:** Full pipeline execution ($45 cost, 55 mins).
+*   **Revision:** Only after Gate 3 passes.
+*   **Pass Criteria:** Green build. If flaky network errors occur, manual log review by QA Lead overrides automated failure.
+
+## Review Process
+
+*   **Primary Reviewer:** Staff Engineer (neutral party, not on Lane A). Focus: Code correctness and interface stability for the 12 shared teams.
+*   **Security Reviewer:** Security Lead. Focus: Cryptographic strength of fallback codes and isolation of the `Field-Remote` tag.
+*   **Operational Reviewer:** Disaster Response Director. Focus: Usability of the fallback during simulated crisis scenarios.
+*   **Independence:** The Primary Reviewer cannot be one of the three vault-key holders. The Operational Reviewer must sign off *before* the Security Lead gives final production approval.
+
+## Landing & Rollback
+
+**Deployment Strategy:**
+1.  **Freeze:** Code freeze on `CoreAccess` during the 55-minute CI window.
+2.  **Secrets Injection:** Two of the three vault-key holders must be present to inject production secrets.
+3.  **Phased Rollout:**
+    *   Phase 1: Enable `Field-Remote` tagging and code generation (no enforcement yet). Verify DB writes.
+    *   Phase 2: Enable MFA enforcement for non-tagged admins.
+    *   Phase 3: Enable MFA enforcement for tagged admins *with* fallback active.
+
+**Human Decisions Required:**
+*   **Go/No-Go:** Disaster Response Director must explicitly approve the "Go" after witnessing the Crisis Simulation.
+*   **Flake Adjudication:** If CI fails due to known network flakiness, the QA Lead and Security Lead must jointly agree to override.
+
+**Rollback Plan:**
+*   **Trigger:** Any reported lockout of a `Field-Remote` user in production or failure of the emergency bypass.
+*   **Action:** Immediate revert of the feature flag toggle (code remains, logic disabled).
+*   **Data Recovery:** If the `emergency_bypass` table is corrupted, initiate the 4-hour cold storage restore. This requires the third vault-key holder's authorization.
+*   **Communication:** Pre-drafted incident notification to all 12 teams and volunteer coordinators ready for immediate release.

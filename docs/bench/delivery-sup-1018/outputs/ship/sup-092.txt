@@ -1,0 +1,84 @@
+**Delivery Plan: Adaptive Bitrate Ladder v2**
+
+**Objective:** Deploy `ladder_params.json` to stabilize playback on fluctuating connections via a gradual rollout, minimizing quality oscillation.
+
+**Constraints & Risks:**
+- **Cost:** Simulation runs are $450/each; max 3/day.
+- **Irreversibility:** Config update triggers a 20-minute cache purge.
+- **Environment Gap:** Staging lacks packet-loss simulation; staging green $\neq$ production safe.
+- **Freeze:** No deploys 08:00–20:00 UTC.
+- **Approval:** Requires Jane Smith + one senior engineer.
+
+---
+
+### 1. Lanes & Parallelism
+
+**Lane A: Configuration & Simulation (Serial)**
+- **Owner:** Builder (Platform Team).
+- **Work:** Update `ladder_params.json` with new step sizes.
+- **Gate:** Run the 4-hour network trace simulation in CI.
+- **Constraint:** Must execute first. Only one run allowed initially to preserve budget. If red, analyze traces before retrying (max 2 retries total).
+- **Output:** Exact SHA of the config change + simulation logs showing reduced oscillation metrics.
+
+**Lane B: Rollout Orchestration (Parallel Prep, Serial Exec)**
+- **Owner:** Release Engineer.
+- **Work:** Draft the gradual rollout script (canary % steps, monitoring hooks).
+- **Dependency:** Waits for Lane A's successful simulation SHA.
+- **Execution:** Must run outside 08:00–20:00 UTC.
+- **Safety:** Script must include an automatic rollback trigger if buffer health degrades >5% in canary.
+
+**Serialization Point:** Lane B cannot execute against production until Lane A's simulation passes at a specific SHA. The cache purge means Lane A's merge and Lane B's initial canary must be coordinated to avoid redundant purges.
+
+---
+
+### 2. Gates & Checks
+
+**G1 Spec (Now):**
+- Define success: <X% quality switches per session, buffer health stable.
+- Pin base SHA for the config file.
+
+**G4 Implement (Lane A):**
+- Commit `ladder_params.json`.
+- Trigger CI simulation. **Hard Gate:** Simulation must pass green. Staging tests are insufficient due to missing packet-loss tools; do not rely on them for final verdict.
+
+**G5 Verify (Exact Revision):**
+- Verify the *exact SHA* from G4.
+- **Check:** Simulation logs must show improved stability on unstable network traces.
+- **Condition:** If simulation fails, stop. Do not proceed to rollout.
+
+**G6 Review (Independent):**
+- **Reviewers:** Jane Smith + One Senior Engineer (not the Builder).
+- **Scope:** Review the config diff + simulation evidence.
+- **Decision:** Approve rollout script and the specific SHA.
+
+**G8 Release (Human Gated):**
+- **Trigger:** Human approval to start canary outside freeze window.
+- **Action:** Execute gradual rollout (e.g., 5% → 20% → 50% → 100%).
+- **Monitor:** Real-time buffer health and churn metrics.
+
+---
+
+### 3. Landing & Rollback
+
+**Merge Strategy:**
+- Merge Lane A's SHA to the integration branch only after G6 approval.
+- This merge triggers the cache purge. Ensure no other config changes merge simultaneously to avoid double-purge.
+
+**Human Decisions Required:**
+1. **Approval to Merge:** Jane Smith + Senior Engineer sign-off on simulation results.
+2. **Deploy Authorization:** Explicit "Go" command to start the canary outside the 08:00–20:00 UTC freeze.
+3. **Rollback Decision:** If canary metrics degrade, human must authorize immediate revert or script auto-triggers it (pre-approved logic).
+
+**Rollback Plan:**
+- **Trigger:** Buffer health degradation >5% or increased churn in canary group.
+- **Action:** Revert `ladder_params.json` to previous stable SHA.
+- **Consequence:** Triggers another 20-minute cache purge. Acceptable cost to stop churn.
+
+**Timeline:**
+- **Day 1 (Before 08:00 UTC):** Start Lane A simulation.
+- **Day 1 (During Day):** Review results (G6). Prepare rollout script.
+- **Day 1 (After 20:00 UTC) or Day 2 (Before 08:00 UTC):** Execute G8 canary deploy.
+- **Day 2:** Monitor and expand canary if metrics hold.
+
+**Failure Mode:**
+- If simulation fails twice, halt delivery. Escalate to Architect for ladder algorithm review; do not burn remaining CI budget on blind retries.

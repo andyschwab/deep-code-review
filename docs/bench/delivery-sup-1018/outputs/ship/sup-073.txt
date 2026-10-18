@@ -1,0 +1,65 @@
+### Delivery Plan: Silent Course Completion Backfill
+
+**G0/G1: Intake & Spec**
+*   **Owner:** Product Analyst + Conductor.
+*   **Action:** Define "Silent" strictly: The script must use the internal Service API (not raw SQL) to update records, ensuring the `notification-dispatcher` module does not fire because the specific event trigger is bypassed at the service layer.
+*   **Constraint:** No direct DB writes; no user-facing side effects.
+*   **Appetite:** 4-hour time-box for implementation and staging verification.
+
+**G2: Plan & Lanes**
+*   **Lane A (Logic & Dry-Run):** Builder implements the calculation logic (last activity log → completion timestamp).
+    *   *Parallel:* Can run immediately.
+    *   *Output:* Script with `--dry-run` flag generating a report of 4,500 affected IDs and calculated dates against a mocked local dataset (to avoid CI timeout/cost).
+*   **Lane B (API Integration & Suppression):** Builder implements the API wrapper that updates records without triggering the global listener.
+    *   *Dependency:* Requires confirmation from the Student Success team on the specific internal API endpoint that suppresses events.
+    *   *Serialization:* Must be verified before Lane C.
+*   **Lane C (Staging Verification):** QA executes the combined script against the staging dataset.
+    *   *Dependency:* Lanes A and B must be merged and green.
+    *   *Check:* Verify 0 emails sent in staging logs; verify data integrity on a sample set.
+
+**G3: Design**
+*   **Artifact:** ADR confirming the use of the internal Service API over raw SQL to satisfy security/audit constraints.
+*   **Decision:** Explicitly document how the notification trigger is bypassed (e.g., specific header or internal method call).
+
+**G4: Implementation**
+*   **Worktree:** Isolated worktree for the backfill script (`feature/backfill-timestamps`).
+*   **Discipline:** Unit tests for the date calculation logic must pass locally. No large dataset tests in CI (mocked only).
+
+**G5: Verification**
+*   **Exact Revision:** The specific SHA of the merged feature branch.
+*   **Checks:**
+    1.  **Local:** Dry-run report matches expected count (~4,500) on mocked data.
+    2.  **Staging:** Execution on staging replica. **Critical Gate:** Confirm zero outbound emails and zero entries in the `notification-dispatcher` outgoing queue.
+    3.  **Security:** Confirm no direct audit log writes; verify API usage logs show compliant service calls.
+
+**G6: Review**
+*   **Reviewer:** Senior Engineer (independent of Builder) + Security Representative.
+*   **Focus:** Code review ensures no raw SQL; Security review validates the "silent" mechanism cannot leak to production notification engines.
+*   **Severity:** Any risk of email trigger = Blocker.
+
+**G7: Integration**
+*   **Action:** Merge to the integration branch.
+*   **Check:** Re-run lightweight unit tests on the integration SHA.
+
+**G8: Release (Human Gate)**
+*   **Approver:** Jane Smith (Student Success Team).
+*   **Input:** Staging verification receipt (proving 0 emails) + Dry-run report.
+*   **Decision:** Authorize production execution window.
+*   **Rollback Plan:** Since this is a data backfill, "rollback" implies a corrective script to nullify the timestamps if errors are found. This corrective script must be drafted and reviewed alongside the primary script.
+
+**G9: Production Verify**
+*   **Action:** Execute script on production via the internal API.
+*   **Verification:** Monitor support ticket volume and notification queues for 1 hour post-execution. Immediate halt if any "Course Completed" emails are detected.
+
+**G10: Learn**
+*   **Artifact:** Post-mortem note on why the legacy migration failed and how the notification dispatcher lacks bulk suppression, proposing a future fix to the dispatcher module.
+
+**Serialized Dependencies:**
+1.  API confirmation (Lane B start) depends on Team input.
+2.  Staging run (Lane C) depends on Logic (A) + API (B) completion.
+3.  Production deploy (G8) depends on Jane Smith's explicit approval of staging results.
+
+**Risk Mitigation:**
+*   **CI Timeout:** All heavy data tests are mocked locally; CI only runs unit logic.
+*   **Replica Lag:** Verification checks will include a 45-second buffer (exceeding the 30s lag) before asserting data presence in staging checks.
+*   **Notification Leak:** The "Silent" mechanism is the primary failure mode; if the API method changes, the script fails closed (errors out) rather than defaulting to a noisy update.

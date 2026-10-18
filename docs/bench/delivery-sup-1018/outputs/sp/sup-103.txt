@@ -1,0 +1,41 @@
+# Delivery Plan: Zeta-9 Auth Flow Upgrade
+
+## Lanes & Parallelism
+**Lane A (Security & Schema):** Implements the Zeta-9 verification handshake and prepares the irreversible database migration script. This lane owns the snapshot backup procedure.
+**Lane B (Session Logic):** Updates session timeout enforcement and builds the "silent migration" bridge to handle existing users without forcing re-registration.
+**Lane C (Fallback & Integration):** Maintains the legacy authentication path as a functional fallback and integrates Lane A and B outputs into the `core-gate` monorepo.
+
+*Parallel Execution:* Lanes A and B proceed simultaneously. Lane C begins only after A and B deliver their interface contracts.
+*Serialization:* Database migration (Lane A) must be finalized and backed up before any code touching the new schema merges.
+
+## Gates & Checks
+**Gate 1: Code Freeze & Backup:** Before any merge, a full database snapshot is mandatory. Verification occurs on revision `pre-migration-snapshot`.
+**Gate 2: CI Pipeline Validation:** Due to flaky staging network checks, every successful CI run ($45 cost, ~55 mins) requires immediate manual retry validation. Two consecutive manual confirmations are required to treat a CI pass as valid.
+**Gate 3: Version Pin Check:** Automated check ensures the `user-session` library remains at its current pinned version. Any attempt to upgrade triggers an immediate build failure and requires a separate defect ticket.
+**Gate 4: Zero-Downtime Simulation:** Staging deployment must demonstrate active session continuity during the swap. Existing sessions must survive; new logins must trigger the Zeta-9 protocol.
+
+## Review Protocol
+**Primary Reviewer:** Jane Smith (Security Lead). She reviews Lane A (Handshake) and Lane B (Timeouts) for strict Zeta-9 compliance.
+**Secondary Reviewer:** Site Reliability Team Lead. Reviews Lane C (Fallback) and the migration script for rollback safety and downtime risks.
+**Independence:** Security review cannot be performed by the implementation authors. Reliability review must occur independently of Security approval. Both approvals are required before merge.
+
+## Landing Strategy
+**Merge Window:** Deployment must occur outside business hours to ensure zero downtime during peak usage. The target is before the quarterly audit starts next Monday.
+**Rollout Phases:**
+1.  **Deploy with Legacy Fallback Active:** New code goes live, but the legacy path remains the default for all traffic.
+2.  **Canary New Protocol:** Route 5% of *new* logins to the Zeta-9 flow. Monitor for 30 minutes.
+3.  **Full Switch:** If canary metrics hold, switch all new logins to Zeta-9. Existing sessions remain on the old path until natural expiration.
+4.  **Legacy Sunset:** The legacy path remains code-active but unused, ready for immediate re-enablement if critical issues arise.
+
+**Human Decisions Required:**
+*   **Jane Smith:** Written approval confirming Zeta-9 compliance.
+*   **SRE Lead:** Written approval confirming backup integrity and rollback readiness.
+*   **Release Manager:** Final "Go/No-Go" decision based on canary metrics before the full switch.
+
+**Rollback Procedure:**
+If critical failures occur post-switch:
+1.  Immediately revert traffic routing to 100% Legacy Path (instant, no code redeploy).
+2.  If database corruption is detected, restore from the `pre-migration-snapshot` (requires downtime window approval).
+3.  Revert code merge only after traffic is safely on Legacy and database is restored.
+
+**Constraint Adherence:** No password resets or re-registration flows will be triggered. The `user-session` library version remains unchanged. CI costs and timing are accounted for in the schedule buffer.

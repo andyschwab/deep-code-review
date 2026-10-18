@@ -1,0 +1,62 @@
+# Delivery Plan: Sub-50ms Real-Time Captioning
+
+## Lanes & Parallelism
+
+**Lane A: Core Engine Integration (Backend Team)**
+*   **Work:** Integrate the transcription engine into the `northstar-ingest` pipeline. Implement the 50ms latency guard logic and accuracy/latency metric logging.
+*   **Constraint:** Must not enable verbose logging globally; implement selective sampling to avoid the 15% storage cost penalty while meeting audit requirements.
+*   **Parallelism:** Can run parallel to Lane B, but must finish before Lane C.
+
+**Lane B: Edge Node Configuration (SRE Team)**
+*   **Work:** Prepare regional edge node configurations. Specifically address the APAC clock skew issue by implementing a local time-sync verification script rather than relying on the flaky CI check.
+*   **Parallelism:** Runs parallel to Lane A.
+
+**Lane C: Validation & Compliance (QA + SRE)**
+*   **Work:** Execute targeted validation. Since full CI costs 400 credits and takes 22 minutes, this lane runs a localized "fast-path" test suite on a staging clone.
+*   **Dependency:** Requires artifacts from Lane A and configs from Lane B.
+*   **Serialization:** Cannot start until A and B are complete.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Static Analysis (Revision: `feat/captioning-core` HEAD)**
+*   **Trigger:** Lane A completion.
+*   **Check:** Automated static analysis only (no full CI). Verify no global verbose logging flags are hardcoded.
+*   **Owner:** Tech Lead (Auto-merge to staging branch upon pass).
+
+**Gate 2: The "APAC Manual" Check (Revision: `staging/captioning-release`)**
+*   **Trigger:** Lane B completion + Gate 1 pass.
+*   **Check:** SRE Team manually validates time-sync on APAC nodes. The automated `latency-guard` check is bypassed here due to known flakiness; manual sign-off is the binding gate.
+*   **Owner:** Site Reliability Team Lead.
+
+**Gate 3: The 50ms Hard Stop (Revision: `staging/captioning-release`)**
+*   **Trigger:** Lane C completion.
+*   **Check:** Load test under peak simulated traffic. **Pass condition:** 99.9th percentile latency ≤ 49ms. Any result ≥ 50ms is an automatic fail. Verify metric logs are present without excessive storage growth.
+*   **Owner:** QA Lead + Marcus Thorne (observation).
+
+## Review Strategy
+
+**Independent Code Review:**
+*   **Who:** Senior Engineer from a non-media team (e.g., Payments or Auth) to ensure fresh eyes on latency constraints.
+*   **Independence:** Must not be from the Backend Team (Lane A) or have worked on the ingestion pipeline in the last 6 months.
+*   **Focus:** Specifically audit the latency guard implementation and the logging sampling logic.
+
+**Architecture & Risk Review:**
+*   **Who:** Marcus Thorne (Principal Engineer).
+*   **Timing:** Before Gate 3.
+*   **Focus:** Validate the rollback plan and database migration strategy. Since rollback causes data loss, confirm the "point of no return" is clearly documented and accepted.
+
+## Landing & Rollback
+
+**Deployment Strategy:**
+*   **Method:** Canary deployment to 5% of traffic in non-APAC regions first.
+*   **Human Decision:** Marcus Thorne must explicitly approve the promotion from Canary to Global Production. No auto-promotion.
+*   **Audit Handoff:** Once global, a script extracts the first 1 hour of accuracy/latency logs for Q3 compliance verification.
+
+**Rollback Protocol:**
+*   **Trigger:** Latency spikes >50ms in Canary or critical accuracy failure.
+*   **Action:** Immediate traffic shift back to the previous stable version.
+*   **Critical Constraint:** Because rolling back the *module* requires a non-reversible DB migration, the rollback procedure is strictly a **traffic reroute**, not a code revert, unless the data loss is explicitly authorized by Legal and Product.
+*   **Post-Mortem:** If rollback occurs, the database state is considered "tainted." A separate recovery lane must be spun up to reconcile lost caption data if legally required.
+
+**Final Sign-off:**
+*   Marcus Thorne signs the production deployment ticket only after successful Canary promotion and manual confirmation of APAC stability.

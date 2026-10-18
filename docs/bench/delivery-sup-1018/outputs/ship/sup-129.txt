@@ -1,0 +1,59 @@
+### Delivery Plan: Compliance Officer Approval Enforcement
+
+**Objective:** Insert a mandatory human approval gate (Jane Smith) into the publishing pipeline for all text/image uploads, utilizing the existing unused database schema, with clear UI status indicators.
+
+#### 1. Lanes & Parallelism
+*Work is split into three isolated lanes. Lanes 1 and 2 run in parallel; Lane 3 waits for both.*
+
+*   **Lane A (Backend Logic & Queue):**
+    *   **Owner:** Builder.
+    *   **Work:** Modify the publishing service to intercept post-scan content. Instead of immediate publish, write to the existing `approval_queue` schema with status `PENDING`. Implement the admin dashboard endpoint for Jane to `APPROVE`/`REJECT`. Trigger the final publish only on `APPROVE`.
+    *   **Constraint:** Do not modify `global-rules.yaml` (locked); implement logic in the application layer.
+    *   **Dependency:** None.
+
+*   **Lane B (UI & Notifications):**
+    *   **Owner:** Builder (different worktree than Lane A).
+    *   **Work:** Update contributor UI to show "Pending Review" status for uploaded content. Update admin dashboard to surface the queue to Jane. Integrate with the notification service, implementing a retry mechanism to handle the known flaky timeout check during high load.
+    *   **Dependency:** None.
+
+*   **Lane C (Integration & Migration):**
+    *   **Owner:** Integrator.
+    *   **Work:** Verify database migration idempotency (schema exists but unused). Merge Lane A and B artifacts. Configure the CI pipeline to run the full 22-minute suite only on the integrated build to save costs.
+    *   **Dependency:** Waits for Lane A and B to pass individual unit tests.
+
+#### 2. Gates & Checks
+*Every check runs on an exact, immutable SHA. No "latest" branches.*
+
+*   **G0/G1 (Spec & Plan):** Confirm scope covers text/images only. Verify `approval_queue` schema fields match requirements.
+*   **G4 (Implementation):**
+    *   Lane A: Unit tests for state transitions (`PENDING` → `APPROVED` → `PUBLISHED`).
+    *   Lane B: Visual regression tests for "Pending" states; mock tests for notification retries.
+*   **G5 (Verification):**
+    *   **Environment:** Acme Cloud Staging.
+    *   **Action:** Deploy integrated SHA. Simulate high-load notification traffic to prove retry logic stability. Verify Jane can approve/reject and content status updates instantly in UI.
+    *   **Constraint:** If the notification check flakes, verify via logs that the retry succeeded, do not treat as a hard block if logs confirm delivery.
+*   **G6 (Review):**
+    *   **Security/Compliance Review:** Independent reviewer (not Lane A/B builders) verifies that *no* code path allows bypassing the queue.
+    *   **Code Review:** `deep-code-review` on the integrated diff.
+
+#### 3. Landing & Human Decisions
+*Serialization is strict here to prevent regulatory risk.*
+
+*   **Merge Strategy:** Squash merge Lane A and B into a feature branch, then merge to `main` via a train script once G6 passes.
+*   **Human Gate 1 (Deploy Approval):**
+    *   **Approver:** VP of Operations.
+    *   **Timing:** Must be scheduled for a **Tuesday or Thursday**.
+    *   **Action:** Explicit written approval required before triggering the production pipeline.
+*   **Deployment:**
+    *   **Irreversibility Warning:** Since deploys are irreversible, the release manifest must include the specific rollback script version tested in G5.
+    *   **Execution:** Run deployment. Monitor `approval_queue` depth immediately.
+*   **Rollback Plan:**
+    *   If critical failure occurs: Execute the pre-verified full rollback script immediately. Do not attempt hotfixes on an irreversible deploy.
+    *   Fallback: Revert feature flag to bypass queue (if implemented) or revert code via rollback script.
+
+#### 4. Risk Mitigation
+*   **CI Cost:** Minimize runs by ensuring local validation is thorough before pushing to the 22-minute CI.
+*   **Flaky Notifications:** The retry logic in Lane B is the primary mitigation; monitoring alerts will be set for consecutive failures.
+*   **Regulatory Compliance:** The "No Bypass" verification in G6 is the critical control. Jane Smith's access credentials must be verified prior to deploy.
+
+**Next Step:** Await confirmation of the next available Tuesday/Thursday window from the VP of Operations to schedule the G8 Release gate.

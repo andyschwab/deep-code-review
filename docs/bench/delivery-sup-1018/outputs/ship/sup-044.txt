@@ -1,0 +1,42 @@
+### Delivery Plan: Federal Audit Alignment
+
+**Objective:** Update `compliance-utils` calculation engine to match new federal standards, ensuring schema compliance and eliminating the 15% Scope 3 variance before the 10-day deadline.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Spec & Schema Lock):** Product Analyst + Legal Director.
+    *   **Task:** Extract exact conversion factors and output schema from the attached standards document. Define the "Done-When" acceptance criteria.
+    *   **Dependency:** None. Must complete before Lane B starts.
+    *   **Output:** A signed specification document (G1) serving as the single source of truth.
+*   **Lane B (Implementation):** Builder (isolated worktree).
+    *   **Task:** Replace hardcoded deprecated factors with new values; refactor output serialization to match the locked schema. Add unit tests for the specific 15% variance cases.
+    *   **Dependency:** Waits for Lane A's signed spec.
+    *   **Constraint:** No network calls in unit tests to avoid flaky CI failures.
+*   **Lane C (Independent Verification):** QA Engineer (separate worktree, pinned to Lane B's final SHA).
+    *   **Task:** Run functional verification against the exact revision. Validate the 15% variance correction and schema strictness. Simulate the regulator's automated intake rejection logic locally.
+    *   **Dependency:** Waits for Lane B's completion.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Conductor validates the spec against the attached document. **Legal Director** must sign off on the interpretation of standards before code is written.
+*   **G2 (Plan):** Conductor confirms the acyclic graph. Budget cap set for CI runs (limit retries to 3 due to cost/flakiness).
+*   **G3 (Design):** **Lead Architect** reviews the change strategy for `compliance-utils` to ensure no regression in the three other dependent teams. Approval required before G4.
+*   **G4 (Implement):** Builder commits code. Pre-commit hook runs local lint/type checks only (skips heavy regression).
+*   **G5 (Verify):** QA runs the full 45-minute CI pipeline on the **exact final SHA** of Lane B.
+    *   *Contingency:* If CI fails due to network flakiness, manual retry is authorized up to 3 times. If it fails on logic, immediate return to Builder.
+    *   *Requirement:* Evidence of schema match and corrected Scope 3 numbers.
+*   **G6 (Review):** **Lead Architect** (technical) and **Legal Director** (compliance) review the PR. They must verify the change matches the G1 spec exactly. Builder cannot approve.
+
+#### 3. Landing & Human Decisions
+*   **Integration (G7):** Once G6 is approved, the Conductor prepares the merge. Since `compliance-utils` is shared, a final integration build is triggered on the merge commit to verify downstream consumers.
+*   **Human Gates (G8 - Release):**
+    *   **Approval 1:** Lead Architect (Technical safety).
+    *   **Approval 2:** Legal Director (Regulatory compliance).
+    *   **Approval 3:** Senior Release Manager (Credentials for secure audit environment).
+    *   **Decision Point:** The Senior Release Manager must manually trigger the push to the secure environment. This cannot be automated.
+*   **Timing:** Merge must occur early enough to allow the midnight batch job to pick up the change. If the window is missed, the deployment halts until the next cycle (risking the audit deadline).
+
+#### 4. Rollback Strategy
+*   **Constraint:** Production deployments are irreversible after the midnight batch job.
+*   **Mitigation:** The "rollback" is actually a forward-fix. If the new logic fails post-deployment, a hotfix lane (Lane D) must be prepared *in parallel* with the initial review, containing the exact revert of the conversion factors.
+*   **Execution:** If the audit intake rejects the filing or downstream teams report breakage before the next submission window closes, the Senior Release Manager must apply the hotfix immediately. There is no "undo" button; only a corrective patch.
+
+**Risk Note:** The 45-minute CI time and flaky network checks are the primary schedule risks. Lane C (QA) will run a "dry-run" of the intake schema validation locally to minimize reliance on the flaky CI network checks for schema verification.

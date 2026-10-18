@@ -1,0 +1,68 @@
+# Delivery Plan: Real-time Inventory Sync for Flash Sales
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Logistics Squad)**
+*   **Work:** Implement atomic decrement logic with database-level locking to prevent negative inventory. Refactor warehouse transfer listeners to push updates via event stream rather than polling.
+*   **Constraint:** Must serialize against Lane B at the integration gate.
+
+**Lane B: Infrastructure & Config (DevOps)**
+*   **Work:** Prepare overnight update for the locked `global-stock` configuration. Provision isolated staging dataset (sanitized weekly) for load testing. Tune database replication thresholds to suppress known false alarms under high load.
+*   **Parallel:** Can run simultaneously with Lane A development.
+
+**Lane C: Load Simulation (QA Automation)**
+*   **Work:** Script 10,000 concurrent user simulation targeting checkout. Must use generated datasets matching staging schema.
+*   **Parallel:** Can develop scripts while Lane A codes, but execution waits for Lane A/B integration.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze (Monday 18:00)**
+*   **Revision:** `feat/velocity-sync-final`
+*   **Check:** Static analysis and unit tests. Must pass before CI trigger to save $45/run cost.
+
+**Gate 2: Configuration Lock (Tuesday 02:00)**
+*   **Revision:** `config/global-stock-v2`
+*   **Check:** Applied overnight to staging. Verified by DevOps before business hours start.
+
+**Gate 3: Integration Build (Tuesday 08:00)**
+*   **Revision:** Merge of Lane A + Lane B on staging.
+*   **Check:** Deploy to staging. Verify basic transfer scan reflects instantly (<1s lag).
+
+**Gate 4: Load Validation (Tuesday 14:00)**
+*   **Revision:** Staging deployment from Gate 3.
+*   **Check:** Execute 10k concurrent user script.
+    *   **Pass Criteria:** Zero negative inventory counts. Zero oversells. System remains responsive.
+    *   **Note:** Manual dismissal required for known flaky replication alerts; these do not constitute failure if inventory integrity holds.
+
+## Review Process
+
+**Independent Technical Review**
+*   **Reviewer:** Senior Engineer from Payments Squad (external to Logistics).
+*   **Timing:** Between Gate 1 and Gate 3.
+*   **Focus:** Race condition handling in atomic decrements. Verify locking strategy prevents simultaneous purchase of the last unit.
+*   **Independence:** Reviewer has no commit access to Lane A codebase.
+
+**Operational Sign-off**
+*   **Approver:** Marcus Lee (Logistics Squad Lead).
+*   **Timing:** After Gate 4 success.
+*   **Focus:** Confirmation that staging behavior matches "Velocity Drop" requirements.
+
+## Landing Strategy
+
+**Merge Window**
+*   **When:** Tuesday post-sign-off (standard Logistics deployment window).
+*   **Method:** Manual merge to `main` by DevOps lead.
+*   **Prerequisite:** Written confirmation from Marcus Lee + Green status on Gate 4 load test.
+
+**Human Decision Points**
+1.  **Load Test Interpretation:** If replication alarms trigger during load test, a human must distinguish between false positives (known issue) and actual data drift before approving.
+2.  **Go/No-Go:** Final production release requires explicit verbal confirmation from Requester that staging metrics meet reputation standards.
+
+**Rollback Protocol**
+*   **Trigger:** Any confirmed oversell or negative inventory count in production.
+*   **Action:** Immediate revert to previous Tuesday's build.
+*   **Remediation:** Since production writes are irreversible, activate Finance Workflow for automatic refunds to affected customers within 1 hour of detection.
+*   **Constraint:** Rollback does not recover sold inventory; manual stock reconciliation required post-incident.
+
+**Risk Mitigation**
+*   Limit initial production rollout to 5% of traffic for 30 minutes before full enablement, monitoring for latency spikes in transfer updates.

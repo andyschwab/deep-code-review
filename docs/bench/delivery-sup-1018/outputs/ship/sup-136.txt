@@ -1,0 +1,44 @@
+**Delivery Plan: Unified Immutable GPS Audit**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Schema & Immutability):** Design the unified schema with append-only constraints. Implement database-level triggers or application-layer guards preventing `UPDATE`/`DELETE` on GPS coordinates. *Serialized:* Must complete before Lane B ingestion logic is finalized.
+*   **Lane B (Ingestion & Conflict Detection):** Build the consolidation service to ingest legacy dispatch and mobile tracker streams. Implement logic to flag timestamp conflicts for manual review. *Parallel:* Can develop against the proposed schema while Lane A finalizes constraints.
+*   **Lane C (Dashboard Integration):** Develop the adapter to feed the unified source directly into the quarterly review dashboard, ensuring zero manual formatting. *Parallel:* Independent of A/B logic, relies only on the final output contract.
+*   **Lane D (Migration Safety):** Create the snapshot/rollback mechanism. Since schema changes are irreversible, this lane builds the "point-in-time" restore capability for the pre-migration state. *Serialized:* Must be verified before any production data touch.
+
+**2. Gates & Checks**
+*   **G1 Spec:** Define the "Immutable" guarantee technically (DB constraints vs. app logic) and the exact conflict flagging format. Pin base SHA.
+*   **G3 Design:** ADR required for the shared billing configuration file. Explicitly document how GPS validation changes isolate billing risks.
+*   **G4 Implement:** Code frozen per lane. Tests included.
+*   **G5 Verify (Critical):**
+    *   **Immutability Test:** Attempt admin deletion/alteration in a hardened testbed; expect hard failure.
+    *   **Billing Regression:** Run invoice generation tests alongside GPS validation to prove no side effects from the shared config file.
+    *   **Environment Note:** Do not rely on staging geospatial tests (known false negatives). Flag these as "Manual Review Required" in the receipt; rely on unit logic and production-simulated data instead.
+    *   **Performance:** Run efficient, targeted tests on shared CI hardware. Avoid full 45-minute suites unless a core module changes; use smoke tests for integration.
+*   **G6 Review:**
+    *   **Security Lead:** Reviews Lane A (immutability) and Lane D (rollback). Independent of Builder.
+    *   **Ops Lead:** Reviews Lane B (conflict logic) and the conflict report format.
+    *   **Deep Code Review:** Full scan on the exact merged SHA.
+
+**3. Review Strategy**
+*   **Builder:** Implements lanes in isolated worktrees. Never reviews own code.
+*   **Independent QA:** Verifies G5 receipts on the exact revision. Confirms billing service stability.
+*   **Security:** Validates the "never altered" requirement is enforced by the database or runtime, not just policy.
+
+**4. Landing & Human Decisions**
+*   **Integration (G7):** Merge Lanes A, B, and C into an integration branch. Run the affected subset of the CI pipeline (billing + GPS).
+*   **Human Gates (G8):**
+    *   **Dual Approval Required:** Security Lead AND Operations Manager must approve the merge to the deployment branch.
+    *   **Decision Point:** Present the "Conflict Flagging" sample to Ops Lead for sign-off before go-live.
+*   **Rollback:**
+    *   Since schema changes are irreversible, "rollback" means reverting the application code to the legacy readers and restoring the pre-migration database snapshot (Lane D).
+    *   Rollback script must be dry-run verified in G5.
+*   **Deployment:** Deploy behind a feature flag. Enable for 1% of routes first. Monitor for billing errors immediately.
+
+**Risk Mitigation:**
+*   **CI Cost:** Tests are scoped strictly to changed paths. Full suite only on final integration SHA.
+*   **Data Loss:** Migration runs in "shadow mode" first (writing to new table, reading from old) before switching writes.
+*   **Shared Config:** Any change to the GPS validation config triggers a mandatory billing regression check.
+
+**Output Contract:**
+Unified stream available at the defined endpoint, conflict log generated, dashboard auto-updated, immutability proven by failed deletion attempt receipt, rollback script verified.

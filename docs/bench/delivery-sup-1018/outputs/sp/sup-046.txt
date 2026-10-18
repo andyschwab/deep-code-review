@@ -1,0 +1,41 @@
+### Delivery Plan: Secure Admin Action Logging
+
+**1. Lanes & Parallelism**
+*   **Lane A (Core Logic):** Implement the logging interceptor within the backend monolith. This includes the sanitization filter (regex-based redaction of keys/tokens) and the structured JSON formatter matching the compliance schema.
+    *   *Constraint:* Must not modify the shared configuration file. Configuration for log levels/outputs must be loaded via environment variables or a new, isolated config block.
+*   **Lane B (Verification Tooling):** Develop a standalone local validator script. This tool accepts JSON log lines and validates them against the compliance schema without requiring database access or network connectivity.
+    *   *Parallel Status:* Lane A and Lane B run simultaneously.
+*   **Lane C (Documentation):** Draft the audit trail mapping document linking dashboard actions to specific log events for the external auditor.
+
+**2. Gates & Checks**
+*   **Gate 1: Local Sanitization Proof (Pre-Commit)**
+    *   *Revision:* Feature branch head.
+    *   *Action:* Developer runs Lane B's validator against a generated dataset containing known sensitive patterns (e.g., `AKIA...`, `Bearer eyJ...`).
+    *   *Pass Criteria:* Zero sensitive strings in output; valid JSON schema.
+*   **Gate 2: CI Pipeline Execution**
+    *   *Revision:* Feature branch head (after Gate 1).
+    *   *Action:* Trigger full test suite on the shared cluster.
+    *   *Retry Policy:* If failure occurs, inspect logs immediately. If "network check" error, retry once. If failure persists after two total attempts, halt and escalate to Platform Integrity (Jane Smith) to rule out environmental drift before a third costly attempt.
+    *   *Cost Control:* Do not re-run full suite for minor doc fixes; only re-run for logic changes.
+*   **Gate 3: Air-Gap Simulation**
+    *   *Revision:* Pre-merge candidate.
+    *   *Action:* Verify logs write correctly to the local buffer in a staging environment that mimics the air-gapped production constraint. Confirm no attempt is made to ship logs synchronously.
+
+**3. Review Process**
+*   **Primary Reviewer:** Lead Architect (Technical correctness, schema adherence, non-intrusion on shared config).
+*   **Secondary Reviewer:** Security Officer (Sanitization logic robustness, verification that no secrets bypass the filter).
+*   **Independence:** Neither reviewer may be the author of the code. The Security Officer must specifically validate the "negative test cases" (inputs with secrets) to ensure they are redacted.
+*   **Compliance Check:** The output of Gate 1 (validator report) must be attached to the merge request for the compliance team's pre-approval.
+
+**4. Landing Strategy**
+*   **Merge Condition:** Requires explicit approval from *both* the Lead Architect and the Security Officer. No auto-merge.
+*   **Deployment Window:** Coordinated release window required only if the shared configuration file *must* be touched (plan aims to avoid this). If isolated config is used, deploy via standard pipeline.
+*   **Rollback Plan:**
+    *   *Trigger:* Production log buffer fills unexpectedly or audit parsing fails.
+    *   *Action:* Immediate revert of the feature branch. Since logs are buffered hourly, the revert stops future bad data; the local buffer containing bad data must be quarantined and wiped before the next batch shipment to prevent corrupting the central audit store.
+*   **Human Decision Points:**
+    1.  Escalation to Jane Smith if CI flakiness exceeds the retry limit.
+    2.  Final sign-off on the "Sanitization Proof" report by the Security Officer.
+    3.  Authorization to wipe the production buffer if a rollback occurs after data generation.
+
+This plan prioritizes security verification and cost containment while respecting the air-gapped and shared-resource constraints.

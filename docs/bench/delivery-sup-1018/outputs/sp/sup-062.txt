@@ -1,0 +1,62 @@
+# Delivery Plan: HD Video Buffer Optimization
+
+## Lanes & Parallelism
+
+**Lane A: Analysis & Simulation (Playback Team Lead)**
+*   **Work:** Static analysis of current allocation patterns in `core-media`; develop a local simulation script to model dynamic sizing against legacy device constraints.
+*   **Parallelism:** Runs immediately. Independent of code changes.
+
+**Lane B: Implementation (Senior Engineer)**
+*   **Work:** Refactor buffer logic in the video engine. Implement dynamic sizing algorithm. Update the shared configuration file with safe defaults that prevent immediate tablet breakage.
+*   **Dependency:** Must wait for Lane A's simulation model to validate the proposed algorithm logic before coding begins.
+
+**Lane C: Staging Verification (QA Automation)**
+*   **Work:** Prepare throttled container environment. Monitor 'Audio-Sync' check status.
+*   **Dependency:** Waits for Lane B to produce a candidate build.
+
+## Gates & Checks
+
+**Gate 1: Local Validation (Pre-Commit)**
+*   **Revision:** Feature branch head.
+*   **Check:** Engineer runs Lane A's simulation script locally against the new code.
+*   **Pass Criteria:** Simulated memory usage never exceeds legacy hard limits during scene change scenarios.
+
+**Gate 2: The Memory-Leak-Suite (CI)**
+*   **Revision:** Release candidate branch (post-code-review).
+*   **Check:** Full 45-minute suite execution.
+*   **Constraint:** Maximum **one** retry allowed due to cost ($12/run). If failed twice, the branch is rejected, and the team must revert to Lane A for root cause analysis. No blind re-runs.
+
+**Gate 3: Audio-Sync Stability**
+*   **Revision:** Same as Gate 2.
+*   **Check:** Automated staging run.
+*   **Contingency:** If 'Audio-Sync' fails, a human QA engineer must manually inspect the logs to distinguish a genuine regression from known flakiness before re-triggering. One manual re-trigger allowed.
+
+## Review Process
+
+**Primary Reviewer:** Jane Smith (Playback Team Owner).
+**Secondary Reviewer:** One Senior Engineer from the Tablet Product Line (mandatory due to shared config risk).
+
+**Independence:**
+*   Jane Smith reviews the core video engine logic and memory safety.
+*   The Tablet Engineer reviews *only* the changes to the shared configuration file to certify tablet streaming stability.
+*   Neither reviewer is the author of the code.
+
+**Review Trigger:** Occurs only after Gate 1 passes locally and before Gate 2 (CI) is initiated to save costs.
+
+## Landing Strategy
+
+**Merge Protocol:**
+1.  Once Gates 2 and 3 pass and both reviewers approve, merge to `main`.
+2.  Deploy to a **canary group** (1% of legacy mobile traffic only). Do not deploy to tablets or high-end devices initially.
+
+**Human Decision Points:**
+*   **Go/No-Go for Canary:** Product Owner reviews simulation data vs. CI results before authorizing the 1% deploy.
+*   **Full Rollout:** After 24 hours of canary monitoring, if stuttering metrics drop without increased crash rates, the Product Owner authorizes 100% rollout.
+
+**Rollback Plan:**
+*   **Trigger:** If crash rates on legacy devices increase by >0.5% or tablet support tickets spike during canary.
+*   **Action:** Immediate full rollback of the media service to the previous revision.
+*   **Constraint:** Since deploys are irreversible without full rollback, no partial feature flags will be used for the buffer logic; the binary swap is all-or-nothing.
+
+**Post-Mortem:**
+If the Memory-Leak-Suite fails twice or the Canary triggers a rollback, a formal post-mortem is required before re-attempting Lane B.

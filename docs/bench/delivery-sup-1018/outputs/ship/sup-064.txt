@@ -1,0 +1,50 @@
+### Delivery Plan: Shift Report Acceleration
+
+**Objective:** Reduce report generation from >40s to <5s under peak load without data loss or dashboard blocking.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Query Optimization):** *Builder* analyzes the current aggregation query and execution plan. Proposes indexing strategies or query rewrites (e.g., materialized views, pre-aggregation).
+    *   *Constraint:* Read-only DB connection; no schema changes yet.
+    *   *Parallel:* Yes.
+*   **Lane B (Async Architecture):** *Builder* refactors the dashboard call to decouple report generation from the UI thread. Implements a "request → poll/status → retrieve" pattern or WebSocket push so the dashboard never hangs.
+    *   *Parallel:* Yes (independent of query logic).
+*   **Lane C (Data Integrity Audit):** *QA* defines the "exact match" criteria for historical data. Creates a script to compare old vs. new aggregation results byte-for-byte on a fixed dataset.
+    *   *Parallel:* Yes, but must complete before Lane D.
+*   **Lane D (CI Pipeline Repair):** *DevOps* isolates the flaky integration check. Implements a retry mechanism or fixes the mock timer race condition to prevent false negatives when queries run <2s.
+    *   *Serialization:* Must complete before final merge to avoid blocking the train.
+*   **Lane E (Schema Proposal):** *Lead Engineer (Jane Smith)* reviews Lane A's findings. If schema changes (indexes/views) are required, Jane authors and approves the migration script.
+    *   *Serialization:* Blocked on Lane A's analysis.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define "Peak Load" metrics and exact "5s" SLO. Confirm "no data loss" means 100% row/value parity.
+*   **G2 Plan:** Verify Lane B's async design prevents UI blocking. Confirm CI cost impact (target: keep replay <55m).
+*   **G3 Design:** Jane Smith approves any schema changes (Lane E).
+*   **G4 Implement:**
+    *   Lane A: Query refactor.
+    *   Lane B: Async UI implementation.
+    *   Lane D: Flaky test fix.
+*   **G5 Verify (Exact Revision):**
+    *   **Performance:** Run aggregation on a production snapshot (sanitized) at peak volume. Must pass <5s.
+    *   **Integrity:** Lane C's script must report 0% deviation between legacy and new logic.
+    *   **Stability:** Dashboard must remain responsive during report generation.
+    *   **CI Health:** Full data replay must complete <60m to avoid budget freeze. Flaky test must pass 10 consecutive runs at <2s execution.
+*   **G6 Review:**
+    *   *Security/DB:* Jane Smith reviews schema changes.
+    *   *QA:* Independent verification of data parity and performance receipts.
+    *   *Code:* Senior Engineer (not the Builder) reviews logic.
+
+#### 3. Landing Strategy
+*   **Merge Train:**
+    1.  Land Lane D (CI fix) first to ensure the pipeline is stable for subsequent merges.
+    2.  Land Lane E (Schema) if applicable, gated by Jane's explicit approval.
+    3.  Land Lane A (Query) and Lane B (Async) together in a single integration commit to ensure the UI and backend stay in sync.
+*   **Human Decisions Required:**
+    *   **Jane Smith:** Approval of schema changes (Lane E).
+    *   **Ops Lead:** Sign-off on the "dry run" report showing data parity before enabling the new path.
+    *   **Release Owner:** Authorization to deploy to the production analytics cluster (irreversible action).
+*   **Rollback Plan:**
+    *   Since production deployments are irreversible without a full restore, a **feature flag** must wrap the new async path and query logic.
+    *   If performance regresses or data mismatches occur post-deploy, immediately toggle the flag to revert to the legacy synchronous path (accepting the 40s delay) while scheduling a restore from the weekly cold backup if data corruption is detected.
+    *   No direct code revert; rely on the flag until the next backup window allows a safe state reset.
+
+**Risk Note:** The 55-minute CI replay is near the 60-minute freeze limit. Lane A must prove locally that the new query reduces processing time significantly before triggering the full CI run.

@@ -1,0 +1,63 @@
+### Delivery Plan: Silent Course Completion Backfill
+
+#### 1. Work Lanes & Parallelization
+
+**Lane A: Logic & Script Development (Backend Engineer)**
+*   **Work:** Develop the backfill script using the internal service API (no raw SQL). Implement logic to calculate completion timestamps from the last activity log.
+*   **Critical Constraint:** Integrate a "silent mode" flag that bypasses the `notification-dispatcher` trigger. Since the module lacks a native suppression flag, this requires wrapping the update call in a transaction context that temporarily disables the specific event listener or utilizes a low-level API endpoint that skips event emission.
+*   **Parallel Work:** While Lane A codes, Lane B prepares data.
+
+**Lane B: Data Staging & Mocking (Data Engineer)**
+*   **Work:** Extract a representative subset (e.g., 500 records) of the 4,500 affected courses from production to the staging environment.
+*   **Mocking:** Create a local mock dataset that simulates the full 4,500 records to bypass the 20-minute CI timeout. This ensures logic validation without incurring credit costs or hitting pipeline limits.
+
+**Lane C: Notification Safety Audit (Senior Backend Engineer - Independent)**
+*   **Work:** Review the `notification-dispatcher` module code specifically to validate the proposed "silent mode" mechanism.
+*   **Goal:** Certify that the chosen method absolutely prevents email dispatch before any script execution is approved.
+
+#### 2. Gates & Checks
+
+**Gate 1: Code Review & Safety Sign-off**
+*   **Trigger:** Lane A submits Pull Request (PR); Lane C completes Audit.
+*   **Check:** Verify the script uses the internal API and the silence mechanism is robust.
+*   **Revision:** Must be run against the latest `main` branch to ensure compatibility with current API signatures.
+*   **Outcome:** No merge until Lane C explicitly signs off on the "Silent Guarantee."
+
+**Gate 2: Staging Dry-Run**
+*   **Trigger:** PR merged to a temporary `feature/backfill-staging` branch.
+*   **Execution:** Run script against the Lane B staging subset.
+*   **Check:**
+    1.  Verify timestamps are calculated correctly.
+    2.  **Crucial:** Monitor the email outbox and notification logs for *zero* outbound messages.
+    3.  Confirm no audit log alerts were triggered.
+*   **Constraint:** Account for the 30-second read-replica lag in verification scripts (add explicit `sleep` or polling logic) to prevent flaky test failures.
+
+**Gate 3: Local Performance Validation**
+*   **Trigger:** Parallel to Gate 2.
+*   **Execution:** Run script against Lane B's local mock dataset (4,500 records).
+*   **Check:** Ensure execution completes well under the 20-minute CI timeout limit when scaled to full production volume.
+
+#### 3. Review Process
+
+*   **Primary Reviewer:** Tech Lead (Student Success Team) – Validates business logic and timestamp calculation accuracy.
+*   **Independent Safety Reviewer:** Senior Engineer (Platform/Notifications Team) – Validates the silence mechanism. This reviewer must be distinct from the author and the primary reviewer to ensure unbiased safety verification.
+*   **Final Approval:** Jane Smith (Student Success Sign-off) – Required specifically for the production deployment authorization.
+
+#### 4. Landing Strategy
+
+**Phase 1: Staging Verification (Automated)**
+*   Merge to staging branch. Automated suite runs against staging DB.
+*   **Pass Criteria:** Timestamps updated, zero emails sent, no security alerts.
+
+**Phase 2: Production Execution (Manual Trigger)**
+*   **Pre-flight:** Confirm production read-replica lag is stable (<30s).
+*   **Execution:** Deploy script to a secure runner with access to the internal service API. Execute in batches of 500 to manage load and allow immediate halting if issues arise.
+*   **Monitoring:** Real-time tailing of notification logs and security audit streams.
+
+**Human Decision Points:**
+1.  **Jane Smith's Sign-off:** Required before the production job is triggered.
+2.  **Abort Condition:** If *any* email is detected during the first batch (500 records), the script must auto-halt, and a human must investigate before proceeding.
+
+**Rollback Plan:**
+*   **Data Correction:** Since direct audit log writes are irreversible via SQL, a compensating script must be prepared. If bad data is written, this script will use the internal API to revert the timestamps to null (or previous state) if the API supports it, or flag records for manual correction.
+*   **Notification Containment:** If emails *are* accidentally sent, immediately pause the `notification-dispatcher` service globally to stop further outflow, then issue a pre-drafted "System Error/Ignore Previous Email" communication to affected users.

@@ -1,0 +1,26 @@
+### Delivery Plan: Unified Clinic Calendar Aggregation
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Read-Only Aggregation Logic):** Develop the new dashboard view service. This lane runs in parallel with Lane B. It must strictly consume data from existing recurring series tables without writing to them.
+*   **Lane B (Holiday & Time Zone Integration):** Develop the adapter logic to ingest local holiday closures from legacy systems. Since the shared time zone configuration is immutable, this lane must implement a local override or mapping layer rather than editing the core config.
+*   **Lane C (Test Data Preparation):** Prepare the specific 'Winter Wellness' patient group data set in the staging environment. This must be ready before Lane A and B merge their code.
+
+**Serialization Point:** Lanes A and B must complete unit testing independently before merging into a joint integration branch. Only then can the combined logic be tested against the 'Winter Wellness' data.
+
+**2. Gates, Checks, and Revision Control**
+*   **Gate 1 (Code Freeze for Integration):** All code must be frozen on a specific feature branch revision (`feat/unified-view-rc1`). No further commits allowed until staging validation passes.
+*   **Gate 2 (Staging Deployment):** Deploy `feat/unified-view-rc1` to staging. This requires explicit approval from the Clinical Operations Lead. Due to the 45-minute seeding time, this deployment acts as a hard gate; no changes allowed once started.
+*   **Check 1 (Recurring Series Integrity):** Automated verification that zero write operations occurred on recurring series tables during the staging run.
+*   **Check 2 (Holiday Logic Manual Verification):** The automated pipeline will likely trigger a false positive on the known flaky holiday check. A senior engineer must manually verify the holiday closure display against a pre-defined list of known dates. This manual sign-off is mandatory before proceeding.
+*   **Check 3 (Winter Wellness Validation):** Run the full test suite *only* at this stage to conserve CI credits. Focus specifically on the 'Winter Wellness' group availability display.
+
+**3. Review Process**
+*   **Independent Code Review:** A senior engineer not involved in Lanes A or B must review the aggregation logic. They must specifically verify that no migration scripts or data alteration commands are present in the diff.
+*   **Operational Review:** The Clinical Operations Lead must review the staging output visually to confirm holiday closures match reality. This is a business-logic gate, not just a code gate.
+*   **Safety Review:** A separate infrastructure engineer must confirm that the immutable time zone config was not bypassed insecurely and that the read-only constraints are enforced at the database connection level.
+
+**4. Landing Strategy & Rollback**
+*   **Merge Protocol:** Merging to `main` triggers an irreversible data snapshot. Therefore, the merge button acts as the final point of no return. The merge should only be executed after written confirmation from both the Lead Engineer and the Clinical Operations Lead.
+*   **Rollback Limitation:** Because the data snapshot is irreversible, a traditional code rollback to a previous commit will not restore the system state if data corruption occurred. The rollback plan relies entirely on **feature flagging**.
+*   **Human Decision Point:** The new dashboard must be hidden behind a feature flag. Even after merging to `main`, the feature remains off for the general public.
+*   **Go/No-Go:** Once merged and the snapshot is taken, enable the feature flag *only* for the 'Winter Wellness' group. Monitor for 24 hours. If any patient misses a slot or a display glitch occurs, immediately disable the flag. This is the only safe rollback mechanism. General public enablement requires a second human decision after the 24-hour successful trial.

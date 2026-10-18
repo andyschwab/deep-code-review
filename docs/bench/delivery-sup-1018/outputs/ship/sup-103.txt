@@ -1,0 +1,44 @@
+### Delivery Plan: Zeta-9 Auth Upgrade
+
+**Strategy:** Silent migration via dual-path support. Legacy sessions persist; new handshakes enforce Zeta-9. No mass reset.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Contract):** Define the Zeta-9 handshake protocol and exact session timeout logic. Produce a testable spec with acceptance criteria for "silent migration." **Parallel.**
+*   **Lane B (Implementation):** Modify `core-gate` to support dual paths. Implement the new handshake for fresh logins; retain legacy path as fallback. Ensure `user-session` library remains pinned (do not upgrade). **Parallel to A, Serialized before D.**
+*   **Lane C (Data Safety):** Script the irreversible database migration. Include a pre-flight full snapshot backup and a verified rollback script. **Serialized:** Must complete and verify backup before Lane D starts.
+*   **Lane D (Verification):** Execute manual retry validation in staging to bypass flaky network false negatives. Verify zero downtime behavior and session continuity for existing users. **Serialized:** Runs only after Lane B commits and Lane C backup is confirmed.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Review):** Product Analyst and Security Lead approve the migration spec. Pin base SHA.
+*   **G3 (Design):** Architect approves the dual-path strategy and rollback plan. Explicitly document the decision to keep `user-session` pinned.
+*   **G4 (Build):** Lane B commits code with unit tests. Lane C commits migration script. Base SHA immutable.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Action:** Run CI ($45 cost). If flaky failure occurs, perform mandatory manual retry in staging.
+    *   **Criteria:** New logins trigger Zeta-9; existing sessions remain valid; legacy fallback functional. Database snapshot verified.
+*   **G6 (Review):**
+    *   **Security:** Independent review by Security Team (not the implementer). Focus on handshake integrity.
+    *   **QA:** Independent validation of the manual retry results and session state coverage.
+*   **G7 (Integration):** Merge into integration branch. Re-run affected gates on the final merged SHA.
+
+#### 3. Review Independence
+*   **Builder (Lane B)** cannot review their own code.
+*   **Security Review:** Must be performed by a security engineer distinct from the implementer.
+*   **QA Review:** Must be performed by QA distinct from the builder, specifically validating the manual retry evidence.
+*   **Data Review:** Database migration script reviewed by a DBA or senior backend engineer not involved in Lane C writing.
+
+#### 4. Landing & Human Decisions
+*   **Merge Train:** Once G7 passes, prepare the merge to main.
+*   **Human Approval (Hard Gate):** Explicit written approval required from:
+    1.  **Jane Smith (Security Lead):** Confirming Zeta-9 compliance.
+    2.  **Site Reliability Team:** Confirming rollback readiness and zero-downtime assurance.
+*   **Deployment:** Deploy during a low-traffic window before the Monday deadline, but outside business hours to ensure zero downtime risk during peak use.
+*   **Rollback:** If production metrics show auth failures >0.1% or session drops, immediately execute the rollback script using the pre-migration snapshot.
+*   **Post-Deploy:** Monitor for 24 hours. Verify new logins use Zeta-9 while legacy sessions naturally expire.
+
+**Constraints Adhered To:**
+*   No `user-session` library upgrade.
+*   Manual retry for flaky CI.
+*   Irreversible DB change guarded by snapshot.
+*   Zero downtime during business hours.
+*   Silent migration (no user action required).

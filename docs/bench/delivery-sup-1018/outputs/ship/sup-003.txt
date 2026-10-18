@@ -1,0 +1,59 @@
+### Delivery Plan: Matchmaker v2 Zero-Downtime Deploy
+
+**Objective:** Route new lobby entries to Matchmaker v2 while preserving active brackets on v1 until natural conclusion, with zero interruption to live games.
+
+#### 1. Lanes & Serialization
+
+*   **Lane A: Feature Flag & Routing Logic (Builder)**
+    *   **Work:** Implement dynamic routing middleware. Check `global_rules.json` and active session ledger; route new requests to v2, existing session IDs to v1.
+    *   **Constraint:** Must not modify immutable ledger entries.
+    *   **Parallelism:** Can run parallel to Lane B.
+*   **Lane B: v2 Integration & Staging Verification (QA)**
+    *   **Work:** Deploy v2 to Staging. Run full integration suite (excluding known flaky latency check if core logic passes). Verify pairing quality improvements.
+    *   **Constraint:** Must pass before Prod deploy.
+    *   **Parallelism:** Runs parallel to Lane A.
+*   **Lane C: Cache Purge & Config Prep (Release Engineer)**
+    *   **Work:** Script manual cache purge for `global_rules.json`. Prepare rollout manifest.
+    *   **Serialization:** Must execute *after* Lane A code is merged but *before* traffic shift in Prod.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec:** Define "Active Session" criteria based on ledger state. Explicitly list non-goals (no migration of live brackets).
+*   **G3 Design (ADR):** Document the dual-path routing architecture. Confirm immutable ledger is read-only for this change.
+*   **G4 Implement:**
+    *   **Base SHA:** Pin to current Prod HEAD.
+    *   **Check:** Unit tests for routing logic (v1 vs v2 path selection).
+*   **G5 Verify (Staging):**
+    *   **Revision:** Exact Staging SHA post-Lane A/B merge.
+    *   **Action:** Simulate active bracket + new lobby entry. Verify active game continues on v1 logic; new user hits v2.
+    *   **Cost Control:** Run CI once. Ignore flaky latency module failure if core pairing asserts pass.
+*   **G6 Review:**
+    *   **Security/Arch:** Independent review of routing logic (not by Builder). Focus on race conditions during cache purge.
+    *   **QA Sign-off:** Confirmation of Staging behavior.
+
+#### 3. Human Gates & Approval
+
+*   **Required Sign-offs (G8 Release):**
+    1.  **Backend Lead:** Technical approval of routing logic.
+    2.  **Tournament Operations Lead:** Explicit confirmation that active brackets are isolated (as requested).
+    3.  **Tournament Director:** Final production deploy authorization.
+*   **Decision Format:** Present two approaches:
+    *   *A: Soft Launch:* Route 5% of new lobbies to v2, monitor for 1 hour, then 100%. (Recommended for risk reduction).
+    *   *B: Hard Switch:* Immediate 100% routing to v2 for new lobbies.
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:** Merge Lane A to integration branch. Run CI (45 mins).
+*   **Deploy Sequence:**
+    1.  Deploy binary to Prod (inactive).
+    2.  **Human Action:** Tournament Ops Lead verifies active session list.
+    3.  **Human Action:** Dual approval (Backend Lead + Director) to enable feature flag.
+    4.  **Automated:** Execute cache purge script (`global_rules.json`).
+    5.  **Verification:** Monitor first 50 new matches for v2 routing; sample 10 active matches to ensure v1 continuity.
+*   **Rollback Plan:**
+    *   **Trigger:** Any active session drop or recalculation error.
+    *   **Action:** Disable feature flag immediately (reverts all new traffic to v1).
+    *   **Constraint:** Cannot rollback ledger writes. If v2 corrupted state, legal review required before fix.
+*   **Post-Deploy (G9):** Verify SLOs for pairing latency and zero support tickets regarding bracket invalidation.
+
+**Risk Note:** The 15-minute config cache creates a window where nodes might mismatch. The cache purge must be synchronized across the cluster before enabling the flag.

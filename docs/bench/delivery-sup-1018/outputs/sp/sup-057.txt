@@ -1,0 +1,69 @@
+# Delivery Plan: Legacy Sidecar Deprecation
+
+## Lanes & Parallelism
+
+**Lane A: Manifest Updates (Immediate Start)**
+*   **Owner:** Platform Engineering (Assignee TBD)
+*   **Work:** Modify `sidecar-config.yaml` in the `nexus-control` monorepo. Remove all v1 proxy references, enforce v2 exclusively, and strip legacy fallback logic.
+*   **Constraint:** Changes must be atomic across all forty microservices within the single manifest to prevent version skew.
+
+**Lane B: Artifact Verification (Parallel to Lane A)**
+*   **Owner:** DevOps Automation
+*   **Work:** Script a read-only scan of the artifact registry to identify all active tags/branches referencing v1 binaries. Generate a "hit list" of targets for purging.
+*   **Constraint:** Do not delete yet; only report. This data informs the final gate.
+
+**Lane C: Simulation Prep (Parallel to Lane A)**
+*   **Owner:** QA Engineering
+*   **Work:** Prepare the staging environment for high-concurrency testing. Disable non-essential services to mitigate known flaky timeout issues caused by missing hardware load balancers.
+
+**Serialization Point:** Lane A must commit before Lane C executes full tests. Lane B's report must be reviewed before the final purge.
+
+## Gates & Checks
+
+**Gate 1: Static Configuration Review (Pre-Build)**
+*   **Trigger:** Pull Request opened on `nexus-control`.
+*   **Check:** Automated linting to ensure zero v1 string literals remain in `sidecar-config.yaml`.
+*   **Revision:** PR Head.
+*   **Pass Criteria:** Grep returns no matches for "v1", "legacy", or "fallback".
+
+**Gate 2: Targeted Mesh Simulation (Post-Build)**
+*   **Trigger:** CI pipeline initiated on approved PR.
+*   **Check:** Run full mesh simulation (35 mins).
+*   **Revision:** CI Build Artifact.
+*   **Mitigation:** If timeouts occur, QA must manually verify logs to distinguish between load-balancer absence (expected) and routing failure (blocker).
+*   **Pass Criteria:** Traffic routing stable; zero fallback logic invoked.
+
+**Gate 3: Senior Approval (Human Gate)**
+*   **Approvers:** Jane Smith OR Carlos Ruiz.
+*   **Check:** Review Lane A changes and Gate 2 results.
+*   **Decision:** Explicit approval required to merge to `main` and trigger artifact purge.
+
+## Review Process
+
+*   **Code Review:** Performed by a Senior Platform Engineer (Jane Smith or Carlos Ruiz). They must be independent of the author of Lane A changes.
+*   **Security/Compliance Review:** Automated scan results must be attached to the PR, showing the critical flag is resolved in the simulated environment.
+*   **Artifact Review:** DevOps Lead verifies Lane B's "hit list" against the proposed purge command to ensure no false positives (active services) are targeted.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge approved PR to `main`.
+2.  Trigger deployment to Staging for a 30-minute smoke test (real traffic shadowing).
+3.  Upon success, deploy to Production.
+
+**The Purge (Irreversible Action):**
+*   **Timing:** Only after Production deployment confirms 100% v2 traffic and zero v1 errors for 15 minutes.
+*   **Action:** Execute deletion of v1 binaries identified in Lane B.
+*   **Verification:** Re-run Lane B scan; result must be empty.
+
+**Rollback Plan:**
+*   **Condition:** Critical routing failure in Staging or Production before the binary purge.
+*   **Action:** Revert the `sidecar-config.yaml` commit immediately. The v1 binaries remain in the registry until the purge step, allowing a config-only rollback.
+*   **Limitation:** Once the binary purge executes, rollback requires a full backup restoration (estimated 4+ hours). If the deadline (18:00 UTC) is imminent and confidence is low, delay the purge but enforce the config change to satisfy compliance scanning.
+
+**Human Decision Required:**
+*   Final authorization to execute the binary purge.
+*   Go/No-Go decision if staging tests exhibit timeouts (distinguishing environment noise from actual defects).
+
+**Deadline Management:**
+If the 35-minute simulation plus review exceeds the window before 18:00 UTC, prioritize the config merge to satisfy the scanner. Schedule the binary purge for the earliest maintenance window post-deadline if risk is deemed too high for same-day execution.

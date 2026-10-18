@@ -1,0 +1,27 @@
+### Delivery Plan: Archived Bills Storage Migration
+
+**1. Lanes & Parallelism**
+*   **Lane A (Legal Coordination - Serial Pre-requisite):** The Project Lead must coordinate with the Legal team to generate the definitive "Active Litigation Case List." This must be completed and signed off *before* any code changes or script execution. No technical work proceeds without this list.
+*   **Lane B (Migration Engineering):** Engineers develop the migration script in a feature branch. This includes logic to read the "Active Litigation Case List," map old IDs to new storage keys, and apply the `legal_hold_flag` in the new provider's metadata format without altering the shared configuration schema.
+*   **Lane C (Environment Prep):** DevOps requests the specific new storage provider's egress IPs from the vendor and submits a firewall rule change request for the 'Vault' environment. This runs parallel to Lane B but must be approved before the final CI run.
+
+**2. Gates & Checks**
+*   **Gate 1 (Code Freeze & Schema Lock):** Before merging to the release branch, a static analysis check must verify that the shared configuration file schema remains untouched. Any modification here triggers an immediate build failure.
+*   **Gate 2 (The 45-Minute CI Run):** The migration script runs against a production-sized snapshot in the staging 'Vault' environment.
+    *   *Trigger:* Only after Lane A (Legal List) is finalized and Lane C (Firewall IPs) are pre-approved.
+    *   *Check:* The pipeline must produce a validation report showing 100% checksum matches and a diff confirming every ID from the Legal List has the `legal_hold_flag` set in the new system.
+    *   *Constraint:* Due to the cost penalty, this run is permitted only once per 24-hour window. Two failed runs require a mandatory architectural review before a third attempt.
+*   **Gate 3 (Dual Approval):** Upon successful CI, the deployment request enters a holding state requiring digital signatures from both the Head of Engineering and the Chief Legal Officer. The system must technically enforce this dual key; neither alone can authorize the push.
+
+**3. Review Strategy**
+*   **Code Review:** Performed by a Senior Backend Engineer *not* involved in writing the migration script. Focus: Checksum logic, retry mechanisms, and strict adherence to the "no schema change" rule for the legal hold config.
+*   **Legal Validation:** The Legal Team Lead must review the *output* of the staging CI run (the validation report). They must explicitly certify that the flagged files in the report match their Active Case List. This is independent of the engineering review.
+*   **Dry-Run Verification:** A manual spot-check of 5 random files (3 non-held, 2 held) in the staging environment to verify accessibility and flag persistence.
+
+**4. Landing & Rollback**
+*   **Merge Strategy:** The code merges to `main` only after Dual Approval. However, the actual migration script is *not* triggered by the merge. It is a manual, one-time execution job initiated by the Head of Engineering during a predefined maintenance window.
+*   **Execution:** Once started, the script runs to completion. There is no pause function.
+*   **Rollback Plan:**
+    *   *Pre-completion failure:* If the script crashes mid-stream, the database state is considered "compromised." The rollback is **not** automated. It requires manual database intervention to revert pointers to the old storage provider. The old data remains untouched until the new migration is fixed and re-run.
+    *   *Post-completion failure:* If data corruption is found after completion, the system must immediately revert all routing logic to the old provider via a hotfix config toggle (if available) or a rapid deployment of the previous routing service version. The new provider's data is quarantined for forensic analysis.
+*   **Human Decision Point:** The "Go/No-Go" decision to start the script rests solely with the Head of Engineering, contingent on the CLO's written confirmation of the Legal validation report.

@@ -1,0 +1,63 @@
+# Delivery Plan: Acme Horizon Navigation Deployment
+
+## Lanes & Parallelism
+
+**Lane A: Routing & Compatibility (Vertex Team)**
+*   **Work:** Implement URL mapping logic within the `legacy-bridge` module to intercept legacy paths and render the corresponding new views without HTTP redirects. Create a standalone validation script to map all known marketing deep links to new internal routes.
+*   **Constraint:** Changes to `legacy-bridge` must be isolated to prevent side effects on the three other consuming micro-frontends.
+
+**Lane B: Sandbox Environment Setup (DevOps)**
+*   **Work:** Provision an isolated pre-prod sandbox mirroring production data. Inject real ad-tracking parameters and the full list of active marketing deep links into this environment, as staging lacks these.
+*   **Parallelism:** Runs concurrently with Lane A.
+
+**Lane C: Feature Flag & Migration Prep (Release Engineering)**
+*   **Work:** Prepare the database migration scripts and the "Acme Horizon" feature flag configuration. Define the rollback trigger thresholds.
+*   **Serialization:** Must wait for Lane A's code freeze before final dry-run.
+
+## Gates & Checks
+
+**Gate 1: Unit & Integration Check (Pre-CI)**
+*   **When:** Immediately after Lane A commits code to a feature branch.
+*   **What:** Run localized unit tests for `legacy-bridge` and the new routing logic.
+*   **Check:** Verify no regressions in the three other micro-frontends using mock interfaces.
+*   **Pass Criteria:** 100% pass rate on localized tests. Failure halts progress; no CI trigger yet.
+
+**Gate 2: Deep Link Validation (Sandbox)**
+*   **When:** After Gate 1 passes and Lane B's sandbox is ready.
+*   **What:** Deploy the candidate build to the pre-prod sandbox. Execute the validation script against the injected list of thousands of deep links.
+*   **Check:** Every legacy URL must resolve to the correct content view with ad-tracking parameters intact. No 404s, no HTTP redirects (status 200 only).
+*   **Pass Criteria:** Zero broken links; tracking parameters persist correctly.
+
+**Gate 3: Full Regression (CI Pipeline)**
+*   **When:** Only after Gate 2 passes.
+*   **What:** Trigger the full $45/55min regression suite on the exact revision that passed Gate 2.
+*   **Check:** System-wide stability check.
+*   **Pass Criteria:** All tests pass. If failed, the cost is incurred, but deployment is blocked.
+
+## Review Process
+
+**Independent Code Review:**
+*   **Who:** A senior engineer from a different team (not Vertex Team) reviews the `legacy-bridge` changes.
+*   **Focus:** Ensure routing logic does not introduce side effects for other micro-frontends and adheres to the "no redirect" constraint.
+*   **Timing:** Before Gate 2.
+
+**Operational Readiness Review:**
+*   **Who:** Jane Smith and Change Advisory Board (CAB).
+*   **Focus:** Review Gate 2 validation report and Gate 3 results. Verify rollback plan.
+*   **Timing:** After Gate 3 passes, before Tuesday launch.
+
+## Landing Strategy
+
+**Merge & Deploy:**
+*   **When:** Tuesday, during the approved maintenance window.
+*   **How:** Merge the verified revision to `main`. Trigger production deploy via CI.
+*   **Human Decision:** Jane Smith/CAB must explicitly approve the production promotion after reviewing the sandbox validation report.
+
+**Feature Flag Activation:**
+*   **Sequence:** Deploy code with the flag OFF. Once deployed, enable the "Acme Horizon" flag for 5% of traffic, monitoring error rates and link resolution logs. Gradually increase to 100%.
+
+**Rollback Plan:**
+*   **Trigger:** If error rates spike >1% or deep link resolution fails in production logs.
+*   **Action:** Immediately toggle the feature flag OFF (instant revert of UI).
+*   **Critical Constraint:** The database migration is irreversible. If the issue stems from data incompatibility rather than UI routing, the rollback is limited to UI reversion; data fixes must be applied forward.
+*   **Post-Rollback:** Freeze further deployments until a root cause analysis is completed.

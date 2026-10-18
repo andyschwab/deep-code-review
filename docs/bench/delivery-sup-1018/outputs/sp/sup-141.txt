@@ -1,0 +1,22 @@
+### Delivery Plan: Quarterly Billing Alignment
+
+**1. Lanes & Parallelism**
+*   **Lane A (Logic Implementation):** Develop the `CycleCalculator` extension in an isolated feature branch. This lane handles the date math, ensuring the new quarterly logic inherits the existing anchor-date resolution strategy used by monthly/annual cycles.
+*   **Lane B (Test Harness Hardening):** In parallel, engineer a deterministic test wrapper for the integration suite. This wrapper must mock the database time-source to eliminate the 30-second read-replica lag, preventing false negatives in date-validation without altering production read paths.
+*   **Serialization Point:** Lane A cannot merge until Lane B proves the test harness is stable. Flaky tests are prohibited; the harness must pass 10 consecutive dry-runs locally before any code review begins.
+
+**2. Gates & Checks**
+*   **Gate 1: Pre-Commit Validation (Local):** Before pushing, the developer must run the hardened test suite against the specific commit hash. Success requires zero flakiness and explicit assertion that no customer anchor date results in double-billing within a calendar month.
+*   **Gate 2: Dual-Approval Sign-off:** The `CycleCalculator` module requires mandatory approval from both the **Payments Lead** (verifying logic correctness) and the **Compliance Officer** (verifying regulatory alignment). No merge is possible without both signatures recorded in the PR metadata.
+*   **Gate 3: The "Blackout" Check:** An automated pre-merge check must verify the current date. If the merge request occurs within 48 hours prior to the 1st of any month (the financial reconciliation window), the pipeline must hard-fail. This deployment is irreversible during this window.
+
+**3. Review Strategy**
+*   **Independent Logic Review:** Assign a senior engineer *not* affiliated with the Payments team to review the date-calculation algorithm. Their sole focus is edge cases: leap years, month-end anchors (e.g., Jan 31 → Feb 28), and the transition logic for the 15,000 existing accounts.
+*   **Compliance Review:** The Compliance Officer reviews the change list specifically for audit trail integrity, ensuring the new billing codes are distinguishable from legacy monthly/annual codes in financial reports.
+*   **Separation of Duties:** The author of Lane A cannot approve the merge, even if they hold lead status. The approvers must be distinct from the implementer.
+
+**4. Landing & Rollback**
+*   **Merge Window:** Merging is permitted only between the 3rd and 28th of any month. This provides a safety buffer before the 1st and after the potential month-end edge cases.
+*   **Deployment Strategy:** Deploy to a canary group comprising 1% of enterprise accounts (approx. 150 users) selected randomly but excluding those with anchor dates falling on the 31st. Monitor for 24 hours.
+*   **Rollback Protocol:** Since the change is irreversible once the reconciliation script runs, the rollback plan is a "feature kill-switch." If double-billing is detected, immediately toggle the feature flag to disable quarterly billing, reverting affected users to their previous cycle manually via a hotfix script. Do not attempt a code revert if the reconciliation window is active; rely on the kill-switch and manual refunds.
+*   **Human Decision Point:** Final production activation requires explicit verbal confirmation from the Payments Lead confirming the 24-hour canary metrics are clean and the current date is outside the blackout window.

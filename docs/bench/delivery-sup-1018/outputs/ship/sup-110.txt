@@ -1,0 +1,50 @@
+### Delivery Plan: Soft-Limit Quota Guard
+
+**Objective:** Implement a monitoring-only quota guard for `core-gateway` with an instant bypass feature flag, ensuring zero impact on critical billing/auth daemons before active enforcement.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation):** Builder implements the soft-limit logic in `core-gateway`.
+    *   *Constraint:* Must include a feature flag `quota.enforcement_mode` (default: `MONITOR_ONLY`). Logic must explicitly whitelist billing/auth daemons to bypass logging entirely if configured, ensuring zero overhead risk.
+    *   *Output:* Patch + Unit Tests (mocked).
+*   **Lane B (Test Optimization):** QA Engineer analyzes the 45-minute CI pipeline.
+    *   *Task:* Identify a subset of integration tests covering gateway traffic paths that can run in <10 minutes without full DB mocking, or create a specialized "gateway-only" test profile.
+    *   *Output:* Optimized test command/script.
+*   **Lane C (Config Prep):** SRE Lead (Marcus Thorne) prepares the staging configuration manifest.
+    *   *Task:* Define the critical service list and the feature flag structure.
+    *   *Dependency:* None, but must align with Lane A's flag name.
+
+**Parallel Execution:** Lanes A, B, and C run simultaneously.
+**Serialization:** Lane A's code must be merged and verified before Lane D (Staging Deploy) begins.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Confirm acceptance criteria: "Zero legitimate traffic rejected," "Monitoring mode logs only," "Instant bypass via flag."
+*   **G3 Design Review:** Independent Security Engineer reviews the bypass mechanism and whitelist logic. **Critical Check:** Verify that the "critical daemon" list cannot be overridden by external input.
+*   **G4 Implementation:** Builder commits code. Base SHA recorded.
+*   **G5 Verification (Staging):**
+    *   *Revision:* Exact SHA from G4.
+    *   *Action:* Deploy to Staging using Marcus's config. Run Lane B's optimized test suite + replay production traffic sample.
+    *   *Success Criteria:* Logs show potential violations for non-critical jobs; **zero** log entries for billing/auth daemons. Feature flag flip immediately stops logging.
+    *   *Note:* Due to staging DB differences, verify race condition handling via unit tests (Lane A) rather than relying solely on staging integration.
+*   **G6 Review:** Independent QA verifies G5 receipts. Security verifies no hard-block logic is reachable in `MONITOR_ONLY` mode.
+
+#### 3. Review Strategy
+*   **Code Review:** Senior Backend Engineer (not the Builder) reviews `core-gateway` changes. Focus: Thread safety, flag evaluation performance, and whitelist integrity.
+*   **Security Review:** AppSec specialist reviews the "instant bypass" mechanism to ensure it cannot be exploited to disable other protections.
+*   **Configuration Review:** Marcus Thorne reviews the config manifest.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A to `main` via a Pull Request.
+    2.  **Human Gate:** Marcus Thorne must approve the PR merge and the specific staging configuration.
+    3.  Trigger CI (full suite required once before production).
+*   **Deployment:**
+    *   Deploy to Staging first. Monitor for 24 hours.
+    *   **Production Deploy:** Only after Staging verification confirms zero false positives on critical daemons.
+    *   **Mode:** Deploy with `quota.enforcement_mode = MONITOR_ONLY`.
+*   **Rollback Plan:**
+    *   *Trigger:* Any single denied request from a critical service (Severity-1) or confirmed false positive spike.
+    *   *Action:* Flip feature flag to `DISABLED` (instant).
+    *   *Code Revert:* If code change is suspect, revert PR. **Warning:** Reverting requires the manual 20-minute DB schema migration. This must be executed by an SRE.
+    *   *Communication:* Immediate alert to Incident Response channel upon any critical denial.
+
+**Risk Mitigation:** The "monitoring-only" mode ensures that even if logic is flawed, no traffic is dropped. The manual rollback cost dictates that the feature flag bypass is the primary recovery mechanism, not a code revert.

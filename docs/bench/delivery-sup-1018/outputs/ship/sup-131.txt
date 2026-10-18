@@ -1,0 +1,57 @@
+### Delivery Plan: Scale Notification Engine
+
+**Objective:** Refactor `acme-alerts` notification processor to handle 15,000 events/min with exactly-once semantics and <200ms latency. Deadline: 28th.
+
+#### 1. Lanes & Parallelism
+*Work is split into three isolated worktrees. No shared state edits until integration.*
+
+*   **Lane A (Architecture & Persistence Design) [Serial First]**
+    *   **Owner:** Senior Engineer (Architect Hat).
+    *   **Task:** Design stateful processing strategy to survive restarts without MQ config changes. Define idempotency keys and local write-ahead log (WAL) or database transaction boundaries.
+    *   **Output:** ADR `adr-notification-resilience.md` defining the exact recovery protocol.
+    *   **Dependency:** None. Must complete before Lane B coding starts.
+
+*   **Lane B (Core Refactor & Implementation) [Parallel after ADR]**
+    *   **Owner:** Senior Engineer (Builder Hat).
+    *   **Task:** Implement the processing loop based on Lane A's ADR. Ensure payload structure remains unchanged. Optimize for concurrency within the single service instance.
+    *   **Constraint:** Do not touch MQ config files.
+    *   **Output:** Code commits on isolated branch `feat/scale-notifications`.
+
+*   **Lane C (Load Simulation & Verification) [Parallel after ADR]**
+    *   **Owner:** QA Engineer (Independent).
+    *   **Task:** Build a local harness to inject 15k events/min. Script assertions for "exactly-once" delivery (deduplication checks) and latency histograms.
+    *   **Output:** Test script `scripts/load_test_peak.sh` and baseline metrics report.
+
+#### 2. Gates & Checks
+*All checks run on the exact SHA of the integration branch.*
+
+*   **G1/G2 (Spec & Plan):** Review ADR from Lane A. Verify it addresses mid-batch restarts explicitly.
+*   **G4 (Implementation):** Builder commits code. CI runs with `--fast-check` flag to minimize cost.
+    *   *Exception:* Explicitly skip the known flaky `comms-utils` network test if logs show timeouts; do not retry.
+*   **G5 (Verify):**
+    *   Run Lane C's load harness against the built artifact in a local container (not full staging yet).
+    *   **Pass Criteria:** 0 dropped messages at 15k/min, 0 duplicates after forced restart, p99 latency <200ms.
+    *   *Note:* If local passes, trigger **one** targeted staging spin-up only for final sign-off.
+*   **G6 (Review):**
+    *   **Code Review:** Independent Senior Engineer (not the Builder). Focus: race conditions, idempotency logic, and payload immutability.
+    *   **Security Review:** Verify no new data exposure in logs during high load.
+
+#### 3. Landing & Human Decisions
+*Serialization is critical due to rollback risks.*
+
+*   **Integration (G7):** Merge Lanes A, B, and C into `main` only after G6 approval. Run final `--fast-check` suite on the merge commit.
+*   **Human Gate (G8 - Deploy):**
+    *   **Approver:** Jane Smith.
+    *   **Input:** Staging verification receipt (exact SHA), latency report, and rollback dry-run confirmation.
+    *   **Decision:** Explicit sign-off required before production push.
+*   **Rollback Strategy:**
+    *   **Risk:** Rolling back wipes unprocessed queue data.
+    *   **Mitigation:** Before deploy, snapshot the queue state (if compliant) or ensure the "exactly-once" logic allows re-processing from the source upon restore. If the deploy fails *after* starting, **do not rollback** immediately; attempt a forward fix or drain the queue manually to prevent data loss. Rollback is the last resort.
+
+#### 4. Execution Timeline
+1.  **Day 1:** Lane A produces ADR. Lane C prepares harness.
+2.  **Day 2-3:** Lane B implements. Lane C validates logic locally.
+3.  **Day 4:** G5/G6 Reviews. Single staging run.
+4.  **Day 5:** Jane Smith approval. Deploy before the 28th.
+
+**Risk Note:** The immutable MQ config is the primary bottleneck. If the design requires MQ changes, the plan halts at G2 until the separate infrastructure ticket is resolved.

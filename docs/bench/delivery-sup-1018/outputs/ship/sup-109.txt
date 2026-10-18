@@ -1,0 +1,39 @@
+**Delivery Plan: Corporate Sponsorship Tier with Real-Time Registry Validation**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Product & Spec):** Define exact error messages, "Verifying..." UI states, and the specific timeout threshold (must exceed 4.2s p99 latency). *Parallel.*
+*   **Lane B (Implementation):** Implement local validation logic within the checkout service (bypassing the frozen shared library). Integrate the real-time registry call with strict timeout handling and no fallback caching. Add UI states. *Parallel.*
+*   **Lane C (Test Data):** Prepare valid and invalid corporate entities in the Green environment for manual verification. *Parallel.*
+*   **Serialization Point:** Lane B cannot merge until Lane A's spec is approved and Lane C's data is ready in Green.
+
+**2. Gates & Checks**
+*   **G0/G1 (Intake/Spec):** Owner approves the timeout threshold and error copy.
+*   **G2 (Plan):** Confirm the implementation isolates logic locally to respect the audit freeze. Set a hard budget cap for CI runs (max 2 retries).
+*   **G3 (Design):** Verify the timeout configuration explicitly exceeds 4.2s to prevent false negatives.
+*   **G4 (Build):** Unit tests for the new local logic. No integration tests in CI (staging mock is useless for this requirement).
+*   **G5 (Verify - Critical):** **Manual execution in Green environment only.**
+    *   Test valid entity: Transaction completes.
+    *   Test invalid entity: Transaction blocked with correct error.
+    *   Test timeout: Simulate latency > threshold; verify block and error.
+    *   Verify UI shows "Verifying..." state.
+    *   *Exact Revision:* The specific SHA built in G4, deployed manually to Green for this test.
+*   **G6 (Review):** Code review by a senior engineer **not** in the Payments squad (independent of Builder). Security review focused on data leakage during the registry call.
+
+**3. Review Independence**
+*   **Builder:** Implements Lane B.
+*   **Reviewer 1 (Code):** Senior Engineer (non-Payments). Reviews logic, timeout handling, and isolation from the frozen library.
+*   **Reviewer 2 (Security):** Validates no PII is logged during failed registry checks.
+*   **Verifier (QA):** Performs the manual Green environment tests (G5). The Builder must not approve their own G5 results.
+
+**4. Landing & Human Decisions**
+*   **Merge Strategy:** Single PR containing all changes.
+*   **Human Gates (Mandatory):**
+    1.  **Jane Smith:** Must approve the PR merge.
+    2.  **Compliance Lead:** Must approve the PR merge.
+    3.  **Deploy Approval:** Explicit human authorization required to promote the merged commit to the Green production environment.
+*   **Rollback Plan:**
+    *   If the registry causes systemic latency spikes post-deploy: Immediate feature flag toggle (if available) or revert commit.
+    *   Rollback must be tested conceptually during G5 (verify the revert path clears the blocking logic).
+*   **Timeline:** All gates must clear by Monday EOD to meet the Tuesday marketing launch. If G5 manual testing in Green fails, the launch is delayed; do not bypass the Green test due to staging limitations.
+
+**Risk Note:** The 28-minute CI cost necessitates a "green locally before push" discipline. Do not rely on CI to catch basic syntax errors. The primary risk is the registry timeout; if the registry is slow but returns success, the user experience must remain stable.

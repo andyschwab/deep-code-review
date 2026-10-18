@@ -1,0 +1,35 @@
+### Delivery Plan: Scale Guild Invite Capacity
+
+**1. Lanes & Parallelism**
+*   **Lane A (Configuration & Logic):** Modify `InviteManager` to read the new cap (200) from a dynamic configuration source rather than a hardcoded constant. Implement the "session stickiness" logic: check the config value at the *start* of an invite flow and cache it for that specific session ID, ensuring active users remain on the old limit (50) while new sessions pick up 200.
+*   **Lane B (Database):** Prepare the irreversible migration script to expand the pending invites column. Since the change is irreversible, this script must be dry-run validated against a production snapshot locally before any deployment attempt.
+*   **Lane C (Test Optimization):** Isolate the `concurrent-invite-check` test suite. Create a lightweight unit-test harness that mocks the database seeding to bypass the 45-minute CI integration run for this specific change, focusing only on the invite cap logic and session persistence.
+
+**Parallel Execution:** Lanes A, B, and C run simultaneously. Lane A and C must merge before the final integration gate; Lane B waits for Lead Engineer approval before execution.
+
+**2. Gates & Checks**
+*   **Gate 1 (Code Freeze):** All code changes merged to `feature/summer-conquest-scale` by Monday 14:00 UTC.
+*   **Gate 2 (Unit Verification):** Lane C's lightweight harness must pass 100% on revision `feature/summer-conquest-scale` head. This replaces the full CI run for the initial logic check.
+*   **Gate 3 (Flake Mitigation):** Run the `concurrent-invite-check` manually three times on the staging environment using the production data snapshot. If it flakes twice, the SRE team must patch the test harness before proceeding.
+*   **Gate 4 (Migration Dry-Run):** Execute Lane B's migration script on the staging database. Verify column expansion and data integrity. **Constraint:** Do not run on Production until Gate 5 is cleared.
+
+**3. Independent Review**
+*   **Reviewer:** Senior Backend Engineer (not the author of Lane A/B/C).
+*   **Scope:** Review the `InviteManager` diff specifically for the session caching logic to ensure no race conditions exist where a user might get stuck between limits. Verify the migration script is idempotent up to the point of no return.
+*   **Independence:** The reviewer must not be the one who wrote the test harness in Lane C. They must validate the test coverage against the requirement that "active sessions remain valid."
+
+**4. Landing Strategy**
+*   **Deployment Window:** Tuesday 08:00 UTC (one hour before marketing push).
+*   **Sequence:**
+    1.  Deploy Lane A (Config/Logic) with the cap still set to 50 in the config server. Verify zero errors in logs.
+    2.  **Human Decision Point:** Lead Engineer Jane Smith reviews the staging success metrics and the dry-run report. She must explicitly approve the Production Migration.
+    3.  Execute Lane B (Migration) on Production.
+    4.  Update Config Server to 200.
+    5.  Trigger rolling restart of `SocialGraph` pods.
+*   **Rollback Protocol:**
+    *   **Pre-Migration:** If issues arise before Step 3, revert the Lane A deploy immediately.
+    *   **Post-Migration:** Due to the irreversible schema change, code-level rollback is impossible without data loss. If critical failures occur after Step 3, the system must remain on the new schema. The fallback is to toggle the Config Server back to 50 to stop new high-volume flows while engineering diagnoses the issue. Full data restore from nightly backup is the absolute last resort and is deemed too costly during the event window.
+
+**5. Critical Constraints**
+*   No full CI pipeline runs after Monday 18:00 UTC to avoid queue delays.
+*   Jane Smith's approval is the single point of failure for the production deploy; she must be available at 07:30 UTC Tuesday.

@@ -1,0 +1,53 @@
+### Delivery Plan: NorthWind to AzureFlow Migration
+
+#### 1. Lanes and Parallelism
+**Lane A: Core Ingestion (Serialized)**
+*   **Owner:** Senior Backend Engineer
+*   **Work:** Modify `Pipeline-Alpha` to normalize incoming headers and map legacy NorthWind cache keys to new AzureFlow asset IDs. Implement the "graceful fetch" logic for stale segments.
+*   **Constraint:** Must complete before Lane B begins integration testing. Cannot touch `asset-manifest.json` between 09:00–17:00.
+
+**Lane B: Player Compatibility (Parallel to Lane A start)**
+*   **Owner:** Mobile Client Engineer
+*   **Work:** Verify that existing mobile app versions (last 6 months) correctly handle the normalized headers without requiring an app update. Create a local mock server simulating the mixed-cache state.
+*   **Constraint:** Relies on Lane A's interface definition but can proceed with stubs.
+
+**Lane C: Infrastructure & DNS (Serialized, Final)**
+*   **Owner:** DevOps Lead
+*   **Work:** Prepare AzureFlow edge node configuration. Draft DNS swap procedure.
+*   **Constraint:** Execution is strictly gated after successful Staging validation. Irreversible for 24h post-execution.
+
+#### 2. Gates and Checks
+*   **Gate 1: Code Freeze & Manifest Lock:** All code changes must be committed before 09:00 on the day of testing to avoid `asset-manifest.json` locks.
+*   **Gate 2: CI Validation (Revision `main-merge-candidate`):**
+    *   Run full CI suite.
+    *   **Exception:** If `geo-redundancy` fails on a weekend, verify logs for false-negative patterns. If pattern matches known flake, proceed with Senior Engineer sign-off; otherwise, block.
+    *   **Cost Control:** Only one full CI run permitted per major revision due to $12 cost/45min time.
+*   **Gate 3: Staging Latency Check:**
+    *   Deploy to Staging.
+    *   **Critical Check:** Inject artificial latency spikes (mimicking real-world conditions missing from standard mocks). Verify "graceful fetch" does not timeout or crash legacy players.
+*   **Gate 4: Legacy Cache Simulation:**
+    *   Run integration tests using a snapshot of actual NorthWind cache keys. Confirm zero playback errors for "stale" requests.
+
+#### 3. Review Process
+*   **Primary Reviewer:** Senior Staff Engineer (Independent of Lane A/B/C).
+    *   **Focus:** Logic correctness of cache key normalization and backward compatibility guarantees.
+    *   **Timing:** Before Gate 2 (CI).
+*   **Secondary Reviewer (Ops):** SRE Lead.
+    *   **Focus:** DNS propagation plan, rollback triggers, and AzureFlow edge config.
+    *   **Timing:** Before Gate 4 (Staging).
+*   **Final Approval:** CTO or VP of Engineering (Required for production deploy due to "Senior Engineer only" rule).
+
+#### 4. Landing and Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A and B into `release-candidate`.
+    2.  Pass Gates 2 & 3.
+    3.  Tag release `v2.4-azure-migration`.
+*   **Deployment Window:** Tuesday 02:00–04:00 UTC (Low traffic, outside business hours for manifest access).
+*   **Execution:**
+    1.  Deploy `Pipeline-Alpha` v2.4.
+    2.  Update DNS records (NorthWind → AzureFlow).
+*   **Human Decision Point:** The "Go/No-Go" call after DNS update initiation requires explicit verbal confirmation from the On-Call Lead due to the 24h irreversibility window.
+*   **Rollback Plan:**
+    *   **Code:** Revert `Pipeline-Alpha` to previous tag immediately if error rate > 1%.
+    *   **DNS:** Cannot be rolled back for 24h. Mitigation involves routing traffic back to remaining NorthWind nodes via manual BGP adjustments if AzureFlow fails, pending DNS TTL expiry.
+    *   **Fallback:** If graceful fetch fails, serve a standardized "rebuffering" signal compatible with all 6-month-old apps to prevent hard crashes while the new cache warms up.

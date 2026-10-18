@@ -1,0 +1,52 @@
+### Delivery Plan: Parallel Permit Portal Launch
+
+**Objective:** Deploy digital intake while preserving the legacy paper pathway, ensuring dual-write integrity to `MasterCitizenDB` without downtime.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Digital Implementation):** Build the new digital intake form and dual-write logic.
+    *   *Constraint:* Must not modify the `PaperQueue` schema.
+    *   *Parallelism:* Can run parallel to Lane B.
+*   **Lane B (Legacy Verification):** Verify `PaperQueue` immutability and admin dashboard visibility.
+    *   *Task:* Confirm existing paper processing remains active and visible.
+    *   *Serialization:* Must complete before G5 integration.
+*   **Lane C (Data Integrity):** Validate `MasterCitizenDB` convergence.
+    *   *Task:* Ensure both digital and paper sources populate the registry correctly.
+    *   *Dependency:* Requires Lane A code and Lane B baseline.
+*   **Lane D (DB Safety):** Execute full database snapshot.
+    *   *Constraint:* Mandatory before any migration attempt (even read-only checks touching `PaperQueue`).
+    *   *Serialization:* Must complete before Lane A or B touches production data structures.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define acceptance criteria: "Digital submission creates DB entry" AND "Paper queue status unchanged." Pin base SHA.
+*   **G2 Plan:** Budget Lane A/B/C model calls. Explicitly mark `AccessibilityAudit` flake rule: ignore `RenderTimeout` if logs confirm font scaling pass.
+*   **G3 Design:** ADR confirming dual-write strategy avoids `PaperQueue` schema changes.
+*   **G4 Implement:**
+    *   Lane A: Unit tests for dual-write.
+    *   Lane D: Snapshot script dry-run.
+*   **G5 Verify (Exact Revision):**
+    *   **Stack Up:** Run full CI (55m). Trigger once per integrated SHA to save credits.
+    *   **Functional:** Verify digital form submission in staging (using static fixtures for postal mock).
+    *   **Regression:** Confirm `PaperQueue` admin view loads without error.
+    *   **Data:** Assert `MasterCitizenDB` contains test records from both paths.
+    *   **Accessibility:** Run suite; auto-pass if failure is solely `RenderTimeout`.
+*   **G6 Review:**
+    *   **Independent QA:** Verify G5 receipts.
+    *   **Security/Compliance:** Audit dual-write for data consistency and privacy.
+    *   **Constraint:** Builder cannot review their own dual-write logic.
+
+#### 3. Landing & Human Gates
+*   **G7 Integrate:** Merge lanes to integration branch. Re-run affected CI gates on final SHA.
+*   **G8 Release (Human Gated):**
+    *   **Required Approvals:** Explicit written approval from **Lead Architect** AND **Compliance Officer (Jane Smith)**.
+    *   **Action:** Flip public-facing switch only after approvals are logged.
+    *   **Rollback:** Pre-proven rollback plan to disable digital intake instantly if `MasterCitizenDB` corruption is detected post-launch.
+*   **G9 Production Verify:** Monitor `MasterCitizenDB` ingestion rates for both channels immediately post-flip.
+*   **G10 Learn:** Record any dual-write latency issues for future optimization.
+
+#### 4. Risk Mitigation
+*   **CI Cost:** Serialize builds; do not trigger redundant runs for minor tweaks.
+*   **Data Safety:** Lane D snapshot is a hard gate before any production interaction.
+*   **Flakiness:** `AccessibilityAudit` failures are triaged by log content; `RenderTimeout` is ignored.
+*   **Staging Limitation:** Acknowledge static fixtures for postal mock; rely on unit tests for actual API contract verification.
+
+**Status:** Ready for G0 Intake confirmation. No work begins until G2 budget caps are set and Lane D snapshot strategy is approved.

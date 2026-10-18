@@ -1,0 +1,71 @@
+# Delivery Plan: Checkout Replay Attack Mitigation
+
+## Lanes & Parallelism
+
+**Lane A: Cryptography & Token Logic (Ledger Team)**
+*   **Work:** Design stateless token schema (HMAC-SHA256) embedding expiry and nonce. Implement generation/validation logic in the gateway.
+*   **Parallel:** Runs concurrently with Lane B.
+*   **Constraint:** Must not call external services synchronously.
+
+**Lane B: Clock Skew & Edge Sync (SRE/Infra)**
+*   **Work:** Analyze `global-clock-sync` drift patterns. Define acceptable skew window (e.g., ±500ms) to accommodate the known 200ms drift without rejecting legitimate traffic.
+*   **Parallel:** Runs concurrently with Lane A.
+*   **Dependency:** Must finalize skew parameters before Lane C integration.
+
+**Lane C: Integration & Safety Guards (Ledger Team)**
+*   **Work:** Integrate Lane A logic with Lane B parameters. Implement the "circuit breaker" for instant rollback if error rates > 0.1%.
+*   **Serialization:** Must wait for A and B to define interfaces.
+
+**Lane D: Verification & Cost Control (QA/Automation)**
+*   **Work:** Construct local mock ledger to verify logic without triggering the $45/22min CI pipeline unnecessarily. Prepare canary analysis dashboard.
+*   **Parallel:** Runs alongside Lane C.
+
+## Gates & Checks
+
+**Gate 1: Design Review (Pre-Code)**
+*   **Revision:** `main` (current head).
+*   **Check:** Verify token schema handles the 30s mobile SDK cache window and defined clock skew.
+*   **Approver:** Jane Smith + Senior Cryptographer (independent of implementers).
+
+**Gate 2: Local Validation (Pre-CI)**
+*   **Revision:** Feature branch head.
+*   **Check:** Run unit tests against the local mock ledger. Verify latency adds <10ms locally (buffer for the 50ms limit).
+*   **Executor:** Lane D.
+
+**Gate 3: CI Trigger (Pre-Deploy)**
+*   **Revision:** Release candidate tag.
+*   **Check:** Full ledger state replay.
+*   **Condition:** Trigger ONLY once after Lane D confirms local stability to save costs.
+*   **Approver:** Automated (pass/fail).
+
+**Gate 4: Canary Readiness**
+*   **Revision:** Same CI-passed tag.
+*   **Check:** Verify rollback script executes in <30 seconds.
+*   **Approver:** On-call SRE.
+
+## Review Strategy
+
+*   **Code Review:** Conducted by a Senior Engineer from the Payments Team *not* involved in Lane A or C. Focus: Statelessness, crypto implementation, and absence of synchronous external calls.
+*   **Security Review:** Independent audit of the token generation algorithm and nonce handling by the Security Team.
+*   **Operational Review:** SRE team validates the canary metrics and rollback automation.
+*   **Independence:** No implementer may approve their own code. Jane Smith provides final architectural sign-off but does not perform line-by-line code review.
+
+## Landing & Rollback
+
+**Deployment Strategy:**
+1.  **Canary Phase:** Deploy to 1% of Northern Hemisphere traffic during low-volume hours (pre-peak).
+2.  **Monitoring:** Watch error rates and P99 latency.
+    *   **Threshold:** If error rate > 0.1% OR latency increase > 50ms, trigger immediate rollback.
+3.  **Expansion:** If stable for 1 hour, expand to 10%, then 50%, then 100% over the course of the day, avoiding the start of peak evening hours until 100% stability is confirmed.
+
+**Human Decisions Required:**
+*   **Dual Approval:** Jane Smith and On-call SRE must both approve the promotion from Canary to Production.
+*   **Rollback Decision:** Automated if thresholds breached; otherwise, On-call SRE decides on manual rollback if qualitative issues arise.
+
+**Rollback Mechanism:**
+*   Revert to previous stable tag via orchestration tool.
+*   Since database writes are irreversible, the rollback simply stops the new validation logic; old valid tokens remain accepted if backward compatibility is coded, or new transactions fail safely until the fix is re-applied. The plan assumes the new logic is an *addition* to existing checks, allowing instant disablement without data loss.
+
+**Post-Landing:**
+*   Monitor for 24 hours.
+*   Document clock skew adjustments if drift exceeds predictions.

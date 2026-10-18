@@ -1,0 +1,49 @@
+**Delivery Plan: Substation Agent Command Hardening**
+
+**Scope & Constraints**
+Implement cryptographic signature validation in the C agent firmware to reject spoofed commands. The update must deploy over-the-air (OTA) without reboot, fail safely (ignore invalid inputs), and maintain telemetry. Production deployment is irreversible and requires dual human approval.
+
+**Work Lanes & Parallelism**
+*   **Lane 1: Cryptographic Implementation (Builder)**
+    *   **Task:** Modify C agent logic to verify signatures against `crypto-keys.dat`. Implement fail-safe logic to drop invalid packets without crashing.
+    *   **Constraint:** Read-only access to `crypto-keys.dat` during business hours; development must use local copies or off-hours access.
+    *   **Parallelism:** Runs in parallel with Lane 2.
+*   **Lane 2: Simulation & Regression (QA)**
+    *   **Task:** Update Python simulation suite to generate spoofed packets and verify rejection. Verify telemetry continuity during injection attacks.
+    *   **Parallelism:** Runs in parallel with Lane 1.
+*   **Lane 3: Deployment Strategy (Release Engineer)**
+    *   **Task:** Validate OTA mechanism compatibility with new binary size and logic. Draft rollback procedure (noting production irreversibility, this focuses on pre-deployment verification).
+    *   **Dependency:** Requires binary output from Lane 1.
+
+**Serialization Points**
+1.  **Integration Build:** Lane 1 and Lane 2 must merge into a single integration branch before full testing.
+2.  **Stability Gate:** Due to Tuesday flakiness, if the `stability-gate` fails twice consecutively, execution halts for manual override by Lead Architect Jane Smith. No automated retries beyond two attempts.
+
+**Gates & Checks**
+*   **G1 Spec:** Define acceptable signature algorithms and exact failure modes (silent drop vs. log). Pin base SHA.
+*   **G4 Implementation:** Builder commits code with unit tests.
+*   **G5 Verification (Exact Revision):**
+    *   Run full integration test cycle on 'IronClad' CI (45 min, $120 cost).
+    *   **Critical Check:** Verify agent does not crash on invalid input and telemetry persists.
+    *   **Flake Handling:** Monitor `stability-gate`. If it fails twice, trigger manual review by Jane Smith immediately.
+*   **G6 Review:**
+    *   **Security Review:** Independent Security Officer reviews cryptographic implementation and key handling.
+    *   **Code Review:** Senior Engineer (not the Builder) reviews C logic and fail-safe mechanisms.
+*   **G7 Integration:** Merge to release candidate branch. Re-run affected tests on final SHA.
+
+**Human Gates & Approval**
+*   **Pre-Deploy Approval:** Before initiating OTA, explicit written approval is required from:
+    1.  Operations Director
+    2.  Security Officer
+*   **Override Authority:** Jane Smith (Lead Architect) solely authorized to override consecutive `stability-gate` failures.
+
+**Landing & Rollback**
+*   **Merge Strategy:** Merge to release branch only after G6 sign-off and G7 integration success.
+*   **Deployment:** OTA push initiated only after dual approval.
+*   **Rollback:** Since production updates are irreversible, "rollback" consists of halting the OTA propagation immediately upon detecting anomalies in the first 1% of substations. No remote reversion of firmware is possible; failed units must wait for physical access (post-winter).
+*   **Post-Deploy Verification:** Monitor telemetry streams for unexpected drops or crash reports from the initial cohort.
+
+**Risk Mitigation**
+*   **Cost Control:** Limit CI runs to essential verification steps to manage $120/run cost.
+*   **Safety:** The "fail-safe" requirement is the primary acceptance criterion; any crash on invalid input is a Blocker.
+*   **Timing:** Schedule critical CI runs outside Tuesday mornings if possible to avoid known flakiness, or ensure Jane Smith is available for immediate override.

@@ -1,0 +1,49 @@
+### Delivery Plan: Streetlight Vendor Cutover
+
+**Objective:** Replace vendor logic in `LumenCore` with zero simultaneous darkness, ensuring instant legacy fallback and strict adherence to the 08:00–18:00 blackout prohibition.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Logic Implementation):** Engineers develop the "Dual-Write Bridge" within `LumenCore`. This module sends commands to both vendors but only executes via the new vendor upon positive acknowledgment within 200ms; otherwise, it defaults to the legacy path.
+    *   *Constraint:* No schema changes to the legacy database.
+*   **Lane B (Simulation & Flakiness Mitigation):** QA runs hardware-in-the-loop simulations.
+    *   *Serialization:* Simulations must **not** run on Tuesdays to avoid false latency failures. If a Tuesday run is forced by schedule, a manual retry protocol is pre-authorized.
+*   **Lane C (Governance Prep):** Operations Director and City Safety Officer pre-briefed on the rollback triggers. Approval tokens are generated in the governance portal but held in "pending activation" state until the final gate.
+
+#### 2. Gates & Checks
+*   **Gate 1: Code Freeze & Simulation Pass (T-48 Hours)**
+    *   *Revision:* Specific commit hash `X` on the `cutover-branch`.
+    *   *Check:* CI pipeline must pass (excluding Tuesday latency flake). Simulation must prove <30s flicker duration in failure scenarios.
+    *   *Action:* If passed, mark revision `X` as "Golden Candidate."
+*   **Gate 2: Configuration Cache Flush (T-2 Hours)**
+    *   *Action:* Force invalidation of the 6-hour neighborhood zoning cache to ensure immediate reflection of the new routing logic.
+    *   *Check:* Verify all zones report the updated config version before physical cutover begins.
+*   **Gate 3: The "Darkness" Sentinel (Live)**
+    *   *Mechanism:* An automated monitor watches for any report of lights off >30 seconds.
+    *   *Trigger:* Any single violation immediately halts the rollout script and reverts the specific block to legacy-only mode.
+
+#### 3. Review Strategy
+*   **Independent Reviewer:** A senior engineer from the *City Safety Officer's* office (not Infrastructure Safety) reviews the "Dual-Write Bridge" logic.
+*   **Scope:** Specifically audits the fallback timeout threshold (must be <200ms) and the immutability of the legacy primary key.
+*   **Timing:** Review occurs on the "Golden Candidate" (Revision `X`) before Gate 2.
+*   **Constraint:** The reviewer must not be the same individual who wrote the code or runs the CI pipeline.
+
+#### 4. Rollout Schedule (Serialized Street-by-Street)
+*   **Window:** 04:00 – 07:00 (Pre-business hours buffer). No changes occur between 08:00 and 18:00.
+*   **Sequence:**
+    1.  Select Block N.
+    2.  Enable Dual-Write for Block N (New Vendor Active, Legacy Standby).
+    3.  Observe for 15 minutes.
+    4.  If stable, disable Legacy Standby for Block N.
+    5.  Proceed to Block N+1.
+*   **Rollback:** If flickering >30s occurs, the script instantly reverts Block N to Legacy-Only and pauses the entire queue for human investigation.
+
+#### 5. Landing & Human Decisions
+*   **Merge Strategy:** The `cutover-branch` merges to `main` only after Gate 1. Deployment to production is feature-flagged per block.
+*   **Human Decision Points:**
+    1.  **Dual Approval:** The Operations Director and City Safety Officer must simultaneously click "Approve" in the governance portal to lift the feature flag for the *first* block. Subsequent blocks proceed automatically unless halted.
+    2.  **Stop/Go After Incident:** If the "Darkness Sentinel" triggers, only the City Safety Officer can authorize resuming the rollout.
+*   **Rollback Plan:**
+    *   *Partial:* Automatic reversion of the specific failing block to legacy logic.
+    *   *Total:* If >3 blocks fail within one hour, the CI pipeline triggers a full revert commit to the pre-cutover revision, restoring 100% legacy control.
+
+**Critical Constraint:** All work ceases strictly at 07:45 to ensure system stability before the 08:00 business hour start. No deployments occur on Tuesdays due to CI flakiness risks.

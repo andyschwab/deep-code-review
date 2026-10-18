@@ -1,0 +1,36 @@
+### Delivery Plan: Legacy Forum Deprecation & Alumni Read-Only Mode
+
+**1. Lanes & Parallelism**
+*   **Lane A (Auth & Roles - Serialized First):** Modify the shared authentication middleware to inject `is_alumni` and `is_active` flags into the user session object. This must be completed and unit-tested before any routing changes, as downstream logic depends on these flags.
+*   **Lane B (Legacy Frontend - Parallel to C):** Implement the "Read-Only Wrapper" in the legacy directory. This component will intercept all POST/PUT/DELETE requests at the UI level, suppressing form inputs and displaying a deprecation banner. It must preserve exact timestamp rendering and author attribution logic without modification.
+*   **Lane C (Routing Logic - Blocked on A):** Update the shared routing table to check the `is_alumni` flag. If true, redirect to the Legacy Read-Only Wrapper; if false, redirect to the Next-Gen frontend. **Constraint:** This lane is blocked until the Lead Architect returns for approval.
+*   **Lane D (Search Index - Parallel):** Verify the search service queries the read replica only. Ensure no write-hooks trigger the nightly archive compression job during alumni search sessions.
+
+**2. Gates & Checks**
+*   **Gate 1 (Unit Test Suite):** Runs on every push to feature branches. Must verify `is_alumni` flag propagation and UI input suppression. No data seeding required here; use mocked user objects.
+*   **Gate 2 (Architect Review):** Mandatory manual review of the shared routing table changes by the Lead Architect. No merge to `main` permitted without this signature.
+*   **Gate 3 (Staging Verification):** Deploy to staging. Due to the 12-hour data lag, real-time alumni redirection cannot be fully verified. Instead, verify via synthetic test accounts injected with alumni flags. Confirm search returns results without triggering archive jobs.
+*   **Gate 4 (Release Candidate):** Trigger the full regression suite with heavy data seeding only on the Release Candidate branch, not earlier.
+
+**3. Review Strategy**
+*   **Auth Middleware:** Reviewed by a Senior Backend Engineer independent of the author. Focus on thread safety and flag accuracy.
+*   **Read-Only UI:** Reviewed by a Frontend Lead. Focus on visual fidelity of historical data and absolute disablement of input fields.
+*   **Routing Table:** Reviewed exclusively by the Lead Architect. No peer review substitutes this gate.
+*   **Integration:** A distinct DevOps engineer must review the CI/CD configuration to ensure the nightly archive job is safely decoupled from search traffic.
+
+**4. Landing & Merge Strategy**
+*   **Freeze Window:** Code freeze begins 24 hours before the database upgrade. No merges allowed during the upgrade window.
+*   **Merge Sequence:**
+    1.  Merge Lane A (Auth) to `main` immediately upon approval.
+    2.  Merge Lane B (UI) and Lane D (Search) to `main` once Gate 1 passes.
+    3.  Hold Lane C (Routing) in a release branch until the Lead Architect approves.
+*   **Deployment:** Deploy the Release Candidate (containing all lanes) to production during low-traffic hours, at least 48 hours before the database upgrade deadline.
+*   **Rollback Plan:** If alumni report data corruption or active users see the legacy UI:
+    1.  Immediately revert the Routing Table change (Lane C) via feature flag or config swap to bypass the alumni check.
+    2.  If the issue persists in Auth (Lane A), revert the middleware commit.
+    3.  Do not attempt hotfixes during the database upgrade window.
+
+**Human Decisions Required:**
+*   **Lead Architect:** Approval of routing table logic (3-day delay).
+*   **Product Owner:** Confirmation that synthetic testing on staging is acceptable given the data lag.
+*   **DevOps Lead:** Sign-off that the search query pattern will not accidentally trigger the nightly archive compression.

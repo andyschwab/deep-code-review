@@ -1,0 +1,75 @@
+# Delivery Plan: Telemetry Backend Migration to Chronos-9
+
+## Lanes & Parallelism
+
+**Lane A: Core Migration Logic (Data Platform Team)**
+*   **Work:** Implement dual-write adapter in `factory-ingest`. New writes route to Legacy + Chronos-9 simultaneously.
+*   **Parallel:** Can proceed immediately alongside Lane B.
+*   **Constraint:** Must not modify `data-schema-v4`. Adapter must translate existing schema to Chronos-9 format internally.
+
+**Lane B: Historical Backfill Utility (Robotics Team)**
+*   **Work:** Develop idempotent backfill script to migrate historical data from Legacy to Chronos-9.
+*   **Parallel:** Runs parallel to Lane A.
+*   **Dependency:** Requires read-access credentials for both systems.
+
+**Lane C: Verification & Observability (SRE Team)**
+*   **Work:** Build data integrity checksum comparator and latency dashboards specific to the dual-write path.
+*   **Serial:** Must wait for Lane A's adapter interface definition to finalize before building monitors.
+
+**Lane D: Operational Runbook (Operations Team)**
+*   **Work:** Draft cutover procedure for next Tuesday's maintenance window, including communication templates for factory floor managers.
+*   **Parallel:** Can draft immediately; finalizes once Lane C confirms monitoring capabilities.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Schema Audit (T-3 Days)**
+*   **Check:** Automated static analysis confirms zero modifications to `data-schema-v4`.
+*   **Revision:** Locked to `main` branch head at 09:00 UTC.
+*   **Owner:** Tech Lead (Data Platform).
+
+**Gate 2: Simulation Validation (T-2 Days)**
+*   **Check:** CI pipeline data replay simulation.
+*   **Constraint:** Maximum 3 attempts allowed due to cost/time ($450/55min).
+*   **Success Criteria:** Zero data loss detected in simulation; dual-write latency < 50ms.
+*   **Owner:** SRE Lead. If attempt 1 fails, immediate root cause analysis required before attempt 2.
+
+**Gate 3: Staging Dry-Run (T-1 Day)**
+*   **Check:** Deployment to staging environment.
+*   **Caveat:** Acknowledge staging cannot reproduce write spikes. Success is defined as "no immediate crashes," not "performance verified."
+*   **Owner:** Robotics Lead.
+
+**Gate 4: Pre-Cutover Integrity (Tuesday Maintenance Window)**
+*   **Check:** Verify dual-write stream is active and lag is zero before starting backfill.
+*   **Owner:** On-call SRE.
+
+## Review Process
+
+**Independent Code Review:**
+*   **Reviewer:** Senior Engineer from Robotics Team (not involved in Lane A).
+*   **Focus:** Concurrency handling in the dual-write adapter and error recovery logic if Chronos-9 rejects a write.
+*   **Constraint:** Reviewer must verify that a failure in Chronos-9 does not block the write to the Legacy system (circuit breaker pattern).
+
+**Operational Review:**
+*   **Reviewer:** Site Reliability Lead.
+*   **Focus:** Rollback procedure clarity and monitoring alert thresholds.
+
+## Landing Strategy
+
+**Phase 1: Dual-Write Activation (Tuesday 02:00)**
+*   Deploy adapter. Enable dual-write. Monitor for 30 minutes.
+*   **Human Decision:** Jane Smith and SRE Lead must explicitly approve proceeding to backfill based on live dashboard metrics.
+
+**Phase 2: Historical Backfill (Tuesday 02:30)**
+*   Execute backfill script. Monitor write throughput to ensure no safety shutdown triggers.
+
+**Phase 3: Read Cutover (Tuesday 04:00)**
+*   Switch read traffic to Chronos-9.
+*   **Rollback Trigger:** Any data mismatch > 0.1% or latency spike > 200ms.
+*   **Rollback Action:** Revert read router to Legacy immediately. Dual-write remains active until stability is proven.
+
+**Phase 4: Decommissioning (T+1 Week)**
+*   Only after 7 days of stable operation, disable dual-write and archive Legacy system.
+*   **Approval:** Requires sign-off from both Jane Smith and SRE Lead.
+
+**Critical Risk Mitigation:**
+If the CI simulation fails twice, the deployment is postponed. No third attempt is made without an external architectural review to prevent wasting the final budgeted run on a flawed approach. Production write spikes will be the true test; therefore, the rollback switch must be a single-command operation accessible by the on-call SRE.

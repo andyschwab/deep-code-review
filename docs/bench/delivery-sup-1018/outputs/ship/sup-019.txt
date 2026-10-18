@@ -1,0 +1,46 @@
+**Delivery Plan: Sub-50ms Real-Time Captioning**
+
+**Constraints & Risks**
+The 50ms hard limit and irreversible DB migration define this as high-risk. The flaky `latency-guard` on APAC nodes requires manual SRE validation, not automated pass/fail. Verbose logging increases costs permanently; it must be scoped strictly to audit requirements.
+
+**Lanes & Parallelism**
+
+1.  **Lane A: Core Integration (Builder)**
+    *   **Work:** Integrate transcription engine into `northstar-ingest`. Implement latency budget enforcement (fail closed if >48ms internally to ensure <50ms external). Add audit logging for accuracy/latency.
+    *   **Isolation:** Dedicated worktree. No other writers.
+    *   **Dependency:** None.
+
+2.  **Lane B: Load & Latency Simulation (QA)**
+    *   **Work:** Build a localized stress test harness simulating high-frequency trading load. Must verify <50ms p99 latency without relying on the flaky CI check.
+    *   **Parallelism:** Runs parallel to Lane A once the interface contract is defined (G3).
+
+3.  **Lane C: APAC Edge Validation Plan (SRE Lead)**
+    *   **Work:** Prepare manual validation protocol for APAC nodes to bypass the flaky `latency-guard`. Define exact clock-skew compensation metrics.
+    *   **Serialization:** Must be ready before G5 (Verify).
+
+**Gates & Checks**
+
+*   **G0/G1 (Intake/Spec):** Confirm 48ms internal budget allows for network variance. Define audit log schema to minimize storage impact (avoid blanket verbose logging).
+*   **G2 (Plan):** Acyclic graph. Lane A writes code; Lane B writes tests; Lane C writes validation steps. Budget: Cap token usage for simulation runs.
+*   **G3 (Design):** ADR confirming irreversible DB migration strategy and rollback limitations (rollback = data loss, so forward-fix only).
+*   **G4 (Implement):** Lane A commits code. Lane B commits harness. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **Local:** Lane B runs stress test on Lane A's exact SHA. Must show <50ms latency, zero frame drops.
+    *   **APAC:** SRE executes Lane C's manual protocol on staging edge nodes. **Hard Gate:** Manual sign-off required; automated CI `latency-guard` result is ignored for APAC.
+*   **G6 (Review):**
+    *   **Security/Privacy:** Audit logging review (ensure no PII leakage in captions).
+    *   **Architecture:** Verify irreversible migration logic.
+    *   **Independence:** Reviewers cannot be Lane A author.
+*   **G7 (Integrate):** Merge to integration branch. Re-run non-flaky CI suites only (save credits).
+
+**Landing & Human Gates**
+
+*   **Merge Strategy:** Single commit to `main` via merge train. No partial rolls.
+*   **Human Approval (G8):** **Marcus Thorne (Principal Engineer)** must explicitly approve the production deployment. The request will present:
+    *   Issue: Deploy Captioning Module with Irreversible DB Migration.
+    *   A: Deploy to Production with SRE APAC sign-off attached (Recommended).
+    *   B: Abort and revert to staging for further tuning.
+*   **Rollback:** **No technical rollback possible.** If latency >50ms post-deploy, the feature must be disabled via feature flag (if implemented) or service degradation accepted until a forward-fix is deployed. The plan assumes a feature flag exists to disable captioning without reverting the DB schema; if not, the deployment is a hard point-of-no-return.
+
+**Verification Receipt**
+Final output includes: Exact SHA, SRE manual validation signature for APAC, stress test logs showing p99 <50ms, and audit log sample. No claim of "CI Green" for latency checks on APAC.

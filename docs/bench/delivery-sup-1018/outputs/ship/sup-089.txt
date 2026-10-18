@@ -1,0 +1,50 @@
+### Delivery Plan: Nexus v3 Deployment with State-Preserving Rollback
+
+**Strategy:** Blue/Green swap with shared-state verification. No direct modification of the shared `session-migration` script; instead, we will deploy a compatibility shim to avoid blocking on Data Team approval during the critical window, pending formal ratification.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Builder - Nexus Deploy):** Prepares the v3 manifest for the 'Green' cluster. Includes the compatibility shim for session hydration.
+    *   *Constraint:* Must not touch `session-migration` directly.
+    *   *Parallel:* Yes.
+*   **Lane B (QA - State Continuity):** Executes a dry-run simulation in Staging.
+    *   *Action:* Manually override the known flaky network check; do not retry automatically.
+    *   *Focus:* Verify cart contents persist during a forced failover simulation.
+    *   *Parallel:* Yes (runs against Staging while Lane A builds Green manifests).
+*   **Lane C (Security & Compliance):** Reviews the rollback mechanism specifically for data loss vectors.
+    *   *Constraint:* Must verify the "instant" claim against Redis shard locking behavior.
+    *   *Serial:* Must complete before G8 (Release).
+
+#### 2. Gates & Checks
+*   **G2 (Plan):** Explicitly document the "Shim Strategy" to bypass the `session-migration` write-lock. Obtain written approval from Jane Smith for the *concept* of the shim before code freeze.
+*   **G4 (Implement):**
+    *   *Base SHA:* Pin to the current stable `main` commit.
+    *   *Artifact:* Kubernetes manifests + Rollback Script.
+    *   *Check:* CI build runs once. If red, analyze immediately; do not re-trigger without code change due to cost/time ($120/45m).
+*   **G5 (Verify):**
+    *   *Environment:* Staging (with manual network override).
+    *   *Receipt:* Video/Log evidence of a user session surviving a Green→Blue→Green toggle with full cart integrity.
+    *   *Condition:* "Instant" rollback defined as < 5 seconds downtime; anything higher fails the gate.
+*   **G6 (Review):**
+    *   *Reviewer:* Senior Lead #1 (Architecture) + Senior Lead #2 (Ops).
+    *   *Independence:* Neither reviewer can be the Builder (Lane A).
+    *   *Focus:* Irreversibility of the DB migration. Confirm the rollback script does *not* attempt to reverse the schema (which is impossible) but rather routes traffic back to Blue's compatible schema version.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge Lane A to `release/v3` only after G6 pass.
+    2.  Trigger CI on `release/v3`.
+*   **Human Gates (G8 - Release):**
+    *   **Approval Required:** Two senior leads must explicitly sign off on the deployment ticket.
+    *   **Decision Point:** Confirm Jane Smith's written approval for the session handling approach is attached.
+    *   **Execution:** Manual trigger of the production pipeline. No auto-deploy.
+*   **Rollback Procedure:**
+    *   If performance dips below baseline or data loss is detected: Execute the verified switch-back script immediately.
+    *   *Critical:* The script switches traffic to 'Blue' and re-hydrates from the shared Redis shard. It does **not** attempt a DB schema downgrade.
+    *   *Post-Rollback:* Immediate incident review (G10) to address the performance dip; the system remains on v2 (Blue) until fixed.
+
+#### 4. Risk Mitigation
+*   **Flaky Check:** Document the manual override in the deployment runbook; do not fix the flake during this release to avoid scope creep.
+*   **Cost Control:** Zero tolerance for CI retries. Local validation of manifests is mandatory before pushing.
+*   **Data Safety:** The "irreversible migration" means rollback is purely traffic routing. If the new schema corrupts data written during the v3 window, that data may be lost upon revert; this risk must be acknowledged by the leads in G8.
+
+**Status:** Ready for G2 Spec finalization and Jane Smith's conceptual approval.

@@ -1,0 +1,52 @@
+**Delivery Plan: Anti-Cheat Heuristic Update (Galaxy Runner)**
+
+**Objective:** Integrate new detection weights to catch replay attacks while guaranteeing zero false positives for scores >50,000.
+
+### 1. Lanes & Serialization
+*   **Lane A (Implementation):** *Builder* updates heuristic weights in `core-match` service.
+    *   **Constraint:** Read-only access to historical replay DB; no schema changes.
+    *   **Parallelism:** Can run independently but must complete before Lane B.
+*   **Lane B (Validation):** *QA* runs validation script against summer tournament archived logs.
+    *   **Trigger:** Depends on Lane A's exact commit SHA.
+    *   **Serialization:** Must wait for Lane A. If the script flags *any* legitimate entry >50k, execution halts immediately for recalibration (no partial merges).
+    *   **Note:** Ignore flaky network check failures if data ingestion logs confirm success.
+*   **Lane C (Cost-Efficient CI):** *QA* runs lightweight sanitizer on the candidate SHA.
+    *   **Constraint:** Full regression suite skipped to save credits; reserved for final Release Candidate only.
+
+### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Confirm "zero false positives >50k" is the hard stop criterion.
+*   **G4 (Implement):** Builder commits weights. Output: Exact SHA `abc123...`.
+*   **G5 (Verify):**
+    *   **Action:** Run validation script on SHA `abc123...` against summer logs.
+    *   **Pass Condition:** 0 flags on scores >50,000.
+    *   **Fail Condition:** ≥1 flag → Halt, notify owner, revert to calibration. No merge attempt.
+    *   **Environment:** Use lightweight sanitizer; ignore known flaky network errors with confirmed ingestion.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Trust & Safety engineer (not the Builder).
+    *   **Scope:** Diff of weights + G5 validation receipts.
+    *   **Security:** Verify no unintended side effects on the shared replay DB.
+
+### 3. Review & Independence
+*   **Builder:** Implements logic. Cannot approve their own change.
+*   **QA:** Executes validation. Reports binary pass/fail based on the >50k metric.
+*   **Reviewer:** Independent engineer verifies the logic and the G5 receipt.
+*   **Constraint:** Builder never reviews Builder. QA evidence must reference the exact SHA, not a branch tip.
+
+### 4. Landing & Human Gates
+*   **Integration:** Once G5 passes and G6 is approved, prepare a Release Candidate.
+*   **Human Approval (Mandatory):**
+    *   **Approvers:** Lead Engineer **AND** Community Manager (Dual approval required for production tournament env).
+    *   **Trigger:** Final merge to the deployment branch.
+    *   **Timing:** Must occur during weekday hours (Weekend on-call cannot handle DB rollbacks).
+*   **Deployment:**
+    *   Deploy to production tournament environment only after dual approval.
+    *   **Rollback Plan:** If false positives emerge post-deploy, immediate rollback required. Since weekend DB rollbacks are unsupported, deployment is forbidden Friday PM through Sunday.
+*   **Post-Deploy (G9):** Monitor support tickets and leaderboard integrity for 24 hours.
+
+**Risk Mitigation:**
+*   **False Positive Spike:** The G5 gate is absolute. One failure stops the line.
+*   **Cost Overrun:** Lightweight sanitizer used for initial gates; full suite only if RC is cut.
+*   **DB Corruption:** Strict read-only adherence to replay DB; no schema mods.
+*   **Unavailable Rollback:** Deployment window restricted to weekdays to ensure DB rollback capability exists if needed.
+
+**Immediate Next Step:** Wait for owner confirmation to proceed with Lane A (Implementation) given the strict weekday deployment window and dual-approval requirement.

@@ -1,0 +1,34 @@
+### Delivery Plan: Dynamic Pricing with Post-Booking Lock
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Pricing Engine):** Develop the real-time rate adjustment logic within `core-reservations`. This lane operates independently of the booking flow until integration.
+*   **Lane B (Booking & Lock Logic):** Modify the booking confirmation handler to snapshot the price at the moment of transaction commitment. This ensures the "price lock" requirement.
+*   **Lane C (Audit & Compliance):** Implement the dual-entry logging in the `audit-events` table. This records both the `public_rate_at_booking` and the `final_charged_amount`.
+*   **Parallel Execution:** Lanes A, B, and C can proceed in parallel as they touch distinct logical boundaries within the monolith, provided interface contracts (function signatures for price retrieval) are agreed upon immediately.
+*   **Serialization Point:** Integration testing must occur only after Lanes A, B, and C are merged into a shared integration branch. The database migration (schema change to `audit-events`) must be applied before any code reading those new fields is deployed.
+
+**2. Gates & Checks**
+*   **Revision Control:** All work branches off the current `main` head. The integration branch is frozen 24 hours before the Monday launch.
+*   **CI Pipeline Gate:** The full regression suite (55 mins) runs on every pull request to the integration branch. Due to cost ($45/run), developers must run unit tests locally before pushing.
+*   **Flaky Test Mitigation:** Before any merge, the "payment gateway integration test" must be manually verified by the merging engineer. If it fails, a manual re-run is required; a second failure triggers a stop-the-line investigation. No auto-merge is permitted if this specific test is red.
+*   **Compliance Gate:** A database review check ensures no changes are attempted on the immutable `bookings` table. Any PR touching `bookings` schema is auto-rejected.
+
+**3. Independent Review**
+*   **Code Review:**
+    *   *Pricing Logic:* Reviewed by a Senior Backend Engineer not involved in Lane A.
+    *   *Booking/Lock Logic:* Reviewed by the Mobile Team Lead (to ensure API consistency) and a Web Team Lead.
+    *   *Audit Logic:* Reviewed by the Security Architect.
+*   **Business Logic Review:** Revenue Operations Lead must verify the pricing algorithm's boundaries (e.g., minimum floor prices) via a dry-run report generated from the staging environment.
+*   **Security Review:** The Security Architect must sign off on the data integrity of the audit trail, ensuring the snapshot cannot be retroactively altered.
+
+**4. Landing & Rollback**
+*   **Deployment Window:** Sunday evening, prior to the Monday "go-live" requirement.
+*   **Human Decisions Required:**
+    *   Explicit written sign-off from the Revenue Operations Lead confirming the pricing rules are safe for live traffic.
+    *   Explicit written sign-off from the Security Architect confirming the audit trail integrity.
+    *   Final "Go/No-Go" decision after the staging dry-run confirms the price lock behavior (simulating a rate drop post-booking).
+*   **Merge Strategy:** Once signed off, the integration branch is merged to `main`. The deployment pipeline triggers the `us-east-1` cluster update.
+*   **Rollback Plan:**
+    *   *Code Rollback:* Immediate revert of the `main` branch to the pre-Sunday commit.
+    *   *Data Mitigation:* Since the `audit-events` table is append-only, no data rollback is needed. However, a feature flag (if available) or a configuration switch must be ready to freeze dynamic pricing adjustments at a static rate if the engine behaves erratically, effectively disabling Lane A while keeping Lane B (price lock) active.
+    *   *Communication:* Customer Support must be notified immediately upon rollback initiation to expect potential discrepancies if any bookings occurred during the failure window.

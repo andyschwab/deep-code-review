@@ -1,0 +1,63 @@
+**Delivery Plan: Seamless Voice Provider Migration**
+
+**Strategy:** Zero-downtime dual-write with connection-layer failover. Since staging cannot simulate load and the window is peak traffic, we will execute a **Canary-First** deployment behind a feature flag, graduating only after live verification.
+
+### 1. Lanes (Parallel vs. Serialized)
+
+*   **Lane A: Dual-Write Adapter (Builder)**
+    *   **Work:** Implement a shim in `nexus-core` that maintains existing provider connections while silently establishing parallel sessions with the new provider. New joins go to New; active raids stay on Old until natural turnover or forced gentle handover.
+    *   **Constraint:** Must not touch the legacy cache keys directly.
+    *   **Parallelism:** Can run parallel to Lane B.
+
+*   **Lane B: Traffic Router & Feature Flag (Builder)**
+    *   **Work:** Create the runtime switch in the live traffic router. Default: 100% Old Provider. Configurable by % or specific `raid_id` allowlist.
+    *   **Constraint:** Requires Lead Reliability Engineer (LRE) approval for merge/deploy.
+    *   **Parallelism:** Independent code, but deployment is serialized after Lane A.
+
+*   **Lane C: Rollback Script & Runbook (Security/Ops)**
+    *   **Work:** Automate the "Kill Switch" to instantly revert router config to 100% Old Provider and tear down New Provider connections.
+    *   **Serialization:** Must be complete and tested *before* G8 (Release).
+
+*   **Lane D: Live Verification Harness (QA)**
+    *   **Work:** Since staging is insufficient, build a synthetic monitor that joins a dedicated "Canary Raid" in production. Measures latency, packet loss, and silence duration in real-time.
+    *   **Serialization:** Depends on Lane B's flag being present in prod (dark launched).
+
+### 2. Gates & Checks
+
+*   **G2 (Plan):** Define the "Silence Threshold" (e.g., >200ms spike = fail). Set strict token/cost budget for the dual-write phase.
+*   **G4 (Implement):** Code freeze on the adapter. Unit tests must prove no cache corruption.
+*   **G5 (Verify - Staging):** Run integration tests on the 200-connection limit. Verify *logic* only, not load.
+*   **G6 (Review):**
+    *   **Code:** Independent Senior Engineer (not the Builder) reviews `nexus-core` changes.
+    *   **Security:** AppSec verifies no PII leakage to the new provider during handshake.
+    *   **Base SHA:** All reviews pinned to the exact commit hash before merging.
+*   **G7 (Integrate):** Merge to `main`. Deploy to production with flag **OFF** (0% traffic). Verify "Dark Launch" stability (no crashes, memory leaks) for 30 minutes.
+*   **G8 (Release - Human Gate):**
+    *   **Approver:** Lead Reliability Engineer.
+    *   **Input:** Green G7 receipt + Rollback Script verified.
+    *   **Action:** Authorize gradual traffic shift (1% -> 5% -> 20% -> 100%).
+
+### 3. Review Protocol
+
+*   **Builder** implements Lanes A & B.
+*   **Independent Reviewer** (Senior Backend) audits the concurrency model and race conditions in the dual-write logic.
+*   **Security** audits the new provider's handshake credentials and data egress.
+*   **QA** owns the "Canary Raid" metrics. If the synthetic monitor detects silence > threshold, they trigger the rollback automatically.
+
+### 4. Landing & Rollback
+
+*   **Merge Strategy:** Single PR to `main` containing both Adapter and Router changes to ensure atomic config/code alignment.
+*   **Deployment:**
+    1.  Deploy with flag `voice_migration_enabled=false`.
+    2.  LRE approves gradual rollout via config update (no code deploy).
+    3.  Monitor Canary Raid. If green for 15 mins at 20%, proceed to 100%.
+*   **Human Decision Points:**
+    *   LRE must manually approve the initial flag flip.
+    *   LRE must approve moving from 20% to 100% traffic.
+*   **Rollback Plan:**
+    *   **Trigger:** Any "Silence" alert or latency spike > threshold in Canary Raid.
+    *   **Action:** Execute Lane C script. Instantly set router to 100% Old Provider.
+    *   **Fallback:** If the script fails, LRE has direct console access to revert the config manually (pre-verified credential path).
+    *   **Post-Rollback:** Do not attempt re-migration until post-mortem (G10) completes.
+
+**Risk Mitigation:** The "legacy cache" constraint means we never migrate state; we only migrate *new* connections. Existing raids ride out on the old provider until they naturally end, ensuring zero mid-fight disconnects.

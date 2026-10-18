@@ -1,0 +1,50 @@
+### Delivery Plan: Tenant Storage Migration to NovaBlock
+
+**Strategy:** Zero-trust migration with serialized critical paths and parallel verification. The irreversible nature of the switch and strict RLS requirements dictate a "verify-then-commit" approach with a pre-tested rollback.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Schema & Policy Porting) [Builder]:** Translate LegacyDrive RLS policies to NovaBlock syntax.
+    *   *Constraint:* Must complete before Lane B starts.
+    *   *Output:* Migration scripts and new policy definitions.
+*   **Lane B (Data Migration Dry-Run) [Builder]:** Execute a full data copy to a isolated NovaBlock staging instance using Lane A's scripts.
+    *   *Constraint:* Depends on Lane A. Must run on a clean worktree.
+*   **Lane C (Integration Adaptation) [Builder]:** Update Apex monorepo configuration files for billing/analytics to point to NovaBlock drivers.
+    *   *Parallel:* Can run concurrently with Lane A.
+*   **Lane D (Independent Security Audit) [Security Hat]:** Review Lane A's policy translation against the "zero leakage" requirement.
+    *   *Independence:* Must be performed by someone other than the Builder. Uses static analysis only initially.
+*   **Lane E (Rollback Rehearsal) [QA Hat]:** Script and time the 6-hour restore procedure on a disposable cluster.
+    *   *Parallel:* Can run immediately.
+
+**Serialization Point:** Lane B cannot start until Lane A is code-complete. Lane F (Final Verification) cannot start until B, C, and D are green.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Define exact RLS equivalence criteria. *Input:* Legacy policies. *Output:* Signed testable spec.
+*   **G3 (Design Review):** Security reviews Lane A's policy mapping. *Condition:* Security Hat must sign off before any data moves.
+*   **G4 (Implementation):** Code freeze on migration scripts and config changes. *Base SHA:* Pinned to current `main`.
+*   **G5 (Staging Verification):**
+    *   Run full CI suite (55 mins) on the exact migration SHA.
+    *   **Critical Check:** Execute isolation tests on Staging. *Note:* Ignore false negatives related to missing hardware encryption; focus strictly on logical RLS separation (Client A vs. Client B).
+    *   **Cost Control:** Only one full CI run permitted before G6. Debug locally if failed.
+*   **G6 (Compliance & Security Sign-off):**
+    *   Compliance team reviews G5 evidence.
+    *   Security Hat verifies no logical gaps exist despite Staging hardware differences.
+*   **G7 (Rollback Proof):** QA demonstrates successful restore from backup within the maintenance window constraints.
+
+#### 3. Review Protocol
+*   **Code Review:** `deep-code-review` (DIFF scope) on config changes (Lane C) by a Senior Backend Engineer (not the Builder).
+*   **Security Review:** Independent Security Hat reviews RLS logic (Lane A) and G5 test results. Builder never self-approves security logic.
+*   **Compliance Review:** Compliance team validates the "no leakage" evidence package generated in G5.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:**
+    1.  Merge Lane C (Config) to `main` behind a feature flag (disabled).
+    2.  Keep Migration Scripts (Lane A/B) in a release branch until cutover.
+*   **Human Decisions (Hard Gates):**
+    *   **G8 (Deployment Approval):** Requires explicit written approval from **both** the Chief Security Officer and VP of Engineering. No automated deployment.
+    *   **Cutover Execution:** Human operator flips the write switch only after G8.
+*   **Rollback Plan:**
+    *   Trigger: Any detection of cross-tenant data access post-cutover.
+    *   Action: Immediate revert to LegacyDrive using the verified backup from Lane E.
+    *   Constraint: Acceptance of 6-hour downtime window as the failure mode ceiling.
+
+**Risk Mitigation:** The 55-minute CI cost prohibits iterative guessing. Lane A and D must achieve high confidence locally before triggering the full pipeline. Staging hardware limitations are documented; logical RLS correctness is the sole pass/fail metric for the gate.

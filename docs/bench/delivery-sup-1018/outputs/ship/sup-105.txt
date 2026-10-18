@@ -1,0 +1,64 @@
+### Delivery Plan: Secure Transit Tracking with Route Masking
+
+**Scope & Constraints**
+Implement real-time location masking for security-sensitive routes in the public API while preserving full fidelity for the internal dispatch dashboard. The solution must handle a 6-hour geofencing cache latency and adhere to strict dual-approval deployment gates. No changes to immutable audit logs.
+
+#### 1. Work Lanes (Parallel Execution)
+
+*   **Lane A: Geofencing Logic & Configuration (Builder)**
+    *   **Task:** Extend the shared routing library to detect security zones. Implement the "masking switch" that returns static/delayed coordinates for public callers based on route ID.
+    *   **Constraint:** Must respect the 6-hour cache window; include a mechanism to force a cache flush for urgent updates.
+    *   **Output:** Patch to routing library + updated geofencing config schema.
+
+*   **Lane B: Public API Adapter (Builder)**
+    *   **Task:** Modify the public vehicle endpoint to invoke the new masking logic. Ensure the internal dispatch endpoint bypasses this logic entirely.
+    *   **Output:** API diff ensuring distinct behavior per caller type.
+
+*   **Lane C: Independent Verification Suite (QA)**
+    *   **Task:** Build a simulation harness that mocks vehicle traversal through government zones.
+    *   **Critical Check:** Verify that public responses show masked data while internal dispatch receives exact coordinates simultaneously.
+    *   **Output:** Test receipts proving no data leakage.
+
+*   **Lane D: Security & Compliance Audit (Security)**
+    *   **Task:** Review the masking algorithm for side-channel leaks (e.g., timing attacks, metadata). Validate that audit logs remain untouched and compliant.
+    *   **Output:** Security sign-off on the masking invariant.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec Freeze:** Define exact "security-sensitive" route criteria and the specific masking behavior (static vs. delayed). Pin base SHA.
+*   **G2 Budget Cap:** Set strict token/cost limits for Lane C (QA) to prevent expensive CI failures on the legacy simulation environment.
+*   **G3 Design Review:** Architect approval of the shared library modification to ensure no regression for non-sensitive routes.
+*   **G4 Implementation:** Code complete in isolated worktrees. Unit tests must pass locally before push.
+*   **G5 Verification (The Critical Gate):**
+    *   **Environment:** Staging cluster with legacy simulation.
+    *   **Action:** Run full integration suite.
+    *   **Pass Condition:** 100% pass rate. Any failure incurs the cloud penalty; thus, local pre-validation is mandatory.
+    *   **Cache Test:** Manually trigger cache flush to verify immediate rule propagation.
+*   **G6 Independent Review:**
+    *   **Reviewer:** Senior Engineer (not the Builder).
+    *   **Scope:** Full diff + QA receipts + Security report.
+    *   **Severity:** Any potential location leak is a **Blocker**.
+
+#### 3. Landing & Deployment
+
+*   **Integration (G7):**
+    *   Merge Lanes A and B into a release candidate branch.
+    *   Re-run G5 verification on the exact merge SHA to confirm no integration drift.
+
+*   **Human Gates (G8 - Mandatory):**
+    *   **Approvals Required:** Explicit written approval from both the **Lead Engineer** and the **Safety Compliance Officer**.
+    *   **Evidence Provided:** QA receipts showing masked vs. unmasked data, Security sign-off, and rollback procedure.
+    *   **Decision:** Binary (Go/No-Go). No partial features.
+
+*   **Deployment Strategy:**
+    *   Deploy behind a feature flag initially, enabled only for a canary group.
+    *   **Rollback Plan:** If masking fails or internal data is affected, immediately revert the feature flag and redeploy the previous stable SHA. The routing library change is backward compatible; the flag controls activation.
+
+*   **Post-Deploy (G9):**
+    *   Monitor live traffic for 1 hour. Verify public map shows placeholders in zones while dispatch sees movement.
+    *   Confirm no audit log anomalies.
+
+**Risk Mitigation:**
+*   **CI Cost:** Heavy integration tests run only once per verified SHA. Local linting and unit tests are strict gates to prevent failed builds.
+*   **Cache Latency:** Operational runbook includes the specific command to flush the geofencing cache for emergency route updates.
+*   **Data Integrity:** Read-only access enforced on audit logs during the transaction path.

@@ -1,0 +1,56 @@
+### Delivery Plan: Neon Glow Shader Rollback v4.2
+
+**Objective:** Revert client-side asset bundle references to the previous stable version while preserving active user equip states in the customization lounge. No database writes or inventory changes.
+
+#### 1. Lanes & Parallelism
+
+*   **Lane A (Visuals Squad - Preparation):**
+    *   Identify the exact commit hash and asset bundle version ID of the last stable release prior to v4.2.
+    *   Prepare the configuration patch to update the asset reference pointer in the shared material definition files.
+    *   *Constraint:* Must wait until business hours end if config files are currently locked.
+*   **Lane B (Site Reliability - Staging Environment):**
+    *   Freeze the current staging branch.
+    *   Standby to receive the specific bundle version ID from Lane A.
+    *   Prepare the deployment bot credentials for staging (read-only DB access verification).
+
+*   **Serialization Point:** Lane A must complete identification and patch preparation before Lane B can execute the staging deploy.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Pre-Deploy Verification (Local/Dev)**
+    *   **Revision:** The specific commit identified by Lane A.
+    *   **Check:** Verify the patch changes *only* the asset bundle reference string. Confirm no logic changes to the equip/unequip state machines.
+    *   **Owner:** Lead Artist (Visuals).
+
+*   **Gate 2: Staging Deployment & Validation**
+    *   **Revision:** The patch applied to the staging branch.
+    *   **Action:** Trigger the automated deployment bot to push the reverted bundle to staging edge nodes.
+    *   **Check 1 (Visual):** Confirm "Neon Glow" series renders without texture tearing on a representative mid-range device profile.
+    *   **Check 2 (Session Integrity):** Simulate an active session in the customization lounge. Apply the update while the menu is open. Verify the item remains equipped and no crash/desequip occurs.
+    *   **CI Constraint:** Run the CI suite but configure it to ignore failures in the "lighting validation" step if the error signature matches the known flaky metadata false-positive.
+    *   **Owner:** Site Reliability (execution), Lead Artist (visual sign-off).
+
+#### 3. Review Process
+
+*   **Independent Reviewer:** A senior engineer from a squad *other than* Visuals or SRE (e.g., Gameplay Engineering) must review the diff.
+*   **Scope:** Confirm the diff contains strictly the asset reference revert and no incidental changes to database connectors or inventory logic.
+*   **Timing:** Must occur after Gate 1 passes and before Gate 2 execution.
+
+#### 4. Landing Strategy
+
+*   **Production Deploy:**
+    *   **Trigger:** Successful completion of Gate 2 checks on staging.
+    *   **Approvals:** Dual approval required via the deployment bot (Lead Artist + Site Reliability).
+    *   **Execution:** The automated deployment bot applies the change to production edge nodes.
+    *   **Propagation Monitor:** Wait for cache propagation confirmation across all edge regions.
+
+*   **Human Decision Points:**
+    *   If the "lighting validation" check fails in CI, a human must manually verify it is the known flaky failure before proceeding.
+    *   If active session simulation in staging causes a crash, the deploy is aborted immediately for root cause analysis.
+
+*   **Rollback Plan:**
+    *   **Irreversibility Warning:** Once the reverted bundle propagates to edge nodes, this specific rollback action is irreversible.
+    *   **Failure Mode:** If the revert causes new issues (e.g., missing textures due to cache mismatch), the fallback is *not* to re-apply v4.2. Instead, trigger the "Emergency Maintenance" protocol to take the customization lounge offline temporarily while a hotfix is engineered.
+    *   **Database Safety:** Since the database is read-only for engineers and the bot handles state, no manual DB rollback is possible or required. The safety net is purely the ability to take the service offline if the client-side revert fails catastrophically.
+
+**Confirmation:** Success is declared when staging reflects the old visuals, active session tests pass without desequip, and the deployment bot confirms successful propagation to production edge nodes.

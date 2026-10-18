@@ -1,0 +1,38 @@
+### Delivery Plan: StormCast Query Optimization
+
+**Lanes & Parallelism**
+*   **Lane A (Query Logic):** Refactor the historical data retrieval module to implement sliding-window scanning, restricting full-decade scans to final validation runs only. Initial ingestion will target the last 24 months.
+*   **Lane B (Cost Instrumentation):** Implement compute-metering hooks within the ingestion pipeline to log query duration and resource units per batch.
+*   **Parallel Execution:** Lanes A and B proceed simultaneously. Lane A requires no input from B, and B instruments existing code before A's changes are merged.
+*   **Serialization Point:** Lane C (Validation) cannot begin until Lane A merges its logic and Lane B confirms metering is active.
+
+**Gates & Checks**
+*   **Gate 1: Local Efficiency Simulation.** Before pushing code, run the optimized query logic against a local subset of immutable historical data. Verify the scan range limits are enforced and output accuracy matches the legacy full-scan baseline.
+*   **Gate 2: CI Pipeline (Non-Peak).** Push changes to a feature branch. Trigger the full regression suite only during off-peak hours to avoid double-cost penalties.
+    *   *Check:* Total runtime must remain under 50 minutes.
+    *   *Flaky Check Handling:* If the humidity validation module fails, inspect logs. If no data drift is detected, mark as non-blocking and proceed.
+*   **Gate 3: Staging Budget Verification.** Deploy to the staging environment. Run a simulated 06:00 UTC ingestion window.
+    *   *Success Criterion:* Compute resource consumption must show ≥40% reduction compared to the baseline metrics captured by Lane B.
+    *   *Accuracy Check:* Forecast outputs must match production parity within 0.01% tolerance.
+
+**Review Process**
+*   **Primary Reviewer:** A Senior Engineer from the Data Platform team (not the author) must review the query refactoring for logic correctness and adherence to the "immutable data" constraint.
+*   **Independent Verification:** A separate engineer must validate the cost instrumentation logs to confirm the 40% reduction claim is based on actual cluster metrics, not local estimates.
+*   **Approval Authority:** Final deployment approval requires explicit sign-off from either Jane Smith or Leo Chen. No other approvers are authorized for the production forecasting environment.
+
+**Landing Strategy**
+*   **Merge Window:** Merge to main branch Thursday evening, allowing Friday for validation before the severe weather season deadline.
+*   **Deployment:** Deploy to production immediately following approval. Do not deploy during the 06:00 UTC window; schedule for 04:00 UTC to ensure stability before peak load.
+*   **Human Decisions Required:**
+    1.  **Jane Smith or Leo Chen:** Must approve the production deployment.
+    2.  **On-Call Lead:** Must authorize bypassing the humidity validation failure if it triggers during CI without data drift.
+*   **Rollback Plan:**
+    *   If compute costs do not drop by 40% in staging, halt deployment immediately.
+    *   If production accuracy deviates >0.01%, trigger an immediate revert to the previous stable commit.
+    *   Since the data store is immutable, rollback involves only code reversion; no data cleanup is required.
+    *   Ensure read replicas are not inadvertently used by the batch job during rollback testing.
+
+**Risk Mitigation**
+*   **Cluster Cost:** All heavy testing occurs off-peak.
+*   **Data Integrity:** Accuracy checks run against immutable historical snapshots to ensure no data loss.
+*   **Timeline:** Buffer built into Thursday merge to allow Friday for unforeseen validation issues.

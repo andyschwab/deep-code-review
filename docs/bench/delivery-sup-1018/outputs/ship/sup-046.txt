@@ -1,0 +1,43 @@
+**Delivery Plan: Secure Admin Action Logging**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Schema Contract):** Define the exact JSON schema for the auditor. Map every admin action (config change, user delete, permission update) to a log event. Define the "Sensitive Data" allowlist/blocklist rules. *Owner: Product Analyst + Security.*
+*   **Lane B (Core Implementation):** Implement the logging interceptor in the NexusCore monolith. Integrate the sanitization filter to scrub keys/tokens before writing. Write unit tests for the scrubber using mock sensitive inputs. *Owner: Builder.*
+*   **Lane C (Integration & Format Verification):** Create a standalone validator script that ingests sample log output and verifies it against the Lane A schema. Simulate the air-gapped buffer format. *Owner: QA.*
+
+*Parallel Execution:* Lanes A, B, and C start simultaneously after G1 Spec approval.
+*Serialization:* Lane B cannot merge until Lane A's schema is frozen. Lane C requires a build artifact from Lane B to run end-to-end format checks.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Output is the frozen JSON schema and the list of sensitive patterns. *Check:* Security Officer sign-off on the scrubbing rules.
+*   **G3 (Design):** ADR confirming the logging mechanism does not block the main thread and handles the air-gapped buffer correctly. *Check:* Lead Architect approval.
+*   **G4 (Implement):** Code committed to a dedicated worktree. Unit tests included. *Constraint:* No direct DB access used in tests; use mocks.
+*   **G5 (Verify):**
+    *   **Sanitization Test:** Run Lane B's unit tests with injected fake keys/tokens. Assert they are absent in output.
+    *   **Schema Test:** Run Lane C's validator against generated logs. Assert 100% schema compliance.
+    *   **Cost Control:** Run the full CI suite only once on the final candidate SHA to save credits. Rely on local/unit verification for intermediate checks.
+*   **G6 (Review):**
+    *   **Security Review:** Independent review by the Security Officer (not the Builder). Focus: Scrubbing logic completeness.
+    *   **Architecture Review:** Independent review by the Lead Architect. Focus: Performance impact and buffer handling.
+    *   **Deep Code Review:** Automated scan for hardcoded secrets or logging of prohibited fields.
+
+**3. Review Independence**
+*   The Builder (Lane B) cannot approve their own code.
+*   The Security Officer must verify the sanitization logic independently of the Lead Architect's performance review.
+*   QA (Lane C) verifies the output format without seeing the implementation code, treating the logger as a black box feeding the validator.
+
+**4. Landing & Human Decisions**
+*   **Merge Strategy:** Due to the shared configuration file dependency, this change requires a coordinated release window. The PR will be merged to `main` only when the release window is open and the other three services are ready for the config schema (even if their logic doesn't change yet).
+*   **Human Gates:**
+    *   **Approval:** Both Lead Architect and Security Officer must explicitly approve the PR before merging.
+    *   **Deploy:** Production deployment is manual. An operator must trigger the batch job shipment verification after the code lands.
+*   **Rollback:**
+    *   If logs fail schema validation in production (detected by the next hourly batch), revert the commit immediately.
+    *   Since logs are buffered locally, a rollback stops future bad logs, but the local buffer must be manually purged before the next shipment if corruption occurred.
+*   **Flake Mitigation:** If the CI network check fails, do not auto-retry three times. Inspect the failure; if it is a known network flake, request a manual re-run by a human to avoid burning 120 extra credits on false failures.
+
+**5. Evidence Required for Merge**
+*   Green CI status on the exact merge SHA.
+*   Signed approval from Security Officer and Lead Architect.
+*   Output from Lane C's validator showing 100% schema compliance on the final build.
+*   Confirmation that no sensitive test data exists in the commit history.

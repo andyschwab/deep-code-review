@@ -1,0 +1,24 @@
+### Delivery Plan: TempLog to FrostGuard Migration
+
+**Lanes & Parallelism**
+*   **Lane A (Schema & Compliance):** Prepare database migration scripts for the new FrostGuard schema. This lane is serialized behind the Tuesday Approval Board meeting. No code deployment can occur until this gate passes.
+*   **Lane B (Pipeline Implementation):** Develop the dual-write ingestion service within `logistics-core`. This includes implementing the replay buffer logic for connection hiccups. This runs in parallel with Lane A's preparation but cannot merge to production until Lane A clears.
+*   **Lane C (Validation Harness):** Build the 48-hour parallel comparison tooling. This runs independently but requires data from Lane B's staging deployment to verify correctness.
+
+**Gates & Checks**
+1.  **QA Sign-off Gate:** Before any code touches the shared branch, the Quality Assurance lead must explicitly approve the test strategy. This is a hard stop; no work proceeds without it.
+2.  **CI Optimization Gate:** Due to the 20-minute timeout and high cost (40 credits), the flaky `sensor-handshake` test must be quarantined or mocked in the pre-merge pipeline. The full data integrity check will move to a post-merge, pre-production stage to prevent false negatives blocking progress.
+3.  **Deployment Token Gate:** Production deployment requires a token from Jane Smith (Senior DevOps). This request must be scheduled 24 hours in advance to align with her availability.
+4.  **Cutover Deadline:** All systems must be live before the legacy contract expires at midnight on the target date. A "soft freeze" occurs 4 hours prior to allow for emergency rollback.
+
+**Review Strategy**
+*   **Code Review:** An engineer from a non-logistics team (external to the 12 delivery teams) will review the dual-write logic to ensure no bias toward existing patterns.
+*   **Architecture Review:** Jane Smith must review the deployment rollback plan specifically, independent of the code review.
+*   **Data Integrity Review:** The QA Lead reviews the output of the parallel comparison tool after the first 12 hours of the 48-hour window, not just at the end.
+
+**Landing & Rollback**
+*   **Merge Strategy:** The migration code merges to `main` only after the Tuesday Board approves the schema and QA signs off. The feature flag `frost_guard_active` remains off initially.
+*   **Activation:** Enable dual-writing (CoolStream + FrostGuard) immediately upon deployment. Monitor buffer replay metrics for 2 hours.
+*   **Cutover:** Switch read-source to FrostGuard. Begin the 48-hour parallel comparison clock.
+*   **Decommission:** Only after 48 hours of zero-discrepancy reporting and QA final sign-off will the CoolStream keys be revoked.
+*   **Rollback:** If data gaps exceed 1 minute or buffer replay fails twice, immediately revert the feature flag to route reads back to CoolStream. Since the legacy contract expires at midnight, rollback is impossible after that timestamp; thus, the "point of no return" is 6 hours before midnight to allow for a full revert cycle. If failure occurs after the point of no return, the team must manually patch the stream using the replay buffer while engaging FrostGuard support directly.

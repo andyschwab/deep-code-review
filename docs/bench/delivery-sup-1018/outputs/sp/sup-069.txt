@@ -1,0 +1,70 @@
+# Delivery Plan: Adaptive Cross-Platform Physics Stabilization
+
+## Lanes & Parallelism
+
+**Lane A: Client-Side Interpolation Logic (Mobile/Console)**
+*   **Owner:** Senior Engine Developer
+*   **Work:** Modify `CorePhysics` client-side interpolation to accept dynamic tick deltas. Implement capability detection (frame time variance) to throttle local prediction without altering the authoritative server tick count.
+*   **Constraint:** Must not touch server authority logic or network protocol structs.
+
+**Lane B: Validation & Baseline Testing**
+*   **Owner:** QA Automation Engineer
+*   **Work:** Isolate `SyncValidator` flakiness by creating a deterministic replay harness using recorded tournament logs. Run baseline tests on legacy hardware images to establish a "known bad" metric for rubber-banding.
+*   **Parallel:** Runs concurrently with Lane A development.
+
+**Lane C: Architecture Review & Safety Gates**
+*   **Owner:** Network Architect
+*   **Work:** Review diff of `CorePhysics` to ensure no protocol version bumps and no server-side logic changes. Verify that projectile trajectory math remains deterministic regardless of client tick rate.
+
+**Serialization Point:** Lane A cannot merge until Lane C approves the design approach and Lane B confirms the replay harness is stable.
+
+## Gates & Checks
+
+**Gate 1: Local Determinism Check (Pre-Commit)**
+*   **Revision:** Feature branch head.
+*   **Action:** Developer runs local unit tests comparing projectile landing coordinates between high-tick (console sim) and low-tick (mobile sim) inputs using fixed seeds.
+*   **Pass Criteria:** Zero deviation in collision box coordinates across 1,000 simulated shots.
+
+**Gate 2: CI Stability Suite (Nightly)**
+*   **Revision:** Nightly build of feature branch.
+*   **Action:** Submit to CI pipeline (45-min runtime).
+*   **Constraint:** Max 6 submissions/day. Batches must be queued by 08:00, 12:00, and 16:00 to maximize throughput before Friday.
+*   **Pass Criteria:** No regression in shared simulation state drift metrics.
+
+**Gate 3: Legacy Hardware Manual Verification**
+*   **Revision:** Release candidate branch.
+*   **Action:** Lead Engineer manually executes `SyncValidator` on physical legacy devices, bypassing the flaky automated image.
+*   **Pass Criteria:** Visual confirmation of smooth interpolation without rubber-banding in mixed lobby stress test.
+
+## Review Process
+
+**Independent Technical Review**
+*   **Reviewer:** Network Architect (distinct from implementer).
+*   **Scope:** Full diff of `CorePhysics`. Specifically checks that no network protocol structs were modified and that server authority remains untouched.
+*   **Timing:** After Gate 1 passes, before Gate 2 submission.
+
+**Quality Assurance Review**
+*   **Reviewer:** QA Lead.
+*   **Scope:** Analysis of CI stability suite results and Lead Engineer's manual verification report.
+*   **Timing:** After Gate 2 and Gate 3 pass.
+
+**Final Sign-off**
+*   **Requirement:** Dual approval (Network Architect + QA Lead) required before merge permission is granted.
+
+## Landing Strategy
+
+**Merge Target:** `release/tournament-v4`
+**Merge Window:** Thursday 18:00 (allows 24-hour soak before Friday deadline).
+
+**Human Decision Points:**
+1.  **Protocol Safety:** Network Architect must explicitly confirm no protocol version change occurred.
+2.  **Legacy Flakiness:** Lead Engineer must sign off on manual `SyncValidator` results, overriding automated false negatives.
+
+**Rollback Plan:**
+*   **Trigger:** Any report of state drift >50ms in post-merge monitoring or failure in final manual sanity check.
+*   **Action:** Immediate revert of the `release/tournament-v4` branch to the pre-merge tag.
+*   **Fallback:** Disable adaptive tick system via existing feature flag (if available) or hotfix revert patch.
+*   **Communication:** Notify Tournament Operations immediately if rollback occurs post-Thursday 18:00.
+
+**Risk Mitigation:**
+Given the 6-run CI cap, no more than three iterative fixes can be attempted before Friday. If Gate 2 fails twice, the team must switch to a conservative "lowest common denominator" tick rate rather than continuing adaptive tuning attempts.

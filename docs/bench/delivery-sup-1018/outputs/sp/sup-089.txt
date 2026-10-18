@@ -1,0 +1,32 @@
+### Deployment Plan: Nexus v3 with State-Preserving Rollback
+
+**Lanes & Parallelism**
+*   **Lane A (Infrastructure & Config):** Prepares the Kubernetes 'Green' cluster manifest and the load balancer switch configuration. This runs in parallel with Lane B.
+*   **Lane B (Build & Verify):** Triggers the single CI build for Nexus v3. Due to the 45-minute duration and high cost, this lane allows zero retries; the build must pass static analysis locally before submission.
+*   **Lane C (Approval & Migration Prep):** Secures written approval from Jane Smith for the shared `session-migration` script and obtains the two required senior lead sign-offs. This must complete before the database migration gate.
+
+**Serialization Constraints**
+1.  **Approval Gate:** The database schema migration cannot start until Lane C secures Jane Smith's approval and both senior lead sign-offs.
+2.  **Migration Gate:** The schema migration is irreversible. It must complete successfully before any traffic is directed to the 'Green' cluster.
+3.  **Deployment Gate:** The Nexus v3 pods may only be scaled up in the 'Green' cluster after the CI build (Lane B) succeeds and the schema migration is confirmed.
+4.  **Cutover Gate:** Traffic shifting from 'Blue' to 'Green' occurs only after a manual verification that the 'Green' cluster is successfully hydrating sessions from the shared Redis shard without data loss.
+
+**Gates & Checks**
+*   **Pre-Build Check:** Local static analysis and unit tests must pass before triggering the CI pipeline to avoid the $120 cost of a failed build.
+*   **Staging Override:** The staging environment network check is known to false-fail. A designated senior engineer must manually override this specific check in the CI dashboard; automation must not block on it.
+*   **Session Continuity Check:** Before cutover, a synthetic transaction will verify that a session started on 'Blue' is readable by 'Green' via the shared Redis shard.
+*   **Rollback Readiness:** The switch-back procedure is verified by simulating a config revert in a dry-run mode. The rollback mechanism relies on the load balancer re-pointing to 'Blue'; since 'Blue' shares the Redis shard, session state is preserved by architecture, provided the schema migration did not break backward compatibility (verified in the Migration Gate).
+
+**Review Process**
+*   **Code Review:** Independent review of the Nexus algorithm code by a Senior Backend Engineer not involved in Lane B.
+*   **Config Review:** The Kubernetes manifests and load balancer rules are reviewed by the Platform Lead (distinct from Lane A).
+*   **Rollback Procedure Review:** The switch-back runbook is reviewed and signed off by the On-Call Incident Commander, ensuring it explicitly addresses the "no cart loss" requirement.
+
+**Landing Strategy**
+*   **Merge Strategy:** The code merges to the `release/v3` branch only after CI passes (with the network check override applied).
+*   **Deployment Window:** Deployment occurs during low-traffic hours. The database migration runs first. Once migrated, Nexus v3 deploys to 'Green' in standby.
+*   **Cutover:** Traffic shifts incrementally (5% -> 20% -> 100%) over 30 minutes, monitoring conversion rates and session error logs.
+*   **Human Decision Points:**
+    1.  Manual override of the staging network check.
+    2.  Final "Go/No-Go" decision to shift 100% traffic, made jointly by the two senior leads based on real-time metrics.
+*   **Rollback Protocol:** If conversion rates dip below baseline or session errors spike, the Incident Commander executes the switch-back immediately. The load balancer reverts to 'Blue'. Since the Redis shard is shared and the schema migration is forward-compatible (verified pre-deploy), user sessions and cart contents remain intact without re-authentication. No code redeployment is needed for rollback; only traffic routing changes.

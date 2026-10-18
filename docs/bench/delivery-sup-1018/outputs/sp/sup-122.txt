@@ -1,0 +1,71 @@
+# Delivery Plan: NexusPay Crash Recovery Hardening
+
+## Lanes and Parallelism
+
+**Lane A: Core Durability Logic (Backend Engineering)**
+*   **Owner:** Senior Backend Engineer
+*   **Work:** Implement the synchronous write-to-ledger hook for transactions marked 'processing'. Modify the shutdown signal handler to block termination until the durable write confirms.
+*   **Constraint:** Must not alter API response schemas or UI behavior.
+*   **Parallelism:** Runs concurrently with Lane B.
+
+**Lane B: Concurrency Test Harness (QA Engineering)**
+*   **Owner:** QA Automation Engineer
+*   **Work:** Develop a localized stress test simulating high-concurrency termination signals. This must run outside the expensive CI pipeline to validate logic before the formal gate.
+*   **Constraint:** Must verify no race conditions between the 'processing' flag and the write operation.
+*   **Parallelism:** Runs concurrently with Lane A.
+
+**Lane C: Audit & Compliance Verification (Risk Team)**
+*   **Owner:** Lead Risk Officer (Marcus Thorne)
+*   **Work:** Pre-review the logic design to ensure it meets financial compliance standards for "immediate persistence."
+*   **Serialization:** Must complete before the final production deploy approval, but can run in parallel with initial code development.
+
+## Gates and Checks
+
+**Gate 1: Local Validation (Pre-Commit)**
+*   **Trigger:** Completion of Lane A and Lane B.
+*   **Action:** Run the localized stress test (Lane B) against the new logic on a developer workstation.
+*   **Criteria:** Zero transaction loss over 10,000 simulated forced terminations.
+*   **Timing:** Before pushing to the shared repository.
+
+**Gate 2: The Golden Build (CI Pipeline)**
+*   **Trigger:** Push to the `feature/durability-fix` branch.
+*   **Timing:** Must be scheduled to start after 03:00 UTC to avoid the `global_state.bin` lockout.
+*   **Action:** Execute the full CI pipeline in the 'Gold-Cluster'.
+*   **Cost Control:** Only one execution permitted. If it fails due to infrastructure (not code), the Lead Engineer must manually verify the logs before retrying to save credits.
+*   **Flaky Check Handling:** If the `transaction_validator` fails, do not auto-retry. Pause for manual inspection.
+
+**Gate 3: Risk Officer Sign-off**
+*   **Trigger:** Successful CI build.
+*   **Action:** Marcus Thorne must manually override the `transaction_validator` flakiness and sign off on the financial safety of the change.
+*   **Criteria:** Written confirmation that the durability guarantee satisfies the "no financial discrepancy" requirement.
+
+## Review Process
+
+**Independent Code Review**
+*   **Reviewer:** Principal Engineer (NOT the author of Lane A).
+*   **Scope:** Diff analysis focusing strictly on the shutdown handler and the write-path synchronization.
+*   **Timing:** Before Gate 2 (CI). The reviewer must verify that the code blocks shutdown signals correctly without causing deadlocks.
+*   **Independence:** The reviewer cannot be the same person who wrote the stress tests in Lane B.
+
+**Financial Logic Review**
+*   **Reviewer:** Marcus Thorne (Lead Risk Officer).
+*   **Scope:** Verification that the "processing" state definition aligns with audit requirements.
+*   **Timing:** Before Gate 3.
+
+## Landing and Rollback Strategy
+
+**Merge Strategy**
+*   **Branch:** Merge `feature/durability-fix` into `main` only after Gate 3 is cleared.
+*   **Human Decision:** The final merge button requires explicit confirmation from both the Principal Engineer and Marcus Thorne. No auto-merge.
+
+**Deployment**
+*   **Window:** Deploy during low-traffic hours, excluding the 02:00–03:00 UTC audit window.
+*   **Verification:** Immediate smoke test on a single canary instance in the 'Gold-Cluster' to confirm the shutdown hook activates.
+
+**Rollback Protocol**
+*   **Constraint:** Reverting is irreversible after the hourly snapshot cycle completes.
+*   **Action:** If the canary instance shows latency spikes >200ms or failed writes, halt deployment immediately.
+*   **Recovery:** Since binary reversion is impossible post-snapshot, the rollback plan relies on **feature flagging**. The new durability logic must be wrapped in a configuration flag disabled by default. If issues arise, toggle the flag off via config management to revert to the previous behavior instantly without needing a binary rollback.
+*   **Post-Incident:** If the flag is toggled off, a full root-cause analysis is required before attempting another deploy.
+
+This plan prioritizes financial safety over speed, acknowledging the high cost of CI failures and the irreversibility of production snapshots.

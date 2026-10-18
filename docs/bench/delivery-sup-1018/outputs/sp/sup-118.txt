@@ -1,0 +1,33 @@
+### Delivery Plan: Zero-Downtime Catalog Migration
+
+#### 1. Lanes and Parallelism
+*   **Lane A (Data Engineering):** Develops the dual-write migration script and the real-time sync daemon. This lane operates independently of the application code but must align with the schema constraints.
+*   **Lane B (Backend Services):** Implements the "Circuit Breaker" logic in the circulation module to handle read/write routing during the cutover without dropping requests.
+*   **Lane C (QA & Validation):** Constructs synthetic load tests mimicking production concurrency (since staging cannot) and prepares the manual verification scripts for active loan due dates.
+*   **Serialization Point:** Lane A and Lane B must converge for a joint integration test before any production activity. Lane C cannot finalize validation until the joint build is ready.
+
+#### 2. Gates and Checks
+*   **Gate 1: Schema Lock Verification.** Before code merge, the Lending Lead and Billing Lead must jointly sign off on the migration script's compatibility with the locked schema file. No deployment proceeds without both signatures.
+*   **Gate 2: The "Dry Run" Simulation.** Execute the migration script against a production data snapshot (read-only) to verify audit log conversion integrity. Since the audit format is irreversible, this gate confirms the script completes without error before touching live data.
+*   **Gate 3: Concurrency Stress Test.** Run Lane C's synthetic load test against the integrated build in a pre-prod environment. Success criteria: 0% transaction failure during simulated backend swapping.
+*   **Execution Revision:** All checks run on the specific Git revision tagged `release-catalog-migration-v1`. The production cutover uses this exact immutable artifact.
+
+#### 3. Review Process
+*   **Code Review:** An engineer from the Billing team (independent of the Lending team) must review the Circulation Module changes to ensure fines engine stability. Conversely, a Lending engineer reviews the Billing-adjacent schema usage.
+*   **Script Review:** The Data Engineering lead reviews the migration script, focusing specifically on the rollback impossibility of the audit logs.
+*   **Operational Review:** The Director of Digital Services reviews the "Go/No-Go" checklist, specifically the manual reconstruction plan should the irreversible script fail mid-stream.
+
+#### 4. Landing and Merge Strategy
+*   **Pre-Cutover:** Deploy the new dual-write capability to production in "shadow mode" (writing to both old and new catalogs) 24 hours prior. This validates real-time sync without routing live traffic to the new system.
+*   **The Cutover Window:**
+    1.  Enable maintenance mode on the *write* path only (reads remain active).
+    2.  Perform final delta sync.
+    3.  Switch read routing to the new central repository.
+    4.  Disable writes to the legacy catalog.
+    5.  Re-enable global writes pointing to the new repository.
+*   **Human Decision:** The Director of Digital Services must explicitly authorize the switch from Step 2 to Step 3 based on real-time dashboard metrics showing zero active transaction failures.
+*   **Rollback Protocol:** Since the audit log conversion is irreversible, a technical "undo" is impossible. If critical failure occurs post-cutover:
+    1.  Immediately revert read routing to the legacy catalog.
+    2.  Initiate the pre-approved manual data reconstruction team to repair inconsistent audit entries.
+    3.  Services remain online on the legacy system while data is manually healed.
+*   **Final Merge:** Once the Director confirms 2 hours of stable operation with successful renewals and returns, the feature flags are permanently enabled, and the legacy write paths are deprecated in the next standard release cycle.

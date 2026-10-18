@@ -1,0 +1,73 @@
+# Delivery Plan: Compliance Officer Approval Enforcement
+
+## Work Lanes
+
+**Lane A: Backend Workflow (Serialized)**
+*   **Owner:** Backend Engineer
+*   **Tasks:** Modify the publishing pipeline to intercept content post-scan. Implement the "Hold" state logic using the existing unused database schema. Create the API endpoints for approval/rejection actions.
+*   **Constraint:** Must be completed before Lane C can begin integration testing.
+
+**Lane B: Admin Dashboard & UI (Parallel to A)**
+*   **Owner:** Frontend Engineer
+*   **Tasks:** Build the approval queue interface for Jane Smith. Implement "Approve/Reject" actions. Update the contributor UI to display "Pending Review" status clearly.
+*   **Constraint:** Requires API contract definition from Lane A (Day 1), but development can proceed with mocks.
+
+**Lane C: Integration & Configuration (Serialized after A & B)**
+*   **Owner:** DevOps/Lead Engineer
+*   **Tasks:** Wire frontend to backend. Configure the routing rules to enforce the hold state for all text/image uploads. *Note: `global-rules.yaml` is locked; this lane must prepare the separate change request document for the configuration update.*
+
+## Gates and Checks
+
+**Gate 1: Code Freeze & Static Analysis**
+*   **Trigger:** Completion of Lanes A and B.
+*   **Action:** Run static analysis and unit tests locally.
+*   **Revision:** Latest commit on `feature/compliance-hold` branch.
+*   **Check:** Verify no direct calls to "publish" exist without the approval check.
+
+**Gate 2: Staging Deployment (The Costly Gate)**
+*   **Trigger:** Lane C complete.
+*   **Action:** Trigger CI pipeline.
+*   **Revision:** Squashed commit of Lanes A, B, and C to minimize the $45/22min cost.
+*   **Check:** End-to-end test in Acme Cloud Staging.
+    *   *Specific Check:* Verify content enters the queue and does not publish automatically.
+    *   *Mitigation:* Ignore false timeouts from the notification service; manually verify database state if the test hangs.
+
+**Gate 3: Compliance Verification**
+*   **Trigger:** Staging deployment successful.
+*   **Actor:** Jane Smith (Compliance Officer).
+*   **Action:** Jane must successfully approve and reject test content via the dashboard.
+*   **Check:** Signed confirmation from Jane that the workflow matches policy.
+
+## Review Process
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer from a different team (not Trust & Safety).
+*   **Scope:** Full diff of `feature/compliance-hold` against `main`.
+*   **Focus:** Ensure the "Hold" state is mandatory and cannot be bypassed. Verify UI clarity for contributors.
+*   **Timing:** Before Gate 2 (Staging).
+
+**Configuration Review**
+*   **Reviewer:** Trust & Safety Lead.
+*   **Scope:** The separate change request for `global-rules.yaml`.
+*   **Timing:** Parallel to Code Review.
+
+## Landing Strategy
+
+**Approval Window**
+*   **Constraint:** Production deploys only approved by VP of Operations on Tuesdays or Thursdays.
+*   **Action:** Schedule the final merge and deployment ticket for the next available window. If today is Monday, target Tuesday. If Friday, target Tuesday.
+
+**Deployment Execution**
+*   **Method:** Irreversible deployment script.
+*   **Pre-requisite:** VP of Operations explicit approval ticket linked.
+*   **Rollback Plan:** Since the deploy is irreversible, the "Rollback" is actually a forward-fix.
+    *   *Script:* Execute the dedicated full rollback script to revert the binary.
+    *   *Data:* Run the provided migration script to flush the approval queue if the system gets stuck in a "Hold" loop due to a bug.
+
+**Human Decision Points**
+1.  **VP of Operations:** Must authorize the production deployment slot.
+2.  **Change Control Board:** Must approve the `global-rules.yaml` modification request.
+3.  **Jane Smith:** Must sign off on the staging workflow before production release.
+
+**Risk Mitigation**
+*   Due to the irreversible nature of the deploy and the flaky notification service, the team will monitor the queue depth manually for the first 2 hours post-deploy. If the queue stalls, the rollback script is executed immediately.

@@ -1,0 +1,49 @@
+**Delivery Plan: Historical Donation Migration**
+
+**Objective:** Migrate 20 years of data to the new ledger with zero loss, zero downtime, and full auditability by next Friday.
+
+**Lanes & Parallelism**
+*   **Lane 1: Migration Logic (Builder)**
+    *   *Work:* Develop the extraction, transformation, and loading (ETL) script. Implement checksum validation per batch and compliance logging.
+    *   *Constraint:* Must handle legacy format mapping errors gracefully without crashing.
+    *   *Parallelism:* Runs in parallel with Lane 2, but serialized before Lane 3.
+*   **Lane 2: Dry-Run Harness & Rollback (QA)**
+    *   *Work:* Build a harness to run the migration script against a restored production backup in an isolated environment. Define the "rollback" procedure (restoring the backup state) since the audit log write is irreversible.
+    *   *Constraint:* Must prove the script can process 20 years of data within the non-business-hour window (18:00–08:00).
+    *   *Parallelism:* Runs parallel to Lane 1; requires Lane 1's code to proceed to execution.
+*   **Lane 3: Integration & Staging Verification (QA + Security)**
+    *   *Work:* Execute the full migration on the staging environment. Verify checksums, log completeness, and portal stability under load.
+    *   *Constraint:* Must tolerate the 15% flaky network rate; retries must be idempotent.
+    *   *Serialization:* Cannot start until Lane 1 and Lane 2 report success on the dry-run.
+
+**Gates & Checks**
+*   **G1 Spec:** Define exact checksum algorithm, log schema, and the specific "stop condition" for mapping failures. Pin base SHA.
+*   **G3 Design:** Review data mapping logic for older record formats. Confirm no schema changes are required (adhering to the 08:00–18:00 freeze).
+*   **G4 Implement:** Code freeze for the migration script. Unit tests for checksum and logging must pass locally.
+*   **G5 Verify (Staging):**
+    *   *Revision:* Exact SHA from G4.
+    *   *Action:* Full dry-run on staging clone.
+    *   *Criteria:* 100% checksum match, logs present in compliance bucket, portal uptime maintained during simulation.
+    *   *Note:* If the staging run triggers the irreversible audit log, the "dry-run" mode must be proven to suppress this trigger.
+*   **G6 Review:**
+    *   *Reviewer:* Senior Engineer (not the Builder).
+    *   *Focus:* Data integrity logic, rollback readiness, and suppression of regulator notifications during testing.
+*   **G7 Integrate:** Merge to `main` (or release branch) only after G6 approval.
+
+**Review Strategy**
+*   **Code Review:** Independent senior engineer reviews the ETL logic. The Builder cannot approve their own code.
+*   **Security/Compliance Review:** Verify that the "irreversible audit log" trigger is strictly guarded by an environment flag to prevent accidental regulator notification during testing.
+*   **QA Sign-off:** QA must sign off on the dry-run receipts before production approval.
+
+**Landing & Human Decisions**
+*   **Merge:** Automated merge to the integration branch upon passing G6.
+*   **Human Gate (Jane Smith):**
+    *   *Decision 1:* Approval to execute the migration script in Production. This requires seeing the G5 dry-run receipts and the confirmed rollback plan.
+    *   *Decision 2:* Authorization to suppress regulator notifications if the production run encounters a partial failure requiring a retry.
+*   **Execution Window:** Script execution must occur strictly between 18:00 and 08:00 to avoid the database backup lock.
+*   **Rollback:** If mapping fails or checksums mismatch, the process halts immediately. Rollback consists of discarding the new ledger entries (if not yet committed irreversibly) or restoring the pre-migration backup state. Since the audit log write is irreversible, the "rollback" is primarily a containment strategy to prevent further bad data entry and manual reconciliation of the failed batch.
+
+**Risk Mitigation**
+*   **Flaky Network:** The script must include exponential backoff for network checks to avoid false negatives.
+*   **CI Cost/Time:** Run the heavy database seeding tests only on the final release candidate SHA to save costs and time, relying on unit tests for intermediate commits.
+*   **Portal Uptime:** The migration must run as a background job with no locking of the public portal's read/write paths.

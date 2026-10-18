@@ -1,0 +1,41 @@
+### Delivery Plan: 2FA with Legacy Fallback
+
+**Objective:** Enforce 2FA for remote control while supporting Gen-2 legacy units via SMS/Voice fallback, ensuring strict logging and zero disruption to active maintenance.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Core Implementation):** Implement standard TOTP/QR flow for modern devices. Modify `auth-config.yaml` to add 2FA flags while preserving backward compatibility for the three dependent services.
+    *   *Constraint:* Must not alter existing logic for non-2FA paths until G5.
+*   **Lane B (Legacy Fallback):** Develop SMS/Voice code integration specifically for Gen-2 units. Ensure the fallback path triggers identical logging hooks as the standard flow.
+    *   *Parallel:* Can run simultaneously with Lane A.
+*   **Lane C (Observability & Safety):** Build the "Maintenance Window Guard" to detect active sessions and block 2FA enforcement triggers during those windows. Implement the unified logging verifier.
+    *   *Parallel:* Can run simultaneously with A and B.
+*   **Lane D (Simulation & Flakiness Fix):** Address the flaky network checks in the legacy simulator. Create a deterministic mock for screen latency to replace the unreliable emulator for CI.
+    *   *Serialization:* Must complete before Lane B's integration tests can be considered stable.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define exact SMS/Voice provider contracts and the "Maintenance Window" detection logic. Pin base SHA for all lanes.
+*   **G3 Design:** Review `auth-config.yaml` changes for backward compatibility risks. Confirm irreversible flag behavior is gated behind the maintenance window check.
+*   **G4 Implement:**
+    *   Lane A/B/C commit to isolated worktrees.
+    *   Lane D commits the simulator fix.
+*   **G5 Verify (Exact Revision):**
+    *   **Unit/Integration:** Run on the merged integration SHA.
+    *   **Legacy Specific:** Run Lane B tests against Lane D's deterministic mock (bypassing flaky network checks).
+    *   **Logging Audit:** Verify fallback access logs match standard flow schema exactly.
+    *   **Cost Control:** CI run estimated at $45; limit to one full run per lane + one integration run.
+*   **G6 Review:**
+    *   **Security Lead:** Reviews 2FA implementation and irreversible flag logic.
+    *   **Field Ops Rep:** Validates legacy fallback logic and maintenance window guard.
+    *   **Independent Engineer:** Reviews `auth-config.yaml` compatibility.
+
+#### 3. Landing Strategy
+*   **Integration:** Merge Lanes A, B, C, and D into a single integration branch. Run one final CI gate ($45, 22 mins) on this exact SHA.
+*   **Human Decisions (G8 Release):**
+    *   **Required Approval:** Explicit written approval from **Jane Smith** AND the **Security Lead** is required before merging to `main` (which triggers deploy).
+    *   **Scope:** Approval covers the specific SHA containing the 2FA flags and fallback logic.
+*   **Rollback Plan:**
+    *   Since 2FA flags are irreversible for user accounts, a code rollback does not revert user state.
+    *   **Mitigation:** The "Maintenance Window Guard" ensures no new sessions are forced into 2FA during the deploy. If failure occurs, revert the code immediately; affected users who partially enrolled during the window must be manually reset by Field Ops.
+*   **Post-Deploy (G9):** Monitor logs for legacy fallback usage and verify no active maintenance windows were interrupted.
+
+**Risk Note:** Staging lacks real Gen-2 hardware. The "Verify" gate relies on the improved simulator (Lane D). Residual risk remains regarding physical screen latency; a canary deployment to a single non-critical field unit is recommended before full rollout if possible within the month-end deadline.

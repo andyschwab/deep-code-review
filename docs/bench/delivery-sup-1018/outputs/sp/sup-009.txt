@@ -1,0 +1,31 @@
+### Delivery Plan: Zero-Downtime Audio Ingestion Region Migration
+
+**Lanes & Parallelism**
+*   **Lane A (Platform Engineering):** Prepare the `eu-central` ingestion cluster in isolation. This includes warming up connection pools and pre-loading certificate chains. This lane runs parallel to Lane B.
+*   **Lane B (Configuration & Routing):** Draft the `global-router.yaml` update logic. Since atomic updates are unsupported, engineer a "shadow route" mechanism where new connections target `eu-central` while existing sessions remain pinned to `us-east` via sticky session tokens.
+*   **Lane C (Validation & Compliance):** Simultaneously prepare the deployment package for CI and draft the mandatory approval request document for the Site Reliability Lead and Head of Content Operations.
+
+**Serialization Constraints**
+Lane A and Lane B must complete successfully before Lane C initiates the CI pipeline. The CI pipeline (45 minutes) must finish before the approval document is submitted. No code touches production until both approvers sign off.
+
+**Gates & Checks**
+1.  **Pre-CI Gate:** Static analysis of `global-router.yaml` to verify syntax and ensure the "shadow route" logic does not introduce race conditions. This runs on the feature branch commit immediately prior to CI submission.
+2.  **CI Gate:** The single daily deployment attempt runs on the specific commit hash passing the Pre-CI gate. Success criteria: 100% pass rate on integration tests simulating sticky session persistence during region handoff.
+3.  **Approval Gate:** Upon CI success, the specific commit hash and test logs are presented to the Site Reliability Lead and Head of Content Operations. Deployment is strictly forbidden without written confirmation referencing this exact hash.
+4.  **Pre-Flip Check:** Once approved and deployed (but before flipping the region flag), a live traffic shadow test verifies that new connections *can* reach `eu-central` without dropping existing `us-east` streams.
+
+**Review Process**
+*   **Code Review:** An engineer independent of the Platform Team (preferably from Core Network) reviews the sticky session logic and `global-router.yaml` changes. They must verify that no race condition exists during the config reload.
+*   **Operational Review:** The Site Reliability Lead reviews the rollback procedure specifically for the "irreversible flag" scenario, confirming the 20-minute manual restoration steps are documented and rehearsed.
+*   **Independence:** The Code Reviewer cannot be the author of the routing logic. The Operational Reviewer cannot be the one executing the deployment.
+
+**Landing Strategy**
+1.  **Deployment:** Merge the approved commit to the production branch. Deploy the binary/config to the shared cluster. At this stage, the system remains on `us-east` for all traffic; the new region is merely "ready."
+2.  **Cutover (The Flip):** During a predefined low-risk window (despite the zero-downtime goal), execute the region flag flip in the control plane.
+    *   *Mechanism:* The router begins directing *new* handshake requests to `eu-central`. Existing active sessions holding `us-east` tokens continue uninterrupted until natural termination.
+3.  **Human Decision Point:** The "Flip" requires a human operator to monitor real-time buffer underrun metrics for 5 minutes post-flip. If latency spikes exceed thresholds, the operator must immediately trigger the manual rollback.
+4.  **Rollback:** If triggered, the manual procedure reverts the control plane flag and forces the router config back to the previous commit. This takes ~20 minutes; during this window, new connections may fail, but active streams must be preserved via the fallback path.
+5.  **Finalization:** If metrics remain stable for 30 minutes, mark the migration complete. Archive the `us-east` resources only after a 24-hour observation period.
+
+**Risk Mitigation**
+Given the limited CI attempts (2/day), the Pre-CI Gate is critical. A failed CI run burns half the daily capacity. The "shadow route" approach mitigates the lack of atomic config updates by decoupling new connection routing from existing session state, ensuring no forced reconnects occur during the config reload.

@@ -1,0 +1,52 @@
+### Delivery Plan: StormCast Query Optimization
+
+**Objective:** Refactor historical weather query logic in `atmosphere-core` to reduce peak-hour compute costs by ≥40% without data loss. Target completion: Friday.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Analysis & Spec) – Serial First:**
+    *   **Actor:** Product Analyst + Builder.
+    *   **Work:** Profile current 06:00 UTC ingestion logs to identify exact scan ranges. Define the new time-windowing strategy (e.g., rolling decade vs. fixed recent trends). Produce a testable spec with explicit "no data drift" acceptance criteria.
+    *   **Output:** G1 Spec with pinned base SHA.
+*   **Lane B (Implementation) – Parallel after G1:**
+    *   **Actor:** Builder (isolated worktree).
+    *   **Work:** Refactor query patterns in the StormCast engine. Implement caching or range-limiting logic. Ensure no writes to immutable historical stores.
+    *   **Constraint:** Must not utilize database read replicas reserved for dashboards.
+    *   **Output:** Patch set with unit tests proving logic equivalence on sample datasets.
+*   **Lane C (Independent Verification) – Parallel after G4:**
+    *   **Actor:** QA (distinct from Builder).
+    *   **Work:** Run functional regression on the exact implementation SHA. Execute performance benchmarks to verify the 40% reduction.
+    *   **Special Instruction:** Explicitly ignore humidity validation module failures if logs confirm no data drift (known flake).
+    *   **Output:** G5 Receipt with performance metrics and drift analysis.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Conductor validates the cost-saving hypothesis against the "no budget increase" constraint. `idea-critic` challenges the scoping before implementation starts.
+*   **G2 (Plan):** Define the acyclic graph. Lane B cannot start until Lane A's spec is frozen. Lane C requires the exact SHA from Lane B.
+*   **G3 (Design):** Verify that new query patterns do not violate immutability rules or replicate reserved resources.
+*   **G4 (Implement):** Builder commits code. CI triggers on the feature branch.
+    *   *Check:* Unit tests must pass.
+    *   *Check:* Static analysis for SQL injection or inefficient loops.
+*   **G5 (Verify):** QA runs the full regression suite on the specific commit SHA.
+    *   *Critical Check:* Compare output checksums of old vs. new logic on a historical subset to prove zero accuracy loss.
+    *   *Critical Check:* Measure compute minutes consumed; must show ≥40% reduction in simulation.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer (Jane Smith or Leo Chen) – *Independent of Builder*.
+    *   **Scope:** Code quality, security, and validation of the 40% metric evidence.
+    *   **Rule:** Builder cannot self-approve. Security lens applied for data access patterns.
+
+#### 3. Landing & Human Decisions
+*   **G7 (Integrate):** Merge into the integration branch. Re-run affected gates on the merge SHA to ensure no collision with other peak-hour jobs.
+*   **G8 (Release Decision – Human Gate):**
+    *   **Approver:** Jane Smith or Leo Chen (explicit authorization required).
+    *   **Action:** Deploy to production forecasting environment.
+    *   **Condition:** Only proceed if G5 receipts confirm cost reduction and zero drift.
+*   **G9 (Production Verify):** Monitor the 06:00 UTC window post-deploy.
+    *   *Success:* Budget alerts cease; ingestion completes within SLO.
+    *   *Failure:* Immediate rollback to previous SHA.
+*   **Rollback Plan:** Automated revert script ready. If compute spikes >10% above baseline during the first run, trigger rollback immediately without waiting for full window completion.
+
+#### 4. Risk Mitigation
+*   **Flaky Check:** QA to document specific log signatures that justify ignoring humidity validation failures, preventing false negatives.
+*   **Shared Cluster Contention:** Schedule heavy benchmark runs for Lane C outside the 06:00 UTC peak window to avoid inflating costs during testing.
+*   **Deadline:** If the 40% target is not met by Thursday EOD, escalate to Conductor to scope reduction (e.g., optimize only the most expensive 20% of queries) rather than missing the Friday deadline.
+
+**Status:** Ready for G0 Intake. Awaiting confirmation of log access for Lane A.

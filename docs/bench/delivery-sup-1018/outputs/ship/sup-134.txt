@@ -1,0 +1,44 @@
+### Delivery Plan: Passport Expiry Logic with Refugee Exceptions
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Contracts):** Define the exact "six-month" calculation logic, the list of valid refugee document types, and the specific error message strings. Draft the API contract update for the legacy booking system to ensure it accepts the new exemption flag without timeout.
+    *   *Parallel:* Yes.
+*   **Lane B (Core Logic Implementation):** Implement the expiry check and the refugee bypass logic within `CheckinService`. Isolate the external government webhook call with a retry mechanism and circuit breaker to handle transient timeouts without triggering false monitoring alarms.
+    *   *Parallel:* Yes (relative to Lane A).
+    *   *Serialized:* Must wait for Lane A's contract definition before coding the exemption logic.
+*   **Lane C (Configuration & Legal):** Prepare the change to the shared configuration file governing document types. This requires dual review (Backend + Legal).
+    *   *Serialized:* Must be reviewed and merged before Lane B's integration tests can pass.
+*   **Lane D (Independent Verification):** Build a test harness that simulates the government webhook's rate limits (50 req/min) and transient timeouts. Verify that the legacy API accepts the exception payload and that error messages are distinct.
+    *   *Parallel:* Can prepare harness while Lane B codes; execution waits for Lane B's build.
+
+**2. Gates & Checks**
+*   **G1 (Spec Sign-off):** Product Owner and Compliance Lead approve the logic definition and error copy.
+*   **G2 (Design Review):** Architect verifies the circuit breaker pattern for the webhook to prevent monitoring noise. Legal reviews the configuration change scope.
+*   **G3 (Implementation):**
+    *   Unit tests run locally (mandatory before push to save CI credits).
+    *   Code review: Lane B reviewed by a senior backend engineer (not the author). Lane C reviewed by Backend Lead + Legal Representative.
+*   **G4 (Verification):**
+    *   Run integration suite on the exact candidate SHA.
+    *   **Critical Check:** Simulate peak load (50+ req/min) against the mock webhook to prove no false alarms and no timeouts.
+    *   **Critical Check:** Verify legacy API response time with the new exemption flag.
+*   **G5 (Compliance Gate):** Compliance Lead manually signs off on the specific error messages and the refugee bypass behavior.
+
+**3. Review Strategy**
+*   **Code:** Independent senior engineer reviews Lane B. They must not be the author of the logic or the config change.
+*   **Config:** Dual review mandatory. One Backend Lead (technical safety), one Legal Rep (compliance safety).
+*   **Security/Privacy:** Verify that refugee exemption certificates are handled according to data privacy standards (implied by "special travel documents").
+
+**4. Landing & Rollback**
+*   **Merge Strategy:**
+    1.  Merge Lane C (Config) first.
+    2.  Merge Lane B (Logic) rebased on Lane C.
+    3.  Final integration build on the combined SHA.
+*   **Human Decision:** The Compliance Lead must explicitly approve the deployment ticket before the Tuesday release window. No auto-deploy.
+*   **Deployment:** Target the Tuesday production window.
+*   **Rollback Plan:**
+    *   If false positives occur (eligible travelers grounded): Immediate feature flag toggle (if available) or revert of Lane B.
+    *   If legacy API times out: Revert Lane B.
+    *   Config changes (Lane C) require a coordinated revert with Legal notification if already live.
+*   **Post-Deploy:** Monitor specifically for "transient timeout" alarms from the webhook integration for 1 hour post-launch. If alarms spike, trigger rollback.
+
+**Risk Mitigation:** The flaky integration tests must be stabilized locally; do not push until they pass consistently to avoid wasting CI credits. The webhook rate limit is a hard constraint; the implementation must queue or batch requests if necessary, rather than failing open.

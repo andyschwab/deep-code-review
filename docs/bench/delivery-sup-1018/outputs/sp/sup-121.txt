@@ -1,0 +1,75 @@
+# Delivery Plan: Acoustic Leak Threshold Calibration
+
+## 1. Work Lanes & Parallelization
+
+**Lane A: Algorithm & Logic (Serialized)**
+*   **Owner:** Senior Backend Engineer
+*   **Tasks:**
+    1.  Develop the dynamic filtering mechanism (time-of-day weighting + adjacent sensor validation).
+    2.  Implement logic strictly isolated from `global-thresholds.json` to prevent billing disruption.
+    3.  Create unit tests simulating traffic spikes vs. true pressure drops.
+*   **Constraint:** Must complete before Lane B begins integration.
+
+**Lane B: Simulation & Validation (Parallel to A's initial design, then Serialized)**
+*   **Owner:** QA Automation Engineer
+*   **Tasks:**
+    1.  Prepare historical datasets representing "heavy traffic" and "rainy season" baselines.
+    2.  Once Lane A provides the candidate binary, trigger the mandatory full-grid simulation.
+*   **Constraint:** The 45-minute CI pipeline must be triggered only on verified candidates to save compute costs.
+
+**Lane C: Stakeholder Coordination (Parallel)**
+*   **Owner:** Product Owner / Shift Lead
+*   **Tasks:**
+    1.  Pre-draft approval requests for Jane Smith (Safety Director) and the on-call Shift Lead.
+    2.  Schedule a maintenance window that allows for monitoring before the rainy season deadline.
+
+## 2. Gates & Checks
+
+**Gate 1: Code Freeze & Isolation Check**
+*   **Revision:** `feat/acoustic-calibration-candidate-v1`
+*   **Check:** Static analysis confirms zero modifications to `global-thresholds.json`.
+*   **Verifier:** Peer Engineer (not the author).
+*   **Action:** If `global-thresholds.json` is touched, immediate rejection.
+
+**Gate 2: The Flaky Check Override**
+*   **Revision:** Same as Gate 1, post-CI start.
+*   **Check:** Monitor `sensor-handshake` module status.
+*   **Verifier:** Senior Engineer (distinct from Lane A author).
+*   **Action:** If the check fails, verify it is the known flaky behavior. If confirmed, document the manual override. Do not restart CI unless a genuine new error exists.
+
+**Gate 3: Full-Grid Simulation Success**
+*   **Revision:** The specific commit hash that passed Gate 1 and 2.
+*   **Check:** CI pipeline completes (approx. 45 mins). False dispatch rate in simulation must be <1/week; missed leak rate must be 0%.
+*   **Verifier:** QA Automation Engineer.
+*   **Action:** If metrics fail, return to Lane A. Do not proceed to approval.
+
+## 3. Independent Review
+
+*   **Reviewer:** Principal Engineer from a different squad (e.g., Data Science or Network Ops).
+*   **Independence:** Must not be Jane Smith, the Shift Lead, or the Lane A author.
+*   **Scope:**
+    1.  Verify the dynamic filtering logic does not introduce latency affecting real-time alerts.
+    2.  Confirm the "adjacent sensor validation" logic handles sensor outages gracefully (fails open vs. fails closed).
+    3.  Validate that the billing system configuration remains untouched.
+*   **Timing:** After Gate 3 passes, before approval requests are sent.
+
+## 4. Landing & Merge Strategy
+
+**Approval Phase**
+*   **Requirement:** Written approval from **Jane Smith** AND the **On-Call Shift Lead**.
+*   **Trigger:** Only after Independent Review sign-off.
+*   **Artifact:** The approval must reference the exact Commit Hash from Gate 3.
+
+**Deployment**
+*   **Method:** BlueMesh cluster update.
+*   **Timing:** During a low-traffic window (e.g., 02:00 – 04:00) to minimize risk if immediate rollback is needed before log sync.
+*   **Monitoring:** Real-time dashboard watch for the first 2 hours post-deploy.
+
+**Rollback Protocol**
+*   **Constraint:** Rollbacks are **irreversible** once alert logs sync to the central emergency dispatch hub.
+*   **Decision Point:** A hard deadline exists between deployment and log sync.
+*   **Action:** If false positives or missed leaks are detected *before* log sync, initiate immediate cluster revert.
+*   **Post-Sync Failure:** If issues arise *after* sync, a "patch forward" is required rather than a rollback. A new hotfix branch must be created, re-tested, and re-approved. No reversion to the previous state is possible for dispatched logs.
+
+**Human Decision Required**
+*   If the simulation shows a trade-off between false positives and missed leaks, Jane Smith must explicitly define the acceptable risk ratio before deployment proceeds.

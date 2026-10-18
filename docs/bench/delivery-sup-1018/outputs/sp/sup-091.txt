@@ -1,0 +1,37 @@
+### Delivery Plan: Grading Algorithm v2 with Auto-Rollback Guard
+
+**1. Lanes and Serialization**
+Work is divided into three parallel lanes with one critical serialization point.
+*   **Lane A (Algorithm Integration):** The Assessment Team integrates the v2 logic into the `GradeCore` monolith. This includes implementing the comparison logic against the shadow dataset, specifically handling edge cases like zero-score submissions.
+*   **Lane B (Guardrail Implementation):** A separate engineer implements the auto-rollback trigger. This module monitors the variance between live outputs and the manual verification baseline. It must enforce the 1% deviation threshold.
+*   **Lane C (Configuration & Compliance):** The Finance Lead reviews and signs off on the modified shared configuration file required by the `shadow-compare` module. No code touching this config can merge without this signature.
+
+**Serialization Point:** Lane A and Lane B cannot finalize their integration tests until Lane C provides the signed configuration. The final build assembly waits for all three lanes.
+
+**2. Gates and Checks**
+All checks run on the specific commit hash resulting from the integration of Lanes A, B, and C.
+*   **Gate 1: Unit & Edge Case Verification.** Runs immediately on push. Must verify zero-score handling and variance calculation logic.
+*   **Gate 2: Data Integrity Hash.** Runs in Stage 3 of the CI pipeline. Since the network check is flaky, the gate passes if the data integrity hash matches, regardless of network status.
+*   **Gate 3: Shadow Comparison Dry-Run.** Before production traffic, the system runs against the shadow dataset. This validates the 1% threshold logic without affecting live students.
+*   **Gate 4: Rollback Path Verification.** A mandatory test confirming the system can revert to the cached image of the previous successful run. This must pass before any deployment approval.
+
+Note: The full CI pipeline takes 45 minutes. Optimization is not permitted due to heavy fixture requirements; the cost of $12 per run is accepted.
+
+**3. Independent Review**
+*   **Code Review:** An engineer from a team *other* than Assessment reviews the `GradeCore` changes and the rollback logic. They must not be the author of either Lane A or B.
+*   **Config Audit:** The Finance Lead's sign-off serves as the independent audit for the configuration changes.
+*   **Safety Validation:** A QA specialist independently verifies the "zero-score" and "1% threshold" test results against the spec before the final merge request is approved.
+
+**4. Landing Strategy**
+*   **Merge Window:** Merging to main is permitted only during business hours when Jane Smith is available for final approval.
+*   **Pre-Deployment:** Once merged, the artifact is deployed to a staging environment connected to the shadow dataset. The variance monitor is activated.
+*   **Traffic Flip:** If the shadow comparison shows <1% variance, Jane Smith authorizes the traffic flip to production.
+*   **Automatic Rollback:** If live traffic causes variance >1%, the system instantly reverts to the cached previous image. No human intervention is required or permitted for this specific trigger.
+*   **Irreversibility Warning:** The database migration starts immediately upon deployment. If a rollback occurs due to algorithmic variance, the data schema changes remain. A separate data-reversion plan must be on standby, though it is out of scope for this specific auto-rollback guard.
+
+**Human Decision Points:**
+1.  Finance Lead signature on config.
+2.  Jane Smith's final approval to flip traffic.
+3.  Decision to proceed if the data-reversion plan is needed post-rollback (since the DB migration is irreversible).
+
+This plan ensures safety through automated guarding while respecting the constraints of cost, ownership, and irreversible database changes.

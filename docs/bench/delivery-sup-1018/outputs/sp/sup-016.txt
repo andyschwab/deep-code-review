@@ -1,0 +1,41 @@
+### Delivery Plan: Resilient Real-Time Currency Conversion
+
+**Lanes & Parallelism**
+*   **Lane A (Core Logic):** Develop the caching layer, stale-data flagging logic, and automatic recovery mechanism. This lane owns the new service module.
+*   **Lane B (Infrastructure):** Configure the Europe-region feature flag and prepare the isolated configuration override for the rate-cache (ensuring the shared schema remains untouched).
+*   **Lane C (Validation):** Draft integration tests that mock network outages and latency spikes, decoupling them from flaky external network calls.
+
+*Lanes A and B run in parallel. Lane C begins once Lane A defines the service interface.*
+
+**Gates & Checks**
+*   **Gate 1 (Design Review):** Before coding, a Senior Engineer must approve the caching strategy to ensure it does not modify the shared `rate-cache` schema. Failure here blocks all lanes.
+*   **Gate 2 (Code Freeze):** All code merged to `feature/europe-resilience` must pass unit tests locally.
+*   **Gate 3 (CI Budget Gate):** The CI pipeline must complete under 12 minutes. If the build exceeds 10 minutes, the pipeline fails immediately to save budget. Flaky integration tests are capped at 3 retries; failure after retries blocks promotion.
+*   **Check Point:** Verification that the feature flag correctly isolates traffic to the Europe region only.
+
+**Review Process**
+*   **Primary Review:** Two Senior Engineers from the Ledger Team will perform an independent code review. They must verify transaction consistency logic and ensure no blocking calls exist in the checkout path.
+*   **Secondary Review:** The CTO provides final approval specifically for the deployment strategy and risk assessment regarding volatile markets.
+*   **Independence:** Reviewers must not be the authors of Lane A or B. The CTO's review occurs only after Senior Engineer sign-off.
+
+**Landing Strategy**
+*   **Merge Window:** Merging to `main` is prohibited during business hours to avoid database locking conflicts. The merge window is strictly 02:00–04:00 UTC.
+*   **Deployment:**
+    1.  Merge to `main` during the approved window.
+    2.  Enable the feature flag for 5% of Europe traffic initially.
+    3.  Monitor for 30 minutes. If error rates remain baseline, expand to 100% of Europe.
+*   **Human Decisions Required:**
+    *   CTO approval to proceed with the 100% rollout.
+    *   On-call Engineer execution of the production deploy (no automated production writes).
+*   **Rollback Protocol:**
+    *   **Trigger:** Any increase in checkout failure rate >0.1% or latency spike >200ms.
+    *   **Action:** Immediately disable the Europe feature flag. This reverts traffic to the legacy path without requiring a code revert or database migration.
+    *   **Post-Mortem:** If rollback occurs, the On-call Engineer must file an incident report before any retry attempt.
+
+**Constraints Summary**
+*   No schema changes to `rate-cache`.
+*   No database migrations during 09:00–17:00 local time.
+*   CI builds must stay under 12 minutes.
+*   Production access limited to On-call Engineer.
+
+This plan ensures Q4 expansion readiness while strictly adhering to budget, access, and stability constraints.

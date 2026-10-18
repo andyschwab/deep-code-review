@@ -1,0 +1,54 @@
+### Delivery Plan: Historical Vaccination Backfill
+
+#### 1. Lanes and Parallelism
+Work is split into three serialized phases to mitigate the risk of transaction log corruption and expensive CI failures.
+
+*   **Lane A (Preparation & Logic):** Develop the backfill script and the dry-run validator. This lane runs independently of operations.
+    *   *Task:* Implement logic to cross-reference `clinical_notes` (last 180 days) against legacy archives.
+    *   *Task:* Implement the "skip and log" mechanism for conflicts.
+    *   *Task:* Integrate the specific override token required to bypass the nightly audit scanner's 500-row threshold.
+*   **Lane B (Infrastructure & Access):** Secure approvals and environment readiness.
+    *   *Task:* Obtain explicit written approval from the Lead Data Steward for the schema-adjacent data mutation.
+    *   *Task:* Confirm the exact start/end time of the approved maintenance window with Operations.
+    *   *Task:* Generate the audit override token and store it in the secure vault for runtime injection.
+*   **Lane C (Verification Strategy):** Prepare the post-fill validation suite.
+    *   *Task:* Create a verification script that accounts for the 15-second database replication lag (waiting >20s before read-checks).
+
+**Parallel Execution:** Lane A and Lane B run simultaneously. Lane C begins once Lane A produces the initial script logic. All lanes must converge before the "Gate."
+
+#### 2. Gates and Checks
+No code enters the production pipeline without passing these specific checkpoints on the **release-candidate revision**.
+
+*   **Gate 1: The Dry-Run (Pre-CI):**
+    *   Execute the script against a production snapshot in a sandbox environment.
+    *   *Check:* Verify zero writes occur to records with recent clinical notes.
+    *   *Check:* Confirm the conflict log generates correctly for simulated collisions.
+    *   *Failure Condition:* Any attempt to overwrite a protected record fails the build immediately.
+*   **Gate 2: The CI Barrier:**
+    *   Trigger the 55-minute pipeline only after Gate 1 passes and Lead Steward approval is attached to the merge request.
+    *   *Check:* Ensure the override token is injected correctly in the test stage to prevent false-positive audit flags.
+    *   *Cost Control:* If the synthetic data generation stage fails, halt immediately. Do not retry without fixing the root cause to avoid compute waste.
+*   **Gate 3: The Maintenance Window Lock:**
+    *   Deployment is locked to the specific maintenance window.
+    *   *Check:* Verify no live clinic operations are active before initiating the job.
+
+#### 3. Review Process
+Reviews are independent of the authors to ensure compliance safety.
+
+*   **Code Review:** Performed by a Senior Backend Engineer *not* involved in Lane A. Focus strictly on the "skip logic" and the injection of the audit override token.
+*   **Compliance Review:** Performed by the Lead Data Steward. They must verify the conflict logging format matches medical review requirements.
+*   **Operational Review:** Performed by the On-Call Site Reliability Engineer (SRE). They verify the job cannot be paused mid-stream and confirm the transaction log safety measures.
+
+#### 4. Landing and Merge Strategy
+*   **Merge Timing:** The code merges to `main` 2 hours *before* the maintenance window to allow for artifact building, but the **execution flag** remains disabled.
+*   **Execution:**
+    1.  During the maintenance window, the SRE triggers the job using the approved revision hash.
+    2.  The job runs to completion. **Do not interrupt.**
+    3.  Wait 20 seconds post-completion for replication sync.
+    4.  Run Lane C's verification script.
+*   **Human Decision Points:**
+    *   If the conflict log exceeds 5% of the total dataset, halt and require a manual review by the Medical Team before proceeding with any remaining batches.
+    *   If the audit scanner still flags activity despite the token, the Lead Data Steward must manually clear the alert.
+*   **Rollback Plan:**
+    *   Since the job cannot be paused and writes are transactional, a technical "undo" script is too risky during the window.
+    *   **Strategy:** If corruption is detected, immediately flag the affected patient records as "Data Quarantine" in the UI to prevent clinical use. Restore data from the pre-window backup during the next scheduled downtime. The conflict logs will serve as the source of truth for manual re-entry if necessary.

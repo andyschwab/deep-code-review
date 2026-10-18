@@ -1,0 +1,33 @@
+### Delivery Plan: Global Balance Patch v4.2 Sync
+
+**Objective:** Atomic synchronization of pricing logic across NA, EU, and APAC regions to prevent arbitrage, executing Thursday 03:00 UTC.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Preparation - Parallel):** Operations team verifies artifact integrity and locks the `global-config` directory. Simultaneously, the CI pipeline triggers the 55-minute cross-region consistency check on the release candidate revision.
+*   **Lane B (Approval Gate - Serialized):** Upon CI success, the Change Management Portal requires dual approval. This lane waits strictly for sign-off from both Regional Directors and the Chief Risk Officer. No code moves until this gate clears.
+*   **Lane C (Execution - Atomic):** A single orchestration script triggers deployments to NA, EU, and APAC simultaneously. There is no staggered rollout; all regions receive the patch within the same execution block.
+*   **Lane D (Verification - Parallel):** Immediately post-deployment, smoke tests run against all three regions. The Asia-Pacific node specifically targets the `liquidity-simulator`; if it fails initially, the Site Reliability Lead manually re-triggers only this specific test instance.
+
+#### 2. Gates & Checks
+*   **Gate 1 (Code Freeze):** Confirmed lock on `global-config`. Execution halts if the directory is not write-protected.
+*   **Gate 2 (CI Consistency):** The 55-minute pipeline must pass completely. A single failure aborts the window; we do not retry CI within the deployment window to avoid budget overruns and time slippage.
+*   **Gate 3 (Human Authorization):** Deployment script checks the change management portal for the specific dual-approval token. Missing either signature prevents the script from initiating Lane C.
+*   **Gate 4 (The 5-Minute Window):** A hard timer starts at 03:00 UTC. If any region reports "not deployed" by 03:05 UTC, the abort sequence triggers immediately.
+
+#### 3. Review Strategy
+*   **Independent Reviewer:** The Chief Risk Officer acts as the independent reviewer for the *plan* and *approvals*, distinct from the Operations team executing the deployment.
+*   **Automated Review:** The CI pipeline serves as the technical reviewer for cross-region consistency.
+*   **Post-Mortem Check:** If the `liquidity-simulator` requires manual intervention, the Site Reliability Lead must document the root cause of the flakiness before the next release cycle, separate from the immediate deployment pressure.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** The release candidate is already frozen. "Landing" equates to the successful application of artifacts to production clusters.
+*   **Success Criteria:** All three regions report "Active v4.2" and the `liquidity-simulator` passes within 10 minutes of the window close.
+*   **Rollback Protocol:**
+    *   **Trigger:** Any region failing to deploy within the 5-minute window OR any critical smoke test failure post-deployment.
+    *   **Action:** Immediate global revert to v4.1 artifacts.
+    *   **Constraint:** Since the database migration is irreversible without a 4+ hour restore, the rollback script must detect if the migration executed. If the migration ran but application deployment failed, the system enters a "Maintenance Mode" state while the database restore initiates. This specific scenario requires an immediate human decision from the Chief Risk Officer to authorize the 4-hour downtime.
+*   **Human Decision Points:**
+    1.  Authorizing the 4-hour database restore if the migration partially completes.
+    2.  Deciding whether to proceed with a manual APAC test re-trigger if the initial automated run fails during the critical window (risking the 5-minute deadline).
+
+This plan prioritizes market integrity over speed, enforcing a "all or nothing" deployment model to eliminate arbitrage windows.

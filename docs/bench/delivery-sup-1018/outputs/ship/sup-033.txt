@@ -1,0 +1,56 @@
+### Delivery Plan: Streetlight Vendor Cutover
+
+**Objective:** Migrate control from Legacy to New Vendor with zero simultaneous darkness (08:00–18:00) and instant fallback.
+
+#### 1. Lanes & Parallelism
+*Worktrees are isolated; one writer per lane.*
+
+*   **Lane A (Shadow Mode Build):** Implement the "Dual-Write/Read-Only" adapter in `LumenCore`. The new vendor receives live telemetry but sends no commands. Validates data mapping against the immutable legacy schema.
+    *   *Constraint:* Must not alter primary keys.
+    *   *Parallel:* Yes.
+*   **Lane B (Cutover Orchestrator):** Develop the street-by-street migration script. Logic: Verify New Vendor ACK → Switch → Monitor 30s → Confirm Stability. If flicker/off >30s or no ACK, instantly revert to Legacy.
+    *   *Constraint:* Must handle 6-hour config cache latency (force refresh or wait).
+    *   *Parallel:* Yes (independent codebase), but logic depends on Lane A's interface.
+*   **Lane C (Simulation & Flakiness Fix):** Isolate the "signal latency" module. Create a bypass or retry mechanism specifically for the Tuesday network congestion false positive to prevent pipeline blocking.
+    *   *Parallel:* Yes.
+
+**Serialization Point:** Lanes A, B, and C merge only after independent verification. The actual migration execution (G8) is strictly serialized street-by-street.
+
+#### 2. Gates & Checks
+*Exact revision required for all gates. No "latest" branches.*
+
+*   **G1 (Spec Freeze):** Define "Instant Rollback" technical threshold (e.g., <200ms switch time) and the specific "Halt Condition" (30s outage).
+*   **G3 (Design Review):** Architecture Review Board validates that the immutable schema is untouched and the 6-hour cache is accounted for in the cutover timing.
+*   **G4 (Implementation):** Code complete in isolated worktrees.
+*   **G5 (Verification - Critical):**
+    *   *Environment:* Hardware-in-the-loop simulation (non-production).
+    *   *Action:* Run full cutover sequence on a digital twin of one neighborhood.
+    *   *Success Criteria:* Zero simulated darkness; automatic revert triggers on injected failure.
+    *   *Timing:* Run Lane C's fix to ensure Tuesday flakiness does not block this gate.
+*   **G6 (Independent Review):**
+    *   *Security/Safety:* Infrastructure Safety Team reviews the rollback logic.
+    *   *Code:* Peer review by a developer *not* involved in Lanes A, B, or C.
+*   **G7 (Integration):** Merge to `release/cutover-v1`. Re-run hardware simulation on the merged SHA.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lanes A, B, C.
+*   **Reviewer 1 (Safety):** Independent Safety Engineer. Focus: Rollback speed, fail-closed mechanisms, immutable schema adherence.
+*   **Reviewer 2 (Ops):** Senior DevOps. Focus: Pipeline stability, cache invalidation strategy, Tuesday flake mitigation.
+*   **Constraint:** Builder never reviews their own code. Safety review is mandatory before human approval.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:** Merge `release/cutover-v1` to `main` only after G7 passes.
+*   **Human Approval (G8):**
+    *   **Approvers:** Operations Director AND City Safety Officer (Dual approval via governance portal).
+    *   **Timing:** Approval granted for a specific maintenance window *outside* 08:00–18:00 (e.g., 02:00–05:00) to minimize risk, even though the system guarantees daytime safety.
+    *   **Decision:** Explicit sign-off on the "Street Sequence Schedule."
+*   **Execution (G9):**
+    *   Run migration script street-by-street.
+    *   **Automated Halt:** Script pauses immediately if any sensor reports >30s outage.
+    *   **Manual Intervention:** If halted, team investigates; no further streets touched until resolved.
+*   **Rollback:**
+    *   *Micro:* Automatic per-street revert on failure.
+    *   *Macro:* If >3 streets fail consecutively, full system reverts to Legacy Vendor immediately.
+*   **Post-Deploy (G10):** Monitor for 24 hours. Log any flicker events for retrospective.
+
+**Risk Mitigation:** The 6-hour config cache means cutover steps for adjacent zones must be spaced or preceded by a forced cache invalidation command to ensure the new vendor's zoning data is active before handover.

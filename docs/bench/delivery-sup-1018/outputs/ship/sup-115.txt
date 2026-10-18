@@ -1,0 +1,38 @@
+**Delivery Plan: Offline Mode & Conflict-Free Sync**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Mobile Core):** Implement local storage wrapper, offline queueing for lessons/quizzes, and sync trigger logic. *Writer: Mobile Engineer.*
+*   **Lane B (Shared Validation):** Update the shared data validation library to support offline schema extensions and conflict resolution rules (timestamp-based). *Writer: Backend Engineer.*
+*   **Lane C (Sync Logic & Audit):** Develop the server-side conflict resolver (latest-timestamp-wins) and audit logger for append-only progress tables. *Writer: Backend Engineer.*
+*   **Serialization Constraint:** Lane A and Lane C must wait for Lane B to complete and merge first, as both depend on the shared validation library to prevent schema drift. Lane A and Lane C can then run in parallel.
+
+**2. Gates & Checks**
+*   **G1 Spec:** Define exact conflict scenarios (profile update vs. quiz completion) and acceptance criteria for "no duplicate entries." Pin base SHA.
+*   **G2 Plan:** Map dependencies; set per-lane budget caps given the $45/run CI cost.
+*   **G3 Design:** ADR for conflict strategy (timestamp vs. audit log integrity). Explicitly define how append-only constraints are respected during sync.
+*   **G4 Implement:** Code changes in isolated worktrees. Unit tests for offline state and conflict logic included in commits.
+*   **G5 Verify:**
+    *   Run on exact revision SHA.
+    *   **Local Stack:** Simulate latency spikes manually (since staging is flaky) to verify sync stability.
+    *   **CI:** Trigger limited regression suite (max 2 runs/day). Focus on data integrity tests.
+    *   **Evidence:** Logs showing successful sync without duplicates; audit trail entries for merged progress.
+*   **G6 Review:**
+    *   **Independent QA:** Verify offline flows and conflict resolution on a clean device simulation.
+    *   **Security/Data Governance:** Audit the conflict logic to ensure no data loss and compliance with append-only rules.
+    *   **Deep Code Review:** Full diff review against pinned base SHA.
+
+**3. Review Strategy**
+*   **Builder vs. Reviewer:** Mobile Engineer (Lane A) cannot review Backend lanes (B/C). Backend Engineer (Lane C) cannot review Mobile logic.
+*   **Specialized Review:** Data Governance Officer must explicitly sign off on the conflict resolution logic and audit trail integrity before G7.
+*   **Shared Lib Review:** Lane B changes require review from both Mobile and Backend leads to ensure no drift.
+
+**4. Landing & Human Gates**
+*   **G7 Integrate:** Merge Lane B first. Once green, merge Lanes A and C. Run final integration check on the combined SHA to verify end-to-end sync.
+*   **G8 Release (Human Gate):**
+    *   **Required Approvals:** Lead Mobile Engineer AND Data Governance Officer.
+    *   **Action:** Deploy to production. No auto-deploy.
+    *   **Rollback Plan:** If sync corruption is detected, immediately disable offline mode via feature flag (pre-wired in G3) and revert the sync service deployment. Data rollback is impossible for append-only logs; recovery requires manual reconciliation script (prepared in G3).
+*   **G9 Production Verify:** Monitor sync success rates and duplicate entry alerts for 24 hours post-deploy.
+*   **G10 Learn:** Document any flaky staging issues encountered and update the latency simulation profile for future runs.
+
+**Cost Control:** Limit CI runs to the mandatory two per day by ensuring local verification (G5) is thorough before pushing. Any flaky test failure in staging requires manual re-run justification logged in the ticket.

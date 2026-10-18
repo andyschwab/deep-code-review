@@ -1,0 +1,59 @@
+# Delivery Plan: Tenant Storage Migration to NovaBlock
+
+## Lanes & Parallelism
+
+**Lane A: Infrastructure & Configuration (Parallel Start)**
+*   **Owner:** DevOps Lead
+*   **Work:** Provision NovaBlock clusters; update shared monorepo configuration files for billing/analytics pipelines to point to new vendor endpoints (non-production).
+*   **Constraint:** Must not touch production secrets yet.
+
+**Lane B: Policy Translation & Unit Verification (Parallel Start)**
+*   **Owner:** Senior Backend Engineer
+*   **Work:** Port existing LegacyDrive RLS policies to NovaBlock syntax. Write unit tests asserting policy equivalence.
+*   **Dependency:** None.
+
+**Lane C: Compliance & Dry-Run (Serialized after A & B)**
+*   **Owner:** Security Engineer + Compliance Rep
+*   **Work:** Execute isolation tests in Staging using translated policies.
+*   **Critical Check:** Manually verify Staging security scan false negatives (due to missing hardware encryption) do not mask real leaks.
+*   **Gate:** Compliance sign-off required before any production code merge.
+
+**Lane D: Rollback Mechanism (Parallel with C)**
+*   **Owner:** SRE Lead
+*   **Work:** Script full backup restore procedure. Perform timed dry-run on a cloned dataset to prove <6-hour restoration capability.
+
+## Gates & Checks
+
+1.  **Code Freeze Gate:** All changes locked to a specific Git revision (`migration-candidate-v1`). No further merges allowed until validation completes.
+2.  **CI Execution Gate:** Trigger the 55-minute isolation suite exactly once on `migration-candidate-v1`.
+    *   *Failure Protocol:* If failed, do not retry immediately. Analyze logs to distinguish Staging hardware false negatives from actual logic errors. Fix code, create new revision, and repeat.
+3.  **Dual-Approval Gate:** Deployment artifacts require digital signatures from both the Chief Security Officer and the VP of Engineering. No deployment proceeds without both.
+
+## Review Strategy
+
+*   **Independent Code Review:** A Senior Engineer from a non-involved team (e.g., Frontend or Data Science) reviews the RLS policy translation. They must verify every LegacyDrive rule has a direct NovaBlock equivalent without relaxation.
+*   **Compliance Audit:** The Compliance team reviews the test results from Lane C, specifically focusing on the "false negative" mitigation strategy in Staging. They do not review code, only evidence of isolation.
+*   **Separation of Duties:** The engineer writing the migration code cannot approve the deployment or run the final production cutover.
+
+## Landing & Cutover
+
+1.  **Pre-Cutover:** Full database backup initiated. Snapshot verified.
+2.  **Read-Only Mode:** Apex platform enters maintenance mode; writes paused.
+3.  **Final Sync:** Delta changes replicated to NovaBlock.
+4.  **Switch Flip:** Configuration updated to route writes to NovaBlock.
+5.  **Verification Window:** Run targeted smoke tests for cross-tenant access (Client A querying Client B IDs).
+6.  **Go/No-Go Decision:**
+    *   **Go:** Lift maintenance mode. Monitor for 1 hour.
+    *   **No-Go:** Trigger Rollback Lane immediately. Restore from backup.
+
+## Human Decisions & Rollback
+
+*   **Human Decision Points:**
+    *   Approval to proceed to production after Staging validation (CSO + VP Eng).
+    *   The final "Go/No-Go" call during the maintenance window based on smoke test results.
+*   **Rollback Protocol:**
+    *   Triggered if any cross-tenant data access is detected or if write latency exceeds thresholds.
+    *   Action: Revert configuration to LegacyDrive, restore data from pre-cutover backup.
+    *   Constraint: Expect up to 6 hours downtime. Communication plan must be active before starting.
+
+This plan minimizes expensive CI runs by enforcing strict pre-checks, isolates the risk of Staging hardware differences through manual compliance verification, and ensures irreversible actions are gated by dual executive approval.

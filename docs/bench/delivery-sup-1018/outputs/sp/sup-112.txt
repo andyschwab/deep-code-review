@@ -1,0 +1,27 @@
+### Delivery Plan: Insurance Verification Hardening
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Logic Implementation):** Develop the exponential backoff retry mechanism within the `CarrierConnector` library. This includes defining the retry count, delay intervals, and specific exception handling for transient network errors versus definitive carrier rejections.
+*   **Lane B (State Management):** Design the local state caching layer to handle the 15-second database replication lag. This logic must ensure rapid retries read from a local memory store rather than the replicated DB to prevent race conditions.
+*   **Lane C (Audit Safety):** Implement the "write-once" guard ensuring no status is committed to the permanent audit log until the retry sequence is fully exhausted or a definitive negative is received.
+*   **Parallel Execution:** Lanes A, B, and C run in parallel as they touch distinct logical concerns within the module.
+*   **Serialization Point:** Integration of A, B, and C must occur before any local validation. The combined change is a single unit of work.
+
+**2. Gates & Checks**
+*   **Local Validation Gate (Mandatory):** Before any remote push, the developer must run the full local test suite simulating network flakiness and DB lag. This gate prevents wasting the $45/55-min CI resource on broken builds.
+*   **CI Pipeline Gate:** Triggered only after local validation passes. Runs on the specific feature branch revision. Success requires 100% pass rate on regression tests.
+*   **Sign-off Gate:** Due to shared dependency risks, the merged pull request requires explicit approval from both Team Leads (Jane Smith and Bob Jones). No merge occurs without both signatures.
+*   **Deployment Time Gate:** Deployment to production is strictly prohibited after 6:00 PM EST due to sandbox instability. The release window is limited to 8:00 AM – 5:00 PM EST.
+
+**3. Review Process**
+*   **Code Review:** Conducted by a senior engineer *not* on the billing or intake teams to ensure impartiality regarding the shared library changes.
+*   **Logic Verification:** The reviewer must specifically verify that the "ineligible" flag is impossible to set unless the retry limit is reached and the carrier response is explicitly negative.
+*   **Independence:** The reviewer cannot be the author of the code and must not be Jane Smith or Bob Jones (who serve as approvers, not line-by-line reviewers).
+
+**4. Landing Strategy**
+*   **Merge Protocol:** Once CI passes and both Leads approve, the change merges to the main branch.
+*   **Human Decision Required:** If the CI pipeline fails twice on the same revision, a human architect must intervene to assess if the flakiness is in the test suite or the implementation before a third attempt.
+*   **Rollback Plan:**
+    *   **Trigger:** Immediate rollback if production monitoring detects an increase in "ineligible" flags correlated with network latency spikes, or if the audit log shows premature status writes.
+    *   **Action:** Revert the merge commit immediately. Since audit log entries are immutable without a manual ticket, a rollback prevents *new* false denials but cannot fix already logged errors. A separate data-fix ticket process must be prepared concurrently to address any false denials that slipped through before the rollback.
+*   **Post-Landing:** Monitor the first 100 verification cycles post-deployment manually. If zero false denials occur, the hardening is considered successful.

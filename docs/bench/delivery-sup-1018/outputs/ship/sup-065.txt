@@ -1,0 +1,63 @@
+**Delivery Plan: Signal Logic Tuning (North-South Corridor)**
+
+**Objective:** Improve peak-hour throughput by ≥10% while preserving 100% of mandated school zone pedestrian crossing windows.
+
+### 1. Lanes & Parallelism
+*Work is split into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is serialized after both.*
+
+*   **Lane A: Algorithm Optimization (Builder)**
+    *   **Scope:** `core-timing` module logic only.
+    *   **Task:** Implement adaptive timing adjustments targeting North-South peak flow.
+    *   **Constraint:** Hard-code guardrails to reject any calculation shortening school zone windows.
+    *   **Output:** Patch file + unit test suite for logic changes.
+
+*   **Lane B: Safety Simulation & Data Prep (QA/Data)**
+    *   **Scope:** Test fixtures and simulation harness.
+    *   **Task:** Curate last month's traffic volume data. Inject deterministic "wind speed" values into all test fixtures to eliminate the known flaky failure mode.
+    *   **Output:** Stable test dataset + baseline safety metric report (pedestrian wait times/crossing durations).
+
+*   **Lane C: Joint Integration & Sign-off (Conductor + Humans)**
+    *   **Scope:** Static configuration file shared with emergency pre-emption.
+    *   **Trigger:** Starts only after Lane A and Lane B pass local verification.
+    *   **Task:** Merge logic and config changes. Coordinate joint sign-off.
+
+### 2. Gates & Checks
+*All checks run on the exact revision SHA produced by Lane C before any simulation.*
+
+*   **G4 (Implementation Review):**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Focus:** Verify code does not touch school zone duration constants except via read-only guards. Confirm "wind speed" injection in Lane B fixes the flake.
+*   **G5 (Local Verification):**
+    *   **Action:** Run unit tests (fast) and static analysis.
+    *   **Condition:** Must pass 100%. If the pedestrian check fails due to missing data, reject immediately (do not proceed to CI).
+*   **G6 (CI Simulation - The Bottleneck):**
+    *   **Resource:** One of the four daily hardware-in-the-loop slots.
+    *   **Action:** Run full 55-minute simulation against last month's data.
+    *   **Success Criteria:**
+        1.  Pedestrian safety metrics match baseline exactly (0% deviation).
+        2.  Vehicle throughput improves ≥10%.
+        3.  Emergency pre-emption latency unchanged.
+    *   **Failure:** If simulation fails, the slot is consumed. No retry until the next available window.
+
+### 3. Review Strategy
+*   **Code Review:** Independent of the Builder. Must explicitly approve the "wind speed" fix to prevent future flakiness.
+*   **Safety Review:** Public Safety Lead reviews the simulation receipt, specifically the pedestrian crossing logs.
+*   **Traffic Review:** Traffic Engineering Lead reviews the throughput gains.
+*   **Conflict Resolution:** Since the config file is shared, both leads must sign off jointly before G7.
+
+### 4. Landing & Human Decisions
+*   **Merge Authority:** Only the Senior City Engineer can merge to the production branch.
+*   **Audit Trigger:** Merging this change will irreversibly entry an audit log regarding school zone intervals. The merge commit message must explicitly cite the joint sign-off IDs.
+*   **Rollback Plan:**
+    *   **Pre-deploy:** Revert the merge commit immediately if the audit log entry is incorrect or if joint sign-off is withdrawn.
+    *   **Post-deploy:** If real-world metrics diverge from simulation, revert to the previous SHA. Note: The audit log entry remains but is annotated with the rollback reason.
+
+### 5. Execution Sequence
+1.  **Parallel Start:** Lane A (Logic) and Lane B (Data/Fix) begin.
+2.  **Serialization Point:** Conductor verifies both lanes complete. Lane C merges changes locally.
+3.  **Human Gate 1:** Traffic & Public Safety leads review the pre-simulation diff and grant joint sign-off.
+4.  **CI Run:** Conductor claims one CI slot. Run 55-minute simulation.
+5.  **Human Gate 2:** Senior City Engineer reviews the simulation receipt (Green on safety, Green on throughput) and the joint sign-off.
+6.  **Final Action:** Senior City Engineer merges to production.
+
+**Risk Note:** With only four CI runs per day, a failed simulation due to an uncaught bug delays delivery by up to 6 hours. Lane B's fix for the flaky wind-speed test is critical to preserving these slots.

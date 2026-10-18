@@ -1,0 +1,52 @@
+### Delivery Plan: Legacy Fuel Card Provider Retirement
+
+**Objective:** Migrate pending claims to the ledger, remove legacy code, and switch configuration to the new vendor before November 30th, ensuring zero data loss.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Data Migration & Verification):** Extracts 'processing'/'validation' claims, pushes to the financial ledger, and generates the reconciliation report.
+    *   *Constraint:* Must complete before Lane B starts. The nightly batch job is irreversible; this lane must run in a isolated staging environment first, then production during a maintenance window.
+*   **Lane B (Code Removal & Config Switch):** Removes the legacy adapter, strips hard-coded rate limits, and updates configuration to the new vendor.
+    *   *Constraint:* Depends on Lane A's finance sign-off. Must not modify the public interface of `claim_validator` without cross-team review.
+*   **Lane C (Cross-Team Review):** Reviews changes to `claim_validator` if any internal logic shifts (even if public interface remains static) to ensure no impact on the three other dependent services.
+
+**Execution Order:** Lane A → (Human Gate) → Lane B + Lane C (Parallel).
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Define the exact SQL/query for "processing" and "validation" states. Pin the base SHA before any code change.
+*   **G4 (Implementation):**
+    *   Lane A: Script to push claims. Must include a dry-run mode that validates data integrity without writing.
+    *   Lane B: Delete legacy paths. Update config.
+*   **G5 (Verification):**
+    *   **Lane A Check:** Run the migration script against the mirrored production database (staging). Verify the reconciliation report matches the source count exactly.
+    *   **Lane B Check:** Unit tests for the new config path. Ensure `claim_validator` tests pass for all three dependent services.
+    *   **CI Strategy:** Trigger the full 45-minute pipeline *only* once per lane after local verification passes. Do not trigger on intermediate commits.
+*   **G6 (Independent Review):**
+    *   Lane A code reviewed by a Senior Backend Engineer (not the author).
+    *   Lane B code reviewed by a different Senior Engineer.
+    *   `claim_validator` changes reviewed by a representative from one of the dependent teams.
+*   **G8 (Release Approval):**
+    *   **Staging Deployment:** Requires Security Lead approval.
+    *   **Production Deployment:** Requires dual sign-off from Engineering and Finance.
+
+#### 3. Review Strategy
+*   **Independence:** The engineer implementing the migration (Lane A) cannot approve their own code. The engineer removing the legacy code (Lane B) cannot approve the migration logic.
+*   **Scope:** Reviewers must verify that no data truncation occurs in the migration script and that the `claim_validator` internal logic changes do not break downstream consumers.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A (Migration) to `main`. Deploy to Staging. Run dry-run.
+    2.  **Human Gate:** Finance Lead signs off on the staging reconciliation report.
+    3.  Merge Lane B (Removal) and Lane C (Reviews) to `main`.
+    4.  **Human Gate:** Engineering + Finance approve production release.
+    5.  Execute migration in Production. Verify ledger.
+    6.  Flip configuration to new vendor.
+    7.  Decommission old endpoint.
+*   **Rollback Plan:**
+    *   If Lane A fails mid-stream: Restore from the pre-migration database snapshot (must be taken immediately before execution).
+    *   If Lane B causes issues: Revert the config switch immediately. The legacy code will be gone, so the rollback plan requires keeping the legacy adapter code in a feature-flagged state (disabled by default) until the new vendor is proven stable for 48 hours, *or* have a hotfix branch ready to restore the adapter. *Recommendation:* Feature-flag the removal rather than deleting immediately, to allow instant reversion without a redeploy.
+
+**Critical Human Decisions:**
+1.  Finance sign-off on the reconciliation report (prevents shutdown).
+2.  Security Lead approval for staging deployment.
+3.  Dual Engineering/Finance approval for production cutover.
+4.  Authorization to execute the irreversible nightly batch job.

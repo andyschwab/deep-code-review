@@ -1,0 +1,38 @@
+**Delivery Plan: CI Cache Integrity Hardening**
+
+**Lanes & Parallelism**
+*   **Lane A (Core Logic):** Implement the integrity validation script. Must handle partial writes, distinguish Region B network flakiness from data rot, and stay under 50MB. *Owner: Builder.*
+*   **Lane B (Observability):** Define corruption signature schemas and update monitoring dashboard ingestion to accept new logs without flooding. *Owner: Builder (parallel to A).*
+*   **Lane C (Performance Baseline):** Instrument current build times across the 40-agent cluster to establish a precise latency baseline and identify lock contention peaks. *Owner: QA (parallel to A/B).*
+*   **Lane D (Integration):** Update orchestration scripts to inject the validation hook. *Owner: Senior Staff Engineer (Serialized: waits for A & B completion).*
+
+**Serialization Constraints**
+Lane D cannot start until Lanes A and B are verified. Lane E (Deployment) is strictly serialized behind Lane D's approval and the 02:00–04:00 UTC window.
+
+**Gates & Checks**
+*   **G1 (Spec Freeze):** Confirm acceptance criteria: validation adds zero net latency to the 4-minute cap. Define "Region B false positive" logic explicitly.
+*   **G3 (Design Review):** Architect reviews Lane A's algorithm for memory footprint (<50MB) and lock-contention mitigation on the shared volume.
+*   **G4 (Implementation):** Code complete with unit tests for partial write scenarios and network timeout simulation.
+*   **G5 (Performance Verification):** QA runs Lane A+C on the Atlas cluster. **Hard Gate:** Average build duration must remain ≤4 minutes over 50 runs. If latency increases, the change fails. Logs are inspected to ensure Region B noise is suppressed.
+*   **G6 (Security & Stability):** Independent review of the validation logic to ensure it cannot be bypassed or cause deadlocks among 40 concurrent agents.
+*   **G7 (Staging Integration):** Merge to integration branch. Run full pipeline in Staging during the 02:00–04:00 UTC window.
+
+**Review Strategy**
+*   **Builder** implements Lanes A, B, and D (draft).
+*   **Senior Staff Engineer** reviews and approves Lane D (orchestration changes) and the final merge.
+*   **QA** independently verifies G5 performance metrics and G6 stability under load.
+*   **Security** reviews the integrity algorithm for supply-chain robustness.
+*   *Constraint:* The Builder cannot approve their own code; the Senior Staff Engineer provides the final technical sign-off.
+
+**Landing & Rollback**
+*   **Merge Train:** Once G6 passes, the Conductor queues the PR.
+*   **Human Decision:** Senior Staff Engineer must explicitly approve the merge into the production branch.
+*   **Deployment Window:** The merge triggers deployment only if the current time is between 02:00 and 04:00 UTC. If merged outside this window, the artifact sits in "Ready" status until the window opens.
+*   **Rollback Plan:** If G5 fails in Staging or runtime errors spike post-deploy:
+    1.  Revert the orchestration script change (Lane D) immediately.
+    2.  Disable the validation hook via feature flag (if available) or config revert.
+    3.  Restore previous cache state if corruption is detected during the failed run.
+    4.  Post-mortem required for any latency regression >5 seconds.
+
+**Cost Control**
+All performance testing (G5) is capped at 200 compute minutes to prevent budget blowout during iteration. If the solution requires algorithmic refinement beyond three attempts, the lane escalates to the Conductor for a approach pivot rather than blind retrying.

@@ -1,0 +1,40 @@
+### Delivery Plan: Auto-Pause Payouts on Volume Spike
+
+**1. Lanes & Parallelism**
+*   **Lane A (Logic Implementation):** Develop the volume spike detection algorithm within the existing incident response script (`ops/automation`). This includes the 5-minute window aggregation and the global ledger verification step to filter out regional batch jobs.
+*   **Lane B (Locking Mechanism):** Implement the queue locking primitive. Since the resume path requires a direct database command by an SRE, this lane focuses solely on the "set and hold" logic that prevents further transactions once triggered.
+*   **Lane C (Test Data Preparation):** Create a stable, non-flaky dataset for the "high-volume" scenario in staging. The existing test case times out; this lane must produce a sanitized subset that reproduces the spike without triggering CI timeouts.
+*   **Serialization Point:** Lane A and Lane B must merge before integration testing. Lane C must be ready before the integration test runs.
+
+**2. Gates & Checks**
+*   **Gate 1 (Static Analysis):** Run on the feature branch immediately after commit. Checks for syntax errors and ensures no changes were made to the existing notification logic (strict diff review).
+*   **Gate 2 (Staging Integration):** Runs on the merged A+B code using the Lane C dataset in the staging environment.
+    *   *Check:* Verify the script detects the spike within the 5-minute window.
+    *   *Check:* Verify the global ledger is consulted before the pause trigger.
+    *   *Check:* Verify the queue locks and remains locked.
+    *   *Constraint:* Do not attempt to test the "resume" path in staging or production; code cannot clear the flag. Verification of the resume path is limited to code review of the lock persistence logic.
+*   **Gate 3 (CI Pipeline):** Trigger the full 22-minute pipeline only after Gate 2 passes locally or in a pre-merge draft PR. Limit runs to the final release candidate to save resources.
+
+**3. Review Process**
+*   **Code Review:** Conducted by a Senior Engineer from the Risk team (independent of the Billing team).
+    *   *Focus:* Verify the global ledger check logic prevents false positives. Confirm the lock mechanism is irreversible via code. Ensure notification logic remains untouched.
+*   **Logic Audit:** Conducted by the Finance Team Lead.
+    *   *Focus:* Validate the threshold definitions for "suspicious surge" and the 5-minute window parameters against business requirements.
+*   **Security/Operations Review:** Conducted by the On-Call SRE.
+    *   *Focus:* Confirm the manual database command required to resume is documented and tested in a local database sandbox (not staging/prod).
+
+**4. Landing & Merge Strategy**
+*   **Merge Condition:** Requires dual approval (Risk Lead + VP of Finance) as per production deployment policy.
+*   **Deployment Window:** Schedule during a low-volume period to minimize risk if the sensitivity is too high.
+*   **Rollback Plan:**
+    *   *Scenario:* False positive pause triggered immediately after deploy.
+    *   *Action:* Since code cannot clear the pause flag, the rollback is purely operational. The On-Call SRE must execute the direct database command to unlock the queue. The deployment itself is reverted via standard git revert, but the *state* requires manual DB intervention.
+*   **Human Decision Points:**
+    *   Final sign-off on the spike threshold values (Finance VP).
+    *   Authorization to run the direct DB unlock command if a false positive occurs (Risk Lead).
+
+**5. Critical Constraints Summary**
+*   Do not modify notification logic.
+*   Do not rely on the flaky high-volume staging test; use the prepared stable dataset.
+*   Accept that resume testing is theoretical/code-only; production resume is a manual DB operation.
+*   Minimize CI runs to avoid 22-minute bottlenecks; rely on local/staging verification first.

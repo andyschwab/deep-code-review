@@ -1,0 +1,102 @@
+**Delivery Plan: Course Search Latency Acceleration**
+
+**Objective:** Reduce search result rendering to <2s under peak concurrent load by next Friday.
+
+**Constraints & Risks:**
+- Shared DB cluster with Billing (contention risk).
+- CI pipeline: 45m runtime, limited to 2x daily.
+- Staging data does not reflect peak load (validation gap).
+- Index rebuild is irreversible and causes lock contention.
+- **Human Gates:** DBA + Product Lead written approval required for production deployment.
+
+---
+
+### 1. Lanes & Parallelism
+
+**Lane A: Analysis & Hypothesis (Serial Pre-requisite)**
+- **Actor:** Senior Backend Engineer (Builder).
+- **Work:** Analyze current query execution plans and application logs to identify N+1 queries, missing indices, or inefficient joins. Formulate specific optimization hypotheses (e.g., "Add composite index on X," "Cache popular queries," "Denormalize Y").
+- **Output:** Optimization Proposal Document with predicted impact.
+- **Dependency:** None. Must complete before Lane B.
+
+**Lane B: Implementation (Parallelizable sub-tasks)**
+- **Actor:** Backend Engineers (Builders).
+- **Work:**
+    1.  Implement database schema changes (migrations) for new indices.
+    2.  Refactor retrieval logic in the catalog service.
+    3.  Introduce caching layer if proposed.
+- **Constraint:** Each sub-task in its own worktree/branch. Schema changes must be backward compatible.
+- **Dependency:** Requires approved proposal from Lane A.
+
+**Lane C: Synthetic Load Simulation (Independent)**
+- **Actor:** Performance Engineer (QA).
+- **Work:** Since staging data is unreliable, build a local or isolated synthetic load generator that mimics "peak enrollment" patterns (high concurrency, specific query distributions).
+- **Output:** Validated load test script capable of running against a local DB snapshot or a dedicated performance sandbox.
+- **Dependency:** Can run parallel to Lane B once the data model is understood.
+
+**Lane D: Risk Mitigation Planning (Serial)**
+- **Actor:** SRE / DBA Liaison.
+- **Work:** Design the "Index Rebuild" execution window. Plan for temporary lock contention on user profiles. Define the rollback procedure for failed migrations.
+- **Output:** Runbook for deployment and emergency rollback.
+- **Dependency:** Finalized schema changes from Lane B.
+
+---
+
+### 2. Gates & Checks
+
+**G1: Spec Freeze**
+- **Input:** Optimization Proposal (Lane A).
+- **Check:** Review by Architect + DBA. Confirm no adverse impact on Billing system queries.
+- **Gate:** Approval to proceed to implementation.
+
+**G2: Code Complete & Unit Test**
+- **Input:** Patches from Lane B.
+- **Check:** Local unit tests pass. Static analysis clean.
+- **Gate:** Ready for integration branch.
+
+**G3: Integration & CI (Bottleneck)**
+- **Input:** Merged integration branch (Exact SHA).
+- **Check:** Trigger full regression suite (45m).
+- **Strategy:** Queue this immediately upon G2 pass to align with the twice-daily window. If it fails, the 12-hour delay is accepted risk; do not bypass.
+- **Gate:** CI Green.
+
+**G4: Performance Verification (Critical)**
+- **Input:** Exact SHA from G3 + Synthetic Load Script (Lane C).
+- **Check:** Deploy to a dedicated performance sandbox (not standard staging) with sanitized-but-scaled data. Run synthetic peak load.
+- **Criteria:** P95 latency < 2s. Zero timeout errors. No excessive DB lock wait times observed.
+- **Gate:** Performance Receipt signed by QA.
+
+**G5: Security & Data Integrity**
+- **Input:** Exact SHA.
+- **Check:** Verify no data leakage in new cache layers. Confirm migration scripts do not corrupt existing data.
+- **Gate:** Security sign-off.
+
+---
+
+### 3. Review Strategy
+
+- **Code Review:** Independent Senior Engineer (not the author). Focus on query efficiency and transaction isolation levels.
+- **DBA Review:** Mandatory review of all migration scripts and index strategies to ensure Billing system stability.
+- **Architecture Review:** Verify caching invalidation logic and consistency models.
+
+---
+
+### 4. Landing & Deployment
+
+**Merge Strategy:**
+- Merge verified lanes into `release/courses-perf` branch.
+- Create final integration commit (SHA-X).
+
+**Human Decisions (Gated):**
+1.  **Deployment Approval:** Written confirmation from **DBA** and **Product Lead** required before applying SHA-X to production.
+2.  **Execution Window:** Agree on a low-traffic window for the irreversible index rebuild to minimize user profile lock contention.
+
+**Rollback Plan:**
+- **Trigger:** P95 latency > 2s or increased error rates post-deploy.
+- **Action:** Immediate revert of application code via previous stable image.
+- **Database:** If schema changes are the cause, execute pre-planned "down" migration (if safe) or restore from pre-deploy snapshot (if irreversible).
+- **Communication:** Notify stakeholders within 15 minutes of detection.
+
+**Post-Launch:**
+- Monitor latency and DB lock metrics closely for 24 hours.
+- Schedule retrospective (G10) to address the staging data fidelity gap for future performance work.

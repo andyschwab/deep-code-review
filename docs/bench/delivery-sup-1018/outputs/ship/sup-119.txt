@@ -1,0 +1,46 @@
+**Delivery Plan: Flight Planning Weather Provider Migration**
+
+**Objective:** Switch legacy weather vendor to new provider with zero downtime, silent fallback, and no peak-hour disruption.
+
+**Lanes & Parallelism**
+*   **Lane 1 (Builder):** Implement dual-write adapter in `flight-planning` service. Logic: Query new provider; on timeout/error, serve cached legacy data (TTL 1h) without raising alerts. *Constraint:* Do not modify `global-feeds.json` yet; inject new endpoint via feature flag or env var.
+*   **Lane 2 (QA):** Execute integration suite on external sandbox against the *exact* Lane 1 commit SHA. Verify latency <200ms and fallback trigger logic. *Limit:* Max 2 runs ($90 cap).
+*   **Lane 3 (Security/Config):** Draft coordinated update for `global-feeds.json` affecting three other services. Define rollback sequence for shared config.
+*   **Serialization:** Lane 3 waits for Lane 1 code freeze. Lane 4 (Release) waits for Lane 2 green + Lane 3 approval.
+
+**Gates & Checks**
+*   **G1 (Spec):** Confirm "silent fallback" behavior matches ops requirements (no alerting on cache hit).
+*   **G3 (Design):** Review adapter logic for race conditions during cache population. Verify immutable API key handling (read-only).
+*   **G4 (Implement):** Code complete in isolated worktree. Unit tests pass locally.
+*   **G5 (Verify):** Run integration tests on external sandbox at **exact commit SHA** from G4.
+    *   *Check:* Latency baseline met?
+    *   *Check:* Simulated new-provider failure triggers cache silently?
+    *   *Note:* Acknowledge staging load-test limitations; rely on sandbox functional results + code review for concurrency safety.
+*   **G6 (Review):**
+    *   *Code:* Senior Engineer (not Lane 1 author) reviews adapter logic.
+    *   *Security:* AppSec verifies no new secrets exposed; confirms legacy key remains untouched in infra layer.
+    *   *Config:* Lead Architect (Jane Smith) approves `global-feeds.json` change plan.
+
+**Review Independence**
+*   Builder (Lane 1) cannot approve their own code or the config change.
+*   QA (Lane 2) verdict is binding on functional correctness; Security verdict is binding on secret handling.
+*   Jane Smith acts as the human gate for the shared configuration and production deployment.
+
+**Landing Strategy**
+*   **Merge Train:**
+    1.  Merge Lane 1 (adapter code) to `main` behind a `DISABLED` feature flag. Deploy to EU-West (non-peak) to validate config loading without traffic.
+    2.  Merge Lane 3 (config update) to `main` only after Jane Smith's explicit sign-off.
+*   **Human Decisions Required:**
+    *   **Jane Smith:** Must approve the `global-feeds.json` modification and the final production toggle.
+    *   **Ops Lead:** Must authorize the specific time window for enabling the flag (must be outside peak morning operations).
+*   **Rollback Plan:**
+    *   *Code Level:* Instant toggle of feature flag to `LEGACY_ONLY` bypasses the new provider entirely.
+    *   *Config Level:* Revert `global-feeds.json` commit; requires coordinated redeploy of affected services if caching relies on config reload.
+    *   *Failure Mode:* If new feed fails post-cutover, system silently serves 1h cached data. If cache expires, alert ops immediately.
+
+**Risk Mitigation**
+*   **Cost:** Strict limit of 2 sandbox runs. Local verification of fallback logic is mandatory before sandbox submission.
+*   **Timing:** Deployment scheduled for Tuesday (standard window) but flag flip deferred to a low-traffic window agreed upon by Ops.
+*   **Shared State:** `global-feeds.json` change is the critical path; all three dependent services must be monitored post-deploy.
+
+**Next Step:** Await confirmation of the specific low-traffic time window from Ops to finalize the G8 Release manifest.

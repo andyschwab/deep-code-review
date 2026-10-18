@@ -1,0 +1,60 @@
+**Delivery Plan: Legacy Sidecar v1 Deprecation**
+
+**Objective:** Enforce v2 sidecar exclusively, purge v1 configs/binaries, verify routing stability, and confirm removal before 18:00 UTC.
+
+**Roles & Lanes**
+*   **Conductor:** Orchestrates serialization, manages the 18:00 deadline, and prepares the human gate package.
+*   **Builder (Platform Engineer):** Updates `sidecar-config.yaml` across 40 services, removes fallback logic, and strips v1 binary references. Works in an isolated worktree.
+*   **QA (Independent):** Verifies traffic routing stability and absence of v1 artifacts. Must be distinct from the Builder.
+*   **Security (Independent):** Validates that vulnerability scans no longer flag the critical issue and confirms no residual v1 binaries exist in active environments.
+
+**Execution Strategy**
+Due to the shared `sidecar-config.yaml` and irreversible binary purge, lanes are **serialized**, not parallelized.
+
+1.  **Lane 1: Configuration & Code (Builder)**
+    *   **Action:** Modify `sidecar-config.yaml` to enforce v2; remove legacy fallback logic; update deployment manifests to exclude v1 binaries.
+    *   **Constraint:** Do not trigger full mesh simulations yet. Run local linting and static analysis only.
+    *   **Output:** A single PR with all 40 service updates.
+
+2.  **Lane 2: Targeted Verification (QA) – *Starts after Lane 1 commit***
+    *   **Trigger:** Exact SHA from Lane 1.
+    *   **Action:** Deploy to Staging. Run targeted concurrency tests focusing on timeout behaviors (acknowledging staging hardware limitations). Verify traffic routing stability without fallback logic.
+    *   **Check:** Confirm no v1 binary references in running containers.
+    *   **Output:** Test receipt confirming routing stability and artifact absence.
+
+3.  **Lane 3: Security & Compliance Scan (Security) – *Starts after Lane 1 commit***
+    *   **Trigger:** Exact SHA from Lane 1.
+    *   **Action:** Run vulnerability scan specifically for the sidecar component. Verify the critical flag is resolved.
+    *   **Output:** Security verdict confirming compliance and zero v1 binaries.
+
+**Gates & Checks**
+*   **G1 (Spec):** Defined by ticket: v2 exclusive, no fallback, no v1 binaries.
+*   **G4 (Implement):** Builder commits to a feature branch. Base SHA pinned.
+*   **G5 (Verify):**
+    *   **QA Gate:** Staging deployment green; routing stable; no timeouts exceeding threshold.
+    *   **Security Gate:** Scan clean; v1 binaries confirmed absent.
+    *   **Cost Control:** Full 35-minute mesh simulation is **skipped** unless targeted tests fail. Rely on targeted concurrency checks to preserve credits.
+*   **G6 (Review):**
+    *   **Reviewer:** Jane Smith **or** Carlos Ruiz (Senior Platform Engineers).
+    *   **Scope:** Independent review of the diff, QA receipts, and Security verdict. Builder cannot self-approve.
+
+**Landing & Human Gates**
+*   **Merge Strategy:** Single PR merged to `main` (or release branch) only after G6 approval.
+*   **Human Decision Required:**
+    *   **Approval to Merge:** Jane Smith or Carlos Ruiz must explicitly approve the PR.
+    *   **Approval to Purge:** Explicit confirmation required before deleting v1 binaries from the artifact registry (irreversible action).
+*   **Rollback Plan:**
+    *   If routing instability is detected post-merge: Immediate revert of the PR.
+    *   If binaries are already purged and failure occurs: Full backup restoration required (noted as high-cost/risk).
+*   **Final Confirmation:** Conductor issues final report confirming v1 absence in all active environments by EOD.
+
+**Timeline**
+*   **Now – 14:00 UTC:** Lane 1 (Build) complete.
+*   **14:00 – 16:00 UTC:** Lanes 2 & 3 (QA/Security) verification.
+*   **16:00 – 17:00 UTC:** G6 Review by Jane/Carlos.
+*   **17:00 – 17:30 UTC:** Merge and binary purge (Human Gate).
+*   **17:30 – 18:00 UTC:** Final confirmation and reporting.
+
+**Risk Mitigation**
+*   **Flaky Staging Timeouts:** Differentiate between genuine routing failures and staging hardware limits via log analysis; do not block on known flaky timeouts if logs show successful routing.
+*   **Deadline Miss:** If G5/G6 slips past 17:00 UTC, escalate immediately to stakeholders; do not rush the irreversible purge.

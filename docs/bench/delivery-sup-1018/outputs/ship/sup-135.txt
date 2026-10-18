@@ -1,0 +1,51 @@
+### Delivery Plan: Session-Locked Dynamic Currency Conversion
+
+**Objective:** Lock exchange rates at session initiation for the Global Roaming product, display them on the user dashboard, and deploy before the summer travel surge.
+
+#### 1. Lanes & Parallelism
+Work is split into three isolated lanes. Lanes A and B run in parallel; Lane C waits for both.
+
+*   **Lane A (Core Logic):** Implement rate-locking mechanism in the billing engine.
+    *   *Scope:* Modify rate-calculation module to capture forex rate at `session_start` and persist it to the session record. Ensure no averaging occurs.
+    *   *Constraint:* Must target the immutable historical archive correctly (read-only) while writing new session data.
+    *   *Owner:* Senior Engineer (Implementation).
+*   **Lane B (Dashboard & Mocks):** Build real-time dashboard visibility and staging mocks.
+    *   *Scope:* Update frontend to display the locked rate from the session record. Create a mock forex service for staging (since real-time feeds are absent).
+    *   *Owner:* Frontend Developer.
+*   **Lane C (Integration & Compliance):** Assemble artifacts and prepare compliance evidence.
+    *   *Scope:* Merge A and B into a release candidate. Compile audit logs showing rate lock vs. market fluctuation for Compliance Lead review.
+    *   *Dependency:* Requires successful completion of A and B.
+
+#### 2. Gates & Checks
+All checks run on the exact revision SHA of the lane output.
+
+*   **G1 Spec (Immediate):** Define "session start" trigger point and data schema for the locked rate. Confirm with Finance that the volatility margin calculation matches their model.
+*   **G3 Design:** Architectural review of the locking mechanism to ensure it does not block session initiation latency.
+*   **G4 Implementation:**
+    *   Unit tests for rate capture logic (Lane A).
+    *   Visual regression tests for dashboard display (Lane B).
+    *   *Note:* Nightly regression suite ($120/run) is **skipped** during development. It runs only once on the final integrated SHA.
+*   **G5 Verification (Staging):**
+    *   Deploy to staging with the mock forex service.
+    *   Execute end-to-end journey: Start session → Verify rate lock → Simulate market shift → End session → Verify billing uses locked rate.
+    *   *Flake Handling:* If the timezone conversion check fails on a Tuesday, manually verify the timestamp logic and mark as `MANUALLY_VERIFIED` to bypass the flake.
+*   **G6 Review:**
+    *   **Code Review:** Independent senior engineer (not Raj Patel) reviews logic.
+    *   **Security/Compliance:** Audit trail verification for financial data integrity.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lane A and B changes.
+*   **Independent QA:** Validates Lane C integration on staging using the mock service. Focuses on the "no averaging" requirement.
+*   **Module Owner:** **Raj Patel** performs the final code review specifically for the rate-calculation module. No merge occurs without his explicit approval.
+*   **Compliance Lead:** Reviews the audit evidence package (G3/G6), not the code.
+
+#### 4. Landing & Human Gates
+*   **Integration:** Once Lanes A and B are green, merge into a release branch. Run the single nightly regression suite ($120) on this exact SHA.
+*   **Human Approvals (Required before Merge/Deploy):**
+    1.  **Raj Patel:** Approval to merge into the main billing branch.
+    2.  **Compliance Lead:** Sign-off on the audit trail and rate-locking logic.
+    3.  **CTO:** Final production deploy authorization.
+*   **Deployment:** Deploy behind a feature flag initially. Enable for 5% of enterprise traffic, monitor for 24 hours, then roll out to 100%.
+*   **Rollback:** If billing discrepancies are detected, immediately revert the feature flag to "off" (instant) and rollback the code commit if data corruption is suspected (requires database restore point verification).
+
+**Timeline Constraint:** All gates must close 3 days before the summer travel surge to allow for monitoring buffer.

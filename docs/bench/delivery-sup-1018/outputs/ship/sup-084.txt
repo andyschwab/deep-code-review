@@ -1,0 +1,51 @@
+### Delivery Plan: Daily Shuttle Location Snapshot
+
+**Strategy:** Single-lane implementation with serialized security gating. No parallel write lanes due to shared state risks (database migration, geo-utils library) and strict API constraints.
+
+#### 1. Lanes & Work Decomposition
+*   **Lane A (Backend & Data):**
+    *   **Actor:** Builder.
+    *   **Work:** Create the daily fetch service (cron-triggered at 00:15 UTC). Implement logic to read MetroFleet API, parse the snapshot, and upsert into the database. Add the `last_updated` timestamp field. Implement the fallback logic to serve the last successful snapshot if the job fails.
+    *   **Constraint:** Strictly single daily poll. Use `/data/fake_fleet.json` for local/dev testing.
+    *   **Serialization:** Must complete before Lane B starts to ensure the API contract is available.
+*   **Lane B (Frontend Integration):**
+    *   **Actor:** Builder (same worktree, sequential step).
+    *   **Work:** Update the commuter dashboard to consume the new endpoint. Render the map using the shared `geo-utils` library. Prominently display the "Last Updated" label. Implement the static view fallback UI if data is stale or missing.
+    *   **Dependency:** Requires the database schema change from Lane A to be reversible/safe (dry-run only initially).
+*   **Lane C (Security & Compliance):**
+    *   **Actor:** Security Lead (David Chen) + Independent QA.
+    *   **Work:** Review PII handling, API key storage, and IP ban prevention logic. Verify the "read-only" nature of the integration against the contract.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Confirm acceptance criteria: "Last Updated" visibility, 24h poll limit, fallback behavior. Pin base SHA.
+*   **G3 Design (Pre-Code):**
+    *   **Check:** Architectural review of the database migration. Since the tool is irreversible, the migration script must be reviewed for safety before execution.
+    *   **Check:** Confirm `geo-utils` compatibility with the new data shape.
+*   **G4 Implement:**
+    *   **Environment:** Local stack using mocked fixtures. No live API calls.
+    *   **Tests:** Unit tests for parsing and fallback logic. Lightweight integration tests only (avoiding the 12min CI timeout).
+*   **G5 Verify (Staging):**
+    *   **Revision:** Exact commit SHA from G4.
+    *   **Action:** Deploy to staging (mocked credentials). Verify the map renders with fake data. Simulate a job failure to confirm the static fallback triggers.
+    *   **Cost Control:** Run only critical path tests in CI to stay under $45 and 12 mins.
+*   **G6 Review:**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Focus:** Code quality, error handling, and adherence to the "no frequent polling" rule.
+    *   **Security Review:** Mandatory independent review by David Chen (Security Lead) specifically for PII and credential handling.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:** Squash merge to `main` after G6 approval.
+*   **Human Gate (G8 Release):**
+    *   **Decision:** Explicit written approval required from **David Chen** before deploying to production.
+    *   **Trigger:** Deployment pipeline halts automatically pending this approval.
+*   **Rollback Plan:**
+    *   **Code:** Revert the commit.
+    *   **Data:** Since the migration is irreversible, the rollback plan involves disabling the feature flag and ignoring the new column. No cluster restore is planned for minor failures; the system degrades to the pre-integration static state.
+    *   **Fallback:** If the nightly job fails in production, the system automatically serves the previous day's data (static view), ensuring zero downtime.
+
+#### 4. Risk Mitigation
+*   **API Ban Risk:** Hard-coded rate limiter in the service to prevent accidental over-polling.
+*   **CI Timeout:** Test suite filtered to exclude heavy end-to-end scenarios; rely on unit + mocked integration tests.
+*   **Database Safety:** Migration script reviewed twice (Architect + Security) before first run.
+
+**Next Step:** Await confirmation of the base SHA to begin G1 Spec finalization.

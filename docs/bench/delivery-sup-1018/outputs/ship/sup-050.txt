@@ -1,0 +1,39 @@
+### Delivery Plan: Legacy Trailer ID Purge & Transparent Mapping
+
+**Objective:** Refactor search indexing to map legacy IDs to universal keys, maintaining frontend compatibility and audit compliance, with zero downtime during NA business hours.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Analysis & Spec):** Isolate `LegacyTrailers` logic. Define the ID mapping algorithm and audit log schema. **Output:** Technical Spec + Dry-run plan. *Serial dependency: None.*
+*   **Lane B (Backend Refactor):** Implement the translation layer in the search pipeline. Ensure legacy inputs resolve to new keys. **Output:** Patch set. *Parallel with Lane C.*
+*   **Lane C (Frontend & Audit):** Verify search bar acceptance of old formats (no UI changes needed, only regression tests). Implement audit logging for translated queries. **Output:** Test suite + Audit verification script. *Parallel with Lane B.*
+*   **Lane D (Migration Prep):** Generate the schema migration script. **Output:** Migration SQL + Staging dry-run report. *Serial dependency: Lane A complete.*
+
+#### 2. Gates & Checks
+*   **G1 (Spec Review):** Product Analyst and Senior Engineer review the mapping logic and audit requirements. **Base:** Main branch head.
+*   **G2 (Build & Unit):** Run lint, type check, and unit tests on Lanes B & C. **Constraint:** Must complete under 12 minutes on shared runners; schedule off-peak if necessary. **Base:** Exact commit SHA from Lane B/C.
+*   **G3 (Staging Integration):** Deploy to staging. Execute Lane D's dry-run report against the `us-west` shard simulation to verify flaky connection handling. **Base:** Integrated staging SHA.
+*   **G4 (Audit Verification):** Run sandbox tests to confirm audit logs are immutable and correctly stamped. **Base:** Staging SHA.
+*   **G5 (Security & Compliance):** Independent review of audit log integrity and data privacy during translation. **Base:** Staging SHA.
+
+#### 3. Review Strategy
+*   **Code Review:** Senior Engineer (not the author of Lane B) reviews the refactor.
+*   **Audit Review:** Compliance lead verifies the audit log implementation (Lane C).
+*   **Migration Approval:** **Marcus Thorne** must review and approve the dry-run report (Lane D) before any production schema change.
+*   **Independence:** The builder of the translation layer cannot approve the audit log implementation.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** Merge Lanes B and C into the integration branch after G5. Merge Lane D only after Marcus Thorne's approval.
+*   **Human Decision Required:**
+    *   Marcus Thorne's explicit approval on the dry-run report.
+    *   Final "Go/No-Go" for production deployment during the maintenance window (outside NA business hours).
+*   **Deployment:** Execute migration first (if approved), then deploy the application update. Monitor `us-west` shard connectivity closely.
+*   **Rollback:**
+    *   **App:** Revert to the previous stable image immediately if search failures exceed 1%.
+    *   **Data:** Since audit logs are irreversible, rollback involves disabling the new translation layer and reverting the search index to the pre-migration state. The migration script must include a "disable" flag rather than a destructive reverse operation.
+
+**Risk Mitigation:**
+*   **Flaky Shard:** Index rebuilds on `us-west` will be retried with exponential backoff; if failures persist, the job alerts on-call engineering rather than blocking the pipeline indefinitely.
+*   **Cost Control:** All heavy build steps are scheduled for off-peak hours to avoid double costs on shared runners.
+*   **Audit Integrity:** Sandbox testing is mandatory; no production audit logs are written until G4 is signed off.
+
+**Next Step:** Initiate Lane A to produce the technical spec for immediate review.

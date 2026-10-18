@@ -1,0 +1,57 @@
+### Delivery Plan: Dynamic Volume Normalization
+
+**Objective:** Implement non-destructive volume normalization for user uploads, ensuring original fidelity is preserved while standardizing loudness for the Acme Stream platform.
+
+#### 1. Work Lanes & Parallelization
+
+*   **Lane A: Algorithm & Logic (Media Ingestion Team)**
+    *   Develop the normalization logic using gain adjustment only (no compression/limiting).
+    *   Implement the dual-storage mechanism: write normalized output to a new path while preserving the original file intact.
+    *   *Constraint:* Must run in the isolated 'Harmony' cluster.
+*   **Lane B: Pipeline Integration (Platform Engineering)**
+    *   Modify the upload pipeline to trigger the new normalization job asynchronously.
+    *   Ensure the preview feature points to the normalized file without introducing latency.
+    *   *Parallel Note:* Can proceed simultaneously with Lane A, provided interface contracts (file paths, metadata) are agreed upon upfront.
+*   **Lane C: Configuration & Scheduling (DevOps)**
+    *   Prepare edits for `global-codec-rules.json`.
+    *   *Serialization Point:* Edits must be applied strictly during the 02:00 UTC maintenance window due to file locks.
+
+#### 2. Gates, Checks, and Execution Revisions
+
+*   **Gate 1: Code Freeze & Unit Tests (Revision: `feat/vol-norm-v1`)**
+    *   Before merging to staging, verify unit tests confirm no waveform alteration (checksum validation of original audio data).
+    *   Verify dual-file creation logic.
+*   **Gate 2: Fidelity-Gold Suite (Revision: `staging/candidate-1`)**
+    *   Trigger the 'Fidelity-Gold' test suite.
+    *   *Constraint:* This is the financial and time gate ($120, 45 mins). Do not run until Lane A and B are fully integrated and peer-reviewed locally to avoid wasted runs.
+    *   *Success Criteria:* Zero audible artifacts, latency within preview thresholds, original file bit-perfect match.
+*   **Gate 3: Configuration Deployment (Revision: `config/vol-norm-enabled`)**
+    *   Apply `global-codec-rules.json` changes at 02:00 UTC.
+    *   Verify configuration propagation before enabling the traffic switch.
+
+#### 3. Review Process
+
+*   **Technical Review:** Independent senior engineer from outside the Media Ingestion team (to avoid conflict of interest) reviews Lane A code for fidelity constraints.
+*   **Compliance Review:** Jane Smith must review the deployment plan and 'Fidelity-Gold' results. Her sign-off is mandatory before production promotion.
+*   **Artifact Check:** QA must manually verify a sample set of processed files on a production-mirror environment (since staging DSP hardware is unreliable for performance benchmarks).
+
+#### 4. Landing Strategy & Rollback
+
+*   **Merge Strategy:**
+    1.  Merge Lane A and B to `staging` after local peer review.
+    2.  Run 'Fidelity-Gold'. If passed, request Jane Smith's sign-off.
+    3.  Schedule config change for 02:00 UTC.
+    4.  Deploy to Production behind a feature flag.
+    5.  Enable flag for 1% of traffic. Monitor for latency spikes.
+    6.  Gradually increase to 100% over 4 hours.
+*   **Human Decision Points:**
+    *   Jane Smith's approval post-test suite.
+    *   Go/No-Go decision after the 1% traffic canary based on latency monitoring.
+*   **Rollback Protocol:**
+    *   *Critical Constraint:* Reverting is irreversible if the background job queue exceeds 500 processed files.
+    *   *Action:* If errors occur, immediately disable the feature flag to stop new processing.
+    *   *Drain Queue:* Manually pause the ingestion worker and drain the queue until it falls below the 500-file threshold.
+    *   *Revert:* Once safe, revert the code deployment and rollback the `global-codec-rules.json` in the next maintenance window.
+    *   *Data Recovery:* Since originals are preserved, a batch re-processing script can be run later to fix any corrupted normalized files without data loss.
+
+**Timeline Note:** All phases must conclude two weeks prior to the Q3 marketing push to allow for buffer time against the 45-minute test cycle and maintenance window constraints.

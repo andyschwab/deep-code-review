@@ -1,0 +1,69 @@
+**Delivery Plan: Adaptive Tick Stabilization**
+
+**Objective:** Eliminate rubber-banding in mixed lobbies by implementing client-side adaptive interpolation without altering server authority or network protocol. Target: Stability suite pass by Friday.
+
+### 1. Lanes & Parallelism
+*Work is split into three lanes. Lanes A and B run in parallel; Lane C is serialized after both.*
+
+*   **Lane A (Algorithm & Core Logic):**
+    *   **Owner:** Senior Engine Developer.
+    *   **Task:** Implement adaptive tick interpolation in `CorePhysics`. Logic must detect client capability (frame time/CPU load) and adjust local prediction windows while consuming the immutable authoritative server stream.
+    *   **Constraint:** Zero changes to network packet structure or server-side logic.
+    *   **Output:** Patch to `CorePhysics` with unit tests for edge cases (sudden capability drops).
+
+*   **Lane B (Validation Harness):**
+    *   **Owner:** QA Automation Engineer.
+    *   **Task:** Build a deterministic replay harness. Record a "stress test" session (high entity count, mixed inputs) on a reference console. Replay this exact input stream on emulated low-end mobile profiles to verify trajectory/collision box identity against the reference.
+    *   **Output:** A script `scripts/verify_determinism.sh` that exits 0 only if collision boxes match bit-for-bit across profiles.
+
+*   **Lane C (Integration & Flakiness Mitigation):**
+    *   **Owner:** Lead Engineer (Serialized).
+    *   **Task:** Integrate A and B. Run the full 45-minute CI loop. Manually execute the `SyncValidator` check on physical legacy hardware to bypass the known emulator flake.
+    *   **Trigger:** Starts only after Lanes A and B report local green.
+
+### 2. Gates & Checks
+*All checks run on a specific, immutable commit SHA.*
+
+*   **G1 Spec Freeze (Immediate):**
+    *   Confirm scope: Client-side interpolation only. Network protocol version locked.
+    *   **Check:** Network Architect signs off on the algorithm design document.
+
+*   **G4 Implementation (Lane A Complete):**
+    *   **Check:** Unit tests pass locally. Code review by Network Architect (focus: server authority integrity).
+    *   **Artifact:** PR branch `feat/adaptive-ticks` with base SHA pinned to current `main`.
+
+*   **G5 Verification (Lane B Complete):**
+    *   **Check:** `scripts/verify_determinism.sh` passes on CI (using the harness, not the full 45-min loop).
+    *   **Artifact:** Test receipt showing identical collision boxes across platforms.
+
+*   **G6 Stability & Hardware (Lane C Complete):**
+    *   **Check 1:** Full CI pipeline (45 mins) passes green.
+    *   **Check 2:** Manual `SyncValidator` pass on physical legacy device by Lead Engineer.
+    *   **Check 3:** Stability suite pass (required for tournament launch).
+
+### 3. Review Strategy
+*Independent verification is mandatory; authors do not review their own work.*
+
+*   **Code Review:** Network Architect reviews Lane A. They must not be the author of the interpolation logic. Focus: Ensuring no drift is introduced in the mathematical model.
+*   **QA Review:** QA Lead reviews Lane B's harness logic and Lane C's stability results. They verify the "bit-for-bit" claim independently by spot-checking replay logs.
+*   **Security/Protocol:** Network Architect verifies no implicit protocol changes occurred (binary diff of network packets).
+
+### 4. Landing & Rollback
+*Human gates are strict due to the tournament deadline.*
+
+*   **Merge Strategy:**
+    1.  Lane C produces a final SHA with all green checks + manual sign-off.
+    2.  **Human Gate:** Network Architect AND QA Lead must explicitly approve the merge to the release branch. No auto-merge.
+    3.  Merge via squash commit to keep history clean.
+
+*   **Rollback Plan:**
+    *   **Trigger:** If post-merge monitoring shows >1% increase in state drift reports or stability suite regression in production.
+    *   **Action:** Immediate revert of the squash commit.
+    *   **Fallback:** The build reverts to the previous fixed-tick behavior. Since server logic is immutable, this is a pure client-side hotfix rollback.
+
+*   **Timeline Constraint:**
+    *   Lane A/B must complete by EOD Wednesday to allow time for Lane C's 45-min CI runs and manual hardware validation on Thursday. Friday is reserved strictly for the tournament stability suite final pass and deployment approval.
+
+**Risks:**
+*   **CI Bottleneck:** Only 6 runs/day. A failure in Lane C late in the day blocks Friday. *Mitigation:* Lane C starts early morning; pre-validate with Lane B's fast harness before triggering full CI.
+*   **Flaky Check:** `SyncValidator` false positives. *Mitigation:* Lead Engineer's manual physical verification is the binding gate, overriding emulator results.

@@ -1,0 +1,26 @@
+### Delivery Plan: Premium Gift Wrap Tri-Partner Sync
+
+**Lanes & Parallelism**
+*   **Lane A (Configuration - Serialized):** Secure written approval from Jane Smith and the Security Lead to modify `partner-config.yaml`. Once approved, update the file to include the three partner endpoints and timeout thresholds. This lane blocks all others until the config change is merged.
+*   **Lane B (Logic Implementation - Parallel to A):** Develop the `PremiumGiftWrapValidator` within the `OrderService` module. Implement the synchronous aggregation logic: trigger all three calls, wait for all responses, and enforce the "all-or-nothing" rule. Hardcode the specific failure message and the logging payload (Partner ID + Error Code) for the fallback path.
+*   **Lane C (Test Harness - Parallel to A & B):** Update the staging environment mocks. Replace the flaky 12-second timeout mocks with deterministic responders that simulate: (1) Success from all three, (2) Timeout from Partner 1, (3) Explicit Error from Partner 2. This ensures integration checks are stable before Lane B merges.
+
+**Gates & Checks**
+*   **Gate 1 (Config Review):** The PR for `partner-config.yaml` requires explicit approval from both Jane Smith and the Security Lead. No code depending on these keys can merge until this file lands on `main`.
+*   **Gate 2 (Unit & Integration):** Lane B's code must pass unit tests covering the aggregation logic. Lane C's updated mocks must pass the integration suite on the staging branch `feat/gift-wrap-staging` to prove the 12-second flakiness is resolved.
+*   **Gate 3 (Pre-Production Dry Run):** Deploy the combined changes to Staging. Execute a manual test transaction selecting "Premium Gift Wrap." Verify the specific user error message appears when a mock partner fails and confirm the operations log captures the correct Partner ID.
+*   **Revision Control:** All gates apply to the head of the feature branch `feat/premium-gift-wrap` rebased onto the latest `main` including the approved config change.
+
+**Review Strategy**
+*   **Code Review:** A senior engineer from a squad *other than* Fulfillment (to ensure independence) reviews the `OrderService` logic. They must verify the synchronous blocking behavior and the specific logging format.
+*   **Config Review:** Jane Smith and the Security Lead review only the `partner-config.yaml` changes.
+*   **Operational Review:** The On-Call Lead reviews the fallback logging output in Staging to ensure it matches the alerting system's parsing rules.
+
+**Landing & Rollback**
+*   **Merge Window:** Merge to `main` no later than Thursday EOD to allow Friday for monitoring before the Tuesday deadline.
+*   **Deployment:** Trigger the 'Galaxy' pipeline. Given the 28-minute runtime, initiate this during low-traffic hours to minimize impact on other deployments.
+*   **Human Decision Point:** Because entering the 'Validating' state is irreversible without a database hotfix, the Product Owner must give final "Go/No-Go" approval in the deployment chat channel immediately after the Galaxy pipeline succeeds but before traffic is shifted to the new logic (if feature-flagged) or immediately upon merge (if not).
+*   **Rollback Protocol:**
+    1.  If errors spike post-deploy, immediately revert the `OrderService` code merge.
+    2.  **Critical:** Since active orders in the 'Validating' state cannot be cancelled by support, a Database Engineer must be on standby during the launch window to apply the specific "database hotfix" script to unstuck any orders trapped by the rollback.
+    3.  The `partner-config.yaml` changes remain unless the partners themselves are the cause of the failure; otherwise, reverting config is unnecessary if the code calling it is reverted.

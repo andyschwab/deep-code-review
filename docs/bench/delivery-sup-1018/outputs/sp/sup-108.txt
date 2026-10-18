@@ -1,0 +1,42 @@
+### Delivery Plan: Helios Solar Array Integration
+
+#### 1. Lanes and Parallelism
+Work is divided into three serialized lanes to protect the critical handshake sequence. Parallel work is strictly limited to documentation and non-core monitoring updates.
+
+*   **Lane A (Core Logic - Serialized):**
+    1.  **Isolation:** Create a feature branch from the current `main` revision. Verify the `core-sync` module hash matches the production baseline before any edits.
+    2.  **Insertion:** Implement the Helios source handler strictly before the final validation step in the three-step sequence. No refactoring of existing wind/hydro logic is permitted.
+    3.  **Error Handling:** Implement silent retry logic for timeouts. Ensure error suppression prevents writes to the main audit stream.
+*   **Lane B (Test Harness - Parallel to Lane A start, merges before Lane A finish):**
+    1.  **Simulation Setup:** Configure the isolated hardware simulator to mimic the Helios data feed.
+    2.  **Timing Verification:** Script a test to measure the latency of the existing wind/hydro signals during the new insertion. The pass criterion is zero deviation from the baseline millisecond timing.
+*   **Lane C (Operations - Parallel):**
+    1.  **Deployment Coordination:** Notify the Shift Lead of the required physical key-card swipe window. Confirm availability outside the 02:00–03:00 UTC backup lockout.
+
+#### 2. Gates and Checks
+All checks run on the specific feature branch commit resulting from Lane A and Lane B integration.
+
+*   **Gate 1: Static Analysis (Pre-CI):** Automated check to ensure no lines in the original three-step handshake logic were modified, only appended to or wrapped.
+*   **Gate 2: CI Pipeline (Hard Limit):**
+    *   Execute on the expensive isolated simulator.
+    *   **Timeout Strategy:** Tests must complete within 12 minutes to provide a 3-minute buffer before the 15-minute hard kill switch.
+    *   **Flake Filter:** If logs report "maintenance window" (known Tuesday flake), the latency monitor check is automatically marked as "ignored" rather than "failed." Any other failure stops the line.
+*   **Gate 3: Timing Integrity:** The CI output must explicitly report signal timing deltas. Any value >0ms causes an immediate build rejection.
+
+#### 3. Review Process
+Independence is enforced by separating code authorship from approval authority.
+
+*   **Primary Reviewer:** Marcus Thorne (Senior Reliability Engineer). His review is mandatory and blocks merging. He focuses exclusively on the integrity of the `core-sync` module and the silence of the retry logic.
+*   **Secondary Validator:** The Shift Lead (Operations). Reviews the deployment runbook and confirms the physical access protocol.
+*   **Constraint:** The code author cannot approve their own merge request under any circumstance. Marcus must verify the diff against the baseline hash recorded in Lane A.
+
+#### 4. Landing and Rollback Strategy
+Due to physical deployment constraints, the landing procedure treats the merge as a point-of-no-return event during business hours.
+
+*   **Merge Window:** Merges are permitted only between 03:00 and 18:00 UTC to avoid the backup lockout and ensure the Shift Lead is on-site.
+*   **Deployment Trigger:** Upon merge, the Shift Lead performs the physical key-card swipe at the data center. This action pushes the config to production.
+*   **Rollback Protocol:**
+    *   **During Business Hours:** Rollback is **irreversible** via software. If the integration fails post-swipe, the system must be manually reverted to the previous physical state by the data center team. No "git revert" will fix the live grid state once the card is swiped.
+    *   **Decision Point:** If the CI timing check shows *any* deviation, or if Marcus Thorne identifies even a minor risk to the handshake, the merge is aborted. Do not attempt to "fix forward" on the production branch.
+
+**Human Decision Required:** The Shift Lead must explicitly confirm physical presence before the final merge button is enabled. No automated deployment occurs without this confirmation.

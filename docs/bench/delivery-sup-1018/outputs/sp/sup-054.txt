@@ -1,0 +1,63 @@
+# Delivery Plan: Legacy Tax Module Deprecation
+
+## Lanes & Parallelism
+
+**Lane A: Isolation & Traffic Control (Compliance Engineering)**
+*   **Work:** Modify API gateway routing rules to reject new filings destined for the legacy engine. Update feature flags to hard-fail any internal service attempts to invoke `calc_v1` for new transactions.
+*   **Parallelism:** Can run immediately alongside Lane B.
+*   **Constraint:** Must not touch database schemas or encryption logic.
+
+**Lane B: Data Archival & Immutability (Database Team)**
+*   **Work:** Create a read-only snapshot of the 14,000 pending transactions. Apply database-level `UPDATE` triggers to prevent any modification to rows where `status = 'pending'` and `engine = 'legacy'`.
+*   **Parallelism:** Runs parallel to Lane A.
+*   **Constraint:** Strict prohibition on modifying any column named `calc_v1`. Schema changes are forbidden; only permission/trigger changes allowed.
+
+**Lane C: Audit Verification (External Auditor General)**
+*   **Work:** Independently verify the read-only snapshot matches the live ledger before cutover.
+*   **Serialization:** Must complete *after* Lane B creates the snapshot but *before* Lane D merges.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Static Analysis (Pre-Merge)**
+*   **Revision:** Target branch `feat/tax-deprecation-q3`.
+*   **Check:** Static analysis must confirm zero references to `calc_v1` modification logic in new code.
+*   **Runner:** CI Pipeline (Automated).
+*   **Pass Criteria:** Zero diffs in legacy calculation logic; successful compilation of isolation logic.
+
+**Gate 2: The "Zero Cent" Hash Check (Staging Simulation)**
+*   **Revision:** `feat/tax-deprecation-q3` merged to `staging`.
+*   **Check:** Since end-to-end testing is impossible in staging (missing keys), run a dry-run script against a production read-replica (if available) or a sanitized production dump. Compare the hash of the 14,000 pending payout amounts before and after the deployment logic is applied.
+*   **Runner:** Automated Script + Jane Smith (Manual Oversight).
+*   **Pass Criteria:** Hash match 100%. Any discrepancy > $0.00 fails the gate.
+
+**Gate 3: Friday Flakiness Buffer**
+*   **Constraint:** Do not schedule final CI runs or deployment windows on Fridays.
+*   **Action:** If the `nightly-ledger-sync` job fails during the validation window, verify it is the known flaky check via log pattern matching before manual override.
+
+## Review Strategy
+
+**Primary Reviewer:** Jane Smith (Compliance Engineering Lead).
+**Independent Reviewer:** External Auditor General.
+**Independence Rule:** The Auditor General must review the *data integrity plan* and the *snapshot hashes* directly, not just the code approval from Jane. Jane reviews the isolation code; the Auditor reviews the immutability guarantees.
+**Review Timing:** Occurs after Gate 2 passes but before Gate 4 (Production Merge).
+
+## Landing & Merge Strategy
+
+**Merge Protocol:**
+1.  **Dual Sign-off Required:** Both Jane Smith and the Auditor General must approve the merge request to `main`.
+2.  **Deployment Window:** Tuesday or Wednesday (avoiding Friday flakiness and weekend lack of support).
+3.  **Execution:**
+    *   Deploy Lane A (Traffic Isolation) first. Monitor for 15 minutes to ensure no new legacy traffic enters.
+    *   Deploy Lane B (Database Triggers) second.
+    *   Run immediate post-deployment hash verification on the 14,000 pending rows.
+
+**Human Decision Points:**
+*   **Go/No-Go:** If the post-deployment hash check shows *any* variance, the Human Incident Commander must decide to rollback immediately. No automated retry is permitted due to CI costs and risk.
+*   **Flaky Check Override:** Only a human can authorize overriding the `nightly-ledger-sync` failure if it occurs during the critical window.
+
+**Rollback Plan:**
+*   **Trigger:** Any payout discrepancy detected or failed hash check.
+*   **Action:** Revert the merge to `main` immediately. Re-enable legacy API routes.
+*   **Data Safety:** Since Lane B only adds read-only triggers and snapshots, a code revert automatically restores write access to the legacy module without data migration. No data rollback script is needed, minimizing risk.
+
+**Success Metric:** 14,000 pending refunds processed with identical final deposit amounts as the approved notices; zero new inputs accepted by the legacy module.

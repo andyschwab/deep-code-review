@@ -1,0 +1,37 @@
+### Delivery Plan: Hotel Search Latency Reduction
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Query Optimization - Reservation Team):** Isolate the availability check logic within `lodging-core`. Refactor SQL queries or indexing strategies to reduce execution time. **Constraint:** Code must strictly read from the existing rate cache without triggering refreshes, invalidations, or writes to the cache layer.
+*   **Lane B (Test Suite Optimization - QA/DevOps):** Parallel to Lane A, analyze the 22-minute CI pipeline. Identify non-essential integration tests that can be mocked or unit-tested to reduce feedback time, focusing on tests that do not require the full staging database.
+*   **Lane C (Pre-Prod Validation - SRE):** Prepare the pre-production environment to mirror the current production cache state. This environment must be ready before Lane A completes coding to ensure immediate validation upon merge request.
+
+**Serialization Point:** Lane A cannot merge until Lane C confirms the pre-prod environment is stable and Lane B confirms the reduced test suite still covers cache-integrity scenarios.
+
+#### 2. Gates & Checks
+*   **Gate 1: Local Verification (Developer Workstation):** Before pushing, the developer must run a local dry-run ensuring no `WRITE` or `DELETE` operations target the rate cache keys.
+*   **Gate 2: Schema Lock Check:** Automated check to ensure no changes touch `pricing-schema.json`. If modified, the build fails immediately. This prevents race conditions during business hours.
+*   **Gate 3: Pre-Prod Integrity Run (On Revision `feat/latency-fix-HEAD`):**
+    *   Deploy to pre-prod.
+    *   Execute availability checks against the mirrored cache.
+    *   **Pass Criteria:** Latency reduced by target metric; Cache values returned match the input exactly (bit-for-bit comparison); Zero cache refresh events triggered in logs.
+*   **Gate 4: Cost-Controlled CI:** Run the optimized CI pipeline. If the full 22-minute suite is still required for final sign-off, it runs only after Gate 3 passes to avoid wasting $45 on flawed builds.
+
+#### 3. Review Process
+*   **Primary Reviewer:** Senior Engineer from the Reservation Team (peer of the author). Focus: Query logic efficiency and strict adherence to the "read-only" cache constraint.
+*   **Independent Reviewer:** Lead Engineer Jane Smith. Focus: Operational safety, SLA compliance regarding price consistency, and deployment risk assessment. She must explicitly approve the production deploy strategy.
+*   **Audit Check:** An automated script reviews the diff to flag any imports or calls related to cache invalidation services.
+
+#### 4. Landing Strategy
+*   **Merge Window:** Outside of peak business hours to minimize risk regarding the `pricing-schema.json` lock, though the code should not touch this file.
+*   **Deployment Protocol:**
+    1.  Merge to `main` only after Jane Smith's manual approval in the deployment tool.
+    2.  Deploy to a canary instance (5% traffic) first.
+    3.  Monitor latency metrics and cache-access logs for 30 minutes.
+    4.  If metrics hold, roll out to 100%.
+*   **Human Decision Points:**
+    *   Jane Smith must authorize the production promotion.
+    *   If the `rate-cache-sync` job triggers during deployment, the rollout must pause until the job completes or is manually paused by Ops.
+*   **Rollback Plan:**
+    *   **Trigger:** Any discrepancy in returned prices or increased error rates.
+    *   **Action:** Immediate revert of the deployment.
+    *   **Critical Constraint:** Since reverting is irreversible once the cache warm-up script triggers, the rollback procedure involves switching traffic back to the previous stable version *before* any background jobs initiate a cache refresh. If the warm-up script has already fired, the incident response team must manually restore the previous cache snapshot from backup before traffic is redirected, as code reversion alone will not fix corrupted cache data.

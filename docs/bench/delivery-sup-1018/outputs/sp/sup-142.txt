@@ -1,0 +1,39 @@
+### Delivery Plan: Legacy Fuel Card Provider Retirement
+
+**1. Lanes & Parallelism**
+*   **Lane A (Data Verification - Serialized):** Execute the pending claim push on a isolated staging branch. This must complete before any code removal begins.
+    *   *Constraint:* The nightly batch job is irreversible; this lane must run during a controlled window, not alongside the nightly job.
+*   **Lane B (Code Modernization - Parallel to A's planning, Serialized after A's success):** Prepare the code changes to remove legacy paths and update configuration.
+    *   *Constraint:* Changes to `claim_validator` require cross-team review if the public interface changes. The plan assumes only internal adapter logic is touched to avoid this bottleneck.
+*   **Lane C (Compliance & Sign-off - Parallel to B):** Draft the reconciliation report for Finance.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Execution):** Security Lead approval required to deploy the verification build to Staging.
+*   **Gate 2 (Data Integrity):** Automated verification that zero claims remain in 'processing' or 'validation' states in the staging mirror.
+*   **Gate 3 (Financial Sign-off):** Finance team must explicitly sign the reconciliation report confirming zero data loss. **No code merge occurs without this.**
+*   **Gate 4 (Code Review):** Independent review of the legacy removal by a senior engineer *not* involved in the original legacy implementation. Focus: Ensuring hard-coded rate limits are stripped and no dead code remains.
+*   **Gate 5 (Production Readiness):** Dual sign-off (Engineering + Finance) required for the production release ticket.
+
+**3. Review Strategy**
+*   **Data Verification Review:** Conducted by the Lead DBA against the staging mirror logs. Confirms the push completed without corruption.
+*   **Code Review:** Performed by a peer engineer. Specifically checks that the `claim_validator` public interface remains untouched to prevent breaking the three dependent services.
+*   **Security Review:** The Security Lead reviews the configuration update to ensure no legacy secrets remain in the new vendor config.
+
+**4. Landing & Rollback**
+*   **Merge Strategy:**
+    1.  Merge Lane B (Code Modernization) to `main` only after Gate 3 (Finance Sign-off) is secured.
+    2.  Trigger the CI pipeline once. Due to the 45-minute runtime, ensure the commit message explicitly references the Finance Approval ID to prevent accidental re-runs.
+*   **Deployment:**
+    1.  Deploy to Staging for final smoke test (configuration validation).
+    2.  Deploy to Production during a low-traffic window.
+    3.  **Hard Stop:** Do not disable the old endpoint at the network level until the Production deployment is confirmed healthy and the Finance team acknowledges the live switch.
+*   **Rollback Plan:**
+    *   If the new vendor integration fails post-deployment, immediately revert the configuration commit to restore the legacy adapter.
+    *   *Caveat:* Since the data push is irreversible, a rollback restores the *code* but not the *state* of unpushed claims (as Gate 2 ensures none exist). The rollback is strictly to restore connectivity if the new vendor rejects valid transactions.
+*   **Human Decisions Required:**
+    1.  Security Lead (Staging access).
+    2.  Finance Team (Reconciliation sign-off).
+    3.  Engineering + Finance Leads (Production release approval).
+    4.  Network Team (Final endpoint shutdown).
+
+**Risk Mitigation:** The 45-minute CI time means "fix-forward" is too slow for production issues. The rollback must be a pre-verified git revert, not a new hotfix build.

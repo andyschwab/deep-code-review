@@ -1,0 +1,44 @@
+### Delivery Plan: Hotel Search Latency Reduction
+
+**Objective:** Optimize `lodging-core` availability query performance while guaranteeing zero mutation of the active rate cache.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Analysis & Spec):** Isolate the slow query path in `lodging-core`. Define "latency reduction" metrics (e.g., p95 < 200ms) and strict "no-cache-write" constraints. *Serial prerequisite for all others.*
+*   **Lane B (Implementation):** Refactor query logic (e.g., indexing, join optimization) in a dedicated worktree. **Constraint:** Code must explicitly bypass any write-path to the rate cache layer. Unit tests must assert cache read-only behavior.
+*   **Lane C (Test Optimization):** Parallelize or mock the heavy staging DB integration tests to reduce the 22-minute CI window. Create a lightweight "cache-integrity" test suite that runs in <5 minutes.
+*   **Lane D (Security/SLA Review):** Audit changes against the pricing SLA. Verify no race conditions with the flaky `rate-cache-sync` job.
+
+*Parallel Execution:* Lanes B, C, and D run in parallel once Lane A completes.
+*Serialization:* Lane B and C must merge into a single integration branch before final verification.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Owner approves the "read-only cache" constraint and latency targets.
+*   **G4 (Build):** Unit tests pass locally. Static analysis confirms no writes to cache endpoints.
+*   **G5 (Verification - Pre-Prod):**
+    *   Deploy to pre-prod using the exact SHA from G4.
+    *   Run the new lightweight "cache-integrity" suite.
+    *   **Critical Check:** Monitor `rate-cache-sync` during high traffic simulation; ensure no flakiness induces data corruption.
+    *   Validate latency improvements against real-world traffic shadows.
+*   **G6 (Review):**
+    *   **Code:** Senior Engineer (not the implementer) reviews Lane B.
+    *   **SLA:** Product Owner verifies the "no price change" guarantee.
+    *   **CI:** Verify Lane C's optimized pipeline passes on the exact integration SHA.
+
+#### 3. Review Strategy
+*   **Independent QA:** A QA engineer executes the pre-prod validation (G5) using the immutable build artifact. They do not rely on the builder's local logs.
+*   **Security/Compliance:** A separate reviewer audits the diff specifically for any interaction with `pricing-schema.json` or cache-write APIs.
+*   **Deep Code Review:** Automated scan focused on data mutation risks and concurrency issues.
+
+#### 4. Landing & Human Gates
+*   **Integration:** Merge optimized code and test suites into the integration branch. Run the full (optimized) CI pipeline once on this final SHA.
+*   **Human Decision (Mandatory):** Lead Engineer **Jane Smith** must manually approve the production deploy. The request will present:
+    *   Latency improvement data from pre-prod.
+    *   Proof of zero cache mutations during stress testing.
+    *   The optimized CI runtime cost comparison.
+*   **Deploy Window:** Schedule outside business hours to avoid the `pricing-schema.json` lock and minimize `rate-cache-sync` contention.
+*   **Rollback Plan:**
+    *   Since reversion is irreversible post-cache-warmup, the rollback strategy is **pre-deployment validation only**.
+    *   If pre-prod (G5) shows *any* cache inconsistency or stale data risk, the merge is aborted.
+    *   No "deploy and fix" approach is permitted.
+
+**Risk Mitigation:** The flaky `rate-cache-sync` job requires a specific test scenario in G5 simulating high traffic during sync execution. If this cannot be stabilized in pre-prod, the deployment is blocked regardless of latency gains.

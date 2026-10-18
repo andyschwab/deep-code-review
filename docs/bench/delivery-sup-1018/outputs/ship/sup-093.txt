@@ -1,0 +1,66 @@
+**Delivery Plan: Apex-9 Sub-Second Firmware Rollback**
+
+**Objective:** Implement local, automated rollback (<2s trigger) on health check failure, ensuring binary verification and preventing bootloops, adhering to the frozen crypto-library constraint.
+
+### 1. Lanes & Parallelism
+
+*   **Lane A: Bootloader Logic (Serial Prerequisite)**
+    *   **Owner:** Senior Embedded Engineer (Builder).
+    *   **Scope:** Modify bootloader to include rollback trigger logic and health-check hook. Must execute before OS handoff.
+    *   **Constraint:** Must respect read-only partition rules; logic must reside in the writable update partition or pre-boot RAM.
+    *   **Parallelism:** Blocked until Lane B defines the verification interface.
+
+*   **Lane B: Verification & Binary Integrity (Parallel Start)**
+    *   **Owner:** Security Engineer (Builder).
+    *   **Scope:** Implement signature verification using the *currently frozen* crypto-library. Define the "safe previous version" storage mechanism.
+    *   **Constraint:** Cannot update crypto-lib; must use existing audit-approved version.
+    *   **Parallelism:** Can start immediately. Must finish before Lane A integrates the verification call.
+
+*   **Lane C: Health Check & Trigger Mechanism (Parallel Start)**
+    *   **Owner:** Firmware QA Engineer (Builder).
+    *   **Scope:** Define the specific health check metrics that trigger rollback. Implement the <2s watchdog timer.
+    *   **Parallelism:** Can start immediately. Must align with Lane A on signal propagation.
+
+*   **Lane D: Safety & Loop Prevention (Independent)**
+    *   **Owner:** Safety Compliance Officer (Human) + Security Engineer.
+    *   **Scope:** Design the "rollback counter" to prevent infinite loops (e.g., if the previous version is also bad). Define the "brick-safe" state.
+
+### 2. Gates & Checks
+
+*   **G0/G1 (Intake/Spec):** Define exact health check failure modes and the cryptographic signature schema. **Gate:** Lead Architect approval on spec.
+*   **G2 (Plan):** Acyclic graph confirming Lane B finishes before Lane A integration. Budget: On-prem cluster hours only (no cloud spend).
+*   **G3 (Design):** ADR detailing how rollback works with the read-only bootloader constraint. **Gate:** Safety Compliance Officer sign-off.
+*   **G4 (Implement):** Code committed to isolated worktrees.
+    *   *Check:* Static analysis on C/C++ code for memory safety.
+    *   *Check:* Crypto implementation review against frozen library docs.
+*   **G5 (Verify):**
+    *   *Environment:* Dedicated on-prem hardware-in-the-loop (HIL) cluster.
+    *   *Test:* Simulate bad firmware install; measure time from failure detection to rollback initiation. **Must be <2s.**
+    *   *Test:* Induce 10 consecutive failures to verify loop-prevention logic engages.
+    *   *Revision:* Exact SHA of the firmware binary + bootloader combo.
+*   **G6 (Review):**
+    *   *Independent Review:* Security Engineer reviews Lane A (Bootloader); Senior Embedded Engineer reviews Lane B (Crypto). No self-reviews.
+    *   *Safety Audit:* Safety Compliance Officer verifies loop-prevention logic.
+
+### 3. Landing & Human Decisions
+
+*   **Integration (G7):** Merge lanes into a release candidate branch. Run full 45-minute HIL suite on the integrated SHA.
+    *   *Risk:* HIL flakiness under network load. **Mitigation:** Run 3 consecutive successful passes on isolated network VLAN.
+*   **Human Gates (G8 - Release):**
+    *   **Required Approvals:** Lead Architect AND Safety Compliance Officer.
+    *   **Decision Point:** Explicit sign-off required before deploying to Staging. No auto-deploy.
+*   **Deployment Strategy:**
+    *   **Staging:** Deploy to 5 non-critical units. Monitor for 24 hours.
+    *   **Production:** Canary rollout to 1% of Titan Manufacturing fleet.
+*   **Rollback Plan:**
+    *   If the *rollback mechanism itself* fails: Immediate halt of rollout.
+    *   Recovery: Manual re-flash via hardware jig (acknowledged limitation for this specific failure mode).
+    *   Trigger: Any P0 incident reported during canary.
+
+### 4. Risks & Mitigations
+
+*   **Read-Only Bootloader:** If logic is placed incorrectly, rollback is impossible. **Mitigation:** Lane A must prove via unit test that the rollback vector is accessible pre-boot.
+*   **Crypto Library Freeze:** Cannot patch crypto vulnerabilities. **Mitigation:** Strict scope limitation to signature verification only; no new crypto features.
+*   **HIL Flakiness:** False negatives in testing. **Mitigation:** Isolated network for G5 verification; require 3x pass confirmation.
+
+**Next Step:** Request Lead Architect (Jane Smith) to confirm the "read-only after first boot" constraint allows for a rollback pointer in the pre-boot metadata section. Once confirmed, Lane A and Lane B commence.

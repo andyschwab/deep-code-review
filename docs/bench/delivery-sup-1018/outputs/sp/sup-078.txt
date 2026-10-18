@@ -1,0 +1,60 @@
+### Delivery Plan: Donor Attribute Backfill & Chain-of-Custody
+
+**Objective:** Ingest 3,000 scanned forms into the donor registry with an immutable chain-of-custody log, ensuring 100% audit traceability and zero speculative data entry.
+
+#### 1. Lanes & Parallelism
+Work is divided into three lanes. Lane A and B run in parallel; Lane C is strictly serialized after A and B complete.
+
+*   **Lane A: Extraction & Ambiguity Flagging (Data Team)**
+    *   **Task:** Process 3,000 images. Extract known fields.
+    *   **Constraint:** Any ambiguous handwriting is flagged for manual review; no guessing allowed.
+    *   **Output:** A structured JSONL file containing extracted data and a separate `ambiguous_queue.csv` for human resolution.
+    *   **Parallelism:** Can run immediately alongside Lane B.
+
+*   **Lane B: Custody Log Schema & Ingestion Logic (Engineering)**
+    *   **Task:** Implement the append-only logging mechanism. Each entry must link: `Operator_ID`, `Source_Image_Hash`, `Timestamp`, and `Data_Payload`.
+    *   **Constraint:** Logic must prevent updates to existing log entries.
+    *   **Output:** A merged PR containing the ingestion script and schema migration.
+    *   **Parallelism:** Runs parallel to Lane A.
+
+*   **Lane C: Manual Resolution & Final Injection (Ops + Engineering)**
+    *   **Task:** Senior Ops resolves `ambiguous_queue.csv`. Engineering runs the final injection script using the resolved data.
+    *   **Serialization:** Cannot start until Lane A (extraction) and Lane B (ingestion logic) are complete and approved.
+
+#### 2. Gates & Checks
+All checks run on the specific commit hash resulting from the Lane B merge, prior to data injection.
+
+*   **Gate 1: Code Review (Pre-Merge)**
+    *   **Reviewer:** Legal Liaison AND Senior Ops (Dual Approval required).
+    *   **Focus:** Verification that the log is strictly append-only and that no "guessing" logic exists for ambiguous fields.
+    *   **Revision:** The feature branch head from Lane B.
+
+*   **Gate 2: Integrity Simulation (CI)**
+    *   **Trigger:** Post-approval, pre-merge to main.
+    *   **Constraint:** Run exactly **once** to conserve credits (40 credits/50 mins).
+    *   **Mitigation:** Exclude files >10MB from the image-validation module to bypass the known flaky check. Validate large files via a separate, non-CI hash verification script.
+
+*   **Gate 3: Data Spot-Check (Pre-Injection)**
+    *   **Action:** Random sample of 50 records from the Lane A output verified against source images by Senior Ops.
+    *   **Pass Condition:** 100% accuracy on sample; 0 speculative entries found.
+
+#### 3. Review Strategy
+*   **Code Review:** Independent of the author. Must involve one technical lead (Data Integrity team) and one compliance stakeholder (Legal Liaison). Neither can be the Lane B engineer.
+*   **Data Review:** Senior Ops reviews the `ambiguous_queue` resolution. This is independent of the extraction script logic to prevent automated bias confirmation.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Lane B code merges to `main` only after Dual Approval and the single CI run.
+    2.  Lane A data files are committed to a secure, temporary staging bucket (not code repo).
+    3.  Lane C injection script runs against production.
+
+*   **Human Decisions Required:**
+    *   **Dual Approval:** Legal and Ops must explicitly sign off on the PR.
+    *   **Ambiguous Resolution:** Humans must manually decide on flagged fields; the system cannot proceed without this input.
+
+*   **Rollback Plan:**
+    *   **Code:** Standard git revert of the Lane B merge if logic errors are found post-deployment.
+    *   **Data:** Since the audit log is append-only and modifications trigger lockdown, **no database rollback is possible**.
+    *   **Mitigation:** If bad data is injected, a "correction record" must be appended to the log referencing the original erroneous entry ID, marking it void. This requires immediate notification to the Legal Liaison before any correction script is run.
+
+*   **Final State:** Production registry updated; immutable log contains 3,000 new entries with full operator/image traceability; audit ready.

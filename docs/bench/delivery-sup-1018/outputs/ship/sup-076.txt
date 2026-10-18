@@ -1,0 +1,58 @@
+### Delivery Plan: Sync Schema Update (Billing & Provisioning)
+
+**Strategy:** Single atomic deployment window with pre-validated artifacts. No parallel implementation; parallel verification.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Preparation - Serial):** Generate the unified migration script and the dual-system rollback script.
+    *   *Constraint:* Must complete before Lane B.
+    *   *Owner:* Builder (Database Engineer).
+    *   *Output:* Immutable migration artifact + Rollback script.
+*   **Lane B (Validation - Parallelizable):**
+    *   *Sub-lane B1:* Run CI pipeline on the central ops repo config change.
+    *   *Sub-lane B2:* Dry-run migration on a production clone (if available) or staging to verify the "midpoint marker" behavior.
+    *   *Constraint:* Limited to twice weekly; must pass before G8.
+    *   *Owner:* QA (independent of Builder).
+*   **Lane C (Coordination - Serial):** Secure the 5-minute window and confirm Network Lead + Data Governance Officer availability.
+    *   *Owner:* Conductor.
+
+#### 2. Gates & Checks
+*   **G0-G3 (Spec & Design):** Define the exact "handshake protocol" with the network team. Document the "midpoint marker" irreversibility point.
+    *   *Check:* `idea-critic` on the handshake logic before owner review.
+*   **G4 (Implement):** Commit config change to a dedicated branch.
+    *   *Base:* Exact SHA of `main` at time of branch.
+*   **G5 (Verify):**
+    *   *CI:* Run the 45-minute compatibility check. **Hard Gate:** Must be green on the exact commit SHA.
+    *   *Smoke Test:* Execute provisioning smoke tests.
+        *   *Exception:* If today is Tuesday, flag as `UNVERIFIED` by automation. Trigger manual verification by On-Call Engineer immediately.
+    *   *Rollback Drill:* Execute rollback script in staging to prove "instant" reversion capability.
+*   **G6 (Review):**
+    *   *Code Review:* Independent Senior Engineer (not the Builder).
+    *   *Compliance Sign-off:* **Human Gate.** Network Lead AND Data Governance Officer must explicitly approve the PR. No merge without both signatures.
+*   **G7 (Integrate):** Merge to `main` only when the deployment window is open and both humans are present.
+
+#### 3. Review & Independence
+*   **Builder:** Writes migration and config. Cannot approve own code.
+*   **QA:** Verifies CI green status and smoke test results. Independent of Builder.
+*   **Security/Compliance:** The two required human sign-offs act as the security gate for data governance and network safety.
+*   **Conductor:** Orchestrates the timeline, ensures no lane proceeds without the previous gate's receipt.
+
+#### 4. Landing & Human Decisions
+*   **Pre-Deployment:**
+    *   Confirm firewall rules are active (Network Team).
+    *   Verify On-Call Engineer is ready for manual smoke check (if Tuesday).
+*   **The Window (G8 - Release):**
+    *   **Human Decision:** Network Lead and Data Governance Officer give final "Go" based on G6 approval and G5 receipts.
+    *   **Action:** Merge PR (triggers config deploy).
+    *   **Action:** Execute migration script on Billing, then immediately on Provisioning (within 5 mins).
+    *   **Verification:** Run live health checks on both systems.
+*   **Rollback Protocol:**
+    *   *Trigger:* Any health check failure immediately post-switch.
+    *   *Action:* Execute pre-validated rollback script.
+    *   *Constraint:* Since migration is irreversible past midpoint, the "rollback" must restore data state from pre-migration backup or utilize a dual-write shadow table strategy defined in G3. If the script cannot revert data, the "rollback" is purely configuration reversion + service halt until data is manually reconciled. This risk must be accepted by the owners in G0.
+*   **Post-Deployment (G9):** Monitor session drop rates for 1 hour.
+*   **Learn (G10):** If Tuesday flake occurred, document manual steps taken for future automation improvement.
+
+**Risks:**
+*   CI cost/compute limits: Ensure dry-run is scheduled correctly.
+*   Tuesday flake: Manual verification is mandatory, not optional.
+*   Irreversible migration: Rollback plan relies on data backup restoration, not script reversal, past the midpoint. This must be explicitly tested in G5.

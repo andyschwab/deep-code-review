@@ -1,0 +1,32 @@
+### Delivery Plan: SwiftPath Rest Limit Guardrails
+
+**Lanes & Parallelism**
+*   **Lane A (Logic Implementation):** One engineer implements the hard guardrail in the assignment logic to reject routes exceeding 14 hours. This includes the explicit check against `driver_rules.json` before the dispatcher queue.
+*   **Lane B (Fallback Verification):** A second engineer (or the same, serialized after Lane A's code is committed) verifies the fallback mechanism. This involves simulating an optimizer failure to ensure the system reverts to a compliant legacy schedule without manual intervention.
+*   **Parallel Execution:** Lane A and the preparation of test data for Lane B can run in parallel. Lane B's execution must wait for Lane A's guardrail code to be present in the branch to verify the full integration.
+
+**Gates & Checks**
+*   **Revision Control:** All checks run on the specific pull request branch head, never on `main`.
+*   **Cache Flush Gate:** Before any compliance test runs, the staging environment's `driver_rules.json` cache must be manually flushed. This is a mandatory pre-step; skipping it invalidates results.
+*   **CI Simulation Limit:** Exactly three CI simulation runs are permitted per PR.
+    1.  **Run 1:** Immediate trigger after the guardrail code is committed.
+    2.  **Run 2:** Triggered only if Run 1 fails or if the fallback logic is modified.
+    3.  **Run 3:** Reserved for final validation before merge approval.
+*   **Flake Handling:** If the `nightly-audit` check fails, verify database load. If load >80%, flag for manual retry; do not alter code based on this specific failure alone.
+
+**Review Process**
+*   **Code Review:** An engineer from the Fleet Operations team (not the author) reviews the logic changes. They must verify the 14-hour threshold is hardcoded or correctly referenced and that the rejection happens *before* the queue.
+*   **Compliance Review:** The Compliance Officer reviews the test results from the CI simulations, specifically confirming that zero non-compliant routes passed the guardrail in the simulation report.
+*   **Independence:** The Code Reviewer focuses on implementation correctness; the Compliance Officer focuses solely on the regulatory outcome of the simulation logs. Neither should approve the other's domain.
+
+**Landing Strategy**
+*   **Merge Window:** Merge must occur before Sunday 11:59 PM to be active for Monday morning.
+*   **Approval Requirement:** Dual approval is mandatory in the internal portal: one from the Lead Dispatcher (confirming operational stability) and one from the Compliance Officer (confirming regulatory adherence).
+*   **Irreversibility Warning:** Since reverting deployed route configurations is impossible after the 4 AM manifest print, the final CI simulation (Run 3) must be a "green" pass on the exact commit intended for production.
+*   **Rollback Plan:** There is no technical rollback for the configuration once the manifest prints. The contingency plan is operational: if a violation slips through, the Dispatch Lead must manually intervene to re-assign the affected driver immediately upon detection, bypassing the automated system for that specific case. The system itself cannot "undo" the manifest.
+
+**Critical Constraints Summary**
+*   Do not exceed 3 CI runs ($450 each, 55 mins each).
+*   Flush `driver_rules.json` cache before every test.
+*   Ignore `nightly-audit` failures caused by high DB load; retry manually.
+*   Final sign-off must happen before the 4 AM manifest deadline to ensure reversibility options remain open until the last possible moment.

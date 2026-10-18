@@ -1,0 +1,56 @@
+# Delivery Plan: Secure Remote Maintenance with Latency-Guarded E-Stop
+
+## Lanes & Parallelism
+
+**Lane A: Cryptography & Tunneling (Platform Reliability Team)**
+*   **Work:** Implement encrypted command channels for standard maintenance traffic.
+*   **Constraint:** Must not modify the E-Stop signal path or the legacy radio protocol handler.
+*   **Parallelism:** Can run concurrently with Lane B.
+
+**Lane B: E-Stop Integrity & Bypass (Safety Board Lead)**
+*   **Work:** Architect and verify the hardware-level bypass ensuring E-Stop signals skip encryption queues entirely.
+*   **Constraint:** Zero tolerance for latency addition; must prove <1ms overhead under load.
+*   **Serialization:** Must complete architectural review before Lane A merges any queue-modifying code.
+
+**Lane C: Configuration & Telemetry Safeguards (DevOps)**
+*   **Work:** Isolate `global-config.yaml` changes to prevent fleet-wide telemetry disablement.
+*   **Constraint:** Changes must be scoped strictly to the Orbital-7 fleet ID.
+*   **Parallelism:** Runs parallel to A and B but blocks final integration.
+
+## Gates & Checks
+
+**Gate 1: Design Review (Revision: `dev/safe-arch-base`)**
+*   **Check:** Formal verification that E-Stop logic is physically or logically isolated from the new encryption stack.
+*   **Approver:** Jane Smith + Safety Board.
+*   **Fail Condition:** Any shared mutex, lock, or queue between E-Stop and encryption modules.
+
+**Gate 2: Unit & Simulation Test (Revision: `feat/encrypted-tunnel-v1`)**
+*   **Check:** Run CI on isolated hardware simulators.
+*   **Mitigation:** Due to flaky network checks in suite 3, require two consecutive successful runs specifically for the E-Stop latency tests.
+*   **Cost Control:** Limit full simulator runs to pre-merge only; use local mocking for development iterations to save $400/run.
+
+**Gate 3: High-Load Stress Test (Revision: `release/candidate-1`)**
+*   **Check:** Simulate maximum network congestion. Verify E-Stop trigger time remains baseline (no encryption overhead).
+*   **Threshold:** Failure if latency increases by >5ms (well below the 50ms catastrophic limit).
+*   **Approver:** Automated (with manual audit log review).
+
+## Review Process
+
+*   **Code Review:** Independent senior engineer from a non-safety-critical team reviews Lane A (Encryption) to ensure no accidental coupling.
+*   **Safety Review:** The Safety Board exclusively reviews Lane B (E-Stop). They must sign off on the bypass logic independently of the encryption implementation.
+*   **Config Review:** Automated diff check on `global-config.yaml` requiring explicit approval from two DevOps leads if any fleet ID other than Orbital-7 is touched.
+
+## Landing Strategy
+
+**Merge Protocol:**
+1.  **Staged Rollout:** Merge to a staging branch first. Deploy to a single, non-critical Orbital-7 test node if available.
+2.  **Final Merge:** Only after successful high-load stress test (Gate 3).
+3.  **Human Decision Required:** Final "Go/No-Go" for production push requires explicit written confirmation from Jane Smith and the Safety Board Chair, acknowledging the irreversible nature of the deployment.
+
+**Rollback Plan:**
+*   **Pre-Deployment:** Since deployments are irreversible on edge nodes, a "rollback" is technically impossible once pushed.
+*   **Mitigation:** The release must include a "Kill Switch" configuration flag deployed *before* the encryption code. If latency issues arise, this flag must instantly disable the encryption tunnel, reverting traffic to the legacy plaintext path (accepting the compliance risk temporarily to prevent hardware failure).
+*   **Trigger:** Any E-Stop latency >10ms detected in production monitoring triggers immediate activation of the Kill Switch by the on-call engineer.
+
+**Audit Readiness:**
+*   Preserve all CI logs, stress test results, and approval signatures in the audit trail immediately upon final merge to satisfy the upcoming month-end audit.

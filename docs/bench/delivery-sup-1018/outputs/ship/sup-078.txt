@@ -1,0 +1,54 @@
+### Delivery Plan: Donor Attribute Backfill with Chain-of-Custody
+
+**Objective:** Ingest 3,000 scanned forms into the donor registry with an immutable audit trail, flagging ambiguities for human review, ensuring compliance readiness.
+
+#### 1. Lanes & Parallelism
+*   **Lane A: Schema & Logging Infrastructure (Builder)**
+    *   **Work:** Extend the audit log schema to enforce `operator_id`, `source_image_hash`, and `entry_timestamp`. Implement the "append-only" guardrail that triggers environment lockdown on mutation attempts.
+    *   **Constraint:** Must complete before Lane B starts writing data.
+    *   **Parallelism:** Can run parallel to Lane C.
+*   **Lane B: Extraction & Ambiguity Logic (Builder)**
+    *   **Work:** Build the ingestion script to parse images. Implement logic to detect low-confidence fields (ambiguous handwriting) and route them to a "Secondary Review" queue rather than guessing.
+    *   **Constraint:** Depends on Lane A's schema being ready in the test environment.
+    *   **Parallelism:** Independent of Lane C.
+*   **Lane C: Compliance & Security Verification (Security Hat)**
+    *   **Work:** Verify encryption key retrieval from the read-only vault during build. Simulate the "lockdown" trigger to ensure it functions correctly without corrupting production.
+    *   **Constraint:** Requires the code from Lane A to be merged to a test branch.
+    *   **Parallelism:** Runs parallel to Lane B's development.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define the exact data contract for the audit log and the confidence threshold for "ambiguous" flags. Pin base SHA.
+*   **G2 Plan:** Confirm the serialization order (A → B) and the dual-approval workflow mapping. Set a token budget for the extraction lane.
+*   **G3 Design:** Approve the "lockdown" mechanism design to prevent accidental production triggers during testing.
+*   **G4 Implement:**
+    *   Lane A commits infrastructure changes.
+    *   Lane B commits extraction logic.
+    *   **Check:** Unit tests for parsing logic (local only, no CI cost).
+*   **G5 Verify (Exact Revision):**
+    *   Run the full integrity simulation on the merged integration branch.
+    *   **Mitigation:** Isolate the flaky image-validation check for files >10MB; if it fails, re-run only that specific module before full suite execution to save credits/time.
+    *   **Validation:** Confirm 100% of test entries have valid chain-of-custody pointers.
+*   **G6 Review:**
+    *   **Reviewer 1:** Senior Ops (independent of Builder).
+    *   **Reviewer 2:** Legal Liaison (independent of Builder and Ops).
+    *   **Scope:** Full diff + Security receipt from Lane C.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge Lane A (Infrastructure) to `main` after dual approval.
+    2.  Merge Lane B (Logic) to `main` only after Lane A is live and verified.
+*   **Human Gates (Mandatory):**
+    *   **Approval 1:** Senior Ops must explicitly approve the schema change (Lane A).
+    *   **Approval 2:** Legal Liaison must explicitly approve the data handling logic (Lane B).
+    *   **Execution:** A human operator must trigger the actual backfill job against production; this is not automated.
+*   **Rollback Plan:**
+    *   Since the audit log is append-only, "rollback" means deploying a patch that stops ingestion immediately.
+    *   Corrupted entries cannot be deleted; they must be marked "void" by a new entry with a reason code, preserving the chain of custody.
+    *   If the "lockdown" triggers accidentally, the recovery procedure requires a manual override by the Security Lead to restore write access.
+
+#### 4. Risk Controls
+*   **Cost Control:** Limit CI runs to the final integration SHA and one retry for the flaky check. Do not run the 50-minute simulation on every commit.
+*   **Data Integrity:** The system will default to "flag for review" on any uncertainty. No auto-correction is permitted.
+*   **Audit Readiness:** Every manual entry in the backfill batch must be associated with a specific operator ID in the logs to satisfy the external audit.
+
+This plan ensures strict adherence to compliance requirements while managing technical debt and resource constraints.

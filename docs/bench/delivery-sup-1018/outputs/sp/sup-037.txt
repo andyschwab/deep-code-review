@@ -1,0 +1,62 @@
+### Delivery Plan: MailFlow to SendGrid Migration
+
+**Objective:** Switch outbound provider with zero receipt loss, dual-write validation, and instant rollback capability.
+
+#### 1. Lanes & Parallelism
+
+**Lane A: Infrastructure & Security (Platform Team)**
+*   **Action:** Submit change request to Security Team to whitelist SendGrid IP ranges immediately.
+*   **Constraint:** This is the critical path blocker; takes 24 hours. No code deployment can succeed until this is approved.
+*   **Parallel Work:** While waiting, prepare the CI cluster environment variables for SendGrid credentials (stored in secret manager).
+
+**Lane B: Code Implementation (Engineering)**
+*   **Action:** Implement the `DualWriteNotifier` wrapper in `core-comms`.
+    *   **Logic:** Primary write to SendGrid; secondary async write to MailFlow (legacy) for receipt capture only.
+    *   **Replay Mechanism:** Create a background worker that polls the MailFlow receipt table for un-migrated IDs and pushes them to SendGrid.
+    *   **Rollback Switch:** Implement a feature flag `EMAIL_VENDOR_MODE` (values: `LEGACY`, `DUAL_WRITE`, `NEW_ONLY`). Default to `LEGACY`.
+*   **Constraint:** Database migrations for the new receipt tracking table must be backward compatible (no dropping of columns used by Billing).
+
+**Lane C: Test Preparation (QA Automation)**
+*   **Action:** Isolate the flaky network smoke test. Create a retry wrapper specifically for this check to prevent false-negative build failures.
+*   **Action:** Prepare a synthetic load script to simulate 48 hours of traffic in 30 minutes for the integration window.
+
+#### 2. Gates & Checks
+
+**Gate 1: Security Approval (Pre-Deployment)**
+*   **Check:** Verify Security Team ticket status.
+*   **Revision:** Deployable artifact `v2.4.0-rc1` cannot be promoted to Staging until IP whitelist is confirmed active.
+
+**Gate 2: Integration Suite (CI Cluster)**
+*   **Check:** Run full suite on `v2.4.0-rc1`.
+*   **Constraint:** Monitor runtime closely. If tests approach 20 minutes, trigger the synthetic load script early to avoid the 25-minute hard timeout.
+*   **Approval:** Jane Smith must approve the deployment plan explicitly before the CI job starts the production promotion.
+
+**Gate 3: Dual-Write Verification (Staging)**
+*   **Check:** Deploy to Staging with `EMAIL_VENDOR_MODE=DUAL_WRITE`.
+*   **Validation:** Confirm 100% of test emails arrive via SendGrid, while MailFlow logs show 100% receipt generation. Verify the Replay Worker processes zero lag.
+
+#### 3. Review Strategy
+
+*   **Code Review:** Conducted by a Senior Engineer *not* on the Platform Team (to ensure fresh eyes on the dual-write logic). Focus strictly on the replay idempotency and the rollback switch logic.
+*   **Security Review:** Independent verification by the Security Team that only whitelisted IPs are contacted in the Staging environment.
+*   **Compliance Sign-off:** The Compliance Lead must review the generated audit logs from the Staging dual-write test to confirm receipt format matches regulatory requirements exactly.
+
+#### 4. Landing & Rollback
+
+**Deployment Window:** Thursday 02:00 UTC (Allows 48-hour overlap before Friday deadline).
+
+**Sequence:**
+1.  **Deploy `v2.4.0`:** Set `EMAIL_VENDOR_MODE=DUAL_WRITE`.
+2.  **Observation Period (1 Hour):** Monitor error rates.
+    *   **Threshold:** If SendGrid error rate > 0.1% OR receipt lag > 30 seconds, trigger **Immediate Rollback**.
+3.  **Rollback Mechanism:** Flip feature flag to `LEGACY` via configuration management (no code redeploy required). This instantly reverts all traffic to MailFlow.
+4.  **Steady State:** If stable after 1 hour, maintain dual-write for 48 hours.
+5.  **Final Cutover:** After 48 hours, flip flag to `NEW_ONLY`. Decommission MailFlow write path in the next release.
+
+**Human Decision Points:**
+*   **Jane Smith:** Final "Go/No-Go" before enabling Dual-Write in Production.
+*   **On-Call Engineer:** Authority to execute the rollback flag flip if thresholds are breached during the observation period.
+
+**Risk Mitigation:**
+*   **CI Timeout:** If the integration test times out due to the flaky check, manual retry is authorized *only* after verifying network logs, to distinguish between a flake and a real regression.
+*   **Database Lock:** Migrations will run during lowest-traffic window to prevent locking the shared Billing tables.

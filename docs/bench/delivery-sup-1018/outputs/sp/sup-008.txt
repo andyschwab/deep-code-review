@@ -1,0 +1,65 @@
+# Delivery Plan: Nova Quiz Engine with Legacy Parity
+
+## Lanes & Parallelism
+
+**Lane A: Data & Schema (Serialized First)**
+*   **Owner:** Database Engineering
+*   **Task:** Verify schema compatibility for pre-2015 data structures on a cloned staging database.
+*   **Constraint:** Must complete before Lane B begins integration testing. Schema migrations are irreversible; no changes applied to production until Lane C validates logic.
+
+**Lane B: Engine Logic & Parity (Parallel with Lane C prep)**
+*   **Owner:** Nova Team
+*   **Task:** Implement rendering logic for legacy modules. Ensure deprecated data structures trigger explicit handling rather than silent failures.
+*   **Task:** Develop the routing layer to direct pre-2015 content to the legacy rendering path and new content to Nova features.
+
+**Lane C: Regression Strategy (Parallel with Lane B)**
+*   **Owner:** QA Automation
+*   **Task:** Curate a "Smoke Subset" (5% of archive) representing high-risk question types for immediate feedback.
+*   **Task:** Prepare the full 40k-credit regression suite for staggered execution.
+
+## Gates & Checks
+
+**Gate 1: The Smoke Signal (Revision: `nova-legacy-bridge-candidate`)**
+*   **Trigger:** Lane A complete + Lane B initial commit.
+*   **Action:** Run "Smoke Subset" against the staging environment.
+*   **Pass Criteria:** Zero pixel deviations on sample legacy exams; zero silent failures on deprecated structures.
+*   **Failure:** Immediate return to Lane B. No full regression run permitted until smoke passes.
+
+**Gate 2: The Full Archive (Revision: `nova-legacy-verified`)**
+*   **Trigger:** Gate 1 passed.
+*   **Action:** Execute full 40k-credit regression suite.
+*   **Special Handling:** The "Historical Accuracy" flaky check will run. If it fails due to timestamp drift, the Lead Architect (Jane Smith) must manually review logs and override. This is a manual gate, not an auto-retry.
+*   **Pass Criteria:** 100% pass rate on scoring logic and layout. Jane Smith's sign-off on flaky check overrides.
+
+**Gate 3: Configuration Lock Check**
+*   **Trigger:** Pre-deploy.
+*   **Action:** Verify `global-rules.json` is unlocked. If within business hours, halt deployment pipeline until after-hours window.
+
+## Review Process
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer from the Legacy Monolith team (not Nova team).
+*   **Focus:** Verify that no new logic alters pre-2015 interaction patterns. Confirm routing logic isolates new courses from legacy constraints.
+*   **Timing:** Before Gate 2.
+
+**Compliance & Academic Review**
+*   **Reviewers:** Compliance Officer and VP of Academics.
+*   **Focus:** Visual verification of random sample exams from the archive; approval of the "invisible rollout" strategy.
+*   **Timing:** After Gate 2 passes, before deployment authorization.
+
+## Landing & Rollback
+
+**Deployment Strategy: Phased Feature Flag**
+1.  **Phase 1 (0% Traffic):** Deploy code with feature flag off. Verify config load.
+2.  **Phase 2 (1% Traffic - Internal):** Enable for internal QA accounts only. Monitor for silent failures.
+3.  **Phase 3 (10% Traffic - External):** Enable for a single non-critical department.
+4.  **Phase 4 (50% Threshold):** **STOP.** Do not cross 50%.
+
+**Human Decision Point**
+*   Once Phase 3 is stable for 24 hours, the Compliance Officer and VP of Academics must provide dual approval to proceed beyond 50%.
+
+**Rollback Protocol**
+*   **Below 50%:** Toggle feature flag to OFF. Traffic instantly reverts to Legacy Monolith.
+*   **Above 50%:** **Rollback Impossible.** Data state divergence prevents reversion. The only recovery path is a full weekend database restore. If critical errors appear above 50%, the system must be patched forward, not rolled back.
+
+**Final Sign-off:** Deployment to 100% requires the dual approval key only after successful Phase 3 monitoring and confirmed absence of data divergence.

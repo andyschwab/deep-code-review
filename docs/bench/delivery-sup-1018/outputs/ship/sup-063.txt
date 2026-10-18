@@ -1,0 +1,59 @@
+**Delivery Plan: Q3 Ledger Aggregation Acceleration**
+
+**Objective:** Reduce aggregation runtime by ≥60% (target <96 mins) with bit-for-bit output parity.
+
+### 1. Lanes & Parallelism
+*Work is split into three isolated worktrees. No shared state writes until G7.*
+
+*   **Lane A: Profiling & Baseline (Serial Pre-requisite)**
+    *   **Actor:** Performance Engineer.
+    *   **Task:** Run `pipeline_profile.py` on the exact production SHA. Isolate bottlenecks (DB I/O vs. CPU). Generate a "Golden Dataset" snapshot from a non-maintenance window.
+    *   **Output:** Bottleneck report + Golden Dataset hash.
+    *   **Constraint:** Must complete before Lane B starts to define the optimization target.
+
+*   **Lane B: Optimization Implementation (Parallel with C)**
+    *   **Actor:** Backend Developer.
+    *   **Task:** Refactor data retrieval (indexing, batching, caching) based on Lane A. **Strict prohibition:** No changes to math formulas, rounding, or `global-audit-config`.
+    *   **Output:** Patch set + Unit tests verifying logic unchanged.
+
+*   **Lane C: Validation Harness (Parallel with B)**
+    *   **Actor:** QA Automation.
+    *   **Task:** Build a side-by-side comparison script. It must run Legacy vs. Optimized code against the Golden Dataset and assert bit-for-bit equality for every line item.
+    *   **Output:** Comparison tool + Staging test suite (excluding flaky network check).
+
+### 2. Gates & Checks
+*All checks run on the exact integration SHA, not feature branches.*
+
+*   **G0-G2 (Intake/Spec/Plan):** Confirm scope excludes formula changes. Set lane budget caps (CI cost $45/run; max 2 full runs per lane).
+*   **G3 (Design):** Review optimization strategy to ensure no `global-audit-config` dependency.
+*   **G4 (Implement):** Code freeze. Unit tests must pass locally.
+*   **G5 (Verify - Critical):**
+    *   **Environment:** Staging (avoiding Tuesday 02:00-04:00 UTC window).
+    *   **Action:** Run Lane C's harness. Execute 3 consecutive runs to mitigate the known flaky network check.
+    *   **Pass Condition:** 100% bit-for-bit match; Runtime <96 mins. UI/Logs show "PASS" on data integrity.
+*   **G6 (Review):**
+    *   **Security/Compliance:** Independent review by Head of Compliance (or delegate) focusing *only* on unchanged math logic and config isolation.
+    *   **Code Review:** Senior Engineer (not the implementer) reviews performance changes.
+*   **G7 (Integrate):** Merge to integration branch. Re-run G5 on the merged SHA.
+
+### 3. Review Strategy
+*   **Builder:** Implements Lane B. Cannot approve their own code.
+*   **Independent QA:** Owns Lane C and G5 execution. Reports directly to Conductor.
+*   **Compliance Gate:** Reviews the "Golden Dataset" comparison receipt. They do not review code syntax, only the proof of data integrity.
+*   **Conflict Resolution:** If the flaky network check fails twice, the lane escalates to a manual staging verification by QA, not an automated retry loop.
+
+### 4. Landing & Human Decisions
+*   **Merge Train:** Serialized landing. One integration commit.
+*   **Human Approval (G8):**
+    *   **Required Signatories:** Chief Architect AND Head of Compliance.
+    *   **Trigger:** Presentation of G5 receipt (runtime metrics + bit-for-bit hash match).
+    *   **Timing:** Deployment scheduled strictly outside Tuesday 02:00-04:00 UTC.
+*   **Rollback Plan:**
+    *   **Condition:** If G9 (Production Verify) shows any SLA miss or data discrepancy.
+    *   **Action:** Immediate revert to previous SHA. Since the DB is read-only during the maintenance window, deployment must occur when writes are permitted to ensure a clean rollback state if needed.
+    *   **Verification:** Post-deploy, run a sample aggregation on live traffic (shadow mode) before directing auditor access.
+
+**Risk Mitigation:**
+*   **CI Budget:** Capped at $45/run. If optimization requires >2 full pipeline runs, manual approval is needed to extend budget.
+*   **Flakiness:** The "flaky network check" is marked as non-blocking for merge if the local data-integrity harness passes 3/3 times.
+*   **Config Lock:** Any attempt to modify `global-audit-config` triggers an automatic build failure via pre-commit hook.

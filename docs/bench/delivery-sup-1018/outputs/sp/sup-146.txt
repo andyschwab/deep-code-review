@@ -1,0 +1,65 @@
+# Delivery Plan: Adaptive Sensor Sampling
+
+## Work Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+*   **Owner:** Senior Firmware Engineer
+*   **Work:** Implement the variance-spike detection algorithm and the "force high-fidelity" override. This must be completed first, as Lane B depends on its interface.
+*   **Constraint:** Isolate changes to a new `adaptive-sampler` module to avoid touching the shared `compliance-logger` file initially.
+
+**Lane B: Compliance & Logging (Parallel to Lane A start, merges after)**
+*   **Owner:** Compliance Specialist
+*   **Work:** Implement the "three-consecutive-miss" counter and the audit logging wrapper.
+*   **Serialization Point:** Must integrate with Lane A's override trigger. Due to the `compliance-logger` lock contention, this lane works on a feature branch and rebases only once Lane A is code-frozen.
+
+**Lane C: Simulation & Validation (Parallel)**
+*   **Owner:** QA Automation
+*   **Work:** Configure the staging environment. Explicitly disable the flaky network latency simulator to prevent false timeout failures during battery drain tests.
+*   **Gate:** Validate battery savings using only the stable battery-drain simulator.
+
+## Gates & Checks
+
+**Gate 1: Static Analysis & Unit Test (Local)**
+*   **Revision:** Feature branch head.
+*   **Check:** Verify the "three-consecutive-miss" logic via unit tests only. Do not trigger the full CI pipeline yet.
+*   **Pass Criteria:** 100% pass on local unit tests; zero modifications to `compliance-logger` without explicit lock acquisition.
+
+**Gate 2: Staging Integration (CI Trigger)**
+*   **Revision:** Release Candidate (RC) build combining Lanes A and B.
+*   **Check:** Run the full test suite on the expensive hardware simulator.
+*   **Optimization:** Bundle all changes into a single RC to avoid multiple $45/55-min runs.
+*   **Pass Criteria:** Battery drain reduced by target %; zero missed anomalies in simulated spike scenarios.
+
+**Gate 3: Safety Fail-Safe Review (Independent)**
+*   **Reviewer:** Safety Team Lead (Independent of the implementing engineers).
+*   **Input:** The specific code path forcing high-fidelity mode during variance spikes.
+*   **Check:** Verify that battery status cannot suppress the override.
+*   **Pass Criteria:** Written sign-off on fail-safe behavior. **No deployment proceeds without this document.**
+
+## Review Process
+
+*   **Code Review:** Peer review between Lane A and Lane B owners to ensure the logging hook does not introduce latency that affects sampling timing.
+*   **Compliance Review:** The Safety Compliance Officer reviews the audit log format and the "three-miss" guarantee logic. This is separate from the engineering code review.
+*   **Conflict Check:** A dedicated merge specialist handles the final integration of `compliance-logger` to resolve any repository locks immediately before the final RC.
+
+## Landing & Rollback Strategy
+
+**Merge Protocol:**
+1.  **Freeze:** Code freeze on `core-sensor` main branch.
+2.  **Approval:** Obtain dual approval signatures (Lead Engineer + Safety Compliance Officer).
+3.  **Binary Signing:** Generate the firmware binary.
+    *   **Critical Warning:** This step is irreversible. Once signed, the binary cannot be un-signed.
+
+**Deployment:**
+*   Deploy to a 5% canary fleet first. Monitor for "false negative" anomalies (missed data points).
+*   If canary passes for 48 hours, proceed to 100% rollout.
+
+**Rollback Plan:**
+*   **Scenario:** Critical failure detected post-deployment (e.g., missed regulatory data).
+*   **Action:** Since OTA rollback is impossible, initiate the **Physical Recall Kit** protocol.
+*   **Mitigation:** The canary phase is the only soft-failure buffer. If the canary fails, kill the rollout immediately; no further devices are updated. The 5% fleet must be manually serviced if the binary is already signed and distributed to them.
+
+**Human Decision Points:**
+1.  Safety Team sign-off on fail-safe logic (Hard Gate).
+2.  Dual approval for production deploy (Hard Gate).
+3.  Go/No-Go decision after the 48-hour canary observation.

@@ -1,0 +1,43 @@
+**Delivery Plan: Customs Declaration Format v4.2**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Schema & Parser):** Implement v4.2 XML/JSON schema and the new parser. *Writer: Builder.*
+*   **Lane B (Legacy Coexistence):** Refactor the export dispatcher to support region-based toggling (v3.1 vs v4.2) and ensure historical record retrieval remains untouched. *Writer: Builder (Serialized after Lane A starts to ensure interface compatibility).*
+*   **Lane C (Fallback Mechanism):** Implement the instant-failover logic if v4.2 validation fails, ensuring zero downtime. *Writer: Builder (Parallel to Lane B).*
+*   **Lane D (Sandbox Verification):** Execute integration tests against the Northern Border Authority sandbox using the new format. *Writer: QA (Independent).*
+*   **Lane E (Migration Script):** Draft the irreversible database migration script with a dry-run mode. *Writer: DBA/Security (Serialized; requires final schema from Lane A).*
+
+**Parallel Execution:** Lanes A, C, and D can run concurrently once the spec is locked. Lane B must wait for Lane A's interface definition. Lane E waits for Lane A's final schema.
+
+**2. Gates & Checks**
+*   **G1 Spec:** Define exact region-to-format mapping rules and the specific validation error codes that trigger the fallback. Pin base SHA before coding.
+*   **G3 Design:** Approve the irreversible migration strategy and the toggle mechanism design. Explicitly document that the network latency simulator check is ignored *only* if logs show zero packet loss.
+*   **G4 Implement:** Code changes in isolated worktrees. Unit tests must cover the toggle logic and fallback paths. No full CI runs yet; run only affected module tests to save cost ($45/run).
+*   **G5 Verify:**
+    *   **QA:** Run Lane D against the sandbox. Confirm historical data accessibility in v3.1.
+    *   **Resilience Test:** Simulate v4.2 parser failure; verify instant fallback to v3.1 with no dropped shipments.
+    *   **CI:** Run full suite on the exact integration SHA, excluding the flaky network check if packet loss is zero.
+*   **G6 Review:** Independent review by a senior engineer (not the Builder) focusing on the irreversible migration and fallback logic. Security review for data integrity during the toggle.
+
+**3. Review Strategy**
+*   **Builder:** Implements Lanes A, B, C.
+*   **QA:** Owns Lane D and verifies G5 receipts. Independent of the Builder.
+*   **Security/DBA:** Reviews Lane E and the migration plan. Independent of the Builder.
+*   **Deep Code Review:** Applied to all diffs, specifically checking for race conditions in the toggle and data loss risks in the migration.
+
+**4. Landing & Human Decisions**
+*   **Integration:** Merge Lanes A, B, C into a staging branch. Run the affected test suite. Once green, merge to the integration branch.
+*   **Human Gate (Jane Smith):** Jane must personally approve the production deploy. The request will present:
+    *   *Issue:* Deploy Customs v4.2 with irreversible DB migration.
+    *   *Option A:* Deploy during off-peak (02:00 UTC) with feature flag off, then enable per region. (Recommended: minimizes blast radius).
+    *   *Option B:* Deploy directly to all regions during maintenance window. (Higher risk, faster completion).
+*   **Rollback:**
+    *   **Code:** Revert the toggle to force v3.1 for all regions.
+    *   **Database:** The migration is irreversible; rollback relies on the code-level fallback to v3.1 format. If data corruption occurs, restore from pre-deploy backup (must be verified before G8).
+*   **Deployment:** Triggered only after Jane's explicit approval. Monitor peak shipping hours closely; if latency spikes or validation errors rise, auto-toggle regions back to v3.1.
+
+**Constraints Adhered To:**
+*   CI runs limited to affected modules to reduce cost/time.
+*   Flaky network check ignored conditionally.
+*   Config files edited outside business hours to avoid lock conflicts.
+*   Irreversible migration treated with highest caution.

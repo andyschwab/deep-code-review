@@ -1,0 +1,51 @@
+### Delivery Plan: Privacy-Compliant Data Retention Update
+
+**Objective:** Modify the nightly batch module to purge session metadata >18 months while preserving immutable audit logs containing transaction IDs.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Logic Design) – [Product Analyst + Security]**
+    *   **Task:** Define precise SQL/logic predicates distinguishing "session metadata" from "audit logs." Explicitly list fields to delete vs. fields to retain.
+    *   **Constraint:** Must account for append-only audit table structure (filtering vs. deletion).
+    *   **Parallelism:** Runs first; blocks Lane B.
+*   **Lane B (Implementation) – [Builder]**
+    *   **Task:** Update the cleanup routine in the shared nightly batch module. Implement dry-run mode to count affected rows without deletion.
+    *   **Constraint:** Isolated worktree; no changes to audit table write paths.
+    *   **Parallelism:** Starts after Lane A spec approval.
+*   **Lane C (Test Data Seeding) – [QA]**
+    *   **Task:** Manually seed staging environment with synthetic multi-year records mimicking production edge cases (mixed session/audit data).
+    *   **Constraint:** High compute cost; limit to three targeted datasets.
+    *   **Parallelism:** Runs parallel to Lane B, must complete before Lane D.
+*   **Lane D (Verification) – [Independent QA]**
+    *   **Task:** Execute cleanup on seeded staging. Verify zero deletion of transaction IDs and successful purging of old session metadata. Validate dry-run counts match expectations.
+    *   **Constraint:** Cannot run full 45-min job repeatedly; use targeted subsets.
+    *   **Parallelism:** Blocked by Lane B (code) and Lane C (data).
+
+#### 2. Gates & Checks
+*   **G1 Spec Gate:** Review logic predicates. **Check:** Legal/Security sign-off on data classification rules.
+*   **G4 Implementation Gate:** Code review of the batch module. **Check:** Static analysis for accidental `DROP` or `TRUNCATE` on audit tables. Base SHA: `main` head at lane start.
+*   **G5 Verification Gate:** Run on exact revision from G4.
+    *   **Check 1:** Dry-run output matches expected purge counts.
+    *   **Check 2:** Post-execution row count of audit logs equals pre-execution count (zero loss).
+    *   **Check 3:** Session metadata >18 months reduced by expected percentage.
+*   **G6 Security Review:** Independent audit of the diff. **Reviewer:** Security Lead (distinct from Builder). **Focus:** Compliance with "zero data loss" mandate.
+
+#### 3. Review Strategy
+*   **Code Review:** Senior Backend Engineer (not the Builder). Focus on logic correctness and safety guards.
+*   **Compliance Review:** Data Governance Officer. Confirms the logic satisfies regional mandates without violating audit requirements.
+*   **Independence:** QA verifying G5 results must not be the Builder. Security review (G6) is mandatory and independent of implementation.
+
+#### 4. Landing & Human Decisions
+*   **Integration:** Merge to `main` only after G6 approval.
+*   **Human Gates (Required):**
+    1.  **Security Lead Approval:** Explicit written authorization for the logic change.
+    2.  **Data Governance Officer Approval:** Final sign-off on compliance before production enablement.
+*   **Deployment:**
+    *   Deploy to production with the job initially disabled (feature flag or config switch).
+    *   Enable job for a single dry-run in production (logging only, no deletion) to validate against real volume.
+    *   Final enablement requires re-confirmation from both human approvers.
+*   **Rollback Plan:**
+    *   **Immediate:** Revert the config switch to disable the cleanup job.
+    *   **Code:** Revert the merge commit if logic error is detected post-deploy.
+    *   **Data Recovery:** Not applicable for deleted session data (purge is intentional); critical for audit logs (verified by G5 zero-loss check). If audit data is ever touched, restore from latest immutable backup (though structure prevents deletion).
+
+**Risk Mitigation:** Compute budget preserved by limiting full-job runs to one final verification in staging and one dry-run in production. Edge cases addressed via manual seeding in Lane C.

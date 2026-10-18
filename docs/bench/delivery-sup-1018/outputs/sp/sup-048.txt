@@ -1,0 +1,50 @@
+# Delivery Plan: Legacy Kiosk UI Retirement
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic Migration (Security Team)**
+*   **Work:** Extract identity verification logic from the legacy UI module. Refactor into a shared service within `lobby-gate` that accepts configuration for font size and timeout duration.
+*   **Constraint:** Must use existing `device-drivers` calls only; no new driver integration.
+*   **Parallelism:** Can run immediately alongside Lane B.
+
+**Lane B: Accessibility Configuration (Frontdesk Team)**
+*   **Work:** Implement the "Elderly Mode" configuration in the new streamlined design. Hardcode font sizes to "extra-large" and timeout multipliers to 2.0x when the kiosk detects the specific legacy hardware ID.
+*   **Constraint:** No firmware updates; UI changes must render correctly on existing screen resolutions.
+*   **Parallelism:** Runs parallel to Lane A. Merges only after Lane A's shared service is available.
+
+**Lane C: Network Resilience Testing (QA Automation)**
+*   **Work:** Simulate high-latency/low-bandwidth conditions matching rural clinic profiles. Verify the new flow completes verification without timing out under these constraints.
+*   **Serialization:** Must wait for Lanes A and B to merge to the integration branch before executing end-to-end tests.
+
+## Gates & Checks
+
+1.  **Unit Test Gate (Local/Pre-PR):** Developers run targeted unit tests for the verification logic and UI rendering. **Do not** trigger full CI suites for intermediate commits to save budget.
+2.  **Accessibility Board Review (Mandatory):** Before any merge to `main`, the Accessibility Board must sign off on the visual layout and timeout adjustments. This is a hard block.
+3.  **Hardware Compatibility Check:**
+    *   **Timing:** Run on the final release candidate commit.
+    *   **Condition:** If running on a Tuesday, expect flakiness. If failed on Tuesday, request manual re-run approval from Director Jane Smith immediately. Do not proceed to deploy without a green status here.
+4.  **Staging Deployment Gate:**
+    *   **Target:** Oakwood Clinic Staging Environment.
+    *   **Time Lock:** Deployment must occur **before 2:00 PM**. Pushes after this time are irreversible and prohibited.
+
+## Review Process
+
+*   **Code Review:** Peer review between Security and Frontdesk leads. Each team must approve the other's changes to ensure the logic extraction didn't break the UI and the UI config doesn't expose insecure logic.
+*   **Independent Verification:** The QA team (Lane C) acts as the independent verifier. They do not review code but validate behavior under network stress. Their sign-off is required for the final merge.
+*   **Compliance Review:** The Accessibility Board reviews the *running application* in the staging environment, not just the code diff, to confirm large fonts and extended timeouts are active.
+
+## Landing Strategy
+
+1.  **Integration:** Merge Lanes A and B into a feature branch. Resolve conflicts.
+2.  **Pre-Landing Checks:** Trigger the Hardware Compatibility check (accounting for the Tuesday rule). Once green, request Accessibility Board sign-off.
+3.  **Staging Deploy:** Deploy to Oakwood Clinic before 2:00 PM. Monitor for one business day.
+4.  **Final Merge:** If staging is stable, merge to `main`.
+5.  **Rollback Plan:**
+    *   **Scenario:** Critical failure in Oakwood or post-merge discovery.
+    *   **Action:** Since production deploys to Oakwood are irreversible after 2 PM, if a bug is found after this window, the clinic must manually reboot kiosks to the previous stable image stored on local recovery partitions (standard procedure for this hardware).
+    *   **Code Level:** Revert the `main` merge immediately. A hotfix branch must be created if the rollback requires data migration fixes.
+
+**Human Decisions Required:**
+*   **Director Jane Smith:** Approval for manual re-run of hardware checks if Tuesday failures occur.
+*   **Accessibility Board:** Final visual/functional sign-off.
+*   **Clinic Manager (Oakwood):** Confirmation of successful staging deployment before 2 PM cutoff.

@@ -1,0 +1,42 @@
+**Delivery Plan: Real-Time Co-Editing for Lesson Plans**
+
+**Scope & Constraints**
+Target: `neptune` cluster (Lesson Plan service).
+Critical Constraints: Immutable DB during business hours (migration 02:00–04:00 EST); `schema-validation` script shared with Billing (must not break); CI flakiness on socket tests (15%); $200/deploy cost requires high confidence before merge.
+
+**Work Lanes & Parallelism**
+*   **Lane A (Protocol & Backend – Serial with C):** Implement WebSocket presence/cursor logic and optimistic locking/merge strategy. *Writer: Backend Engineer.* Must define the conflict resolution algorithm before Lane C starts.
+*   **Lane B (Frontend Presence – Parallel):** Implement live cursor rendering and conflict UI indicators. *Writer: Frontend Engineer.* Depends only on the agreed API contract from Lane A, not the implementation.
+*   **Lane C (Schema & Migration – Serialized):** Modify `schema-validation` to support concurrent edits without breaking Billing. Prepare idempotent migration scripts. *Writer: Data Engineer.* **Must run serially** after Lane A's locking logic is finalized to ensure schema compatibility.
+*   **Lane D (CI Stabilization – Parallel):** Create a deterministic mock for the flaky network check to isolate real socket failures from infrastructure noise. *Writer: SRE/QA.*
+
+**Gates & Verification (Exact Revisions)**
+*   **G1 Spec:** Define "last saved never discarded" as a testable invariant. Pin base SHA.
+*   **G3 Design (ADR):** Document the merge strategy and `schema-validation` changes. **Review:** Architect + Billing Team Lead (mandatory sign-off on shared script).
+*   **G4 Implement:** Code in isolated worktrees. Tests included in commit.
+*   **G5 Verify (Staging):**
+    *   Run full stack at exact SHA.
+    *   **Specific Check:** Replay conflict scenarios against a staging DB clone. **Prohibition:** No production conflict testing (audit log is irreversible).
+    *   **Flake Mitigation:** Run socket tests 10x with Lane D's mock; pass only if 10/10 green.
+*   **G6 Review:** Independent QA verifies presence indicators and lock behavior. Security reviews WebSocket auth. **Builder never reviews Builder.**
+
+**Landing & Human Gates**
+*   **Integration (G7):** Merge Lanes A, B, C, D into a release candidate branch. Run `schema-validation` one final time against the combined diff.
+*   **Human Approval (G8):**
+    *   **Approver:** Jane Smith.
+    *   **Trigger:** Request sent only after G6 green and Billing Lead sign-off.
+    *   **Decision:** Authorize the 02:00–04:00 EST deployment window.
+*   **Deployment Strategy:**
+    1.  Deploy to staging (verify data integrity scan passes).
+    2.  **Migration Window:** Execute DB migration between 02:00–04:00 EST.
+    3.  Deploy `neptune` service.
+*   **Rollback:**
+    *   If data integrity scan fails or Billing breaks: Immediate rollback to previous SHA.
+    *   If real-time sync causes data corruption: Disable WebSocket feature flag, revert to standard save-with-lock behavior.
+
+**Risk Mitigation**
+*   **Billing Breakage:** The shared `schema-validation` change is the highest risk. A dry-run of the validation script against current Billing data is required before G8.
+*   **CI Flakiness:** If the real network check fails in the final pipeline, manual inspection of logs is required to distinguish flake from genuine socket failure before merging.
+*   **Cost Control:** Only one production deployment attempt is budgeted ($200). All verification must occur in staging.
+
+**Next Step:** Generate G1 Spec draft for owner review, explicitly listing the "last saved" invariant and the 02:00–04:00 migration constraint.

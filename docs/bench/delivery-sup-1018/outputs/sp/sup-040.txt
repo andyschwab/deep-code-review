@@ -1,0 +1,70 @@
+# Delivery Plan: Customs Declaration Format v4.2
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Global Trade Team)**
+*   **Work:** Implement v4.2 schema generator, legacy v3.1 preservation logic, and the region-based configuration toggle.
+*   **Constraint:** Must not modify shared root config files during business hours.
+*   **Parallelism:** Can run simultaneously with Lane B, provided no file locks are contested.
+
+**Lane B: Validation & Sandbox (QA Automation)**
+*   **Work:** Develop integration tests against the Northern Border Authority sandbox. Verify historical record accessibility in v3.1 format.
+*   **Constraint:** Ignore "network latency simulator" failures if logs show zero packet loss.
+*   **Parallelism:** Runs in parallel with Lane A development.
+
+**Lane C: Infrastructure & Migration (DevOps)**
+*   **Work:** Prepare the irreversible database migration script. Configure the CI pipeline to run *only* affected modules (export service) to avoid the 55-minute/ $45 cost penalty.
+*   **Serialization:** Must wait for Lane A's code freeze before finalizing migration compatibility checks.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Unit Test (Revision: `feat/customs-v4-candidate`)**
+*   **Trigger:** Lane A completes implementation.
+*   **Check:** Run targeted unit tests for export modules only.
+*   **Pass Criteria:** 100% pass rate on export logic; v3.1 fallback returns valid legacy XML/JSON instantly upon simulated v4.2 failure.
+
+**Gate 2: Integration & Sandbox (Revision: `feat/customs-v4-candidate` + Lane B tests)**
+*   **Trigger:** Gate 1 passes.
+*   **Check:** Execute sandbox validation suite.
+*   **Pass Criteria:** Successful handshake with Authority sandbox; historical audit retrieval verified. Flaky network check bypassed if packet loss is zero.
+
+**Gate 3: Migration Dry-Run (Revision: `release/v4.2-prep`)**
+*   **Trigger:** Gate 2 passes.
+*   **Check:** Apply DB migration to a staging clone.
+*   **Pass Criteria:** Migration succeeds without data loss. **Stop:** Since migration is irreversible in Prod, this gate requires a confirmed backup strategy.
+
+## Review Protocol
+
+**Primary Reviewer:** Senior Engineer (Independent of Global Trade Team).
+*   **Scope:** Code quality, toggle logic safety, and fallback mechanism instantiability.
+*   **Exclusion:** Cannot be the author of Lane A code.
+
+**Compliance Reviewer:** Jane Smith (Global Trade Lead).
+*   **Scope:** Functional adherence to v4.2 spec and v3.1 coexistence.
+*   **Authority:** Holds veto power on production deployment readiness.
+
+**Audit Check:** Automated script verifies that no shared root config files were modified during business hours.
+
+## Landing Strategy
+
+**1. Staging Deployment**
+*   Deploy `release/v4.2-prep` to staging.
+*   Enable v4.2 for a single non-critical region via config toggle.
+*   Monitor for 24 hours.
+
+**2. Production Deployment (Human Decision Required)**
+*   **Approver:** Jane Smith must explicitly sign off.
+*   **Timing:** Must occur outside peak shipping hours to mitigate downtime risk.
+*   **Execution:**
+    1.  Apply irreversible DB migration.
+    2.  Deploy code with v4.2 **disabled** by default.
+    3.  Enable toggle per region (Canary rollout).
+
+**3. Rollback Plan**
+*   **Code:** Revert deploy to previous stable tag (v3.1 only).
+*   **Data:** **No rollback possible** for DB schema. If migration causes critical failure, the system must operate in a degraded mode using a compatibility layer until a forward-fix is applied.
+*   **Trigger:** Any validation failure in the new parser that does not instantly trigger the fallback mechanism.
+
+**4. Post-Landing**
+*   Keep v3.1 generation active for all historical audit queries indefinitely.
+*   Monitor fallback trigger counts; spike indicates v4.2 instability.

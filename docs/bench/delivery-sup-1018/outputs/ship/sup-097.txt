@@ -1,0 +1,50 @@
+### Delivery Plan: Policy Engine v4.2 Rollback & Audit Preservation
+
+**Objective:** Restore service by reverting Policy Engine to the last stable version while preserving the append-only audit ledger for the last six hours.
+
+#### 1. Lanes & Serialization
+*Work is serialized to prevent race conditions on the shared ledger and deployment pipeline.*
+
+*   **Lane A: Audit Ledger Isolation (Security Lead)**
+    *   **Task:** Identify the exact ledger sequence range covering the last six hours. Configure a read-only replica or snapshot view for the compliance team to ensure queryability without impacting the write-heavy rollback.
+    *   **Constraint:** Do not run heavy validation queries against the primary ledger during the write window.
+    *   **Dependency:** None. Starts immediately.
+
+*   **Lane B: Rollback Preparation (Platform Architect)**
+    *   **Task:** Pin the exact commit SHA of the previous stable version. Prepare the deployment manifest for the 'BlueFin' pipeline targeting the revert.
+    *   **Constraint:** Do not trigger the database schema reversal migration (it is irreversible without full backup). The code revert must be compatible with the current schema or require a specific non-destructive patch.
+    *   **Dependency:** None. Runs parallel to Lane A.
+
+*   **Lane C: Execution & Verification (Conductor + Ops)**
+    *   **Task:** Execute the rollback via 'BlueFin' to all three regions.
+    *   **Serialization:** Must wait for Lane A (ledger secured) and Lane B (manifest ready).
+    *   **Verification:** Perform manual health checks on the **Primary Region** only. Ignore automated smoke test results for the Secondary Region due to known flakiness during downgrades.
+
+#### 2. Gates & Checks
+*All checks apply to the exact revision of the rollback commit.*
+
+*   **G0 (Intake):** Confirm owner authorization for emergency rollback and audit preservation scope.
+*   **G2 (Plan):** Verify the deployment manifest excludes the irreversible schema migration step. Confirm audit ledger read-only access is established.
+*   **G4 (Implement):** Pipeline executes the code revert.
+*   **G5 (Verify):**
+    *   **Primary Region:** Manual verification of permission grants for legitimate users (Pass/Fail).
+    *   **Audit Ledger:** Confirm the last six hours of logs are visible and untruncated in the read-only view.
+    *   **Secondary/Tertiary Regions:** Deploy only after Primary confirmation. Accept potential false-negative smoke tests; rely on Primary stability and log continuity.
+*   **G6 (Review):** Security Lead and Platform Architect independently verify the audit trail integrity and service restoration.
+
+#### 3. Review Strategy
+*   **Independence:** The Builder (Pipeline/Ops) cannot approve the rollback.
+*   **Approvers:**
+    *   **Security Lead:** Validates audit log preservation and no data loss.
+    *   **Platform Architect:** Validates the revert strategy avoids schema corruption and confirms region stability.
+*   **Method:** Review the deployment receipt and the specific audit log query results showing the 6-hour window.
+
+#### 4. Landing & Human Decisions
+*   **Merge/Deploy:** The 'BlueFin' pipeline requires **dual approval** (Security Lead + Platform Architect) before promoting the revert to production. This is a hard human gate; no automation can bypass it.
+*   **Rollback Plan:** If the Primary Region manual check fails:
+    1.  Halt deployment to Secondary/Tertiary regions immediately.
+    2.  Initiate emergency freeze.
+    3.  Escalate to engineering leadership for a potential full backup restore (last resort, high cost).
+*   **Post-Incident:** Once stable, close the ticket. The "flaky" smoke tests for secondary regions must be addressed in a separate follow-up ticket to prevent future confusion, but this is out of scope for the immediate emergency.
+
+**Immediate Next Step:** Security Lead to secure audit ledger view; Platform Architect to prepare revert manifest. Await dual approval to execute.

@@ -1,0 +1,41 @@
+### Delivery Plan: Asynchronous Customs Duty Decoupling
+
+**1. Lanes & Parallelism**
+*   **Lane A (Core Logic - Serial First):** Refactor the returns module to split the transaction.
+    *   *Action:* Implement immediate store credit issuance upon warehouse scan. Move customs duty calculation to an asynchronous background job.
+    *   *Constraint:* Must run alone in a dedicated worktree to avoid locking the shared database connection pool with the pricing engine.
+*   **Lane B (UX/Comms - Parallel):** Update customer notification templates.
+    *   *Action:* Modify the initial credit email/SMS to exclude any mention of pending duty adjustments.
+    *   *Dependency:* None. Can run parallel to Lane A.
+*   **Lane C (Resilience - Parallel):** Implement ledger balancing and failure handling.
+    *   *Action:* Build the reconciliation logic to ensure the ledger balances even if the async duty job fails or times out. Add idempotency checks for the follow-up deduction.
+    *   *Dependency:* Requires the interface definition from Lane A.
+
+**2. Gates & Checks**
+*   **G1 Spec (SHA: `abc1234`):** Define the exact data contract between the immediate credit and the async duty job. Explicitly state how "pending" states are stored without affecting the nightly reconciliation job.
+*   **G3 Design (SHA: `def5678`):** Architecture Decision Record (ADR) detailing the database isolation strategy to prevent slowing down the pricing engine. Plan for the 4-hour config cache delay (e.g., forced cache invalidation or versioned rule lookup).
+*   **G4 Implementation (SHA: `ghi9012`):** Code complete in isolated worktrees.
+    *   *Check:* Unit tests for the split transaction flow.
+    *   *Check:* Simulation of network timeouts in the duty calculation to verify Lane C's fallback logic.
+*   **G5 Verification (SHA: `jkl3456`):**
+    *   *Local Stack:* Spin up a local monolith instance. Verify domestic return speed matches baseline (no regression).
+    *   *Integration:* Run the full data integrity check **once** on the exact integration SHA.
+    *   *Mitigation:* To avoid the $55min/$45 cost flake, pre-validate with a lightweight "dry-run" reconciliation script locally before triggering the full CI pipeline.
+*   **G6 Review:**
+    *   *Code Review:* Senior Engineer (independent of builder) reviews logic and DB locking.
+    *   *Audit Review:* Lead Financial Auditor (or delegate) reviews the ledger balancing logic and async failure modes.
+
+**3. Landing & Human Decisions**
+*   **Merge Strategy:**
+    1.  Merge Lane B (UX) first (low risk).
+    2.  Merge Lane A and C together in a single PR to ensure atomicity of the logic change.
+    3.  **Human Gate:** The Lead Financial Auditor must approve the merge to the production ledger branch.
+        *   *Timing:* Schedule this for Monday–Thursday only. If ready on Friday, hold the merge.
+*   **Deployment:**
+    *   Deploy behind a feature flag initially.
+    *   **Rollback Plan:** If the nightly reconciliation job detects a partial state, the on-call engineer must execute the manual database rollback immediately. The feature flag will be toggled off to stop new async jobs from starting.
+*   **Post-Deploy:** Monitor the async job queue for backlog accumulation due to the 4-hour config cache lag.
+
+**Risk Mitigation:**
+*   **Flaky CI:** Do not re-run the full integrity check more than twice. If it flakes due to network timeouts, analyze logs; if the code hasn't changed, mark as infrastructure noise and proceed with manual ledger verification.
+*   **Cache Lag:** The system must read tax rules from the DB directly for the async job, bypassing the 4-hour cached config file, to ensure immediate accuracy upon deduction.

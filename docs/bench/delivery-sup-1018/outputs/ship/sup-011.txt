@@ -1,0 +1,52 @@
+### Delivery Plan: Real-Time Overheat Alerts
+
+**Strategy:** Isolate the new alerting service from the legacy PLC control loop. Implement a read-only stream processor that triggers dashboard notifications without writing to `global_io_map.json` or the PLC.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Architecture & Safety Contract) – Conductor + Security**
+    *   **Task:** Define the read-only interface contract. Prove mathematically/logically that the new service cannot write to the PLC or block the core loop.
+    *   **Constraint:** Must run first. No code merged until the safety contract is signed off.
+    *   **Output:** Architecture Decision Record (ADR) detailing data flow and failure isolation.
+*   **Lane B (Alert Service Implementation) – Builder**
+    *   **Task:** Develop the stream processor in a dedicated worktree. Implement logic to parse temperature streams and push to the internal dashboard.
+    *   **Constraint:** Read-only access to PLC data streams. Must include a circuit breaker to stop processing if latency spikes, ensuring zero impact on the core loop.
+    *   **Parallelism:** Runs parallel to Lane C, strictly after Lane A's contract is approved.
+*   **Lane C (Dashboard Integration) – Builder (UI Specialist)**
+    *   **Task:** Create the floor manager alert view on the internal dashboard.
+    *   **Parallelism:** Runs parallel to Lane B.
+*   **Lane D (Independent Verification) – QA**
+    *   **Task:** Simulate overheat scenarios and network flakiness. Verify alerts appear instantly and the core loop remains unaffected during service failure.
+    *   **Serialization:** Must wait for Lane B and C to produce a build artifact.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake & Spec):** Define "instantly" (e.g., <2s latency) and "safe thresholds." Pin base SHA before any coding.
+*   **G2 (Plan):** Explicitly budget token usage for Lane B (stream parsing logic). Classify PLC interface as "Provider" (read-only) and Dashboard as "Consumer."
+*   **G3 (Design):** Review the Safety Contract (Lane A). Confirm no write-paths exist to `global_io_map.json`.
+*   **G4 (Implement):**
+    *   Builder commits to isolated worktree.
+    *   **Check:** Static analysis to ban any write operations to PLC addresses.
+*   **G5 (Verify):**
+    *   **Environment:** Staging environment with simulated flaky network.
+    *   **Action:** Run full hardware-in-the-loop simulation (45 mins).
+    *   **Criterion:** Alerts trigger on threshold breach; core loop continues uninterrupted if alert service crashes. Retry flaky network check manually if needed during verification.
+    *   **Exact Revision:** Verify against the exact SHA from G4.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer (not the Builder).
+    *   **Focus:** Safety contract adherence and isolation logic.
+    *   **Severity:** Any potential write-access to PLC is a Blocker.
+
+#### 3. Landing & Human Decisions
+*   **Integration (G7):**
+    *   Merge Lane B and C into an integration branch.
+    *   Run one final 45-minute CI simulation on the merged SHA.
+    *   **Serialization:** Merge must occur outside business hours to avoid `global_io_map.json` lock contention.
+*   **Human Gate (G8 - Release):**
+    *   **Approver:** Jane Smith or the second senior engineer.
+    *   **Decision Point:** Explicit approval required before deploying to production.
+    *   **Timing:** Deploy must complete before 05:00 UTC to allow verification before the 06:00 UTC shift handover (state purge point).
+*   **Rollback Strategy:**
+    *   **Constraint:** Reverting is irreversible after 06:00 UTC.
+    *   **Plan:** If alerts fail or cause latency, kill the new service process immediately (feature flag off) rather than attempting a code revert post-handover.
+    *   **Contingency:** If deployment fails before 06:00 UTC, revert commit and redeploy previous stable SHA. If after 06:00 UTC, manual patch required by senior engineers.
+
+**Risk Mitigation:** The 45-minute CI cost means only one merge attempt is viable before the 06:00 UTC deadline. Pre-merge verification in staging is critical. The flaky network check will be documented as a known staging artifact, not a production blocker, provided the service handles timeouts gracefully.

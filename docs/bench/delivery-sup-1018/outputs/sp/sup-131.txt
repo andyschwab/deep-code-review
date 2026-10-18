@@ -1,0 +1,67 @@
+# Delivery Plan: Scale Notification Engine
+
+## Lanes & Parallelism
+
+**Lane A: Core Refactoring (Serialized)**
+*   **Owner:** Primary Engineer
+*   **Work:** Refactor `notification-processor` to support exactly-once semantics and backpressure handling. Implement persistent state checkpoints to survive restarts mid-batch.
+*   **Constraint:** Must complete before Lane B integration testing.
+
+**Lane B: Load Simulation Harness (Parallel to A)**
+*   **Owner:** QA Automation
+*   **Work:** Update staging load scripts to generate 15,000 events/minute. Configure metrics collection for latency (p99) and drop rates.
+*   **Dependency:** Requires only the existing API contract (unchanged).
+
+**Lane C: Infrastructure Coordination (Parallel to A)**
+*   **Owner:** DevOps Lead
+*   **Work:** File separate ticket for immutable message queue config updates required for compliance. Monitor staging environment spin-up status.
+
+## Gates & Checks
+
+**Gate 1: Local Verification (Revision: `feat/scale-engine-head`)**
+*   **Trigger:** Lane A completes local implementation.
+*   **Check:** Run unit tests with `--fast-check` flag to minimize CI cost.
+*   **Exclusion:** Explicitly ignore failures in `comms-utils` network tests if logs indicate timeout errors (known flake).
+*   **Pass Criteria:** All non-flaky tests pass; latency simulation < 200ms locally.
+
+**Gate 2: Staging Resilience (Revision: `staging/candidate-1`)**
+*   **Trigger:** Code merged to staging branch; environment ready (45min spin-up).
+*   **Check:** Execute Lane B load harness (15k events/min). Force system restart mid-batch.
+*   **Pass Criteria:** Zero dropped messages; exactly-once delivery verified after restart; p99 latency < 200ms.
+*   **Fail Action:** Immediate rollback (note: rollback wipes unprocessed queue data; ensure queue is drained or test data is disposable).
+
+## Review Process
+
+**Independent Technical Review**
+*   **Reviewer:** Senior Engineer (Not involved in Lane A/B/C).
+*   **Timing:** Between Gate 1 and Gate 2.
+*   **Focus:**
+    1.  Verify exactly-once logic handles restarts without duplicates or losses.
+    2.  Confirm external API payload structure remains bit-for-bit identical.
+    3.  Validate that no changes were attempted on immutable production queue configs.
+
+**Business Logic Review**
+*   **Reviewer:** Product Owner.
+*   **Timing:** Post-Gate 2 success.
+*   **Focus:** Confirm billing cycle alerts and security flags are preserved in test reports.
+
+## Landing Strategy
+
+**Pre-Landing Requirements**
+*   Gate 2 metrics report attached to PR.
+*   Written confirmation from DevOps that the separate infrastructure ticket (Lane C) is synchronized if production queue changes are needed immediately (otherwise confirmed not needed for this deploy).
+*   Explicit sign-off from **Jane Smith**.
+
+**Deployment Window**
+*   **Target:** Before the 28th high-traffic window.
+*   **Method:** Blue/Green or Canary (preferred to mitigate rollback data loss risk). If standard rolling deploy is used, ensure queue is fully drained before initiating to prevent data wipe upon potential rollback.
+
+**Human Decision Points**
+1.  **Go/No-Go:** Jane Smith must explicitly approve the staging metrics.
+2.  **Rollback Authority:** Only Jane Smith or the Primary Engineer can authorize rollback.
+    *   *Critical Warning:* Rollback executes a data wipe on unprocessed queue items. This decision requires confirming that losing current in-flight messages is preferable to deploying a broken system.
+
+**Rollback Protocol**
+*   Trigger: Latency > 200ms or any dropped messages in production monitoring.
+*   Action: Revert deployment.
+*   Mitigation: Immediately manually replay lost messages from backup logs if available, as the system rollback will have purged the queue.

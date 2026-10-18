@@ -1,0 +1,42 @@
+### Delivery Plan: Driver Certification Schema Migration
+
+**Objective:** Migrate schema to Project Atlas with zero downtime for route access, ensuring instant fallback if latency >200ms and full audit log integrity.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Schema & Migration Script) – Builder:** Develop the irreversible migration script and the dual-write/switch logic within `fleet-core`. Must ensure the `legacy_flag` column is only dropped after successful cutover verification.
+    *   *Constraint:* Cannot modify `common-utils` (Finance lock).
+*   **Lane B (Performance Validation) – QA:** Execute load tests on the `perf-cluster` (02:00–05:00 UTC). Validate route assignment latency stays <200ms under peak load using sanitized staging data.
+    *   *Dependency:* Requires Lane A's migration script deployed to `perf-cluster`.
+*   **Lane C (Audit Integrity Check) – QA:** Write verification queries to confirm 100% of historical audit logs link correctly to new schema records.
+    *   *Parallel:* Can run alongside Lane B once data is seeded.
+*   **Lane D (Fallback Mechanism) – Security/QA:** Verify the "instant reversion" path. Simulate a latency spike >200ms and confirm the system reverts to the legacy path without dropping active driver sessions.
+
+**Serialization:** Lane A must complete and merge to the integration branch before Lanes B, C, and D can execute against the target environment. Lanes B, C, and D run in parallel during the 02:00–05:00 UTC window.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define exact latency thresholds (200ms) and audit link criteria. Pin base SHA for `fleet-core`.
+*   **G3 Design:** Review migration strategy for the irreversible `legacy_flag` drop. Confirm dual-write strategy prevents lockouts.
+*   **G4 Implement:** Code changes in isolated worktrees. Unit tests must cover schema mapping and fallback triggers.
+*   **G5 Verify (Staging/Perf):**
+    *   *Revision:* Exact SHA from Lane A.
+    *   *Action:* Run CI (accepting $45 cost/55m time). If network flakiness causes false negatives, manually retry once; persistent failure blocks G6.
+    *   *Evidence:* Latency reports <200ms from `perf-cluster`; Audit link report (100% match).
+*   **G6 Review:**
+    *   *Reviewer:* Independent Senior Engineer (not Lane A builder).
+    *   *Focus:* Irreversibility risk, fallback logic, and `common-utils` isolation.
+    *   *Security:* Verify no PII exposure in migration logs.
+
+#### 3. Landing & Human Decisions
+*   **Integration (G7):** Merge verified lanes into the release branch. Create a single integration SHA.
+*   **Human Gate (G8 - Deployment):**
+    *   *Approver:* **Marcus Thorne** (Senior Lead).
+    *   *Timing:* Tuesday maintenance window.
+    *   *Decision:* Marcus must explicitly approve the production deploy command after reviewing G5/G6 receipts.
+*   **Execution:**
+    1.  Deploy new schema in dual-write mode.
+    2.  Switch traffic to Atlas.
+    3.  Monitor latency real-time.
+*   **Rollback:** If latency exceeds 200ms for >60 seconds, trigger immediate fallback to legacy path. Note: If `legacy_flag` was already dropped, rollback is impossible; thus, the drop happens *only* after 24h stability post-cutover.
+*   **Completion (G10):** Once stable, schedule a separate ticket to drop `legacy_flag` (irreversible step). Mark this ticket done when audit links are verified and traffic is stable on Atlas.
+
+**Risk Mitigation:** CI flakiness is managed by manual retry protocol. The irreversible DB change is decoupled from the cutover to ensure a safe rollback path exists during the critical window.

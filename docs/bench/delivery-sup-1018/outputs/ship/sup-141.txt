@@ -1,0 +1,43 @@
+### Delivery Plan: Quarterly Billing Alignment
+
+**1. Lanes & Parallelism**
+*   **Lane A (Logic Implementation):** Builder implements the date-alignment algorithm in `CycleCalculator`. Must handle the 30s replica lag by reading from the primary for anchor validation or implementing a tolerance window.
+    *   *Constraint:* Cannot modify database schema; logic only.
+*   **Lane B (Test Hardening):** QA isolates flaky tests in the integration suite. Creates a deterministic unit test suite for the new quarterly logic that mocks the replication lag to prevent false negatives.
+    *   *Parallel:* Runs alongside Lane A.
+*   **Lane C (Compliance Draft):** Product Analyst drafts the impact statement for the Compliance Officer, proving no double-charging scenarios exist for the 15k accounts.
+    *   *Parallel:* Runs alongside A and B.
+
+**Serialization Point:** Lane A cannot merge until Lane B's deterministic tests pass locally and Lane C's draft is ready for review.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Define "seamless transition" mathematically. Explicitly state how the 30s lag is handled (e.g., "Anchor read uses primary DB; preview uses replica with +60s buffer").
+*   **G3 (Design Review):** Architect verifies the logic does not reset timers. Security verifies no PII exposure in new logs.
+*   **G4 (Implementation):** Builder commits code. Must include the new unit tests from Lane B.
+*   **G5 (Verification):**
+    *   Run the full 45-minute integration suite on a **staging clone** of production data (sanitized).
+    *   **Critical Check:** Simulate the 30s replication lag in staging. If the test fails due to timing, the gate is Red.
+    *   **Time Gate:** Verify deployment window is >48 hours away from the 1st of the month. If within the window, stop immediately.
+*   **G6 (Dual Approval):**
+    *   **Reviewer 1 (Payments Lead):** Reviews logic correctness and test coverage.
+    *   **Reviewer 2 (Compliance Officer):** Reviews Lane C's impact statement and G5 evidence.
+    *   *Independence:* Neither reviewer is the Builder. Both must approve independently; one cannot delegate to the other.
+
+**3. Landing Strategy**
+*   **Merge Train:** Once G6 is cleared, the Conductor initiates a merge to the integration branch.
+*   **Human Decision:** The actual merge requires a manual trigger by the Release Engineer after confirming the "48-hour rule" is satisfied.
+*   **Deployment:** Deploy behind a feature flag disabled by default.
+*   **Rollback Plan:**
+    *   If double-charging is detected in canary (1% of traffic), instantly revert the feature flag.
+    *   If code corruption occurs, revert the commit. Since database changes are forbidden, no data migration rollback is needed, only code reversion.
+    *   **Post-Deploy:** Monitor support tickets for "double charge" keywords for 24 hours.
+
+**4. Risk Mitigation**
+*   **Replica Lag:** The code must explicitly handle the lag; relying on eventual consistency for billing anchors is forbidden.
+*   **Flaky Tests:** The 45-minute suite is only run once per candidate. Local verification uses the fast, deterministic suite from Lane B.
+*   **Timing:** If today is within 48 hours of the 1st, the work pauses at G4. No deployment occurs until the window closes.
+
+**5. Evidence Required for Handoff**
+*   Proof of successful run against the 30s lag simulation.
+*   Signed approval from both Payments Lead and Compliance Officer.
+*   Confirmation of the deployment date relative to the monthly reconciliation script.
