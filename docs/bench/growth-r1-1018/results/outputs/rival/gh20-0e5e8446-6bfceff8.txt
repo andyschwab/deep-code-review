@@ -1,0 +1,37 @@
+# VisionBuy AR Feature Tracking Plan
+
+## Overview
+This document outlines the event sequence required to measure the impact of the augmented reality try-on feature on sales conversion. The focus is on distinguishing between casual exploration and high-intent purchase behavior by capturing granular interaction data within the AR flow.
+
+## Event Sequence & Properties
+
+Record the following events in this exact logical order. Every event must include a `user_id`, `session_id`, `timestamp`, and `device_type`.
+
+| Order | Event Name | Description | Essential Properties |
+| :--- | :--- | :--- | : |
+| 1 | `ar_entry_viewed` | User lands on the product page and sees the "Try On" entry point. | `product_id`, `category`, `entry_location` (e.g., PDP, search result) |
+| 2 | `ar_camera_activated` | User grants permission and the camera feed starts. | `permission_status` (granted/denied), `load_time_ms` |
+| 3 | `ar_product_loaded` | The 3D cosmetic model successfully renders on the user's face. | `product_id`, `shade_default`, `render_success` (boolean) |
+| 4 | `ar_interaction_started` | User performs the first manipulation after loading. | `interaction_type` (first shade switch, first move) |
+| 5 | `ar_shade_switched` | User changes the product color or variant. | `product_id`, `shade_from`, `shade_to`, `total_switches_session` |
+| 6 | `ar_capture_taken` | User takes a static photo or video of the try-on. | `media_type` (photo/video), `filter_applied` |
+| 7 | `ar_capture_shared` | User shares the capture externally or saves to device. | `share_destination` (social, save, copy_link) |
+| 8 | `ar_session_ended` | User closes the AR view. | `duration_seconds`, `last_action`, `exit_reason` (timeout, manual, crash) |
+| 9 | `ar_add_to_cart` | User adds the specific tried-on product to the cart *from within* or immediately after the AR session. | `product_id`, `shade_selected`, `time_from_ar_end_ms` |
+| 10 | `ar_purchase_completed` | User completes checkout for the tried-on product. | `product_id`, `order_value`, `time_from_ar_end_ms` |
+
+## Critical Measurements for Analysis
+
+To validate your assumption that manipulation time correlates with intent, your data team must calculate the following derived metrics from the raw events above:
+
+1.  **Engagement Depth Score**: Count of `ar_shade_switched` + `ar_capture_taken` per session. High counts indicate active evaluation rather than passive fun.
+2.  **Dwell Time Quality**: Duration between `ar_product_loaded` and `ar_session_ended`. Segment this by users who eventually triggered `ar_add_to_cart` versus those who did not.
+3.  **Flow Drop-off Rates**: Calculate the percentage of users who proceed from each step to the next (e.g., % of `ar_camera_activated` who reach `ar_product_loaded`). This identifies technical friction or UX confusion.
+4.  **Conversion Latency**: The time delta between `ar_session_ended` and `ar_purchase_completed`. Short latencies suggest the AR experience was the primary decision driver.
+
+## Implementation Notes for Data Engineering
+*   **State Persistence**: Ensure `session_id` persists if the user minimizes the app and returns, so interrupted try-ons are not counted as drop-offs.
+*   **Error Tracking**: If `ar_product_loaded` fails or takes >3 seconds, log a specific error property to distinguish technical failure from user abandonment.
+*   **Privacy**: Do not capture or store actual image/video data from the camera feed; only record the metadata that the action occurred.
+
+This sequence isolates the "fun" vs. "intent" variable by correlating specific interaction depths (shade switches, captures) with downstream revenue events.

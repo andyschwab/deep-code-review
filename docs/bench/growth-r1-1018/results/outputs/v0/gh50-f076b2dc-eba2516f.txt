@@ -1,0 +1,36 @@
+### Retention Funnel Design: SeoulPlay RPG (December Launch)
+
+**North Star Metric:** Weekly Active Users completing ≥3 PvP battles (value delivered), not raw installs or tutorial starts.
+
+**Diagnostic Principle:** Read bottom-up. The 30% activation rate is the bottleneck; increasing acquisition now wastes budget. Fix the leak before pouring traffic.
+
+**Proposed Event Taxonomy & Funnel Steps**
+Instrument only these events to answer specific friction questions. Each event must include properties: `user_id` (pseudonymous), `session_id`, `timestamp`, and `level_difficulty_rating`.
+
+| Funnel Step | Event Name | Question Answered | Target Threshold |
+| :--- | :--- | :--- | :--- |
+| **1. Entry** | `tutorial_started` | Do users even launch the core loop? | ~95% of installs |
+| **2. Early Friction** | `tutorial_abandoned` | Is the intro too long/boring? (Track `step_index` where quit occurs) | <10% drop before step 5 |
+| **3. Completion** | `tutorial_completed` | Did they finish the teaching phase? | >85% of starters |
+| **4. First Action** | `first_pvp_queued` | Do they understand how to start a battle? | >90% of completers |
+| **5. Critical Milestone** | `first_pvp_won` | **The "Aha" Moment.** Did they succeed? | >60% of queued (Current: 30% total) |
+| **6. Retention Hook** | `day_1_return` | Did they come back after 24h? | Target: 55% |
+
+**Specific Milestones & Time-Bound Actions to Track**
+To diagnose *why* the drop-off happens between Tutorial Completion and First PvP Win, add these granular metrics:
+*   **Time-to-First-Battle:** Measure elapsed seconds between `tutorial_completed` and `first_pvp_queued`. If >180s, the UI is confusing.
+*   **Failure-Point Heatmap:** Log `pvp_attempt_failed` with `failure_reason` (e.g., "timed_out", "defeated", "disconnect"). If "defeated" dominates, the difficulty spike is too harsh.
+*   **Reward-Claim Latency:** Time between `first_pvp_won` and `reward_claimed`. If low, rewards aren't enticing or visible.
+*   **Session Depth at Drop-off:** Correlate `tutorial_abandoned` with `current_level_id`. If 80% quit at Level 3, that specific level is the blocker.
+
+**Intervention Strategy**
+*   **If `tutorial_abandoned` is high:** Shorten the tutorial or make it skippable for returning genre players.
+*   **If `first_pvp_queued` → `first_pvp_won` conversion is low:** Introduce a "bot match" guarantee for the first battle to ensure a win, or adjust matchmaking ELO for new accounts.
+*   **If `day_1_return` is low despite wins:** The post-battle reward loop is broken; test immediate vs. delayed gratification.
+
+**This Week's Steps**
+1.  **Instrument:** Deploy `tutorial_abandoned` (with `step_index`) and `pvp_attempt_failed` (with `failure_reason`) events immediately.
+2.  **Query:** Run a cohort analysis on beta users grouping by `failure_reason` to identify if difficulty or UI is the primary killer.
+3.  **Test:** Design an A/B test for the sprint: Control (current flow) vs. Variant (guaranteed win on first PvP). Pre-commit to a sample size of 2,000 users per variant; do not peek at results before completion.
+
+*Note: Ensure `user_id` is pseudonymous; route any PII handling to your privacy compliance protocol. Do not compare your 55% target to industry benchmarks; validate only against your own baseline trend.*

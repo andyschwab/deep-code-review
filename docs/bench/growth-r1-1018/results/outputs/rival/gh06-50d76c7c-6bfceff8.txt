@@ -1,0 +1,51 @@
+# LogiLink Driver-Rider Matching Measurement Framework
+
+## Funnel Stages & Critical Metrics
+
+To diagnose the 20% failure assumption, track these specific stages and metrics. Every metric must separate **System Time** (network/server latency) from **Human Time** (driver review/decision).
+
+| Funnel Stage | Key Metric | Calculation Logic | Diagnostic Value |
+| :--- | :--- | :--- | : |
+| **1. Request Dispatched** | `dispatch_success_rate` | (Requests Sent / Requests Generated) | Identifies if requests are failing before reaching the driver due to server errors. |
+| **2. Request Received** | `delivery_latency_ms` | `timestamp_received` - `timestamp_sent` | **Critical:** Isolates network connectivity issues. High variance here indicates infrastructure problems, not driver hesitation. |
+| **3. Request Viewed** | `view_rate` | (Requests Opened / Requests Received) | Distinguishes between drivers ignoring notifications vs. opening them and declining. |
+| **4. Decision Made** | `median_decision_time_sec` | `timestamp_action` - `timestamp_viewed` | **Core Bottleneck:** Measures pure human review time. Exclude network latency from this calculation. |
+| **5. Action Taken** | `acceptance_rate` | (Accepted / Viewed) | The primary conversion metric. Segment by `decision_time` buckets (e.g., 0-10s, 11-30s, 31-60s). |
+| **6. Match Finalized** | `match_completion_rate` | (Successful Matches / Accepted Requests) | Ensures accepted requests aren't failing due to post-acceptance technical glitches. |
+
+## Critical Drop-off Points to Investigate
+
+Based on your hypothesis, prioritize these two areas:
+
+1.  **The "Ghost" Drop-off (Received but not Viewed):** If `delivery_latency_ms` is low but `view_rate` is low, drivers are seeing notifications but choosing not to open them. This suggests the offer value (price/distance) is unattractive before they even review details.
+2.  **The "Hesitation" Drop-off (Viewed but Timed Out):** Analyze the distribution of `median_decision_time_sec`. If a significant cluster of declines occurs between 45-60 seconds, your hypothesis is correct: the timer is cutting off potential accepts. If most declines happen under 10 seconds, the issue is immediate rejection, not latency.
+
+## Validating the Timer Reduction (60s → 30s)
+
+Do not roll this out globally yet. Use an **A/B Test** approach:
+
+*   **Hypothesis:** Reducing the timer to 30s will increase match rates by forcing faster decisions without increasing driver frustration, as most decisions occur within the first 20s.
+*   **Method:** Split driver traffic 50/50. Group A keeps the 60s timer; Group B gets 30s.
+*   **Primary Metric:** `acceptance_rate` per group.
+*   **Guardrail Metric (Frustration):** Track `app_force_close_rate` and `support_tickets_per_1000_drivers` during the test window. If Group B shows higher acceptance but spikes in app closures, the shorter timer is causing frustration.
+*   **Success Criteria:** Group B acceptance rate is equal to or higher than Group A, with no statistically significant increase in guardrail metrics.
+
+## Accounting for Network Connectivity
+
+To distinguish system delays from human time, your data engineering team must implement **Client-Side Timestamping**:
+
+1.  **Send:** Server logs `T0` (dispatch).
+2.  **Receive:** Driver app logs `T1` (actual receipt) and immediately sends it back.
+3.  **View:** Driver app logs `T2` (screen focus).
+4.  **Action:** Driver app logs `T3` (click).
+
+**Calculations:**
+*   **Network Delay:** `T1 - T0`
+*   **Human Decision Time:** `T3 - T2`
+
+If `T1 - T0` is high (>2s), the delay is network-related. Do not count this against the driver's decision window. Only start the visible countdown timer on the driver's screen after `T2` is confirmed, or clearly display "Connecting..." so drivers don't feel the system is stalling.
+
+***
+
+*Ensure all timestamps are synchronized via NTP to prevent clock-skew errors between devices and servers.*
+*Segment all data by Lagos vs. other regions initially to isolate local infrastructure constraints.*

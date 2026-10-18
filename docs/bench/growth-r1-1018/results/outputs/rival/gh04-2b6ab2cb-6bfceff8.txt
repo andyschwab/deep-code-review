@@ -1,0 +1,67 @@
+# QuickBite Group Ordering Tracking Plan
+
+## Critical Events & Properties
+
+To validate your 2.5x order volume assumption and attribute revenue correctly, implement these four specific events. Do not rely on generic "purchase" events alone.
+
+### 1. `group_session_created`
+**Trigger:** When a user initiates a group order and generates a shareable link.
+**Purpose:** Identifies the Organizer and starts the attribution window.
+**Required Properties:**
+*   `user_id`: The Organizer's unique ID.
+*   `session_id`: Unique identifier for this specific group order instance.
+*   `restaurant_id`: Target restaurant.
+*   `invite_method`: How the link was shared (e.g., `copy_link`, `sms`, `line`, `whatsapp`). *Crucial for Tokyo market context.*
+*   `timestamp`: Session start time.
+
+### 2. `group_member_joined`
+**Trigger:** When a participant clicks the link and successfully adds at least one item to the shared cart.
+**Purpose:** Distinguishes between link clicks and actual participation; tracks funnel drop-off.
+**Required Properties:**
+*   `session_id`: Matches the organizer's session.
+*   `organizer_id`: The Organizer's user ID (for attribution).
+*   `participant_id`: The participant's user ID (or `null` if guest).
+*   `items_added_count`: Number of items initially added.
+*   `join_timestamp`: Time of joining.
+
+### 3. `group_order_abandoned`
+**Trigger:** When a group session expires or the organizer closes the order without checkout after members have joined.
+**Purpose:** Quantifies the "join but abandon" scenario you specifically asked about.
+**Required Properties:**
+*   `session_id`: Matches the group session.
+*   `organizer_id`: For attribution of lost opportunity.
+*   `total_participants`: Count of users who joined.
+*   `total_items_in_cart`: Sum of all items added by all users.
+*   `potential_value_yen`: Estimated total value of the abandoned cart.
+*   `abandonment_stage`: e.g., `pre_checkout`, `payment_failed`, `timeout`.
+
+### 4. `group_order_completed`
+**Trigger:** Successful payment of the consolidated group order.
+**Purpose:** Validates the 4,500 yen AOV assumption and attributes revenue.
+**Required Properties:**
+*   `session_id`: Matches the group session.
+*   `organizer_id`: Primary attribution target.
+*   `participant_ids`: Array of all contributing user IDs.
+*   `total_items_count`: Total items in the final order.
+*   `total_value_yen`: Final transaction amount.
+*   `individual_contributions`: Array of objects `{user_id, item_count, value_yen}`.
+*   `is_group_order`: Boolean flag (true).
+
+## Essential Implementation Rules
+
+1.  **Persistent Session ID:** The `session_id` must remain constant from creation to completion/abandonment, regardless of how many users join.
+2.  **Organizer Attribution:** All revenue from `group_order_completed` must be linked back to the `organizer_id` in your data warehouse to calculate the inviter's impact.
+3.  **Guest Handling:** If participants do not log in, generate a temporary `participant_id` stored in local storage to track their contribution within the session.
+4.  **No PII:** Do not send names, phone numbers, or email addresses in event properties. Use internal IDs only.
+
+## Key Questions to Answer (First 48 Hours)
+
+1.  **Conversion Rate:** What percentage of `group_session_created` events result in a `group_order_completed` vs. `group_order_abandoned`?
+2.  **AOV Validation:** Is the actual `total_value_yen` for completed group orders approaching the 4,500 yen target, or is it closer to the 1,800 yen individual baseline?
+3.  **Drop-off Point:** At what stage do abandoned groups fail? (e.g., Did members join (`group_member_joined` fired) but the organizer never checked out?)
+4.  **Participant Density:** What is the average ratio of `participant_ids` per completed order? (Validates the "2.5x items" assumption).
+5.  **Channel Efficacy:** Which `invite_method` drives the highest completion rate in the Tokyo market?
+
+Ensure the San Francisco team implements the `individual_contributions` property exactly as specified; without this granular breakdown, you cannot verify if the volume increase comes from more users or just larger individual baskets.
+
+*Note: Verify that your consent management platform allows these events to fire immediately upon interaction if required for funnel integrity, or ensure "anonymous" mode is active until consent is given.*

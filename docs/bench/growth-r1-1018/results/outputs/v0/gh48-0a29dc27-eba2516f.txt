@@ -1,0 +1,35 @@
+### Non-Negotiable Event Taxonomy
+Instrument only events that answer specific survival questions. Do not track "everything."
+
+1.  **`session_start`** (Properties: `user_id`, `is_new_user`, `app_version`, `timestamp`)
+    *   *Question:* Are users able to establish a session under load?
+    *   *Why:* Distinguishes between app crash, network timeout, and successful entry.
+2.  **`content_play_started`** (Properties: `content_id`, `content_type` [Sleep Story/Anxiety Session], `user_id`, `load_latency_ms`)
+    *   *Question:* Is the core value (audio playback) initiating despite the surge?
+    *   *Why:* Validates the "Sleep Stories" assumption and tests new "Anxiety Sessions" activation.
+3.  **`content_play_completed`** (Properties: `content_id`, `duration_listened_sec`, `completion_rate`)
+    *   *Question:* Does heavy load cause drop-offs mid-session (buffering/latency issues)?
+    *   *Why:* Differentiates content quality issues from infrastructure failure.
+4.  **`error_event`** (Properties: `error_code`, `feature_context`, `user_id`)
+    *   *Question:* What specifically is breaking when the system is stressed?
+    *   *Why:* Critical for immediate triage during the surge.
+
+### Sampling & Data Integrity Strategy
+Since you cannot store 100% of data, apply **deterministic sampling** based on `user_id` to ensure a single user's journey remains intact for cohort analysis (e.g., New vs. Legacy).
+
+*   **Strategy:** Hash `user_id` modulo 10. Capture 100% of data for users where `hash % 10 == 0`. Drop all events for the other 90%.
+*   **Rationale:** Random per-event sampling breaks session reconstruction. User-based sampling preserves the funnel (Start → Play → Complete) for a statistically significant subset, allowing you to compare New User behavior on Anxiety Sessions vs. Sleep Stories accurately.
+*   **Priority Override:** Always capture 100% of `error_event` regardless of sampling. You cannot sample away critical failures.
+
+### Validation Steps (Pre-Surge)
+1.  **Load Test Verification:** Simulate 3x traffic in staging. Verify that the sampling logic holds (exactly ~10% of users appear in the dataset) and that `error_event` volume matches injected faults.
+2.  **Latency Budget Check:** Ensure the instrumentation pipeline adds <50ms to the critical path. If the logger blocks the main thread, it will cause the very drop-offs you are trying to measure.
+3.  **Backfill Protection:** Confirm that if the queue fills, the system drops *oldest* non-critical events first, preserving real-time `error_event` and `session_start` data.
+
+### This-Week Actions
+1.  **Define Schema:** Finalize the JSON schema for the four events above with the engineering lead by Wednesday; reject any additional properties that do not directly answer the stated questions.
+2.  **Implement Sampling Logic:** Deploy the deterministic user-based sampling code to staging and verify the 10% cohort integrity against a simulated load test by Thursday.
+3.  **Dashboard Prep:** Build a single "Surge Health" dashboard showing only: Session Start Rate, Playback Completion Rate (split by Content Type), and Error Rate. Hide all other metrics to prevent noise during the crisis.
+
+*Note: This plan prioritizes data integrity for decision-making over volume. Do not attempt to retrofit full-fidelity tracking during the surge; rely on the sampled cohort for behavioral insights.*
+*Ensure the `user_id` used for sampling is pseudonymous; route any PII handling to your privacy compliance protocol.*

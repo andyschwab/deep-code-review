@@ -1,0 +1,2 @@
+### Added
+- `docs/bench/growth-r1-1018/`: preregistered paired held-out bench (n=60, GLM-5.1 judge v2, PCSS only, $0) of a one-paragraph "answer the ask first" edit to `growth-analytics` against the shipped text and the marketingskills rival. The edit lost: 0.308 [0.217, 0.408] against 0.467 [0.367, 0.567] for the shipped text, paired difference -0.158 [-0.275, -0.033], so the keep rule failed and `SKILL.md` is unchanged. Synthetic, single-generator evidence.

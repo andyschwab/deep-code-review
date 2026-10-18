@@ -1,0 +1,54 @@
+# SeoulPlay RPG Retention Funnel: Hour-1 Diagnostic Framework
+
+To diagnose the drop-off between tutorial start and first PvP victory, implement this time-bound, event-driven funnel. This structure isolates friction points by duration, difficulty, and reward perception.
+
+## Core Funnel Events & Metrics
+
+Track these specific milestones with associated properties to segment drop-offs:
+
+| Step | Event Name | Time Window | Key Properties to Track | Diagnostic Metric |
+| :--- | :--- | :--- | :--- :--- |
+| **1. Entry** | `session_started` | T=0 | `source`, `device_model`, `os_version` | Baseline cohort size |
+| **2. Tutorial Start** | `tutorial_started` | T+0–30s | `tutorial_version` | % of sessions reaching this |
+| **3. Tutorial Milestones** | `tutorial_step_completed` | T+0–8min | `step_id`, `step_name`, `time_on_step` | **Drop-off Rate per Step**; Avg. Time per Step |
+| **4. Tutorial Exit** | `tutorial_completed` | T+8–10min | `total_duration`, `deaths_in_tutorial` | Tutorial Completion Rate |
+| **5. First PvP Attempt** | `pvp_match_started` | T+10–20min | `match_id`, `player_level`, `equipment_score` | % of Tutorial Completers attempting PvP |
+| **6. First PvP Outcome** | `pvp_match_completed` | T+10–25min | `result` (win/loss), `duration`, `score_diff` | First Attempt Win Rate |
+| **7. Critical Success** | `first_pvp_won` | T+0–60min | `total_time_to_win`, `attempts_needed` | **Core Conversion Rate** (Target: 55% of D1) |
+
+## Diagnostic Dimensions
+
+Attach these properties to every event to answer your specific hypotheses:
+
+*   **Hypothesis: Tutorial Length**
+    *   Track `time_on_step` for each `tutorial_step_completed`.
+    *   *Action:* Identify steps where time exceeds 2x the median.
+*   **Hypothesis: Difficulty Spike**
+    *   Track `deaths_in_tutorial` and `pvp_match_result`.
+    *   *Action:* Correlate high death counts in late tutorial steps with subsequent `pvp_match_started` abandonment.
+*   **Hypothesis: Reward Enticement**
+    *   Track `reward_claimed` events between steps.
+    *   *Action:* Measure drop-off immediately after reward screens vs. before. If users quit after seeing rewards, the value proposition may be unclear or unappealing.
+
+## Intervention Triggers
+
+Define these real-time segments to trigger immediate interventions (e.g., push notifications, in-game mail, difficulty adjustment):
+
+1.  **Stuck in Tutorial:** Users spending >3 minutes on a single `tutorial_step` without completion.
+    *   *Intervention:* Offer a hint or skip option.
+2.  **PvP Hesitation:** Users who completed the tutorial but did not start `pvp_match_started` within 15 minutes.
+    *   *Intervention:* Trigger a "First Battle Bonus" offer or guided entry.
+3.  **Repeated Failure:** Users with >2 `pvp_match_completed` events where `result` = loss within the first hour.
+    *   *Intervention:* Offer a temporary power-up or match them against a bot for the next attempt to ensure a win.
+
+## Reporting Structure for Sprint Planning
+
+Present the data as a conversion table with drop-off percentages between each adjacent step. Highlight the step with the highest relative drop-off as the primary sprint target.
+
+*   **Primary North Star:** % of `session_started` reaching `first_pvp_won` within 60 mins.
+*   **Secondary Metric:** Average time from `tutorial_started` to `pvp_match_started`.
+
+This framework moves beyond aggregate playtime to pinpoint exactly where the 70% leakage occurs, enabling targeted design fixes for the December launch.
+
+*Ensure engineering implements event logging for `tutorial_step_completed` with granular `step_id` properties before the next beta build.*
+*Validate that server timestamps are used for all events to ensure accurate 60-minute window calculation across time zones.*

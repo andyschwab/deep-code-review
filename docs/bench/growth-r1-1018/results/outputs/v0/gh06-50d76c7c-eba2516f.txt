@@ -1,0 +1,50 @@
+### Measurement Framework: LogiLink Driver-Rider Matching Funnel
+
+**1. North Star Metric**
+Adopt **Weekly Successful Matches per Active Driver** as your North Star. This measures realized value (a delivery happened) relative to supply effort, rejecting vanity metrics like "total requests sent" which rise even when the system is broken.
+
+**2. Funnel Stages & Event Taxonomy**
+Instrument only these four events to answer specific diagnostic questions. Do not track "everything."
+
+*   **Event: `match_request_sent`**
+    *   *Question:* How many opportunities exist?
+    *   *Properties:* `request_id`, `timestamp_sent`, `location_grid`, `network_quality_score` (client-side signal).
+*   **Event: `match_request_viewed`**
+    *   *Question:* Did the request reach the driver's screen? (Distinguishes network loss from human ignore).
+    *   *Properties:* `request_id`, `timestamp_viewed`, `driver_id` (pseudonymous).
+    *   *Derived Metric:* **Delivery Rate** = (`viewed` / `sent`). Low rates indicate network/API latency, not driver behavior.
+*   **Event: `match_decision_made`**
+    *   *Question:* How long did the driver take to decide?
+    *   *Properties:* `request_id`, `timestamp_decision`, `decision_type` (accept/decline/timeout), `time_to_decision_ms` (calculated as `timestamp_decision` - `timestamp_viewed`).
+    *   *Derived Metric:* **Median Time-to-Decision**. This isolates human friction from system latency.
+*   **Event: `match_completed`**
+    *   *Question:* Did the acceptance result in a delivery?
+    *   *Properties:* `request_id`, `timestamp_completed`.
+
+**3. Diagnosing the Bottleneck**
+Your assumption of "20% failure due to latency" is **UNVERIFIED** without the `viewed` event.
+*   **If `sent` → `viewed` drops:** The bottleneck is network connectivity or server push latency. Fix infrastructure before tuning timers.
+*   **If `viewed` → `decision` time is high:** Drivers are hesitating. This validates your hypothesis that the acceptance window is too long or the offer is unclear.
+*   **Prioritization:** Investigate the `sent` → `viewed` drop first. Pouring acquisition into a funnel where requests never arrive is wasted spend.
+
+**4. Accounting for Network Connectivity**
+To distinguish system delays from human decision time:
+*   Capture a client-side `network_quality_score` (e.g., signal strength, connection type) on the `match_request_sent` and `match_request_viewed` events.
+*   Calculate **System Latency** = `timestamp_viewed` - `timestamp_sent`.
+*   Calculate **Human Decision Time** = `timestamp_decision` - `timestamp_viewed`.
+*   Segment your analysis by network quality. If high-latency networks show high `System Latency` but normal `Human Decision Time`, the issue is infrastructure, not the timer.
+
+**5. Experiment Design: 60s vs. 30s Timer**
+Do not simply "try it and see." Use a rigorous A/B test.
+*   **Pre-commitment:** Define a fixed sample size (e.g., 10,000 requests per variant) or a fixed duration (e.g., 7 days) *before* starting. Do not peek at results daily; this inflates false positives.
+*   **Primary Metric:** Match Conversion Rate (`match_completed` / `match_request_sent`).
+*   **Guardrail Metric:** Driver Session Duration or Churn Rate (to detect frustration). If matches rise but drivers quit, the win is illusory.
+*   **Decision Rule:** If the 30s variant shows a statistically significant lift in the primary metric *without* regressing the guardrail, ship it. If the result is read before the pre-committed end date, it is **UNVERIFIED**.
+
+**This Week's Steps:**
+1.  Instrument the `match_request_viewed` event immediately to verify if requests are reaching devices.
+2.  Define the pseudonymous `driver_id` strategy to ensure cohort consistency while routing PII to your privacy compliance protocol.
+3.  Draft the A/B test plan specifying the exact sample size needed to detect a 5% lift in match rates.
+
+*Note: All baseline comparisons must use LogiLink's own historical data; no external benchmarks for "good" conversion rates are applied here.*
+*Ensure the `driver_id` remains pseudonymous in analytics tools to comply with privacy standards.*

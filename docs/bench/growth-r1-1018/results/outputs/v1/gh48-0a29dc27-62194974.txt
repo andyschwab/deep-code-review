@@ -1,0 +1,27 @@
+### Non-Negotiable Instrumentation Plan for CalmSpace Holiday Surge
+
+**1. North Star & Core Question**
+Your North Star is **Weekly Active Users completing a full session** (value delivered), not raw traffic or downloads. The critical question to answer during the surge is: *Does heavy load degrade the completion rate of new users on 'Guided Anxiety' sessions compared to legacy 'Sleep Stories'?*
+
+**2. Prioritized Event Taxonomy (Instrument only what answers the question)**
+Do not instrument "everything." Capture only these four events with strict schema enforcement:
+*   `session_start`: Properties: `user_id` (pseudonymous), `user_type` (new/returning), `content_category` (sleep_story/anxiety/other), `timestamp`.
+*   `session_complete`: Properties: `session_id`, `duration_seconds`, `content_id`. *This defines your North Star.*
+*   `playback_error`: Properties: `error_code`, `stage` (buffering/streaming), `content_id`. *Critical for distinguishing behavior drops from technical failures.*
+*   `app_foreground/background`: Properties: `session_id`. *Required to calculate true attention vs. background noise.*
+
+**3. Sampling Strategy for Data Integrity**
+When storage cannot handle 100% volume, **never sample randomly across all events**, or you will lose the ability to reconstruct user funnels.
+*   **Strategy:** Implement **User-Based Consistent Hashing**. Assign a user to a "bucket" (e.g., 20% of users) based on their `user_id`. Capture 100% of the event stream *only* for users in that bucket. Drop all events for users outside the bucket.
+*   **Why:** This preserves the integrity of the funnel (Start → Complete) for specific cohorts, allowing you to calculate accurate retention and completion rates even with reduced data volume. Random event sampling breaks session continuity.
+*   **Priority Override:** If system load threatens stability, configure the pipeline to **always** capture `playback_error` events at 100% volume, even if behavioral events are sampled down. Knowing *why* users fail is more valuable than knowing *how many* succeeded when the system is breaking.
+
+**4. Validation Steps (Pre-Surge)**
+*   **Load Test the Pipeline:** Simulate 3x traffic with your sampling logic enabled. Verify that the ratio of captured events matches your target bucket size exactly.
+*   **Schema Enforcement:** Configure your ingestion layer to **drop** any event missing required properties (e.g., `user_id` or `content_category`) rather than accepting nulls. Bad data is worse than no data.
+*   **Latency Alert:** Set an alert on the time delta between `session_start` and ingestion. If lag exceeds 5 minutes during the test, your sampling threshold is too high.
+
+**5. This-Week Step**
+By Friday, define the exact hash algorithm for user bucketing and implement the schema validator that drops malformed events. Run a 1-hour fire drill simulating 3x load with these rules active; if the `session_complete` rate for the sampled bucket deviates by >2% from the unsampled baseline, adjust the sampling logic before December 20th.
+
+*Note: Ensure `user_id` remains pseudonymous; route any PII handling to your privacy compliance protocol. Do not compare your retention rates to external benchmarks; measure only against your own pre-holiday baseline.*

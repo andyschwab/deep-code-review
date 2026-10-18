@@ -1,0 +1,62 @@
+# CalmSpace Holiday Surge Instrumentation Plan
+
+## Executive Summary
+To prevent data blindness during the 3x traffic surge starting December 20th, we must shift from "track everything" to "track what matters" with a resilient, tiered architecture. This plan prioritizes data integrity for core business metrics over granular behavioral analysis during peak loads.
+
+## Tier 1: Non-Negotiable Events (100% Capture Required)
+These events drive revenue, retention, and critical product health. They must be captured via server-side logging or high-priority queues with retry logic. No sampling allowed.
+
+1.  **`session_start`**
+    *   *Properties:* `user_id`, `user_type` (new/returning), `app_version`, `device_os`, `timestamp`.
+    *   *Why:* Baseline for DAU/MAU and concurrency monitoring.
+2.  **`subscription_purchase`** / **`trial_start`**
+    *   *Properties:* `plan_type`, `revenue`, `currency`, `payment_method`, `attribution_source`.
+    *   *Why:* Direct revenue attribution; cannot be reconstructed if lost.
+3.  **`content_play_start`** (Critical for "Sleep Stories" vs. "Anxiety Sessions" hypothesis)
+    *   *Properties:* `content_id`, `content_type` (sleep_story/anxiety_session/legacy), `content_title`, `user_type`.
+    *   *Why:* Validates the hypothesis regarding new user behavior and new feature adoption.
+4.  **`content_play_complete`** (or 90% threshold)
+    *   *Properties:* `content_id`, `duration_listened`, `completion_rate`.
+    *   *Why:* Measures engagement quality and attention retention under load.
+5.  **`app_crash`** / **`fatal_error`**
+    *   *Properties:* `error_code`, `screen_name`, `device_model`, `os_version`.
+    *   *Why:* Immediate infrastructure health monitoring during surge.
+
+## Tier 2: High-Value Behavioral Events (Adaptive Sampling)
+These events inform UX improvements but can tolerate statistical sampling if infrastructure is strained.
+
+*   **Events:** `pause_clicked`, `skip_forward`, `bookmark_added`, `search_performed`, `settings_changed`.
+*   **Sampling Strategy:**
+    *   **Normal Load (<1.5x baseline):** 100% capture.
+    *   **High Load (1.5x - 2.5x baseline):** 50% random sampling based on consistent `user_id` hash.
+    *   **Critical Load (>2.5x baseline):** 10% random sampling based on consistent `user_id` hash.
+    *   *Implementation:* Apply sampling at the **client SDK level** before transmission to reduce network payload, not just at the ingestion layer. Ensure the sampling seed is consistent per user to allow longitudinal analysis of individual sessions.
+
+## Tier 3: Low-Priority Telemetry (Drop Under Load)
+*   **Events:** `scroll_depth`, `hover_states`, `non-fatal UI glitches`, `animation_completion`.
+*   **Strategy:** Disable completely when system CPU/Memory exceeds 80% threshold. These can be inferred or are non-essential for the holiday review.
+
+## Data Integrity & Validation Steps
+
+### 1. Pre-Surge Validation (Complete by Dec 18)
+*   **Load Test Instrumentation:** Simulate 3x traffic in staging. Verify that Tier 1 events arrive in the warehouse with <2% loss. Confirm Tier 2 sampling rates adjust dynamically.
+*   **Schema Enforcement:** Enable strict schema validation on ingestion. Reject malformed events immediately rather than allowing them to clog the queue and delay valid Tier 1 events.
+*   **Clock Sync:** Ensure all server clusters and client apps use NTP-synced timestamps to prevent ordering issues during high concurrency.
+
+### 2. Real-Time Monitoring Dashboard
+Create a dedicated "Surge Health" dashboard for the CTO/Infra team displaying:
+*   **Ingestion Lag:** Time difference between event timestamp and warehouse arrival. Alert if >5 minutes.
+*   **Event Drop Rate:** Percentage of client-sent events vs. server-received events per tier.
+*   **Tier 1 Completeness:** Rolling count of `session_start` vs. `content_play_start`. A divergence indicates tracking breakage.
+
+### 3. Post-Surge Reconciliation
+*   Compare client-side local storage logs (if available) against server receipts for a statistically significant sample of users to estimate total data loss.
+*   Audit `user_type` distribution in the captured data to ensure new users weren't disproportionately dropped due to different onboarding flows.
+
+## Immediate Next Steps for Friday Review
+1.  **Infrastructure:** Confirm message queue (e.g., Kafka/Kinesis) retention policies are increased to handle burst backlogs without dropping Tier 1 messages.
+2.  **Engineering:** Implement the client-side sampling logic for Tier 2 events immediately.
+3.  **Analytics:** Update data pipelines to tag sampled events with a `is_sampled: true` property and the `sampling_rate` applied, allowing for accurate statistical extrapolation in reports.
+
+*Note: Ensure all PII is stripped before logging, even under load, to maintain compliance during emergency data handling.*
+*Recommendation: Run a "fire drill" load test on Dec 18th specifically targeting the new Anxiety Sessions endpoint to validate the specific hypothesis tracking.*
