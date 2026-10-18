@@ -1,0 +1,2 @@
+### Changed
+- `docs/roadmap.md` (regenerated from `docs/roadmap-input.json`): the stage signal, direction and evidence lines no longer say no skill beats its rival; they now cite the four preregistered fresh-set wins on `docs/perun-vs-rivals.md` (agentic-ceo, positioning and product-discovery replicated; agentic-delivery narrow), with the same-vendor-family judge caveat, and the others at parity or behind.
