@@ -1,0 +1,49 @@
+### Engineering Requirements: Chatbot Escalation Instrumentation
+**Sprint Goal:** Replace heuristic loop-counting with semantic failure tagging to diagnose CSAT drop (4.2 → 3.8) and optimize human handoffs.
+
+#### 1. Event Taxonomy & Data Schema
+Instrument the following three events. Do not log raw conversation transcripts in analytics; log structured properties only. Ensure all user IDs are pseudonymous.
+
+**Event A: `support_escalation_triggered`**
+*Fires when:* The bot transfers a session to a human agent (via keyword, user request, or confidence threshold).
+*Properties:*
+*   `session_id` (string): Stable identifier to link pre-escalation behavior.
+*   `trigger_type` (enum): `user_request`, `low_confidence`, `max_turns_exceeded`, `keyword_match`.
+*   `turn_count` (integer): Total exchanges in the session.
+*   `intent_detected` (string): The last classified intent (e.g., "shipping_exception", "tracking_query").
+*   `confidence_score` (float): The bot's confidence in the last detected intent (0.0–1.0).
+*   `complexity_flags` (array): Tags for detected complexity (e.g., `multiple_orders`, `international_customs`, `damaged_goods`).
+*   `resolution_status` (enum): `unresolved_bot`, `partial_bot`.
+
+**Event B: `post_escalation_micro_feedback`**
+*Fires when:* A user interacts with the non-intrusive feedback widget immediately after handoff confirmation.
+*UI Implementation:* A single-row prompt: "Did the bot understand your issue before connecting you?" with 👍/👎.
+*Properties:*
+*   `session_id` (string).
+*   `feedback_value` (enum): `positive`, `negative`, `dismissed`.
+*   `latency_ms` (integer): Time from handoff message to feedback click (identifies impulsive vs. considered feedback).
+*   `optional_comment_tag` (string): If negative, offer 3 clickable chips: `Wrong Intent`, `Repeated Questions`, `Too Slow`.
+
+**Event C: `human_resolution_outcome`**
+*Fires when:* The human agent closes the ticket (synced from ticketing system).
+*Properties:*
+*   `session_id` (string).
+*   `agent_resolution_code` (enum): `bot_misunderstood`, `bot_lacked_permission`, `genuine_complexity`, `user_impatient`.
+*   `time_to_human_connect` (seconds): Duration between escalation trigger and first human message.
+
+#### 2. Analysis Logic & Failure Modes
+Configure the dashboard to answer these specific questions using the new events:
+
+*   **The "Broken Loop" Verification:** Correlate `turn_count` with `feedback_value`. If high turn counts correlate with `positive` feedback, the ">4 turns" heuristic is invalid. If `negative` feedback clusters around specific `intent_detected` values (e.g., "shipping_exception") regardless of turn count, the issue is semantic understanding, not loop length.
+*   **The Handoff Friction Point:** Calculate the conversion rate of `support_escalation_triggered` → `human_resolution_outcome` where `agent_resolution_code` = `bot_misunderstood`. This quantifies the "false negative" rate where the bot failed to recognize a solvable pattern.
+*   **CSAT Reconciliation:** Segment the dip in CSAT by `trigger_type`. If the drop is isolated to `low_confidence` triggers, the model needs retraining. If it spans `user_request`, the bot may be too passive.
+
+#### 3. Implementation Constraints
+*   **Privacy:** Do not capture PII or full chat logs in these events. Route any necessary text snippets to the secure logging system defined in privacy compliance protocols.
+*   **Sampling:** If volume exceeds 10k events/day, sample `post_escalation_micro_feedback` at 20% but keep `support_escalation_triggered` at 100%.
+*   **Deadline:** Data must be flowing by Wednesday EOD to allow 24 hours of aggregation before the Friday board presentation.
+
+**This Week's Step:** Implement the `support_escalation_triggered` event with the specified properties by Tuesday. Run a query Wednesday morning comparing `intent_detected` against `trigger_type` for the last 48 hours. If >40% of escalations for "shipping_exception" have a `confidence_score` >0.8, the immediate action is to audit the training data for that specific intent, not to change the handoff threshold.
+
+*Note: The proposed micro-feedback widget must be dismissible without clicking to avoid artificially lowering satisfaction scores through annoyance.*
+*All metric baselines must be computed from HelpFlow's internal data; no external industry benchmarks are applied.*

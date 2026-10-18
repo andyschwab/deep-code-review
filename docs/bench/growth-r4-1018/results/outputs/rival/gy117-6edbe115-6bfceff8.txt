@@ -1,0 +1,59 @@
+# Offline-First Instrumentation Specification for AgriConnect
+
+## Core Architecture: Local-First with Deferred Sync
+
+To preserve accurate planting cycle data despite 18-hour offline windows, implement a **local-first event logging system**. The app must treat the local device as the primary source of truth, queuing events locally and syncing to the server only when connectivity is restored.
+
+### 1. Data Storage Strategy
+
+**Store Locally (SQLite/Realm):**
+*   **All User Actions:** Planting, watering, fertilizing, harvesting events.
+*   **System Events:** App opens, feature usage, error logs.
+*   **Contextual Metadata:** GPS coordinates, soil type selections, crop varieties.
+
+**Transmit Immediately (Only if Critical):**
+*   **Emergency Alerts:** Pest outbreak warnings requiring immediate server-side aggregation to alert nearby farmers (requires store-and-forward if offline).
+*   **Authentication Tokens:** Security credentials.
+
+*Decision:* Do not attempt real-time transmission for farming activities. The risk of partial data loss outweighs the benefit of immediate visibility. Batch all agricultural events for deferred sync.
+
+### 2. Essential Metadata Schema
+
+To reconstruct timelines reliably after days of delay, every local event object must include the following immutable fields at the moment of creation:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `event_id` | UUID v4 | Unique identifier to prevent duplicate processing during retry loops. |
+| `local_timestamp` | ISO 8601 (UTC) | **Critical:** The exact time the action occurred on the device. Never use server receipt time for analysis. |
+| `sync_timestamp` | ISO 8601 (UTC) | When the event was successfully uploaded (for monitoring lag). |
+| `sequence_number` | Integer | Monotonically increasing counter per user session to detect missing events or order swaps. |
+| `connection_state` | String | Network type at moment of action (e.g., `offline`, `2g`, `wifi`). |
+| `device_clock_skew` | Boolean | Flag indicating if device time appears significantly drifted from last known NTP sync. |
+| `payload_hash` | String | Checksum to verify data integrity after transmission. |
+
+### 3. Sync Logic & Conflict Resolution
+
+*   **Queue Management:** Maintain a persistent FIFO (First-In-First-Out) queue. Do not clear local records until the server acknowledges receipt with a `200 OK`.
+*   **Batching:** Group events into batches of 50 or 5MB (whichever hits first) to optimize limited bandwidth.
+*   **Idempotency:** The server API must handle duplicate `event_id`s gracefully by ignoring repeats, ensuring that network retries do not inflate planting counts.
+*   **Time Reconstruction:** Analytics pipelines must sort events by `local_timestamp`, not `sync_timestamp`. Use `sequence_number` to resolve ties if clock precision is insufficient.
+
+### 4. Key Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| **Device Clock Drift** | Farmers' phones may have incorrect dates, corrupting planting cycle analysis. | On every successful sync, fetch server time and calculate a `clock_offset`. Apply this offset to subsequent local events before storage. |
+| **Local Data Loss** | App uninstall or phone loss before sync results in permanent data gap. | Prompt users to "backup now" when connectivity is detected. Clearly display "X events pending sync" in the UI to encourage connection. |
+| **Sequence Gaps** | Crashes may interrupt the sequence counter, making audit trails difficult. | Log `sequence_number` gaps explicitly as "potential_crash_loss" events rather than trying to auto-fill them. |
+| **Storage Bloat** | Long offline periods could fill device storage. | Implement a local retention policy: archive detailed logs older than 30 days to compressed files, keeping only essential event metadata active. |
+
+### 5. Grant Reporting Validation
+
+To satisfy the January 20 deadline requirements:
+1.  **Lag Distribution Report:** Generate a histogram showing the time delta between `local_timestamp` and `sync_timestamp` to prove data represents real-time usage, not just sync bursts.
+2.  **Completeness Audit:** Compare `sequence_number` ranges against received counts to quantify any data loss percentage.
+3.  **Clock Accuracy Check:** Report the average `clock_offset` applied to demonstrate correction of device time errors.
+
+This approach ensures your planting cycle insights reflect actual farmer behavior, regardless of connectivity infrastructure.
+
+*Note: Ensure the engineering team implements encryption at rest for the local database to protect farmer data on lost devices.*

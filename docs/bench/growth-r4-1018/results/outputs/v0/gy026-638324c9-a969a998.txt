@@ -1,0 +1,39 @@
+**To:** Tom, Lead Analyst
+**From:** Growth Analytics Strategy
+**Subject:** Reconciling Platform Fragmentation and Validating the iOS/Android Conversion Gap
+
+**Immediate Diagnostic Plan (Weeks 1–2)**
+
+Before allocating engineering resources to fix the checkout flow, we must verify if the 25% conversion gap is a real user behavior difference or a measurement artifact caused by device switching and SDK inconsistencies.
+
+**1. Establish the Identifier Seam (Critical Path)**
+The current inability to track users across web, iOS, and Android is the primary confounder. Without a stable, pseudonymous user ID persisted across sessions and platforms, "conversion rate" is merely "session conversion," which inherently penalizes multi-device journeys.
+*   **Action:** Implement a unified `user_id` (pseudonymous) that links anonymous device IDs upon login or email capture.
+*   **Reading Rule:** If the gap narrows significantly when measuring *user-level* conversion vs. *session-level* conversion, the issue is attribution loss (users starting on Android, finishing on iOS/Web), not checkout performance.
+*   **Compliance Note:** Ensure this ID generation and PII routing adheres to `privacy-compliance.md` standards; do not use raw device IDs for long-term cohorting.
+
+**2. Validate the Android SDK 4.2 Hypothesis**
+We cannot assume the gap is real until we rule out broken instrumentation.
+*   **Action:** Run a data integrity audit on Android SDK 4.2. Compare the volume of `checkout_start` events against `session_start` events for Android vs. iOS.
+*   **Reading Rule:** If the ratio of `checkout_start`/`session_start` is anomalously low on Android compared to historical baselines or iOS, the metric is `UNVERIFIED`. The "low conversion" is actually "missing data." Fix the SDK before analyzing funnel drop-off.
+
+**3. Redefine the Funnel: User-Centric vs. Session-Centric**
+Stop analyzing the AARRR funnel by platform session. Re-build the activation and retention views based on the unified user ID.
+*   **Metric Shift:** Move from "Session Conversion Rate" to "User Conversion Rate within 7 Days."
+*   **Hypothesis Test:** If iOS users convert higher because they are single-device users, while Android users are multi-device (and thus appear to drop off in session data), the "gap" is a measurement error.
+
+**Decision Matrix for Engineering Allocation**
+
+| Observation | Diagnosis | Next Action |
+| :--- | :--- | :--- |
+| **Gap persists** with unified User ID & clean SDK data | Real behavioral/performance difference. | Investigate checkout UI/latency specifically on Android. |
+| **Gap disappears** with unified User ID | Attribution error (device switching). | Stop checkout fixes; focus on cross-device handoff UX. |
+| **Android event volume** is inconsistent vs. sessions | Broken instrumentation (SDK 4.2). | **Stop analysis.** Fix SDK tracking first. Any conversion number is `UNVERIFIED`. |
+
+**This Week's Steps**
+1.  **Query:** Run a cohort analysis comparing *session-based* conversion vs. *user-based* conversion (where login exists) for iOS and Android.
+2.  **Audit:** Calculate the `checkout_initiated` / `session_start` ratio for Android SDK 4.2 vs. 4.1 and iOS. If the variance exceeds 10%, flag the SDK as the root cause.
+3.  **Define:** Document the specific `user_id` generation logic to ensure it is stable across platforms and pseudonymous.
+
+**Note:** Do not optimize the Android checkout flow until the SDK data integrity is confirmed; optimizing based on broken data is wasted spend.
+**Note:** Retention of the core action (purchase) must be verified on a per-user basis, not per session, to accurately reflect the 60/40 mobile/desktop split.

@@ -1,0 +1,77 @@
+### Voice Search Diagnostic Instrumentation Plan
+
+To diagnose the 2.4s latency spike and validate your hypothesis regarding the transcription phase, implement the following event schema. These events must be logged with high-precision timestamps (millisecond resolution) to allow for granular duration calculations.
+
+#### 1. Core Event: `voice_search_initiated`
+**Trigger:** User activates the microphone or voice input field.
+**Purpose:** Establishes the baseline start time ($T_0$) for the entire session.
+**Attributes:**
+*   `session_id`: Unique identifier for the user session.
+*   `user_id`: Logged-in user ID (or anonymous device ID).
+*   `device_type`: Mobile, desktop, tablet.
+*   `os_version`: Specific OS version (e.g., iOS 17.2, Android 14).
+*   `browser_version`: Browser string.
+*   `network_type`: WiFi, 4G, 5G, Ethernet (critical for isolating network vs. processing lag).
+*   `connection_quality`: Estimated bandwidth or signal strength if available.
+
+#### 2. Core Event: `voice_audio_capture_complete`
+**Trigger:** User stops speaking, and the client finishes buffering the audio blob.
+**Purpose:** Measures pure user input duration and client-side buffering time.
+**Attributes:**
+*   `session_id`: Must match `voice_search_initiated`.
+*   `audio_duration_ms`: Length of the recorded audio in milliseconds.
+*   `audio_file_size_kb`: Size of the payload to be uploaded.
+*   `timestamp_ms`: Exact time capture ended.
+
+#### 3. Core Event: `voice_transcription_started`
+**Trigger:** Client successfully sends the audio payload and receives an acknowledgment from the transcription service.
+**Purpose:** Marks the beginning of the suspected bottleneck.
+**Attributes:**
+*   `session_id`: Must match previous events.
+*   `request_id`: Unique ID returned by the transcription API.
+*   `payload_upload_time_ms`: Time taken to upload the audio blob (Network Upload Latency).
+*   `timestamp_ms`: Exact time transcription processing began on the server.
+
+#### 4. Core Event: `voice_transcription_completed`
+**Trigger:** Transcription service returns the text string to the application layer.
+**Purpose:** Isolates the **Transcription Duration**. If your hypothesis is correct, the delta between this and the previous event will account for the majority of the 2.4s delay.
+**Attributes:**
+*   `session_id`: Must match previous events.
+*   `request_id`: Must match `voice_transcription_started`.
+*   `transcription_confidence_score`: Float (0.0–1.0) to correlate low confidence with high latency.
+*   `transcribed_text_length`: Number of characters (to check for length-based processing delays).
+*   `error_code`: Null if successful; specific error string if failed.
+*   `timestamp_ms`: Exact time text was received.
+
+#### 5. Core Event: `voice_intent_matched`
+**Trigger:** The system maps the transcribed text to a specific search query or navigation action.
+**Purpose:** Isolates the **Intent Matching Duration**.
+**Attributes:**
+*   `session_id`: Must match previous events.
+*   `intent_category`: e.g., "product_search", "navigation", "unknown".
+*   `matching_duration_ms`: Time taken by the NLP engine to process the text.
+*   `timestamp_ms`: Exact time intent was resolved.
+
+#### 6. Core Event: `voice_search_results_rendered`
+**Trigger:** The search results based on the voice query are fully visible to the user.
+**Purpose:** Captures the total end-to-end latency and rendering time.
+**Attributes:**
+*   `session_id`: Must match previous events.
+*   `total_latency_ms`: Calculated as `timestamp_ms` (rendered) minus `timestamp_ms` (initiated).
+*   `results_count`: Number of items returned.
+*   `time_to_first_byte_ms`: Time from request sent to first byte received (if distinct from above).
+*   `success_status`: Boolean (true/false).
+
+### Derived Metrics for Engineering Analysis
+Your Data Infrastructure team should compute the following durations by subtracting timestamps between the events above:
+
+1.  **Network Upload Latency:** `voice_transcription_started` - `voice_audio_capture_complete`
+2.  **Transcription Processing Time:** `voice_transcription_completed` - `voice_transcription_started` **(Primary Hypothesis Check)**
+3.  **Intent Matching Time:** `voice_intent_matched` - `voice_transcription_completed`
+4.  **Rendering Time:** `voice_search_results_rendered` - `voice_intent_matched`
+5.  **Total End-to-End Latency:** `voice_search_results_rendered` - `voice_search_initiated`
+
+### Recommendation on Measurement Strategy
+Prioritize capturing the **segmented phase durations** (Transcription Processing Time vs. Intent Matching Time) over a simple "total session duration." Total duration confirms a problem exists but cannot identify *where* it exists. By instrumenting the start and stop of each micro-service call, you can definitively prove whether the 2.4s spike is caused by the transcription provider, network throughput, or internal intent logic. Do not rely solely on Time-to-First-Byte (TTFB) for the whole request, as it often masks the specific processing time of complex AI models; explicit start/stop logging per phase is required for this diagnosis.
+
+Ensure all timestamps are synchronized to UTC and captured in milliseconds to prevent rounding errors when calculating sub-second differences.

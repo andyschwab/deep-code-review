@@ -1,0 +1,41 @@
+### Leaderboard Integrity & Event Taxonomy Plan for StarDrift
+
+**Objective:** Ensure fair, latency-resilient rankings across Console, Mobile, and PC by instrumenting only events that answer specific integrity questions.
+
+#### 1. Critical Data Points (Event Taxonomy)
+Instrument only these events to resolve disputes and prevent double-counting. Each event must include a `pseudonymous_user_id` (stable across devices) and a `match_id` (unique per game instance).
+
+| Event Name | Question Answered | Critical Properties |
+| :--- | :--- | :--- |
+| `match_started` | Did the session initialize correctly on the server? | `match_id`, `platform`, `client_version`, `timestamp_start` |
+| `score_snapshot` | What was the valid state before a disconnect? | `match_id`, `current_score`, `game_tick`, `checksum_hash` |
+| `match_submitted` | Was the final score accepted as the source of truth? | `match_id`, `final_score`, `submission_attempt_count`, `server_receipt_id` |
+| `submission_failed` | Did connectivity drop during transmission? | `match_id`, `error_code`, `last_known_score`, `timestamp_fail` |
+
+**The Identifier Seam:** Use the `pseudonymous_user_id` to link sessions across devices. Do not use raw PII. This inverts standard ops observability (which avoids high-cardinality user labels) to enable product-level cohort analysis of cross-platform behavior.
+
+#### 2. Handling Edge Cases & Gaps in Current Strategy
+Your assumption that a "unique session ID tied to a user account" suffices contains a critical gap: **Session IDs typically reset on reconnect**, breaking the link between a dropped connection and the resumed game.
+
+*   **Gap A: The Mid-Match Disconnect**
+    *   *Risk:* If a player drops at 90% completion and reconnects on a different device, a new session ID creates two partial matches or loses the score entirely.
+    *   *Fix:* The client must cache the `match_id` and `last_known_score` locally. Upon reconnect, the client sends a `resume_request` with the original `match_id`. The server validates the `checksum_hash` of the last `score_snapshot` before accepting updates.
+*   **Gap B: Double-Counting via Retry Logic**
+    *   *Risk:* Aggressive client-side retries on network timeout can submit the same score multiple times if the server acknowledgment is delayed but eventually received.
+    *   *Fix:* Implement idempotency using `server_receipt_id`. The `match_submitted` event must include a client-generated `idempotency_key`. If the server receives a duplicate key, it returns the original receipt without updating the leaderboard.
+*   **Gap C: Latency-Induced Fairness**
+    *   *Risk:* High-latency mobile users might submit scores after the match window technically closes for low-latency PC users.
+    *   *Fix:* The `match_submitted` event must record `server_time_received`. Rankings should be calculated based on `server_time_received` relative to `match_end_time`, not client submission time.
+
+#### 3. Reading Rules for Integrity
+*   **Source of Truth:** Only scores with a matching `server_receipt_id` are valid. Client-side logs without server confirmation are `UNVERIFIED` and excluded from rankings.
+*   **Dispute Resolution:** If a player disputes a rank, query the `score_snapshot` stream. If the `checksum_hash` of the final score does not match the chain of snapshots, the score is flagged for review.
+*   **No Fabricated Benchmarks:** Do not set arbitrary "acceptable drop rates." Measure the `submission_failed` rate against your own beta baseline. If the rate spikes on a specific platform, investigate that client build.
+
+#### 4. This-Week Steps
+1.  **Schema Finalization:** Update the backend schema to enforce `idempotency_key` uniqueness on the `match_submitted` table by Wednesday.
+2.  **Chaos Test:** Simulate network drops during `score_snapshot` transmission in the staging environment; verify that the `resume_request` successfully reconstructs the match state using the `match_id`.
+3.  **Dashboard Query:** Build a single view showing `submission_failed` counts grouped by `platform` and `error_code` to identify connectivity hotspots before the beta stress test.
+
+*Note: This plan focuses strictly on product behavior (user scores); system health (latency ms, error rates) remains in the domain of engineering observability logs.*
+*Ensure the `pseudonymous_user_id` generation complies with privacy regulations before the beta launch.*

@@ -1,0 +1,81 @@
+# PayPeer Referral Loop Quality Analysis Plan
+
+## Executive Summary for Sofia
+**Decision Context:** Scale referral incentive budget to $50,000?
+**Current State:** 25,000 users acquired since June 1 at $1.50 CPA ($37,500 total spend).
+**Critical Risk:** Paying for dormant accounts that inflate user count without transaction volume.
+
+## Immediate Measurement Framework
+
+### 1. Define "Quality Referral" Events
+Track these specific milestones to distinguish real users from bonus hunters:
+
+| Event | Definition | Time Window |
+|-------|------------|-------------|
+| `referral_signup_completed` | Referee creates account via link | Day 0 |
+| `first_transaction_initiated` | Referee attempts first P2P send | Days 0-7 |
+| `first_transaction_completed` | **Primary Quality Metric** - Money successfully sent | Days 0-14 |
+| `referrer_reward_earned` | Referrer qualifies for bonus (only after referee transacts) | Conditional |
+
+**Critical Change:** Decouple the referrer reward from signup. Trigger `referrer_reward_earned` *only* after `first_transaction_completed` fires. This eliminates the incentive for dormant signups.
+
+### 2. Regional Cohort Analysis (Brazil vs. Mexico)
+Since time lag varies by region, analyze separately:
+
+**Metrics to Compute:**
+- **Activation Rate:** % of referred signups completing first transaction within 7/14/30 days
+- **Median Time-to-Transaction:** Days between signup and first completed transaction
+- **Transaction Value Distribution:** Average first transaction amount by region
+- **Dormancy Rate:** % of referred users with zero transactions after 30 days
+
+**Expected Output Table:**
+```
+Region | Signups | Activated (7d) | Activated (14d) | Median Lag | Dormancy Rate
+-------|---------|----------------|-----------------|------------|--------------
+Brazil |   X     |      Y%        |       Z%        |   N days   |     D%
+Mexico |   X     |      Y%        |       Z%        |   N days   |     D%
+```
+
+### 3. Funnel Friction Identification
+Track drop-off points in the invitation flow:
+
+1. `invite_link_generated` → `invite_link_clicked` (Click-through rate)
+2. `invite_link_clicked` → `referral_signup_completed` (Signup conversion)
+3. `referral_signup_completed` → `first_transaction_initiated` (Activation start)
+4. `first_transaction_initiated` → `first_transaction_completed` (Completion rate)
+
+**High drop-off at step 4** indicates friction in the actual transaction process (KYC issues, funding problems, UX confusion).
+
+### 4. LTV Validation Test
+To verify your 30% higher LTV assumption:
+
+- Create cohort: Users referred between June 1-15 (now have 30+ days of data)
+- Compare against: Paid ad acquisitions from same period
+- Match by: Region, signup date, user demographics
+- Measure: 30-day transaction frequency, average transaction value, retention at day 30
+
+**Do not scale budget until this validation is complete.** If referred users aren't transacting, the LTV assumption is false regardless of acquisition cost.
+
+## Recommendation Framework for Sofia
+
+**Scale the $50,000 budget ONLY if:**
+1. Activation rate (signup → first transaction) exceeds 40% within 14 days
+2. Dormancy rate is below 35% after 30 days
+3. Referred users show 20%+ higher 30-day transaction frequency vs. paid acquisitions
+4. Regional analysis shows consistent patterns (not one region dragging down averages)
+
+**If metrics fail:**
+- Pause budget increase
+- Implement conditional rewards (referrer paid only after referee transacts)
+- Run targeted experiments on high-drop-off funnel stages
+- Re-test with $10,000 pilot after fixes
+
+## Implementation Priority
+1. **Today:** Modify reward trigger to require completed transaction
+2. **This week:** Implement event tracking for all funnel stages above
+3. **Next week:** Pull first cohort analysis (June 1-15 signups)
+4. **Decision date:** June 25 (allows 24 days minimum observation window)
+
+---
+*Note: Ensure no PII (user IDs, emails) is sent to analytics tools. Use hashed identifiers for cohort matching.*
+*Rate metrics must use matching observation windows—do not divide June spend by partial-month transaction data.*

@@ -1,0 +1,38 @@
+# VenteRapide: Add-to-Cart Duplication Remediation Plan
+
+## Phase 1: Scope Validation & Root Cause Isolation (Days 1–5)
+**Objective:** Confirm the technical trigger and quantify the blast radius without altering production data.
+
+1.  **Session Reconstruction:** Query raw event logs for the period since March 12th. Filter for sessions containing multiple `add_to_cart` events with identical `product_id`, `session_id`, and timestamps within a 2-second window.
+2.  **Device Segmentation:** Group these duplicate events by `device_model`, `os_version`, and `app_version`. Identify if the 18% error rate correlates with specific iOS/Android versions or hardware, confirming the race condition hypothesis.
+3.  **Impact Quantification:** Calculate the inflation factor per segment. Determine the exact percentage of inflated revenue/conversion metrics to report to the audit team as a "known data quality issue" prior to correction.
+
+## Phase 2: Incoming Stream Correction (Days 6–8)
+**Objective:** Stop the bleeding immediately while preserving legitimate rapid-click behavior.
+
+1.  **Client-Side Debouncing:** Deploy an emergency app patch implementing a boolean flag on the checkout listener. Once fired, the listener must ignore subsequent triggers for 3 seconds or until the navigation state changes.
+2.  **Server-Side Deduplication Logic:** Update the ingestion pipeline to enforce a uniqueness constraint. If two `add_to_cart` events arrive from the same `user_id` + `product_id` within <1 second, discard the second event and log it to a `deduplication_audit` table rather than the main facts table.
+3.  **Verification:** Monitor the `deduplication_audit` table for 48 hours post-deployment to ensure legitimate multi-item additions are not being blocked.
+
+## Phase 3: Historical Data Remediation (Days 9–14)
+**Objective:** Clean historical records without destroying year-over-year (YoY) comparability.
+
+1.  **Do Not Overwrite Raw Logs:** Preserve the original raw event stream. Data integrity for audits requires an immutable source of truth.
+2.  **Create a Corrected View:** Build a new analytical view or materialized table (`fact_events_cleaned`) that applies the deduplication logic retroactively to the last six months.
+3.  **Backfill Strategy:**
+    *   Identify duplicate pairs using the logic defined in Phase 1.
+    *   Flag the second event in every pair as `is_duplicate = true`.
+    *   Exclude flagged events from all standard reporting dashboards.
+4.  **YoY Comparison Integrity:** To prevent distorting YoY analysis:
+    *   Maintain two reporting modes: "As-Reported" (original numbers used in past quarterly reviews) and "Corrected" (current accurate numbers).
+    *   For the upcoming audit, present the "Corrected" numbers for the current period but explicitly annotate the prior year's comparison with the known inflation rate (e.g., "YoY growth is X% on a corrected basis; previously reported growth included ~18% mobile duplication"). Do not rewrite history; explain the variance.
+
+## Phase 4: Audit Preparation (Days 15–21)
+**Objective:** Document the incident and resolution for the CTO and fraud team.
+
+1.  **Incident Report:** Document the timeline (March 12th update), the root cause (race condition on specific mobile clients), and the exact statistical impact.
+2.  **Reconciliation Statement:** Produce a bridge report showing: *Original Reported Metric* minus *Identified Duplicates* equals *Corrected Metric*.
+3.  **Control Evidence:** Provide logs from the new server-side deduplication layer to prove ongoing data integrity.
+
+**Note:** This approach prioritizes audit transparency over silent data rewriting.
+**Note:** Ensure the legal team reviews the "As-Reported" vs. "Corrected" disclosure language before the audit.

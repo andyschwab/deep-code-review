@@ -1,0 +1,49 @@
+# SecureBank Mobile App Migration Tracking Plan
+
+## Executive Summary
+To balance engineering visibility with customer experience during the April 1st migration, we must track **both** technical health and business outcomes simultaneously. Technical metrics without business context create noise; business metrics without technical context delay root cause analysis. The following instrumentation plan captures the full user journey through the new asynchronous microservices architecture.
+
+## Core Measurement Strategy
+
+### 1. Business Outcome Events (The "What")
+These events map directly to regulatory reporting and revenue. They must remain consistent with legacy definitions to ensure continuity.
+
+| Event Name | Trigger Point | Critical Properties |
+|------------|---------------|---------------------|
+| `login_initiated` | User enters credentials | `user_id`, `device_type`, `app_version` |
+| `login_completed` | Successful session start | `method` (biometric/PIN), `duration_ms` |
+| `transfer_initiated` | User clicks "Send" on confirmation screen | `amount`, `currency`, `recipient_type`, `session_id` |
+| `transfer_completed` | Final success confirmation received | `transaction_id`, `total_duration_ms`, `fee_amount` |
+| `transfer_failed` | Final error state reached | `error_code`, `failure_stage`, `user_visible_message` |
+
+### 2. Technical Health Events (The "Why")
+These events expose the intermediate states and asynchronous processing unique to the new architecture. They are essential for detecting regressions before they impact completion rates.
+
+| Event Name | Trigger Point | Critical Properties |
+|------------|---------------|---------------------|
+| `api_request_started` | Request leaves mobile client | `endpoint`, `payload_size`, `session_id`, `trace_id` |
+| `api_gateway_response` | First byte received from gateway | `status_code`, `latency_ms`, `retry_count`, `trace_id` |
+| `async_job_queued` | Transaction handed to background processor | `job_id`, `queue_name`, `estimated_wait_ms`, `trace_id` |
+| `async_job_completed` | Background processing finishes | `job_id`, `processing_duration_ms`, `status`, `trace_id` |
+| `service_error` | Any non-2xx response from internal services | `service_name`, `error_type`, `stack_trace_hash`, `trace_id` |
+
+## Essential Attributes for All Events
+Every event above must include these standard properties to enable correlation and compliance auditing:
+- **`trace_id`**: A unique identifier spanning the entire request lifecycle across all microservices. This is non-negotiable for debugging asynchronous flows.
+- **`user_id`**: Hashed identifier for linking technical failures to specific customer segments.
+- **`timestamp_utc`**: Precise timing for sequence reconstruction.
+- **`environment`**: Explicitly tag `production`, `staging`, or `canary` to isolate migration issues.
+- **`region`**: Data center or cloud region, critical for latency baselining.
+
+## Implementation Priorities (Day One)
+
+1.  **Distributed Tracing First**: Implement `trace_id` generation at the mobile client level. Without this, you cannot correlate the `transfer_initiated` business event with the specific `api_gateway_response` or `async_job_completed` technical events.
+2.  **Define "Normal" via Percentiles**: Do not use averages for latency. Track P50, P95, and P99 for `api_gateway_response` and `async_job_completed`. The P99 will reveal the edge cases causing user frustration that averages hide.
+3.  **State Transition Monitoring**: Explicitly track time spent in each intermediate state (e.g., `queued` vs. `processing`). This isolates whether delays occur in the gateway or the backend workers.
+4.  **Regulatory Safeguard**: Create a daily reconciliation job comparing `transfer_completed` counts in the new system against the legacy ledger during the parallel run period. Any divergence >0.01% triggers an immediate alert.
+
+## Addressing the Open Question
+Do not choose between technical or business metrics. **Latency is only a predictor of frustration if correlated with abandonment.** By tagging every business event with the corresponding technical `trace_id`, you can answer: "Did the 2-second increase in P95 gateway latency cause a drop in `transfer_completed` rates?" This unified view satisfies the CTO's need for system health and Compliance's need for accurate transaction reporting.
+
+*Note: Ensure no PII (account numbers, names) is captured in event properties; use hashed IDs only.*
+*Baseline collection should begin immediately in staging to establish pre-launch thresholds.*

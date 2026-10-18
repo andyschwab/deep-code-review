@@ -1,0 +1,43 @@
+**Instrumentation Strategy: SecureBank Mobile Migration (Day One)**
+
+**North Star Metric:** Weekly Active Users completing a **Verified Transaction** (successful transfer confirmed by user, not just initiated).
+*Rejection of Vanity:* Do not prioritize "API Gateway Latency" or "Total Login Attempts" as primary success metrics. Latency is a system health indicator (observability), not a measure of customer value. High latency matters only if it correlates to a drop in the North Star.
+
+**Measurement Philosophy: Retention First, Bottom-Up**
+Do not pour engineering effort into measuring acquisition (new downloads) until you verify that existing users can retain the ability to complete transactions in the new architecture. The risk is not losing new users, but breaking the flow for your installed base.
+
+**Event Taxonomy: Answering Named Questions**
+Instrument only events that answer specific migration risks. Do not instrument "everything."
+
+1.  **Event:** `transaction_initiated`
+    *   **Question:** Are users attempting the core action at historical rates?
+    *   **Attributes:** `user_id` (pseudonymous), `device_type`, `app_version`, `timestamp`.
+    *   **Why:** Establishes the top of the funnel. If this drops, the issue is pre-flow (e.g., login screen crash).
+
+2.  **Event:** `transaction_processing_state`
+    *   **Question:** Where do asynchronous processes stall or fail in the new microservices?
+    *   **Attributes:** `transaction_id`, `state_change` (e.g., `fraud_check_pending`, `ledger_posted`, `notification_queued`), `duration_ms`, `error_code` (if failed).
+    *   **Why:** This is the new complexity. You must trace the journey through intermediate states to identify where the monolith previously hid latency or failures.
+
+3.  **Event:** `transaction_completed` (Current) + `transaction_abandoned` (New)
+    *   **Question:** What is the completion rate, and at what step do users drop off?
+    *   **Attributes:** `transaction_id`, `failure_reason` (user-cancelled vs. system-timeout), `total_duration_ms`.
+    *   **Why:** Distinguishes between user frustration and system errors.
+
+**The Identifier Seam**
+To track these flows, you require a **stable, pseudonymous user identifier** persisted across sessions and service boundaries.
+*   *Constraint:* Do not use raw PII (names, account numbers) in analytics events. Route PII mapping and consent management to the privacy compliance protocol. The analytics layer sees only the pseudonymous ID; the operational layer (logs/traces) handles the detailed correlation.
+
+**Experiment & Baseline Strategy**
+You stated you have "no historical baseline" for the new environment. Therefore:
+*   **No Benchmarks:** Do not assert what "normal" latency is. Any threshold set today is a guess.
+*   **Action:** Run the new instrumentation in parallel with the old system (canary or shadow mode) for the first 14 days. Compare the **completion rate** of the new path against the old path directly.
+*   **Guardrail:** If `transaction_completed` drops >1% relative to the legacy baseline during the cutover, trigger an immediate rollback. This is your only valid tripwire until internal baselines are established.
+
+**This Week's Steps**
+1.  **Define the Schema:** Finalize the JSON schema for `transaction_processing_state` ensuring `transaction_id` correlates across all microservices.
+2.  **Implement Pseudonymization:** Configure the mobile SDK to strip PII before sending `user_id` to the analytics pipeline.
+3.  **Build the "Migration Watch" Dashboard:** Create a single view comparing `transaction_initiated` vs. `transaction_completed` rates between Legacy and Microservices paths side-by-side. Ignore latency graphs until the completion rate diverges.
+
+*Note: Technical health metrics (error rates, SLOs) belong in your system observability stack, not this product behavior analysis, except where they directly explain a drop in the North Star.*
+*Regulatory Check: Confirm with compliance that `transaction_abandoned` events satisfy reporting requirements for failed transfer attempts.*

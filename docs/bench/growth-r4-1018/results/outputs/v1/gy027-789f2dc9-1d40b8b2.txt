@@ -1,0 +1,39 @@
+# Event Taxonomy Specification: Virtual Backgrounds (MeetSync)
+**Audience:** Jessica, Backend Team Lead
+**Goal:** Validate the hypothesis that background customization increases meeting duration and detect performance-induced abandonment.
+**Principle:** Instrument only events that answer a named question. Do not track "everything."
+
+## 1. Core Usage Events (Answer: "Are users adopting and retaining the feature?")
+
+| Event Name | Trigger | Properties | Question Answered |
+| :--- | :--- | :--- | : |
+| `background_applied` | User successfully sets a background (static or video) and it renders in the preview. | `background_type` (blur, image, video), `source` (upload, library, none), `selection_duration_ms` (time from opening menu to apply). | Did the user complete the core action? Does selection friction (high `selection_duration_ms`) correlate with drop-off? |
+| `background_disabled` | User explicitly turns off the background during a meeting. | `reason_context` (manual_toggle, performance_warning, meeting_end), `session_duration_at_disable_ms`. | Are users abandoning the feature mid-meeting? |
+| `background_session_start` | A meeting begins where `background_applied` was previously true for the host. | `is_host` (bool), `predicted_meeting_length` (if available from history). | Does having a background active correlate with longer hosted meetings (North Star input)? |
+
+## 2. Performance & Abandonment Events (Answer: "Is poor rendering causing immediate churn?")
+
+| Event Name | Trigger | Properties | Question Answered |
+| :--- | :--- | :--- | :--- |
+| `background_render_error` | The engine fails to apply the background or crashes the video stream. | `error_code`, `device_model`, `cpu_usage_percent`, `background_type`. | Is technical failure preventing activation? |
+| `background_performance_degraded` | Frame rate drops below 15fps or CPU spikes >80% *after* activation. | `fps_current`, `cpu_delta`, `duration_before_degradation_ms`. | Is poor performance causing silent frustration before explicit disabling? |
+| `background_quick_revert` | User disables the background within 60 seconds of `background_applied`. | `time_to_revert_ms`, `had_performance_warning` (bool). | **Critical:** Did the user try and immediately reject the feature due to quality/performance? |
+
+## 3. What We Are NOT Tracking
+*   **Every intermediate hover or preview:** Unless it lasts >5 seconds, this is noise. We only care about the final `selection_duration_ms` on apply.
+*   **Specific image IDs:** Privacy risk and low analytical value. Track `source` and `type` only.
+*   **Passive viewer states:** We are testing the *host* engagement hypothesis. Viewer background usage is a secondary metric for a later sprint.
+
+## Reading Rules & Iteration Plan
+1.  **North Star Input:** Compare average `meeting_duration` for hosts with `background_session_start=true` vs. `false`. Do not look at cumulative "backgrounds applied" (vanity).
+2.  **Abandonment Signal:** If `background_quick_revert` > 15% of `background_applied`, the feature is technically unstable or UX is misleading. Stop promotion, fix rendering.
+3.  **Performance Correlation:** If `background_performance_degraded` events cluster before `background_disabled`, prioritize engine optimization over new background assets.
+4.  **Identifier Seam:** Ensure `user_id` is pseudonymous and stable across sessions to track retention cohorts. Route PII handling to compliance review.
+
+## This Week's Steps
+1.  **Implement:** Add `background_quick_revert` and `selection_duration_ms` to the schema; these are the leading indicators of failure.
+2.  **Baseline:** Query current average `meeting_duration` for hosts to establish the pre-launch baseline (do not assume the 30% uptake will move this yet).
+3.  **Review:** On August 12, compare `background_quick_revert` rates against `background_render_error` logs to distinguish UX rejection from technical failure.
+
+*Note: The 30% uptake expectation is a target, not a benchmark for success; success is defined by increased meeting duration, not just activation.*
+*Do not instrument "time spent selecting" as a continuous stream; the single `selection_duration_ms` property on apply is sufficient and cheaper.*

@@ -1,0 +1,49 @@
+# Diagnostic Plan: VerifyFast KYC Drop-off
+
+**North Star Focus:** Increase KYC Completion Rate from 62% to 85% by isolating the root cause of drop-offs at the document upload step.
+
+### 1. Data Requests (Immediate Action)
+Request the following specific datasets from Engineering and Data teams to validate hypotheses without waiting for full crash log analysis:
+
+*   **Technical Failure Signal (Android OS Split):**
+    *   **Metric:** Error rate vs. Drop-off rate for `document_upload_start` → `document_upload_success`.
+    *   **Segment:** Android OS version (grouped: ≤10 vs. ≥11).
+    *   **Specific Event:** Count of `upload_error_code` events (e.g., camera_permission_denied, timeout, file_too_large) vs. silent exits (user closes app after starting upload).
+    *   **Hypothesis Test:** If error codes spike on Android ≤10 but silent exits dominate on Android ≥11, the issue is technical for older devices and potentially usability for others.
+
+*   **Usability/Language Signal (Region & Language):**
+    *   **Metric:** Time-to-complete for the upload step.
+    *   **Segment:** User region/language preference (English vs. Non-English).
+    *   **Specific Event:** Count of `help_article_viewed` or `instruction_tooltip_opened` during the upload flow.
+    *   **Hypothesis Test:** If non-English users show significantly higher time-to-complete and higher tooltip usage before dropping off, the issue is instructional clarity. If time-to-complete is low and drop-off is immediate, it is likely a technical block or confusion unrelated to text.
+
+*   **Guardrail Metric:**
+    *   **Metric:** `verification_fraud_rate` for any cohort where we simplify instructions or bypass certain checks. Ensure fixes do not compromise security.
+
+### 2. Validation Steps & Decision Rules
+Execute these analyses within 3 days to meet the October 1st deadline:
+
+*   **Step A: Correlate OS Version with Error Types.**
+    *   *If* Android ≤10 shows >20% higher explicit error codes than newer versions: **Confirm Technical Bug.**
+    *   *Action:* Engineering to hotfix camera integration or provide a manual upload fallback specifically for Android ≤10.
+    *   *If* error rates are flat across OS versions but drop-offs remain high: **Reject Primary Technical Hypothesis.** Proceed to Step B.
+
+*   **Step B: Analyze Drop-off Timing by Language.**
+    *   *If* non-English users drop off within 10 seconds of landing on the upload screen: **Confirm Usability/Clarity Issue.**
+    *   *Action:* Implement localized instruction overlays or video guides for top 3 non-English regions.
+    *   *If* drop-off timing is identical across languages: **Reject Language Hypothesis.** Investigate general UI friction (e.g., file size limits, format restrictions).
+
+*   **Step C: Rapid A/B Test (Optional if time permits).**
+    *   Run a 50/50 split on Android ≤10 users: Group A sees current flow; Group B sees a "Manual Upload" button prominent at the start.
+    *   *Success Criteria:* Group B completion rate > Group A by 15%.
+
+### 3. Implementation Timeline
+*   **Days 1-2:** Data extraction and segmentation analysis.
+*   **Day 3:** Hypothesis validation meeting; select fix (code patch vs. content update).
+*   **Days 4-10:** Develop and QA the targeted fix.
+*   **Day 11:** Deploy to 10% of traffic (canary) to verify completion rate lift.
+*   **Day 14:** Full rollout before October 1st campaign launch.
+
+**This Week's Step:** Request the `upload_error_code` segmentation by Android OS version and `time-to-complete` by user language today. If the data confirms the Android ≤10 error spike, prioritize the camera hotfix immediately; if not, draft localized instruction copy for review.
+
+*Note: All metrics must be compared against VerifyFast's own baseline trends; no external benchmarks are used. If crash logs are unavailable, rely on client-side event logging for error codes.*

@@ -1,0 +1,39 @@
+# SoundWave Beta Tracking Plan: Event Hierarchy
+
+## Tier 1: Core Value Signals (Critical for Algorithm & Conversion)
+*These events directly measure content consumption and retention. They are your primary inputs for the recommendation engine and the strongest predictors of subscription.*
+
+| Event Name | Trigger | Essential Properties | Rationale |
+| :--- | :--- | :--- | : |
+| `track_started` | User presses play on a track | `track_id`, `artist_id`, `source_context` (search, radio, playlist), `timestamp` | The baseline unit of consumption. Without this, no other metric exists. |
+| `track_completed` | Track reaches 95% completion | `track_id`, `duration_listened`, `skip_count` | **Your North Star.** High completion rates indicate the recommendation algorithm is successfully matching user taste. This correlates higher with conversion than raw play counts. |
+| `track_skipped` | User skips before 30 seconds | `track_id`, `seconds_listened`, `next_track_id` | Critical negative signal. Distinguishes "passive listening" from "active rejection." High skip rates early in a session indicate poor onboarding or bad initial recommendations. |
+| `session_ended` | App closed or 30min inactivity | `session_id`, `total_tracks_played`, `total_duration`, `device_type` | Defines the engagement window. Allows calculation of "songs per session" but contextualizes it with time. |
+
+## Tier 2: Active Engagement Indicators (Strong Intent Signals)
+*These events require deliberate user effort. They signal a user is moving from passive consumption to building a relationship with the platform.*
+
+| Event Name | Trigger | Essential Properties | Rationale |
+| :--- | :--- | :--- | :--- |
+| `playlist_created` | User saves a new playlist | `playlist_id`, `track_count`, `source_track_id` | High effort = high intent. Users who curate content are significantly more likely to convert than those who only stream. |
+| `track_saved` | User "likes" or adds to library | `track_id`, `playlist_id` (if added to specific) | Indicates a desire to return. This is a leading indicator of retention for the next session. |
+| `search_performed` | User submits a search query | `query_text`, `result_count`, `clicked_result_id` | Reveals intent gaps. If users search frequently but don't play results, your catalog or discovery UI is failing. |
+
+## Tier 3: Contextual & Exploratory Metrics (Secondary Optimization)
+*Track these only after Tier 1 and 2 are stable. They help optimize the UI but are weak predictors of conversion on their own.*
+
+| Event Name | Trigger | Essential Properties | Rationale |
+| :--- | :--- | :--- | :--- |
+| `genre_browsed` | User clicks a genre tile | `genre_name`, `position_on_page` | "Time spent browsing" is often a vanity metric; high browsing time can actually indicate *confusion* or inability to find content. Track the click, not just the dwell time. |
+| `onboarding_step_viewed` | User sees a setup screen | `step_name`, `step_number` | Essential for funnel analysis to ensure users actually reach the "playing music" state. |
+
+## Strategic Rationale for a New Entrant
+
+In a saturated market, **completion rate** is superior to **plays per session**. A user can leave a radio station running (high plays, low attention) while doing other things. However, a user who consistently listens to tracks until the end is actively engaged with the specific curation.
+
+For your recommendation algorithm, `track_skipped` (specifically within the first 30 seconds) is more valuable data than `track_completed`. It provides immediate negative feedback to re-weight the user's taste profile. Prioritize instrumenting the skip logic with high precision.
+
+Do not prioritize "time spent browsing" as a primary success metric. In streaming, frictionless discovery is the goal; long browse times often suggest the user cannot find what they want. Focus on **Time to First Play** (derived from `session_started` and `track_started`) as your true efficiency metric.
+
+**Implementation Note:** Ensure `user_id` and `session_id` are attached to every event to enable cohort analysis.
+**Privacy Note:** Do not capture specific search query text if it contains PII; hash or truncate if necessary.

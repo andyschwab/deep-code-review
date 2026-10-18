@@ -1,0 +1,42 @@
+### Conceptual Measurement Design: The Compliance Journey Map
+
+For SwissComply's pilot with five major banks, replace the traditional linear funnel with a **State-Transition Journey Map**. This model treats compliance not as a straight line, but as a graph where users move between defined states (e.g., "Drafting," "Risk Review," "Approval Pending") via specific actions. This satisfies the CCO's need for auditability while giving the Product Team clear visibility into iterative loops and bottlenecks.
+
+#### 1. Core Structure: States vs. Events
+Do not track "steps." Track **State Entries** and **State Exits**.
+*   **States (The Audit Log):** Define the canonical stages of a report: `Document_Upload`, `Risk_Assessment`, `Internal_Review`, `Final_Approval`, `Submitted`.
+*   **Events (The User Action):** Instrument only the transitions that change the state or represent a significant loop.
+    *   `transition_start`: User moves from State A to State B.
+    *   `transition_complete`: User successfully finishes work in State B.
+    *   `loop_return`: User returns to a previous state (e.g., `Final_Approval` → `Risk_Assessment`).
+    *   `session_abandon`: User leaves a state without completing or transitioning.
+
+#### 2. Event Taxonomy (Answering Named Questions)
+Instrument only these four event types to avoid data noise. Each includes a `report_id` (stable identifier) and `previous_state`.
+
+| Event Name | Question It Answers | Properties Required |
+| :--- | :--- | :--- |
+| `workflow_state_enter` | Where do users spend the most time? | `state_name`, `entry_timestamp`, `report_id` |
+| `workflow_state_exit` | Did they finish the task or loop back? | `state_name`, `exit_reason` (complete, loop, abandon), `next_state` |
+| `compliance_loop_detected` | How often does approval fail, forcing re-work? | `from_state`, `to_state`, `loop_count` (for this report) |
+| `audit_snapshot_created` | (CCO Requirement) What was the state at this exact moment? | `state_name`, `user_role`, `data_hash` (no PII) |
+
+#### 3. Reading the Data: The "Leaky Loop" Metric
+Since the workflow is non-linear, do not measure "drop-off" at a step. Measure **Churn per State** and **Loop Frequency**.
+*   **Primary North Star:** `Weekly Active Reports Submitted` (Value delivered).
+*   **Input Metric 1 (Usability):** `Average Loops per Report`. High numbers indicate confusion or tool friction in specific states.
+*   **Input Metric 2 (Retention):** `State Completion Rate`. Of those who enter `Risk_Assessment`, what % exit to `Internal_Review` vs. looping back or abandoning?
+*   **Diagnosis Order:** Look first at the state with the highest `loop_return` rate. If users bounce between `Risk_Assessment` and `Document_Upload` three times on average, the friction is there—not in acquisition.
+
+#### 4. Governance & Privacy Seam
+*   **Identifier:** Use a pseudonymous `report_id` linked to the bank's internal ID. Do not store user emails or names in analytics events.
+*   **Audit vs. Analytics:** Route raw `audit_snapshot_created` events to the secure compliance log (for the CCO). Send aggregated `transition` and `loop` events to the product analytics dashboard (for the Pilot Manager). This separates sensitive data from behavioral trends.
+
+#### 5. Pilot Success Criteria (November 15 Start)
+*   **Baseline:** Establish the average `loops_per_report` for each of the five banks in Week 1.
+*   **Threshold:** A successful pilot shows a reduction in `loops_per_report` or an increase in `State Completion Rate` by Week 4.
+*   **Action Rule:** If `loop_return` from `Final_Approval` exceeds 40%, trigger a usability review of the approval interface immediately.
+
+**This Week's Step:** Define the exact list of `states` with the Pilot Program Manager and map the allowed `transitions` between them before writing any tracking code. Do not instrument "clicks"; instrument only state changes.
+
+*Note: No benchmark retention rates are asserted; success is measured against your own Week 1 baseline. All PII handling must align with Swiss banking regulations and your privacy compliance framework.*

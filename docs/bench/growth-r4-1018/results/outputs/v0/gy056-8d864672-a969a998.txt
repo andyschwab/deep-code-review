@@ -1,0 +1,42 @@
+# StyleVision AR Beta: Instrumentation Plan (Closed Beta)
+
+**North Star Metric:** Weekly Active Users completing a "Confident Placement" (defined below).
+**Stage:** MVP (Closed Beta). Focus: Activation & Retention of the core action. Do not instrument "everything"; only events that answer specific questions.
+
+### 1. Core Engagement Events (Answering: "Which interactions predict intent?")
+*Do not track raw time spent; it is a vanity metric. Track specific value-indicating actions.*
+
+| Event Name | Question Answered | Required Properties |
+| :--- | :--- | :--- |
+| `ar_session_started` | Did the user successfully enter the experience? | `item_id`, `category`, `device_model`, `os_version` |
+| `ar_interaction_performed` | Which specific manipulations correlate with purchase? | `interaction_type` (enum: `resize`, `rotate`, `texture_change`, `move`), `duration_ms`, `item_id` |
+| `ar_placement_confirmed` | **Core Action:** Did the user feel confident enough to "lock" the item? | `item_id`, `total_interactions_count`, `session_duration_ms`, `texture_applied` (bool) |
+| `ar_session_ended` | Did they leave naturally or abandon? | `exit_reason` (enum: `placed`, `manual_close`, `timeout`), `last_interaction_type` |
+
+**Analysis Rule:** Correlate `ar_interaction_performed` sequences with `ar_placement_confirmed`. If `texture_change` has low correlation but `resize` has high, prioritize resize UX.
+
+### 2. Technical Stability Events (Answering: "Is performance causing silent abandonment?")
+*These metrics identify friction where no explicit error occurred.*
+
+| Event Name | Question Answered | Required Properties |
+| :--- | :--- | :--- |
+| `ar_performance_sample` | Are frame rate drops causing users to stop interacting? | `avg_fps` (last 5s), `jank_count` (frames >16ms), `thermal_state` (normal/warning/critical) |
+| `ar_tracking_lost` | Did environmental tracking fail, breaking immersion? | `loss_duration_ms`, `lighting_estimate` (low/med/high), `surface_type` (floor/table/wall) |
+
+**Analysis Rule:** Segment `ar_session_ended` (exit_reason: `manual_close`) by `avg_fps`. If sessions with `avg_fps` < 25 have 2x abandonment, performance is the retention leak, not the product value.
+
+### 3. Identifier Seam & Privacy
+- **User ID:** Use a stable, pseudonymous `user_id` for cohort analysis (e.g., "Week 1 Retention"). Do not use raw PII.
+- **Compliance:** Route any collection of camera metadata or precise room dimensions to `privacy-compliance.md` for consent verification before implementation.
+
+### 4. Implementation Constraints (MVP Stage)
+- **Exclude:** Do not track every frame render or touch coordinate. This creates noise and cost.
+- **Sampling:** For `ar_performance_sample`, log once per 10 seconds or on significant state change, not every frame.
+- **Validation:** Any metric without these events implemented is `UNVERIFIED`. Do not estimate "good" frame rates; compare beta data against your own baseline post-launch.
+
+### This Week's Steps
+1.  **Handover:** Deliver this table to mobile devs by Thursday; require `ar_placement_confirmed` as the highest priority implementation.
+2.  **Define "Confident":** Confirm with product leadership that `ar_placement_confirmed` (user saves/snaps the view) is the definitive "Aha!" moment before coding begins.
+3.  **Baseline Check:** Ensure the analytics pipeline can ingest `avg_fps` as a numeric property before the July 1 build freeze.
+
+*Note: This plan rejects "time spent" as a primary metric in favor of action-based intent. Technical metrics are sampled to prevent data overload.*

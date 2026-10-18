@@ -1,0 +1,44 @@
+# Flight Telemetry & Event Tracking Specification for SkyDrop Rwanda
+
+**Objective:** Enable predictive maintenance and safety monitoring for scale-up (1,000 flights/month) while optimizing satellite bandwidth.
+**Audience:** Flight Engineering Team.
+**Deadline:** Integration complete by June 1.
+
+## 1. Core Philosophy: Question-Driven Instrumentation
+Do not stream raw telemetry continuously. Instrument only events that answer specific safety or maintenance questions. "Takeoff" and "landing" timestamps are necessary but insufficient for predictive analysis. We must capture the *deviations* that precede failure, not just the successful completion of a flight.
+
+## 2. Event Taxonomy & Data Routing
+
+### A. Real-Time Stream (High Priority, Low Bandwidth)
+*Transmit immediately via satellite. These events trigger immediate operational response.*
+
+| Event Name | Trigger Condition | Question Answered | Properties to Include |
+| :--- | :--- | :--- | : |
+| `flight_critical_alert` | Any parameter exceeds safe operating envelope (e.g., battery temp > threshold, motor RPM anomaly). | "Is this flight currently at risk of failure?" | `flight_id`, `alert_type`, `severity_level`, `current_battery_voltage`, `gps_location`, `timestamp`. |
+| `flight_deviation_major` | Route deviation > 50m from planned path or wind resistance adjustment > 40% max thrust for >30s. | "Is external weather or navigation causing unsafe drift?" | `flight_id`, `deviation_meters`, `wind_adjustment_percent`, `planned_vs_actual_eta`. |
+| `flight_status_change` | State transitions: `TAKEOFF`, `LANDED`, `ABORTED`, `EMERGENCY_LAND`. | "What is the current status of the fleet?" | `flight_id`, `new_status`, `reason_code` (if abort), `battery_remaining_percent`. |
+
+### B. Local Storage (High Volume, Download on Return)
+*Store locally on drone; download via local Wi-Fi upon return to base. Do not stream.*
+
+| Event Category | Specific Parameters to Log | Question Answered |
+| :--- | :--- | :--- |
+| **Battery Health** | Voltage drop curve (sampled every 10s), cell temperature variance, charge/discharge cycles. | "Which battery batches show early degradation signs before voltage collapse?" |
+| **Motor/Propeller** | Motor current draw variance, vibration frequency spectra (FFT data), RPM stability. | "Are specific motors showing increased friction or imbalance prior to failure?" |
+| **Environmental Stress** | Wind vector adjustments (second-by-second), gust response latency, ambient temperature. | "What specific wind conditions correlate with highest energy consumption or instability?" |
+| **Control Surface** | Servo load percentages, correction frequency. | "Are control surfaces working harder than normal, indicating mechanical wear?" |
+
+## 3. Implementation Rules for Engineers
+
+1.  **Stable Identifier:** Every event must include a `flight_id` (unique per mission) and a `drone_id` (persistent per unit). This allows cohort analysis of specific drones over time without transmitting PII or patient data.
+2.  **Sampling Strategy:** For local storage, do not log every millisecond. Use adaptive sampling: log at 1Hz during normal cruise, increase to 10Hz only when `flight_critical_alert` conditions are approached.
+3.  **Bandwidth Guardrail:** The real-time stream must not exceed 5KB per minute per drone under normal conditions. If `flight_critical_alert` fires, burst transmission is permitted for 60 seconds.
+4.  **No Vanity Metrics:** Do not track "distance flown" or "time airborne" in real-time unless it triggers a threshold. These are derived metrics calculated later from the core events.
+
+## 4. Immediate Next Steps (This Week)
+
+1.  **Define Thresholds:** By Wednesday, the Lead Engineer must define the specific numeric thresholds for `flight_critical_alert` (e.g., exact voltage drop rate) based on the April 200-flight historical data. Without these, the alerts are noise.
+2.  **Prototype Local Schema:** By Friday, produce a JSON schema for the local log files and verify that a 2-hour flight log fits within the drone's onboard storage limits with the proposed sampling rates.
+
+*Note: This specification addresses product behavior (flight safety/efficiency). System health metrics (server uptime, API latency) remain under the existing ops observability framework.*
+*All battery and flight data must be pseudonymized before any external sharing; route patient/clinic PII handling to the privacy compliance protocol.*

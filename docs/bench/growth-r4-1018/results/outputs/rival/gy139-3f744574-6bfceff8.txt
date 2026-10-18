@@ -1,0 +1,46 @@
+# FitTrack Data Recovery and Prevention Roadmap
+
+## Executive Summary
+Since the September 20th update, 40% of workout completion events lack `source_campaign` and `device_model` properties due to a suspected race condition. This plan isolates affected data to preserve metric integrity, applies safe imputation only where statistically valid, and implements an immediate blocking strategy to stop further data loss while a code fix is developed.
+
+## Phase 1: Immediate Containment (Stop the Bleeding)
+**Goal:** Prevent new incomplete events from entering the warehouse.
+
+1.  **Implement Client-Side Blocking:** Modify the logging library immediately to withhold the `workout_completed` event if `source_campaign` or `device_model` are null. Queue these events locally on the device and retry transmission once properties are resolved.
+    *   *Trade-off:* Slight delay in real-time reporting for affected users, but guarantees data completeness.
+2.  **Server-Side Schema Enforcement:** Update the ingestion pipeline to reject events missing these critical fields, moving them to a "quarantine" bucket for later inspection rather than polluting the main dataset.
+3.  **Alerting:** Set up immediate alerts for any event batch where null rates for these fields exceed 1%.
+
+## Phase 2: Historical Data Strategy (Cleanup & Isolation)
+**Goal:** Enable accurate reporting without fabricating data.
+
+### A. Isolation (Primary Approach)
+Do not impute values for the 40% of affected records. Instead, segment your analysis:
+*   **Create a `data_quality_flag` column:** Mark all records pre- and post-Sept 20 with `is_complete = true/false`.
+*   **Reporting Protocol:** All marketing ROI and retention reports must explicitly state: *"Analysis covers only sessions with complete attribution data (60% of total volume)."*
+*   **Trend Validation:** Compare the *rate* of missingness across known high-volume campaigns. If the missingness is truly random (race condition), the distribution of known campaigns in the 60% sample should match historical baselines. If specific campaigns are disproportionately missing, the issue is not a race condition but a specific integration failure.
+
+### B. Limited Imputation (Secondary Approach)
+Only apply imputation if strict criteria are met. **Never impute `source_campaign` for aggregate ROI calculations** as this introduces false attribution.
+*   **Device Model:** Safe to impute if the `user_agent` string exists in the raw logs. Parse the user agent server-side to populate `device_model` retroactively.
+*   **Source Campaign:** Do **not** impute based on "most common" values. If a user has prior sessions with a known campaign within the same 24-hour window, you may carry forward the last known `source_campaign` with a flag `imputed_session_level = true`. Exclude these from strict ROI audits but include them for broad retention trend lines.
+
+## Phase 3: Root Cause Verification
+**Goal:** Confirm the race condition hypothesis without scanning massive logs manually.
+
+1.  **Sampling:** Extract a 1% random sample of null records and 1% of valid records.
+2.  **Timestamp Analysis:** Compare the delta between `app_open` and `event_fire` timestamps. If the null group has significantly shorter deltas, the race condition hypothesis is confirmed.
+3.  **Network Correlation:** Check if nulls correlate with specific network types (e.g., slow 3G vs. WiFi), which would confirm timing issues.
+
+## Phase 4: Communication to Stakeholders
+**Message to Marketing/VP:**
+*"We have identified a data gap affecting 40% of records since Sept 20. We are implementing a block to ensure 100% data quality moving forward. For the holiday season analysis, we will report on the verified 60% sample. Early checks suggest the missing data is random regarding campaign type, meaning our sample remains directionally accurate for trend analysis, though absolute volume numbers are temporarily understated. Full historical repair is pending a code deploy expected by [Date]."*
+
+## Next Steps
+1.  Deploy client-side blocking (24 hours).
+2.  Update ingestion pipeline for quarantine (48 hours).
+3.  Generate segmented reports with quality flags (Immediate).
+4.  Develop and test permanent code fix for property loading order.
+
+*Note: Do not attempt to backfill `source_campaign` using probabilistic models; the risk of misattributing marketing spend outweighs the benefit of full row counts.*
+*Ensure all imputed records carry a distinct boolean flag to prevent accidental inclusion in financial reconciliation.*

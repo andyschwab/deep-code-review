@@ -1,0 +1,48 @@
+### Event Taxonomy Specification: SoundWave Beta
+
+**Objective:** Validate the "aha" moment where users transition from passive listening to active content discovery, directly informing the recommendation algorithm.
+
+**1. North Star Metric (Primary Outcome)**
+*   **Event:** `core_session_completed`
+*   **Definition:** A session where a user listens to ≥3 distinct tracks for >60 seconds each without manual skipping.
+*   **Why it ranks first:** In a saturated market, "songs played" is vanity; a user can play 50 songs while hating the service if the algorithm forces them to hunt. This metric proves the *recommendation engine* successfully delivered value without friction. It filters out passive background noise and accidental plays.
+
+**2. Activation Signals (Input Metrics)**
+These events predict the North Star and must be instrumented immediately to tune the onboarding flow.
+
+*   **Event:** `track_skip_early`
+    *   **Properties:** `track_id`, `time_elapsed_ms`, `source_context` (e.g., "home_feed", "search").
+    *   **Priority:** High.
+    *   **Reasoning:** Skip rate is a stronger negative signal than play count is positive. A high early-skip rate indicates the recommendation algorithm is misaligned with user taste. This is the primary feedback loop for your engine.
+*   **Event:** `playlist_created` or `track_saved`
+    *   **Properties:** `item_count`, `session_id`.
+    *   **Priority:** Medium-High.
+    *   **Reasoning:** This signifies "ownership" of the content. In streaming, saving a song or building a playlist is the strongest proxy for intent to subscribe, surpassing raw listening time. It answers: "Did they find something they love enough to keep?"
+
+**3. Contextual Diagnostics (Secondary)**
+*   **Event:** `genre_browse_duration`
+    *   **Properties:** `genre_tag`, `depth_of_scroll`.
+    *   **Priority:** Low (for now).
+    *   **Reasoning:** Time spent browsing is ambiguous; it can signal interest or confusion/friction in finding content. Do not treat this as a primary value indicator until correlated with `core_session_completed`. Instrument it only to diagnose *why* activation fails, not to measure success.
+
+**Hierarchy Rationale for the Pipeline**
+Do not instrument "everything." For the beta phase, prioritize data that distinguishes **active satisfaction** from **passive consumption**.
+1.  **Reject Vanity:** Total streams and raw session duration are rejected as primary metrics; they rise even when the product fails to delight.
+2.  **Focus on Retention Logic:** The pipeline must join `track_skip_early` with `core_session_completed` to calculate a "Quality Listen Ratio." If this ratio is low, pouring acquisition spend (the 5,000 users) is wasted.
+3.  **Identifier Seam:** Ensure all events carry a stable, pseudonymous `user_id` to track cohorts across sessions. Do not use raw PII; route any personal data handling to the privacy compliance protocol.
+
+**Reading Rule for the Analytics Engineer**
+Every event above must answer a specific question:
+*   `core_session_completed`: "Did the algo work?"
+*   `track_skip_early`: "Where did the algo fail?"
+*   `playlist_created`: "Did the user commit?"
+
+If an event cannot be mapped to one of these questions in the dashboard, it should not be ingested.
+
+**This Week's Step**
+1.  Implement the schema for `core_session_completed` and `track_skip_early` only; defer `genre_browse` until week 2.
+2.  Define the "Quality Listen Ratio" query (Completed Sessions / Total Sessions) as the single dashboard widget for the founding team.
+3.  Verify the `user_id` generation logic ensures stability across app restarts before the beta launch.
+
+*Note: No benchmark values (e.g., "good skip rate is X%") are asserted here; compare all metrics against SoundWave's own week-over-week baseline.*
+*Unknowns regarding conversion correlation remain `UNVERIFIED` until the beta data populates these specific events.*

@@ -1,0 +1,40 @@
+### Methodology to Define Activation for DevForge
+
+**1. Retrospective Cohort Analysis (The "Aha" Moment Search)**
+Do not guess the threshold; calculate it using last quarter's data.
+*   **Segment:** Isolate users who signed up 6–12 months ago (allowing time for the 9-month sales cycle to mature into a "Won" or "Lost" state).
+*   **Correlate:** Map specific early behaviors (Days 1–14) against final contract status. Test these hypotheses:
+    *   *Volume:* Did users making >X calls in week 1 convert at a higher rate than those making <X?
+    *   *Breadth:* Did users integrating >1 framework convert better than single-framework users?
+    *   *Persistence:* Did users returning on Day 4+ (addressing your 40% drop-off) have a higher close rate?
+*   **Identify the Threshold:** Find the specific behavior where the conversion probability curve inflection point is highest. If users making 50 calls convert at 20% but those making 51 calls convert at 45%, your activation event is "50 API calls."
+
+**2. Instrumentation Plan (Next Sprint)**
+Instrument only the events that answer the questions above. Avoid "tracking everything."
+*   **Event: `api_key_created`**
+    *   *Properties:* `key_type`, `environment` (prod/sandbox), `framework_detected` (via User-Agent).
+    *   *Question:* Does production key creation predict conversion better than sandbox?
+*   **Event: `api_call_made`** (Aggregate or sampled to manage volume)
+    *   *Properties:* `status_code`, `latency_bucket`, `endpoint_category`.
+    *   *Question:* Is successful traffic (2xx) the predictor, or just volume?
+*   **Event: `integration_completed`**
+    *   *Properties:* `framework_name`, `time_to_first_success_call`.
+    *   *Question:* Does speed of integration correlate with deal size?
+*   **Identifier Seam:** Ensure a stable, pseudonymous `user_id` persists across sessions to track the "return after day three" metric accurately. Do not log PII or payload contents (respecting firewall/privacy constraints); log only metadata available at the gateway.
+
+**3. The New Definition of Activation**
+Until the analysis completes, treat "Activation" as a composite leading indicator, not a single click:
+*   *Provisional Definition:* A user is "Activated" when they create a key **AND** make >X successful calls **AND** return on Day 3+.
+*   *Validation:* Once the retrospective analysis identifies the strongest predictor (e.g., "3 successful calls from a production IP"), update the definition immediately.
+
+**4. Operationalizing for Sales & CS**
+*   **High Priority Outreach:** Users who hit the new activation threshold but have not engaged with sales within 48 hours.
+*   **Rescue Workflow:** Users who created a key but failed to return by Day 3 (your 40% leak). Trigger an automated check-in or CS alert specifically for this cohort.
+*   **Ignore:** Users who create keys but never hit the volume threshold (casual explorers); do not waste sales cycles on them unless they re-engage.
+
+**This Week's Steps:**
+1.  Run the SQL query correlating `api_call_count` (Day 1–14) vs. `contract_signed` for cohorts from 6+ months ago to find the inflection point.
+2.  Deploy the three specific events listed above with the required properties; verify the `user_id` stability across sessions.
+3.  Build a dashboard view filtering for "Activated but Uncontacted" to hand to Sales Leadership by Friday.
+
+*Note: All benchmark thresholds (e.g., what constitutes "high" conversion) must be derived from your historical data, not external industry averages. If the retrospective data is incomplete, the activation definition remains `UNVERIFIED` until sufficient data is collected.*

@@ -1,0 +1,36 @@
+# Wanderlust Bookings: Post-Launch Funnel Tracking Specification
+
+## 1. Defined Funnel Structure
+To isolate friction in the new five-page checkout, implement the following event-based funnel. Each step must fire a distinct `checkout_step_viewed` event with a `step_number` property (1–5) and a `step_name` property.
+
+| Stage | Event Name | Key Properties | Success Criteria (Day 1+) |
+| :--- | :--- | :--- | : |
+| **Entry** | `checkout_started` | `destination`, `travel_dates`, `party_size` | >85% of users who click "Book Now" reach Step 1. |
+| **Step 1** | `checkout_step_viewed` | `step_number`: 1, `step_name`: "Traveler Details" | <15% drop-off from Entry. |
+| **Step 2** | `checkout_step_viewed` | `step_number`: 2, `step_name`: "Add-ons/Extras" | <10% drop-off from Step 1. |
+| **Step 3** | `checkout_step_viewed` | `step_number`: 3, `step_name`: "Payment Info" | <20% drop-off from Step 2 (highest expected friction). |
+| **Step 4** | `checkout_step_viewed` | `step_number`: 4, `step_name`: "Review & Confirm" | <5% drop-off from Step 3. |
+| **Completion** | `booking_confirmed` | `booking_id`, `total_value`, `currency`, `payment_method` | Final conversion rate target: ~10–12% (assuming 65% total drop-off). |
+
+**Implementation Note:** Do not rely on page URLs alone. Ensure the development team pushes these events to the data layer immediately upon page render for each step.
+
+## 2. Handling Exits and Returns (Session Logic)
+Given the 30-minute session timeout, user behavior must be categorized as follows to ensure accurate attribution:
+
+*   **Within Session (<30 mins):** If a user exits at Step 2 and returns within 30 minutes, their journey continues in the same session. The funnel should visualize this as a single continuous path. No new `checkout_started` event should fire upon return; only the subsequent `checkout_step_viewed` events should register.
+*   **Cross-Session (>30 mins or New Day):** If the user returns after the session expires, this constitutes a **new session**.
+    *   **Action:** Fire a new `checkout_started` event.
+    *   **Attribution:** Link this new session to the original `booking_id` (if saved in a cookie/local storage) or `user_id` (if logged in) to calculate "Recovered Bookings."
+    *   **Reporting:** Dashboard filters must allow splitting "First-Touch Conversions" (completed in one session) vs. "Multi-Touch Conversions" (completed across sessions) to understand if the 30-minute window is too aggressive for high-consideration travel products.
+
+## 3. External Factors for Correlation
+To contextualize funnel performance against the 2019 baseline, the dashboard must ingest the following external data streams for correlation analysis:
+
+*   **Destination-Specific Restrictions:** A binary flag (0/1) or severity score (Low/Med/High) per destination country, updated daily based on government travel advisory APIs. *Hypothesis: High restriction scores will spike drop-off at Step 1 (Traveler Details) due to documentation anxiety.*
+*   **Currency Fluctuation:** Daily exchange rate variance (%) between the user's IP-derived local currency and the booking currency. *Hypothesis: Volatility >2% will increase drop-off at Step 3 (Payment Info).*
+*   **Competitor Pricing Index:** A weekly aggregated metric of average flight/hotel costs for top 10 destinations compared to Wanderlust's offered price. *Hypothesis: Negative variance (competitors cheaper) increases exit rates at Step 4 (Review).*
+*   **News Sentiment Score:** A daily sentiment aggregate from major travel news sources regarding "travel safety" or "pandemic restrictions." *Hypothesis: Negative sentiment spikes correlate with overall funnel entry volume rather than internal drop-off.*
+
+**Immediate Action Required:** Product Operations must validate that `booking_confirmed` events include a `timestamp` and `session_id` to enable the cross-session logic described above before the April 5 launch.
+
+*Note: Ensure no PII (names, passport numbers) is passed in event properties to comply with GDPR/CCPA. Validate tags in a staging environment using GTM Preview Mode prior to go-live.*

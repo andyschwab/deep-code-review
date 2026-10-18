@@ -1,0 +1,42 @@
+# Event Unification Strategy: 'Luz' to 'Lumina' Transition
+
+**Audience:** Data Science Team, Regional Marketing Lead (Lisbon)
+**Objective:** Unify fragmented event streams for accurate Q4 reporting and YoY growth analysis without losing historical context.
+
+### Step 1: Define the Canonical Taxonomy (Immediate)
+Stop treating `luz_` and `lumina_` as separate metrics in dashboards. Define a single **canonical event name** for each action (e.g., `add_to_cart`).
+*   **Action:** Create a transformation layer in your data warehouse (or via your analytics tool's stream processing) that maps both `luz_add_to_cart` and `lumina_add_to_cart` to the canonical `add_to_cart` event.
+*   **Property Injection:** Add a property `client_version_brand` with values `'legacy_luz'` or `'current_lumina'` to every unified event. This preserves the ability to segment by app version while keeping the core metric whole.
+
+### Step 2: Validate Data Integrity via Cohort Overlap
+Before aliasing globally, verify that the behavior of the two streams is comparable to ensure the rebrand didn't alter the user journey logic.
+*   **Action:** Run a parallel comparison for the period **Sept 1–Sept 9** (pre-rebrand) vs. **Sept 11–Sept 17** (post-rebrand).
+*   **Check:** Compare the conversion rate of `luz_add_to_cart` → `luz_purchase` against `lumina_add_to_cart` → `lumina_purchase`.
+*   **Outcome:** If rates diverge by >5%, the rebrand may have introduced a UI/UX bug, not just a naming change. Investigate before unifying. If stable, proceed with aliasing.
+
+### Step 3: Establish the "Cutoff Date" Logic
+Do not set a fixed calendar date for dropping support; use a dynamic adoption threshold to protect the 12% revenue stream from Portugal.
+*   **Metric:** Track the daily ratio of `lumina_` events to total (`lumina_` + `luz_`) events for the Portugal region.
+*   **Threshold:** When the `lumina_` share exceeds **90%** for **7 consecutive days**, declare the **Deprecation Cutoff Date**.
+*   **Post-Cutoff Action:**
+    1.  Stop mapping `luz_` events to the canonical stream in *real-time* dashboards to reduce noise.
+    2.  Move raw `luz_` data to a "cold storage" historical table for long-term YoY queries only.
+    3.  Document the cutoff date in the Q4 report methodology section.
+
+### Step 4: Handling Year-Over-Year (YoY) Comparisons
+For Q4 reports comparing 2023 vs. 2024:
+*   **2023 Data:** Consists entirely of `luz_` events.
+*   **2024 Data:** Will be a mix until the Cutoff Date.
+*   **Strategy:** Use the **unified canonical stream** (from Step 1) for all 2024 reporting. Since the canonical stream includes the aliased legacy data, your YoY comparison remains apples-to-apples. The `client_version_brand` property allows you to isolate if any drop in performance is due to legacy users failing to update.
+
+### Step 5: Communication & Governance
+*   **For Marketing:** Confirm that Q4 targets are measured against the unified `add_to_cart` metric, ensuring the rebrand fragmentation does not artificially suppress reported growth.
+*   **For Data Science:** Implement an alert if the `luz_` event volume spikes unexpectedly after the Cutoff Date, indicating a potential rogue legacy client or integration error.
+
+**This Week's Steps:**
+1.  Implement the SQL/dbt transformation to alias `luz_` and `lumina_` to canonical names with a version property.
+2.  Build the "Adoption Ratio" dashboard for Portugal to monitor the 90% threshold daily.
+3.  Run the parallel conversion rate check (Step 2) to validate data integrity before finalizing Q4 baselines.
+
+*Note: Do not delete raw `luz_` data; retain it indefinitely for auditability, but exclude it from active operational dashboards once the cutoff is triggered.*
+*If the 90% threshold is not met by end-of-Q4, extend the aliasing strategy into Q1 and investigate barriers to app updates in the Portuguese market.*

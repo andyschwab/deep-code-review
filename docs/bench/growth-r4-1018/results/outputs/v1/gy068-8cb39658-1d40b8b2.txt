@@ -1,0 +1,58 @@
+# PathFinder Beta Instrumentation Plan (v1.0)
+**Audience:** Mobile Engineering Team
+**Deadline:** Code Freeze (End of Month)
+**Stage:** MVP Beta (5,000 Users)
+**Principle:** Instrument only what answers a named question. No vanity metrics.
+
+## 1. North Star & Input Metrics
+*   **North Star:** `navigation_success_rate` (Percentage of sessions where the user reaches the destination within 1.5x the optimal time).
+    *   *Why:* "Time to destination" alone is noisy; success relative to optimal path defines value.
+*   **Input Metrics:** `session_activation_rate`, `avg_camera_usage_duration`, `avg_path_deviation_count`.
+
+## 2. Event Taxonomy
+Every event below includes standard properties: `user_id` (pseudonymous), `session_id`, `timestamp`, `app_version`, `device_model`, `os_version`.
+
+### A. Core Outcome Events (The "What")
+**Event:** `navigation_started`
+*   **Question:** Are users attempting to use the feature?
+*   **Properties:** `origin_zone` (string), `destination_zone` (string), `estimated_distance_meters` (int), `search_query_type` (e.g., "store_name", "category", "facility").
+
+**Event:** `navigation_completed`
+*   **Question:** Did the user successfully reach the goal?
+*   **Properties:** `actual_duration_seconds` (int), `optimal_duration_seconds` (int), `total_distance_traveled_meters` (int), `success_boolean` (bool), `failure_reason` (enum: `user_abandoned`, `timeout`, `gps_lost`, `reached_wrong_location`).
+
+### B. Confusion & Friction Indicators (The "Why")
+**Event:** `ar_camera_active`
+*   **Question:** Is the camera view being used effectively or held unnecessarily?
+*   **Properties:** `duration_seconds` (int), `lighting_condition` (enum: `low`, `optimal`, `glare`), `surface_texture_detected` (bool).
+*   *Note:* High duration + low success = confusion or technical failure.
+
+**Event:** `path_deviation_detected`
+*   **Question:** Where do users lose the suggested path?
+*   **Properties:** `deviation_meters` (float), `time_since_last_instruction_seconds` (int), `location_zone` (string), `instruction_type_at_error` (enum: `turn_left`, `straight`, `escalator_up`).
+
+**Event:** `ar_recalibration_triggered`
+*   **Question:** Is the AR tracking unstable?
+*   **Properties:** `trigger_cause` (enum: `feature_loss`, `user_movement_too_fast`, `low_light`), `recalibration_duration_ms` (int).
+
+### C. Gesture Interaction Details (Granular Usability)
+**Event:** `ar_gesture_interaction`
+*   **Question:** Which specific gestures cause struggles or drops?
+*   **Properties:** `gesture_type` (enum: `tap_pin`, `swipe_rotate`, `pinch_zoom`, `two_finger_pan`), `target_element` (string, e.g., "next_turn_arrow", "store_label"), `success_boolean` (bool), `attempt_count` (int), `latency_ms` (int).
+
+**Event:** `ui_fallback_triggered`
+*   **Question:** When do users abandon AR for 2D map?
+*   **Properties:** `fallback_type` (enum: `switch_to_2d_map`, `view_text_instructions`), `time_into_session_seconds` (int), `last_ar_error_code` (string).
+
+## 3. Implementation Constraints & Privacy
+*   **Identifier Seam:** Use a stable, pseudonymous `user_id` to track cohorts across sessions. Do not log raw video feeds or PII.
+*   **Volume Control:** Do not log continuous stream data. Log discrete events only.
+*   **Unverified Metrics:** Do not attempt to calculate "confusion score" on-device; send raw events and compute aggregates in analytics.
+
+## 4. This-Week Steps
+1.  **Engineering:** Implement `ar_gesture_interaction` with `attempt_count` first; this directly answers the "unknown struggle" gap.
+2.  **Product:** Define the threshold for `path_deviation_meters` that constitutes a "lost" user based on mall geometry (e.g., >5 meters off-path) before launch.
+3.  **Analytics:** Prepare a dashboard querying `navigation_completed` filtered by `success_boolean=false` to identify top `failure_reason` within 48 hours of beta start.
+
+*Note: Retention of the core action (successful navigation) is the primary diagnostic; acquisition volume is irrelevant for this beta.*
+*All baseline comparisons must be made against Day 1-3 of this beta; no external benchmarks exist for this specific AR context.*

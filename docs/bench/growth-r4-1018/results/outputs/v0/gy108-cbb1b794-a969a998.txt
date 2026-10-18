@@ -1,0 +1,40 @@
+### Tracking Schema: HighlandRoots "Smart Path" Investigation
+
+To reconstruct the narrative of a user's investigation and identify dead-ends without instrumenting everything, log only the following four events. Each event answers a specific question about the "smart path" efficacy.
+
+**1. `smart_path_suggested`**
+*   **Question Answered:** What options did the algorithm present, and did they match the user's current tree depth?
+*   **Properties:** `session_id`, `tree_depth_current`, `suggestion_ids[]` (list of 3-5 IDs), `suggestion_types[]` (e.g., "census", "birth_record"), `timestamp`.
+*   **Why:** Establishes the denominator for conversion. Without knowing what was shown, you cannot calculate resonance.
+
+**2. `smart_path_interaction`**
+*   **Question Answered:** Did the user engage with a suggestion, and in what sequence?
+*   **Properties:** `session_id`, `suggestion_id` (clicked), `interaction_type` ("click", "hover_long", "dismiss"), `sequence_index` (1st click, 2nd click in session), `time_to_click_ms`.
+*   **Why:** Captures the "sequence of actions" you requested. The `sequence_index` allows you to verify your hypothesis: do users who hit `sequence_index` ≥ 2 actually convert later?
+
+**3. `research_dead_end`**
+*   **Question Answered:** Where did the logical flow break, causing the user to stop?
+*   **Properties:** `session_id`, `last_action_type` ("search_zero_results", "path_dismissed", "session_timeout"), `tree_depth_at_exit`, `suggestions_dismissed_count`.
+*   **Why:** Explicitly flags where researchers give up. A high count of `path_dismissed` followed immediately by `session_timeout` indicates the suggestions failed to resonate.
+
+**4. `premium_conversion_attempt`**
+*   **Question Answered:** Did the engagement lead to the business goal?
+*   **Properties:** `session_id`, `total_paths_followed_in_session`, `trigger_source` ("paywall_click", "upgrade_banner"), `timestamp`.
+*   **Why:** Links the behavioral metric (paths followed) directly to revenue. This validates or refutes the "twice as likely" assumption using your own data, not an external benchmark.
+
+**Implementation Constraints for the Lead Developer:**
+*   **Identifier Seam:** Use a stable, pseudonymous `user_id` for cohort analysis (tracking return visits), but ensure no PII (names, specific family details) is logged in event properties. Route any raw data containing personal details to your privacy compliance protocol; this schema tracks behavior, not identity.
+*   **Noise Reduction:** Do not log every mouse movement or search query string. Only log the *decision points* (suggestion shown, suggestion acted upon, session ended).
+
+**Reading Rules for the Head of Content:**
+*   **Dead-End Diagnosis:** If `research_dead_end` spikes for a specific `suggestion_type` (e.g., "military_records"), the content or algorithm for that category is failing.
+*   **Hypothesis Check:** Segment `premium_conversion_attempt` by `total_paths_followed_in_session`. If the conversion rate for users with ≥2 paths is not significantly higher than those with 0-1, the assumption is `UNVERIFIED` or false; do not optimize the algorithm for depth until this is proven.
+*   **Baseline Comparison:** Compare post-September 12th retention of the core action (completing a family tree branch) against the pre-launch baseline. Do not compare against industry averages.
+
+**This Week's Step:**
+1.  Implement the four events above with the specified properties by Friday.
+2.  Run a query next Monday grouping `premium_conversion_attempt` by `total_paths_followed_in_session` to confirm the "2x likelihood" hypothesis.
+3.  If the hypothesis holds, prioritize fixing the top 3 `suggestion_types` associated with `research_dead_end`; if it fails, pause algorithm tweaks and interview users who dismissed >3 suggestions.
+
+*Note: Values for conversion lift are currently `UNVERIFIED` until the `sequence_index` property is live in your analytics.*
+*Ensure the `user_id` remains pseudonymous to comply with data protection standards.*

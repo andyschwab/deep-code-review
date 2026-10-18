@@ -1,0 +1,54 @@
+**Proposal: Critical Trading Event Taxonomy for Audit Integrity**
+
+To satisfy the December 1 regulatory review while preventing system crashes during volatility, we must invert the assumption that "reducing granularity" solves stability. For compliance, **no trade execution event may be dropped, summarized, or delayed**. A 5% loss rate is a critical failure, not a trade-off. The solution is a **dual-path architecture**: a high-frequency, lossy stream for real-time analytics (where granularity can be reduced) and a synchronous, immutable write-path for the audit trail that blocks the trade until logged.
+
+The following event list defines the **minimum immutable attributes** required to reconstruct a user's trading history. Every event below must be written to an append-only ledger (e.g., WORM storage) before the user receives a "success" response.
+
+**1. Event: `trade_execution_requested`**
+*   **Question Answered:** Did the user intend this specific trade at this specific price before market movement?
+*   **Required Attributes:**
+    *   `user_id` (Pseudonymous stable ID)
+    *   `request_timestamp_utc` (Nano-second precision)
+    *   `asset_pair` (e.g., BTC-USD)
+    *   `side` (BUY/SELL)
+    *   `order_type` (LIMIT/MARKET/STOP)
+    *   `specified_price` (Decimal string, no float rounding)
+    *   `specified_quantity` (Decimal string)
+    *   `client_request_id` (UUID for idempotency)
+
+**2. Event: `trade_execution_confirmed`**
+*   **Question Answered:** Was the trade actually filled, at what price, and does it match the request?
+*   **Required Attributes:**
+    *   `user_id`
+    *   `execution_timestamp_utc` (Nano-second precision)
+    *   `trade_id` (Immutable system-generated ID)
+    *   `client_request_id` (Must match the request event)
+    *   `fill_price` (Decimal string)
+    *   `fill_quantity` (Decimal string)
+    *   `fee_amount` and `fee_currency`
+    *   `liquidity_source` (Exchange/Counterparty ID)
+    *   `slippage_bps` (Calculated: difference between requested and fill price)
+
+**3. Event: `trade_execution_failed`**
+*   **Question Answered:** Why did a requested trade not occur? (Critical for proving system fairness during crashes).
+*   **Required Attributes:**
+    *   `user_id`
+    *   `failure_timestamp_utc`
+    *   `client_request_id`
+    *   `error_code` (Standardized: e.g., INSUFFICIENT_LIQUIDITY, LATENCY_TIMEOUT, BALANCE_ERROR)
+    *   `market_state_snapshot` (Hash of the order book depth at moment of failure)
+
+**4. Event: `audit_reconciliation_batch`**
+*   **Question Answered:** Can we mathematically prove no events were lost between the app and the ledger?
+*   **Required Attributes:**
+    *   `batch_id`
+    *   `start_timestamp_utc` / `end_timestamp_utc`
+    *   `expected_count` (From ingestion gateway)
+    *   `actual_count` (From immutable ledger)
+    *   `merkle_root_hash` (Cryptographic proof of the batch contents)
+
+**Implementation Directive for Stability:**
+Do not reduce the detail of these four events. Instead, decouple the **reporting** pipeline from the **recording** pipeline. During the October 5-style volatility, the system should accept the latency cost of writing these four events synchronously to ensure 100% capture. Any additional telemetry (e.g., UI clicks, partial order book updates, bot decision logs) should be routed to the lossy, down-sampled stream. If the immutable path cannot write within a defined timeout (e.g., 200ms), the system must reject the trade with a `trade_execution_failed` event rather than accepting it without a record.
+
+**Note:** The `user_id` must remain pseudonymous in logs; map to PII only via a separate, access-controlled service per `privacy-compliance.md`.
+**Note:** "Granularity reduction" applies only to non-audit metrics; the audit trail requires exact decimal precision, not floats, to prevent rounding discrepancies in financial reporting.

@@ -1,0 +1,43 @@
+# ScootMadrid Data Reconciliation & Cleanup Plan
+
+**Objective:** Resolve the 3,800-ride discrepancy (45,000 recorded vs. 41,200 billed) by identifying stuck "in-use" sessions caused by GPS failure and applying safe billing estimates without invalidating legitimate long-term rentals.
+
+### 1. Immediate Triage: Segment the "Stuck" Rides
+Do not apply a single rule to all open sessions. Segment the 3,800 discrepancy rides into three buckets based on current duration:
+
+*   **Bucket A (Suspicious/Stuck):** Duration > 4 hours AND no movement (GPS coordinates static or null) for the last 60 minutes.
+    *   *Assumption:* High probability of GPS failure in underground parking.
+    *   *Action:* Auto-close these rides immediately.
+*   **Bucket B (Ambiguous/Long-Tail):** Duration > 4 hours BUT with intermittent movement or recent location pings.
+    *   *Assumption:* Likely legitimate tourist use or inter-city travel.
+    *   *Action:* Flag for manual review or SMS verification before closing. Do not auto-bill yet.
+*   **Bucket C (Recent):** Duration < 4 hours.
+    *   *Action:* Keep open; these are likely active rides or recent drop-offs pending signal.
+
+### 2. Statistical Threshold Definition
+To distinguish "impossible" from "unusual," calculate the **99th Percentile (P99)** of completed ride durations from the last 30 days of *verified* data (the 41,200 transactions).
+*   **Rule:** If a stuck ride exceeds the P99 duration by >20%, classify as an error.
+*   **Safety Check:** If P99 is >3.5 hours, raise the auto-close threshold to 5 hours to protect legitimate long-distance users. Do not rely solely on the fixed 4-hour assumption until P99 is confirmed.
+
+### 3. Billing Estimation Logic for Corrupted Data
+For rides in **Bucket A** that are auto-closed, you cannot bill for infinite time. Apply the following hierarchy to estimate the end time:
+
+1.  **Last Valid Ping:** Use the timestamp of the last received GPS signal before the gap as the provisional end time.
+2.  **Geofence Exit:** If the last known location was inside a known "low-signal zone" (e.g., specific underground garage coordinates), add a **15-minute buffer** to the last valid ping to account for the time taken to exit the structure and regain signal.
+3.  **Cap Limit:** If the calculated duration exceeds the P99 + 20% threshold, cap the billable duration at that threshold. Absorb the cost difference as a "data loss adjustment" rather than risking customer churn with inflated bills.
+
+### 4. Implementation Steps for Engineering (Deadline: April 5)
+
+1.  **Query Execution:** Run a script to isolate the 3,800 open sessions. Calculate P99 from historical closed rides.
+2.  **Apply Bucketing:** Tag sessions into Buckets A, B, and C based on the logic above.
+3.  **Auto-Close & Bill:** Execute the closure script for Bucket A using the "Last Valid Ping + 15 min" logic, capped at the statistical threshold. Generate corrected invoices.
+4.  **Customer Notification:** For affected users in Bucket A, send an automated apology explaining the technical glitch and confirming the adjusted (capped) charge.
+5.  **Manual Review Queue:** Route Bucket B to customer support for rapid verification (target: 24-hour turnaround).
+
+### 5. Prevention Mechanism
+Deploy a "Heartbeat Timeout" rule for future rides: If a scooter reports no movement and no GPS update for >45 minutes, automatically trigger a "Soft End" state in the backend, prompting the user via app to confirm ride completion, preventing future accumulation.
+
+***
+
+**Note:** This plan prioritizes capping revenue loss over recovering every potential euro to ensure finance can close the books by April 5.
+**Critical:** Verify the P99 calculation on the 41,200 clean records before running the auto-close script to avoid false positives.

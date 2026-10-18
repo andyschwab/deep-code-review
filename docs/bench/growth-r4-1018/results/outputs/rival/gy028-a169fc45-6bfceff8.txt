@@ -1,0 +1,65 @@
+# Starlight Cinemas Holiday Promo Measurement Plan
+
+## 1. Tracking Infrastructure & Event Schema
+Implement the following event structure across Email, Push, and SMS platforms to ensure source attribution persists through to purchase.
+
+**UTM Strategy:**
+*   **Source:** `email`, `push`, `sms`
+*   **Medium:** `holiday-promo-2024`
+*   **Campaign:** `50-off-members`
+*   **Content:** `weekend-blast-{date}` (e.g., `weekend-blast-dec07`)
+
+**Required Events:**
+| Event Name | Properties | Purpose |
+| :--- | :--- | :--- |
+| `promo_offer_viewed` | `channel`, `user_id`, `offer_code` | Establishes exposure baseline. |
+| `ticket_purchase_started` | `user_id`, `offer_code`, `full_price`, `discounted_price` | Tracks intent and potential cannibalization. |
+| `ticket_purchase_completed` | `transaction_id`, `channel`, `ticket_count`, `revenue_net` | Primary conversion; calculates net revenue. |
+| `concession_purchase_completed` | `transaction_id`, `item_count`, `revenue_gross`, `margin_estimate` | Tracks ancillary spend (40% margin driver). |
+| `full_price_ticket_foregone` | `user_id`, `historical_avg_spend` | **Critical:** Flag users who bought discounted tickets but historically buy full-price within 48 hours of this window. |
+
+## 2. Incrementality & Cannibalization Logic
+To distinguish genuine growth from discount-driven volume, apply these three analytical filters:
+
+**A. The "Holdout" Test (Incrementality)**
+*   **Action:** Randomly exclude 5% of the 200,000 members (10,000 users) from receiving *any* promotional notification.
+*   **Measurement:** Compare the purchase rate of the Holdout Group vs. the Exposed Group.
+*   **Calculation:** `(Revenue_Exposed - Revenue_Holdout) / Total_Campaign_Cost`. If the lift is <20%, the channel is primarily cannibalizing existing demand.
+
+**B. The "Baseline Shift" Analysis (Cannibalization)**
+*   **Action:** Compare the Average Order Value (AOV) and Ticket Margin of purchasers during the promo window against their personal 90-day historical average.
+*   **Flag:** Users whose `discounted_ticket_revenue` + `concession_margin` < `historical_avg_full_price_margin` are identified as "Value Destroyers."
+*   **Metric:** Report "% of Redemptions that are Net-Negative."
+
+**C. The Concession Attachment Rate**
+*   **Action:** Track `concession_purchase_completed` linked to `ticket_purchase_completed` by channel.
+*   **Hypothesis Test:** Determine if SMS drives higher urgency (ticket only) vs. Email driving higher planning (ticket + food).
+*   **Metric:** `Concession_Attachment_Rate = Concession_Transactions / Ticket_Transactions` (segmented by channel).
+
+## 3. Reporting Framework for Budget Allocation
+Deliver a weekly dashboard to Carlos with these four specific views:
+
+1.  **Channel Efficiency Matrix:**
+    *   X-Axis: Incremental Revenue (vs. Holdout).
+    *   Y-Axis: Concession Attachment Rate.
+    *   *Goal:* Identify channels in the top-right quadrant (High Incrementality, High Ancillary Spend).
+
+2.  **Cannibalization Ratio:**
+    *   Formula: `(Discounted Tickets Sold to High-Value Historical Users) / (Total Discounted Tickets)`.
+    *   *Threshold:* If >30%, pause weekend blasts for that specific segment.
+
+3.  **Net Margin per Message:**
+    *   Formula: `(Total Ticket Margin + Total Concession Margin - Channel Cost) / Messages Sent`.
+    *   *Decision Driver:* Shift budget to the channel with the highest *net* margin, not highest redemption volume.
+
+4.  **Weekend vs. Weekday Delta:**
+    *   Compare redemption rates and attachment rates for weekend blasts vs. weekday controls to validate the "weekend hypothesis."
+
+## 4. Implementation Timeline
+*   **Nov 25:** Finalize holdout groups and integrate UTM parameters.
+*   **Dec 1:** Launch campaign; begin daily data validation.
+*   **Dec 9 & 16:** Interim reviews to pause underperforming channels/segments.
+*   **Dec 26:** Final report calculating total incremental profit vs. baseline.
+
+*Note: Ensure POS systems capture `offer_code` at the terminal to link offline concession purchases to digital ticket sources.*
+*Do not optimize for "Redemption Rate" alone; optimize for "Net Margin per Recipient."*

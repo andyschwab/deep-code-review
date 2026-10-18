@@ -1,0 +1,55 @@
+# Event Taxonomy Migration Strategy for CloudRetail
+
+**Objective:** Unify conflicting event taxonomies (`purchase_complete` vs. `order_finalized`) to resolve the 15% revenue discrepancy while preserving three years of historical data for longitudinal analysis.
+
+### 1. Naming Conventions: The Canonical Standard
+Adopt a single, domain-driven event name immediately. Do not create a third hybrid name.
+*   **Decision:** Standardize on **`order_completed`**. This aligns with standard e-commerce domain language and avoids the ambiguity of "purchase" (which can imply payment only) or "finalized" (which can imply status changes).
+*   **Rule:** All new instrumentation must use `order_completed`. Legacy events (`purchase_complete`, `order_finalized`) are deprecated but not deleted.
+*   **Governance:** Publish a "Event Dictionary" entry for `order_completed` defining it strictly as "the moment the user receives confirmation that the order is accepted and payment is authorized." Any event not meeting this criteria is excluded from the revenue metric.
+
+### 2. Property Standardization: The Unified Schema
+Discrepancies often arise from missing or mismatched properties, not just event names. Define a mandatory property set for `order_completed`:
+*   `order_id` (string, unique)
+*   `revenue_total` (float, normalized to EUR)
+*   `currency` (string, ISO code)
+*   `item_count` (integer)
+*   `source_system` (string: "legacy_A" or "legacy_B") – *Critical for auditing.*
+*   `original_event_name` (string) – *Preserves lineage.*
+
+**Action:** Map properties from both legacy schemas to this unified set. If a legacy event lacks `revenue_total` but has `item_price` and `quantity`, compute the total in the transformation layer. Flag any records where revenue cannot be reconstructed as `UNVERIFIED` and exclude them from the primary dashboard until resolved.
+
+### 3. Backfilling Logic: The View Layer Approach
+Do not physically rewrite three years of historical data in your data lake; this is risky and expensive. Instead, create a **logical unification layer**.
+*   **Transformation Logic:** Build a SQL view or dbt model that unions the two legacy streams.
+    ```sql
+    SELECT
+      'purchase_complete' as original_event_name,
+      'legacy_A' as source_system,
+      order_id,
+      revenue_amount as revenue_total,
+      ...
+    FROM legacy_table_A
+    UNION ALL
+    SELECT
+      'order_finalized' as original_event_name,
+      'legacy_B' as source_system,
+      order_id,
+      total_value as revenue_total,
+      ...
+    FROM legacy_table_B
+    ```
+*   **Deduplication:** Since the systems were merged last quarter, check for overlapping order IDs in the transition period. If an order appears in both logs with the same ID, prioritize the source system that owns the financial ledger for that period, or sum them only if they represent partial states (unlikely for "completed" events).
+*   **Longitudinal Integrity:** By keeping `original_event_name` and `source_system` as properties, analysts can still filter by the old definitions if specific legacy behaviors need investigation. The `order_completed` metric becomes the single source of truth for the North Star.
+
+### 4. Validation & Reconciliation (Pre-Commitment)
+Before presenting to the committee, run a reconciliation script:
+1.  Calculate total revenue for the last 90 days using the new unified view.
+2.  Compare this against the known correct financial ledger (the ground truth).
+3.  If the discrepancy persists (>1%), the issue is likely in property mapping (e.g., tax inclusion/exclusion), not event naming. Investigate property logic before finalizing the plan.
+
+### This-Week Steps
+1.  **Define the Schema:** Draft the `order_completed` property specification and circulate to engineering leads for sign-off by Friday.
+2.  **Audit the Gap:** Run a query comparing `purchase_complete` and `order_finalized` volumes for the overlap period to identify if the 15% gap is due to double-counting or missing events.
+
+*Note: This plan assumes the financial ledger is the ultimate source of truth for revenue validation. Do not approve budget for physical data rewriting; invest in the transformation/view layer instead.*

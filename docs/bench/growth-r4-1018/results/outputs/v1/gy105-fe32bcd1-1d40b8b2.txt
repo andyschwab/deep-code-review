@@ -1,0 +1,44 @@
+### Diagnostic Plan: Loan Approval Funnel Drop-Off
+
+**1. Define the North Star and Input Metrics**
+*   **North Star:** Daily Funded Loans (real value delivered), not Application Volume.
+*   **Primary Input Metric:** Conversion Rate from "Document Upload Start" to "Document Upload Complete."
+*   **Guardrail Metric:** Average Time-to-Fund (ensure speed gains don't sacrifice risk quality).
+
+**2. Event Taxonomy & Instrumentation (Answering Named Questions)**
+Instrument only these events to isolate the friction source. Do not track "everything."
+*   `upload_started`: *Question:* How many users attempt the step?
+*   `upload_file_selected`: *Question:* Do users engage with the file picker?
+*   `upload_failed_validation`: *Properties:* `error_code` (e.g., "file_too_large", "invalid_format", "timeout"), `file_size_kb`, `file_type`. *Question:* Is the drop-off due to technical rejection or user abandonment?
+*   `upload_abandoned`: *Properties:* `time_spent_seconds`, `files_uploaded_count` (0, 1, or 2). *Question:* Did they quit before finishing the second ID?
+*   `upload_completed`: *Question:* Baseline success rate.
+
+**3. Segmentation Strategy (The "Cuts")**
+Slice the data by these dimensions to isolate the culprit. Each cut dictates a specific action:
+*   **By Device/OS (Mobile Web vs. App vs. Desktop):**
+    *   *If* drop-off is >20% higher on Mobile Web: The friction is likely UI/file picker compatibility or connection timeouts on slower networks. *Action:* Optimize mobile upload flow or compress images client-side.
+    *   *If* uniform across devices: The friction is likely policy (2 IDs) or file size limits.
+*   **By File Size & Type (Bucketed):**
+    *   *If* `upload_failed_validation` spikes for files >2MB: The limit is too strict for local camera standards. *Action:* Increase limit or implement server-side compression.
+    *   *If* failures are low but `upload_abandoned` is high after the *first* ID: The requirement for a *second* ID is the psychological barrier. *Action:* A/B test 1 ID vs. 2 IDs for low-risk segments.
+*   **By Connection Speed (inferred from load times):**
+    *   *If* abandonment correlates with high latency: The 6-minute dwell time is actually a timeout. *Action:* Implement chunked uploads or progress indicators.
+*   **By User Cohort (New vs. Returning):**
+    *   *If* new users struggle more: Trust friction; they haven't built confidence to share two IDs yet. *Action:* Add trust signals/explainer text near the upload box.
+
+**4. Qualitative Complement**
+Quantitative data tells you *where*; qualitative tells you *why*.
+*   **Session Replays:** Watch 10–15 recordings of users who abandoned at this step. Look for "rage clicks," repeated failed uploads, or hesitation after reading the "2 IDs" requirement.
+*   **Exit Survey:** Trigger a one-question modal on abandonment: "What stopped you?" with options: "File too big," "Don't have second ID ready," "Too slow," "Privacy concern."
+
+**5. Recommended Action Plan for CLO**
+*   **Immediate (This Week):** Deploy the specific event instrumentation above. No new features until data confirms the hypothesis.
+*   **Hypothesis Test (Next Sprint):** If data confirms the "2nd ID" friction, run an A/B test:
+    *   *Control:* 2 IDs required.
+    *   *Variant:* 1 ID required + manual review trigger for higher amounts.
+    *   *Success Criteria:* Increase in `funded_loans` without increasing default rates (guardrail).
+*   **Technical Fix:** If `error_code` shows file size issues, implement client-side image compression immediately.
+
+**Reading Rule:** If `upload_failed_validation` is <5% of drop-offs, the issue is not technical limits; it is user friction (policy/UX). If >20%, fix the validator first.
+
+*Note: All benchmarks must be calculated against your pre-Nov 5th baseline; do not compare to industry averages which are unavailable here. Ensure user IDs in logs are pseudonymized per privacy compliance.*

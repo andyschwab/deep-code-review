@@ -1,0 +1,68 @@
+# Chatbot Escalation Instrumentation Requirements
+
+## Objective
+Capture structured data at the moment of human handoff to identify specific failure modes in shipping exception handling, replacing the simplistic "four-turn" heuristic with intent-based diagnostics.
+
+## 1. Trigger Definitions (When to Capture)
+Do not rely solely on turn count. Fire the `escalation_triggered` event when **any** of the following conditions are met:
+*   **Intent Confidence Low:** Bot confidence score < 0.6 for two consecutive turns.
+*   **Negative Sentiment Spike:** User sentiment analysis drops below -0.5 within a session.
+*   **Explicit Request:** User types "human," "agent," or "support."
+*   **Loop Detection:** Same intent detected 3+ times with no resolution (replaces the generic 4-turn rule).
+*   **Topic Complexity:** Conversation enters "shipping_exception" or "damaged_goods" categories and exceeds 2 turns without a "resolution_confirmed" event.
+
+## 2. Event Payload Structure
+Engineers must push the following JSON object to the data layer (e.g., `dataLayer.push`) immediately upon handoff initiation:
+
+```json
+{
+  "event": "escalation_triggered",
+  "timestamp": "ISO-8601 string",
+  "session_id": "unique_uuid",
+  "user_id": "hashed_customer_id",
+  "trigger_reason": "low_confidence | sentiment_drop | explicit_request | loop_detected | complex_topic",
+  "conversation_metrics": {
+    "total_turns": integer,
+    "bot_confidence_avg": float (0.0-1.0),
+    "sentiment_score_final": float (-1.0 to 1.0),
+    "topics_discussed": ["array", "of", "identified", "intents"]
+  },
+  "failure_context": {
+    "last_bot_response_id": "string",
+    "last_user_query": "string (truncated to 250 chars)",
+    "unresolved_entities": ["array", "of", "missing", "params", "e.g., tracking_number"]
+  },
+  "handoff_metadata": {
+    "wait_time_estimate_seconds": integer,
+    "agent_skill_tag": "logistics_expert | general_support",
+    "priority_level": "standard | high (if sentiment < -0.7)"
+  }
+}
+```
+
+## 3. In-Chat Feedback Mechanism
+Implement a non-intrusive, single-tap micro-survey **only** when an escalation occurs. Do not show this for resolved bot interactions.
+
+*   **Placement:** Display immediately after the "Connecting you to an agent..." message, before the agent joins.
+*   **Format:** One question with three emoji options + optional text.
+*   **Question:** "What went wrong before we connected you?"
+*   **Options (mapped to tags):**
+    *   😕 "Bot didn't understand" → `tag: misunderstanding`
+    *   😠 "Too many steps" → `tag: friction`
+    *   🤷 "Just wanted a human" → `tag: preference`
+*   **Optional Field:** A collapsed text box labeled "Anything specific we missed?" (expands on click).
+*   **Timeout:** Auto-dismiss after 10 seconds if no interaction to prevent delaying the chat.
+
+## 4. Data Utilization & Reporting
+Structure the downstream dashboard to answer these three questions for the board:
+1.  **Failure Mode Distribution:** What % of escalations are due to `misunderstanding` vs. `friction` vs. `preference`?
+2.  **Topic Correlation:** Which specific `unresolved_entities` (e.g., "customs_code", "delivery_date") appear most frequently in `low_confidence` escalations?
+3.  **Sentiment Impact:** What is the average CSAT delta between users who triggered `sentiment_drop` vs. `explicit_request`?
+
+## Implementation Priority
+*   **Day 1-2:** Update event schema and deploy `escalation_triggered` listener.
+*   **Day 3:** Build the micro-survey UI component.
+*   **Day 4:** Validate data flow in staging; ensure no PII (like full addresses) is captured in `last_user_query`.
+*   **Day 5:** Go live and generate initial failure mode report.
+
+*Note: Ensure the `user_id` is hashed before transmission to comply with privacy standards. This instrumentation replaces the current turn-count logic entirely.*

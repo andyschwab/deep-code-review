@@ -1,0 +1,30 @@
+### Methodology to Define Activation for DevForge
+
+**1. Retrospective Cohort Analysis (The "Aha" Moment Search)**
+Do not guess the activation threshold; calculate it from last quarter's data.
+*   **Segment:** Isolate all self-serve signups from the last 90 days.
+*   **Label:** Tag each user as `Converted` (signed contract) or `Churned` (no contract after 60 days).
+*   **Correlate:** For every potential action (e.g., "Created Key," "Made 10 Calls," "Integrated Framework X," "Invited Team Member"), calculate the conversion rate of users who performed that action within 14 days versus those who did not.
+*   **Identify:** The strongest predictor is the action with the highest **lift** in conversion probability, not just the highest volume. If users who make >50 API calls convert at 25% while those who make <50 convert at 2%, then "50 calls" is your activation event, even if only 10% of users reach it.
+*   **Validate:** Check retention. If 40% of key-creators vanish by day three, overlay their behavior. Did they fail to reach the specific call volume or integration step identified above? This distinguishes "casual explorers" (key created, no depth) from "serious prospects" (key created + depth reached).
+
+**2. Instrumentation Plan (Next Sprint)**
+Instrument only the events that answer the specific question: *"Did this user reach the predictive depth of usage?"* Avoid tracking everything.
+
+| Event Name | Question Answered | Properties to Capture |
+| :--- | :--- | :--- |
+| `api_key_created` | Did they start? | `key_type`, `environment` (prod/sandbox) |
+| `api_call_made` | Are they integrating? | `status_code`, `endpoint_group`, `cumulative_count` (session) |
+| `integration_detected` | Did they connect a framework? | `framework_name`, `sdk_version` (inferred from User-Agent/headers) |
+| `team_invite_sent` | Is this an enterprise trial? | `role_invited`, `domain_match` (corporate email?) |
+
+**Crucial Implementation Notes:**
+*   **The Identifier Seam:** To track a user across sessions and link self-serve activity to a sales contract, you must assign a **stable, pseudonymous user ID** at signup and persist it in all event payloads. This inverts standard ops advice (which avoids high-cardinality IDs) because product growth requires following the *user*, not just the *request*. Ensure this ID is hashed and routed to your privacy compliance protocol before storage.
+*   **Firewall Visibility:** You cannot see inside customer firewalls. Rely entirely on **ingress telemetry** (what hits your API gateway). Infer "integration success" from sustained, low-error traffic patterns and specific SDK User-Agent strings rather than expecting a client-side "success" callback.
+
+**This Week's Steps:**
+1.  **Query:** Run the retrospective correlation on last quarter's logs to find the specific call volume or integration step that maximizes conversion lift.
+2.  **Define:** Set the activation threshold (e.g., "50 successful calls + 1 production key") based *only* on that found correlation, not on industry benchmarks.
+3.  **Instrument:** Deploy the four events listed above with the stable user ID; defer all other tracking until the activation predictor is validated.
+
+*Note: Do not assert a "good" conversion rate; compare your new activation cohort only against your own historical baseline. If the data shows no single action predicts conversion, the product value proposition, not the measurement, is the issue.*

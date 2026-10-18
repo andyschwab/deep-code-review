@@ -1,0 +1,46 @@
+# Measurement Plan: Starlight Cinemas Holiday Promo
+**To:** Carlos, Marketing Director
+**From:** Growth Analytics
+**Subject:** Tracking Incremental Revenue & Margin During Dec 1–24 Promo
+
+### 1. North Star Metric
+**Incremental Contribution Margin** (Revenue from tickets + concessions minus variable costs, excluding cannibalized full-price sales).
+*Why:* Raw redemption counts are vanity; they rise regardless of profitability. This metric isolates whether the 50% discount drives *new* money or merely subsidizes existing demand.
+
+### 2. Event Taxonomy (Instrument Only These)
+Every event below answers a specific decision question for next year's budget. Do not instrument "clicks" without these contexts.
+
+| Event Name | Question Answered | Required Properties |
+| :--- | :--- | :--- |
+| `promo_offer_sent` | Which channel volume was delivered? | `channel` (email/push/SMS), `user_segment`, `send_time` |
+| `promo_redemption_started` | Did the user initiate the discount flow? | `channel_source`, `device_type`, `timestamp` |
+| `ticket_purchase_completed` | Was the ticket bought at promo vs. full price? | `price_paid`, `original_price`, `is_member`, `session_id` |
+| `concession_add_to_cart` | Did the discount user buy high-margin ancillaries? | `cart_value`, `items_count`, `session_id` |
+| `concession_purchase_completed` | What is the final ancillary revenue per redemption? | `total_concession_spend`, `session_id` |
+
+**Identifier Seam:** Use a stable, pseudonymous `member_id` to link sessions across devices and track the full funnel. Route any PII (names, emails) to the privacy compliance protocol; do not store raw PII in analytics events.
+
+### 3. Analysis Logic: Distinguishing Growth from Cannibalization
+To answer your core unknown (cannibalization vs. growth), we will compare two cohorts using last year's baseline as the reference, not an external benchmark:
+*   **Treatment Group:** Members who received the promo notification.
+*   **Control Group:** A random 10% holdout of members who receive *no* promo communication during the window.
+
+**The Calculation:**
+1.  **Incremental Tickets:** (Redemption Rate in Treatment) − (Full-Price Purchase Rate in Control).
+2.  **Ancillary Attach Rate:** % of redeemed tickets with `concession_purchase_completed`. Compare this against the historical 40% baseline.
+3.  **Net Margin Impact:** (Incremental Tickets × Discounted Margin) + (Incremental Concession Sales) − (Cannibalized Full-Price Margin).
+
+If the Net Margin Impact is negative, the campaign is destroying value despite high volume.
+
+### 4. Channel Attribution & Weekend Hypothesis
+Do not assume weekends yield the highest *incremental* rate. High weekend traffic may simply be shifting full-price buyers to discount codes.
+*   **Readout:** Compare `Incremental Contribution Margin` by `channel_source` and `day_of_week`.
+*   **Decision Rule:** Allocate next year's budget to the channel/day combination with the highest *incremental margin per dollar spent*, not the highest redemption count.
+
+### 5. This-Week Steps
+1.  **Implement Holdout:** Before Dec 1, configure your CRM to exclude 10% of the 200k members from all promo sends to serve as the causal baseline.
+2.  **Validate Instrumentation:** Confirm `concession_purchase_completed` fires with `session_id` linked to the ticket purchase; without this link, ancillary spend is `UNVERIFIED`.
+3.  **Pre-commit Analysis Date:** Schedule the final readout for Dec 26. Do not peek at interim "wins" before Dec 10 to avoid stopping early on noise; the full holiday cycle is required to measure displacement accurately.
+
+*Note: All margin calculations must use your internal cost data; this plan tracks volume and price, not your specific cost-of-goods.*
+*Unknowns regarding specific conversion rates are `UNVERIFIED` until the campaign runs; do not estimate them now.*

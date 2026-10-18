@@ -1,0 +1,46 @@
+**To:** Lead Engineer, Data Infrastructure Team
+**Subject:** Instrumentation Plan for Voice Search Latency Diagnosis
+**Deadline for Implementation:** Friday
+
+To diagnose the 2.4s latency spike and validate the hypothesis regarding the transcription phase, instrument the following four events. Each event answers a specific engineering question and isolates the bottleneck without capturing unnecessary session data.
+
+**1. Event: `voice_search_initiated`**
+*   **Question Answered:** When did the user interaction actually begin?
+*   **Attributes:**
+    *   `request_id` (UUID, stable per attempt)
+    *   `user_id_pseudonymous` (Stable ID for cohorting; do not log PII)
+    *   `device_type` (Mobile/Desktop)
+    *   `network_type` (WiFi/Cellular)
+    *   `timestamp_start`
+
+**2. Event: `voice_audio_capture_complete`**
+*   **Question Answered:** How long did the user take to speak, and was the audio payload size anomalous?
+*   **Attributes:**
+    *   `request_id`
+    *   `audio_duration_ms` (Length of recorded audio)
+    *   `audio_payload_size_kb`
+    *   `timestamp_end_capture`
+
+**3. Event: `voice_transcription_response`**
+*   **Question Answered:** Is the transcription service the source of the 2.4s delay? (Validates your hypothesis).
+*   **Attributes:**
+    *   `request_id`
+    *   `transcription_latency_ms` (Time from audio-send to text-receive)
+    *   `transcription_status` (Success/Partial/Failure)
+    *   `error_code` (If failed)
+    *   `timestamp_end_transcription`
+
+**4. Event: `voice_intent_resolved`**
+*   **Question Answered:** Is the delay in matching intent, or is the total time acceptable even if transcription is slow?
+*   **Attributes:**
+    *   `request_id`
+    *   `intent_matching_latency_ms` (Time from text-receive to intent-decision)
+    *   `total_end_to_end_latency_ms` (Sum of all phases)
+    *   `final_status` (Results Shown / Error / Timeout)
+    *   `timestamp_end_total`
+
+**Reading Rule for Engineering:**
+Calculate the average and p95 latency for `transcription_latency_ms` versus `intent_matching_latency_ms`. If `transcription_latency_ms` accounts for >70% of `total_end_to_end_latency_ms`, the bottleneck is the external speech-to-text provider. If `intent_matching_latency_ms` is high, the issue lies in the internal query engine. Do not instrument "time-to-first-byte" of the whole page; it conflates voice logic with general site rendering and will obscure the specific voice feature defect.
+
+**Note:** Ensure `user_id_pseudonymous` is used for correlation; route any raw audio or PII handling to the privacy compliance protocol.
+**Note:** If `total_end_to_end_latency_ms` exceeds 800ms in production, trigger an automatic fallback to text search to protect the August 15 launch performance metrics.

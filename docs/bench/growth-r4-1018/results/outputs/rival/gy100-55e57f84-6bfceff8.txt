@@ -1,0 +1,54 @@
+# SkyDrop Rwanda: Operational Event Tracking Specification
+
+## 1. Strategic Assessment
+Tracking only `takeoff` and `landing` is insufficient for predictive maintenance or safety scaling. These are lagging indicators that confirm a flight occurred but offer no insight into *how* it occurred or impending failures. To scale from 200 to 1,000 flights/month while maintaining a 98% on-time rate, you must track leading indicators of system health.
+
+Given the satellite bandwidth constraint, we will use a **Hybrid Telemetry Model**:
+*   **Real-Time Stream (Low Bandwidth):** Critical safety alerts and state changes only.
+*   **Local High-Frequency Log (High Bandwidth):** Continuous sensor data downloaded post-flight for engineering analysis.
+
+## 2. Event Taxonomy & Data Routing
+
+### A. Real-Time Events (Stream via Satellite)
+*Trigger immediate ground station alerts. Frequency: On-change or threshold breach only.*
+
+| Event Name | Trigger Condition | Critical Properties | Action |
+| :--- | :--- | :--- | : |
+| `flight_state_changed` | Transition between phases | `previous_state`, `new_state` (e.g., taxiing, climbing, cruising, descending, landed), `gps_lat`, `gps_long`, `altitude_agl` | Update live fleet map |
+| `battery_critical` | Voltage < 20% OR Temp > 45°C | `voltage_cell_min`, `current_draw_amps`, `temp_celsius`, `estimated_flight_time_remaining` | Auto-return-to-home (RTH) advisory |
+| `navigation_deviation` | Path error > 5 meters OR Wind compensation > 30% | `wind_speed_ms`, `wind_direction_deg`, `compensation_angle`, `gps_accuracy_m` | Alert pilot of environmental stress |
+| `system_fault_detected` | Any non-critical hardware warning | `component_id` (e.g., motor_3, imu_1), `error_code`, `severity_level` | Schedule maintenance check |
+| `payload_status_change` | Door open/close or weight shift | `door_status`, `payload_weight_kg`, `lock_engaged` | Verify delivery integrity |
+
+### B. Local High-Frequency Logs (Store Onboard, Download Post-Flight)
+*Used for predictive modeling and root cause analysis. Frequency: 10Hz (10 times per second).*
+
+**Log Schema (`flight_telemetry_log`):**
+*   **Timestamp:** Millisecond precision
+*   **Power Systems:** Individual cell voltages (not just pack average), current draw per motor, ESC temperature.
+*   **Propulsion:** Motor RPM variance, vibration levels (g-force) on X/Y/Z axes. *High vibration is the earliest predictor of motor bearing failure.*
+*   **Control Surfaces:** Servo load percentages, control surface deflection angles.
+*   **Environment:** Barometric pressure trends, localized wind gust data (derived from control corrections).
+*   **Navigation:** GNSS satellite count, HDOP/VDOP values, inertial measurement unit (IMU) raw data.
+
+## 3. Predictive Maintenance Indicators
+To answer your specific question on early warning signs, the engineering team must analyze the **Local Logs** for these patterns:
+
+1.  **Motor Imbalance:** A divergence in RPM between motors of >2% during stable hover indicates propeller damage or bearing wear.
+2.  **Battery Sag:** A voltage drop rate (dV/dt) that exceeds the baseline curve for a specific temperature indicates cell degradation before total failure.
+3.  **Control Effort Spikes:** If the drone requires increasingly aggressive servo adjustments to maintain stability in calm winds, it suggests structural looseness or sensor drift.
+
+## 4. Implementation Guidelines for Firmware Team
+
+*   **Data Compression:** Apply lossless compression to local logs before storage.
+*   **Buffer Management:** Implement a circular buffer for local logs. In the event of a crash, the last 5 minutes of high-frequency data must be preserved in non-volatile memory.
+*   **Throttling Logic:** Real-time streaming must automatically throttle down (increase interval) if signal strength (RSSI) drops below -90dBm to preserve connection for critical alarms only.
+*   **Naming Convention:** Use `snake_case` for all event names and property keys to ensure compatibility with standard analytics pipelines (e.g., `motor_rpm_variance` not `motorRPMVariance`).
+
+## 5. Next Steps
+1.  **Engineering:** Integrate sensors to capture the properties listed above by May 15.
+2.  **Data Team:** Set up the ingestion pipeline to separate real-time streams from batch-processed logs.
+3.  **Ops:** Define threshold values for "Critical" vs. "Warning" based on the initial 200-flight dataset.
+
+*Note: Ensure all GPS coordinates in logs are encrypted at rest to comply with Rwandan aviation data sovereignty regulations.*
+*Bandwidth estimation: Real-time stream averages ~2KB/min per drone; Local log averages ~50MB per 30-min flight.*

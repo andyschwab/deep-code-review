@@ -1,0 +1,56 @@
+# StyleVision AR Feature: Beta Instrumentation Plan
+
+**Objective:** Validate interaction predictors of purchase intent and identify technical friction points causing silent abandonment.
+**Scope:** iOS and Android Mobile Apps (AR Module)
+**Deadline for Dev Handoff:** Immediate
+
+## 1. Core Engagement Events (User Intent)
+*Track specific interactions to determine which behaviors correlate with high purchase intent.*
+
+| Event Name | Trigger Condition | Essential Properties |
+| :--- | :--- | :--- |
+| `ar_session_started` | User enters AR view | `product_id`, `product_category`, `entry_source` (e.g., PDP, search) |
+| `ar_model_placed` | User successfully anchors model in space | `product_id`, `time_to_place_ms`, `attempt_count` (if retry) |
+| `ar_interaction_detected` | User manipulates the model | `interaction_type` (resize, rotate, texture_change), `product_id`, `duration_sec` |
+| `ar_texture_viewed` | User cycles through material options | `product_id`, `textures_viewed` (array), `final_selection` |
+| `ar_session_ended` | User exits AR view | `session_duration_sec`, `model_placed` (bool), `action_taken` (added_to_cart, exited, shared) |
+| `ar_share_triggered` | User clicks "Share" or takes a screenshot | `product_id`, `share_method` (native, screenshot) |
+
+**Implementation Note:** For `ar_interaction_detected`, log a new event for distinct interaction bursts (e.g., a continuous 10-second resize is one event, not 10). Include `cumulative_interaction_time` as a user property to track total engagement per session.
+
+## 2. Technical Performance Events (Stability)
+*Capture silent failures and performance degradation that lead to abandonment.*
+
+| Event Name | Trigger Condition | Essential Properties |
+| :--- | :--- | :--- |
+| `ar_performance_sample` | Automated heartbeat every 5s during active session | `fps_current`, `fps_average`, `device_model`, `os_version`, `lighting_quality` (estimated) |
+| `ar_tracking_lost` | SLAM tracking breaks or model drifts significantly | `duration_lost_ms`, `reason` (low_light, fast_motion, surface_issue), `recovered` (bool) |
+| `ar_session_crash` | App crash or hard exit within AR module | `error_code`, `memory_usage_mb`, `last_event_timestamp`, `device_battery_level` |
+| `ar_load_latency` | Time from click to first render | `load_time_ms`, `asset_size_mb`, `network_type` (wifi, 5g, 4g) |
+
+**Implementation Note:** Set `ar_performance_sample` to only fire when the AR view is foregrounded. Flag any session where `fps_average` drops below 20 or `tracking_lost` exceeds 2 seconds total as "Degraded Experience" via a computed user property.
+
+## 3. Conversion & Funnel Events
+*Link AR engagement directly to business outcomes.*
+
+| Event Name | Trigger Condition | Essential Properties |
+| :--- | :--- | :--- |
+| `add_to_cart_from_ar` | User adds item to cart directly from AR view | `product_id`, `ar_session_id`, `total_interaction_time_sec` |
+| `purchase_completed` | Transaction finishes | `product_id`, `ar_engaged` (bool), `ar_session_id` (if applicable) |
+
+## 4. Required Global Properties
+*Attach these to every event automatically via the SDK wrapper.*
+
+*   `user_id`: Unique identifier
+*   `session_id`: Unique session identifier
+*   `app_version`: Build number (critical for beta debugging)
+*   `device_model`: e.g., "iPhone 14 Pro", "Samsung S23"
+*   `os_version`: e.g., "iOS 17.2"
+*   `beta_cohort`: Invitation group identifier
+
+## Analysis Strategy for Beta
+1.  **Engagement Scoring:** Correlate `total_interaction_time_sec` and specific `interaction_type` counts against `add_to_cart_from_ar` rates to identify the "magic moment" (e.g., users who resize >3x are 40% more likely to buy).
+2.  **Friction Detection:** Filter sessions by `ar_session_ended` where `action_taken` = "exited" and `model_placed` = false. Cross-reference with `ar_load_latency` and `ar_tracking_lost` to quantify technical drop-off.
+3.  **Device Segmentation:** Group performance metrics by `device_model` to identify specific hardware that requires optimization before general launch.
+
+Ensure the development team implements a "debug mode" flag in the SDK to allow internal testing events to be tagged separately from user data.

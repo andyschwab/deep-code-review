@@ -1,0 +1,43 @@
+**Instrumentation Strategy: SecureBank Mobile Migration (Day One)**
+
+**North Star Metric:** Weekly Active Users completing a **Verified Transaction** (initiation + final confirmation).
+*Rejection of Vanity:* Do not prioritize "API calls made" or "microservices spun up." These rise regardless of user success. Focus strictly on the end-to-end completion of value.
+
+**Measurement Philosophy: Retention First, Bottom-Up**
+Do not pour engineering effort into acquiring traffic or optimizing the gateway if users cannot complete the core loop. Diagnose in this order:
+1.  **Retention:** Do users return to attempt a second transaction after the first?
+2.  **Activation:** Do they complete the full flow (not just start it)?
+3.  **Acquisition:** Are new users arriving?
+
+**Event Taxonomy: Answering Named Questions**
+Instrument only events that answer specific risk or experience questions. Every event below includes a stable, pseudonymous User ID to link sessions (required for cohort analysis), distinct from high-cardinality ops traces.
+
+| Event Name | Question Answered | Required Attributes |
+| :--- | :--- | :--- |
+| `transaction_initiated` | Are users attempting the core action? | `user_id`, `transaction_type`, `device_os`, `app_version` |
+| `transaction_async_pending` | Is the new async processing causing drop-off? | `user_id`, `transaction_id`, `expected_duration_estimate` |
+| `transaction_completed` | Did the user receive final value? | `user_id`, `transaction_id`, `total_duration_ms`, `status` |
+| `transaction_failed_terminal` | Where is the hard break? | `user_id`, `error_code`, `failure_stage` (e.g., gateway, validator, ledger) |
+| `regulatory_report_generated` | **Compliance:** Did we meet reporting obligations? | `report_id`, `record_count`, `generation_status` |
+
+**Addressing the Latency Assumption**
+You assume API gateway latency predicts frustration. This is **UNVERIFIED** without a baseline.
+*Action:* Capture `total_duration_ms` (client-side perceived time) alongside `gateway_latency_ms` (server-side). Do not set a "good" threshold yet. Plot them against `transaction_failed_terminal` for the first 14 days to derive *your* specific correlation. A generic industry benchmark is invalid here.
+
+**Technical Health vs. Business Outcomes**
+Do not choose one. Map technical health *only* to business outcomes.
+*   **Error Rates:** Track `transaction_failed_terminal` rates by `failure_stage`. If the rate spikes at the "gateway" stage, engineering investigates the gateway. If it spikes at "validator," they investigate the validator.
+*   **Response Times:** Correlate `gateway_latency_ms` with `transaction_completed`. If latency rises but completion stays flat, user frustration is low. If completion drops, you have a regression.
+
+**Experiment & Transition Rigor**
+As you migrate services:
+1.  **Pre-commit Comparisons:** Define the baseline period (e.g., March 25–31) before cutting over. Compare April 1–7 against this specific window.
+2.  **Guardrails:** Set a hard stop-tripwire. If `transaction_failed_terminal` exceeds the baseline rate by >5% for any 4-hour window, halt the migration rollout.
+3.  **No Peeking:** Do not declare the migration "successful" based on hour-one data. Wait for the pre-committed duration (e.g., 7 days) to account for weekly usage cycles.
+
+**This Week's Steps**
+1.  **Implement the 5 events** listed above with the specified attributes by April 1st; defer all other logging.
+2.  **Build one dashboard** showing `transaction_completed` rate overlaid with `transaction_failed_terminal` rate, segmented by `failure_stage`.
+3.  **Define the baseline** using last week's legacy data for `transaction_completed` volume to set your migration guardrail threshold.
+
+*Note: Ensure `user_id` is pseudonymized before storage; route PII handling to your privacy compliance protocol. Do not invent latency thresholds; calculate them from the first 48 hours of live traffic.*

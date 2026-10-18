@@ -1,0 +1,34 @@
+### Diagnostic Plan: Date-Selection Friction Analysis
+
+**Objective:** Isolate the specific cause of the 58% drop-off between "Date Selection" and "Room View" to prioritize fixes for the June peak season.
+
+**1. Event Taxonomy (Instrument Only These)**
+Track these specific events to answer named questions. Do not instrument broadly.
+*   `date_search_submitted`: (Question) Do users successfully submit valid dates?
+    *   *Properties:* `device_type`, `load_time_ms`, `error_code` (if any).
+*   `results_page_load_started`: (Question) Does the next page attempt to load?
+    *   *Properties:* `timestamp`, `session_id`.
+*   `results_page_load_completed`: (Question) Did the page render fully?
+    *   *Properties:* `load_time_ms`, `content_visible` (boolean).
+*   `filter_interaction`: (Question) Are users looking for filters before seeing rooms?
+    *   *Properties:* `filter_type`, `location` (e.g., "expected_on_date_screen").
+*   `trust_signal_click`: (Question) Are users seeking validation before proceeding?
+    *   *Properties:* `signal_type` (e.g., "security_badge", "review_summary").
+
+**2. Segmentation & Hypothesis Testing**
+Slice the drop-off rate by these dimensions to isolate the variable:
+*   **Performance:** Compare drop-off for `load_time_ms` < 2s vs. > 3s. If drop-off correlates strictly with latency, the issue is engineering (mobile load times).
+*   **Device:** Compare Mobile vs. Desktop. If mobile drop-off is significantly higher (>70%), prioritize responsive layout and load optimization.
+*   **Behavioral:** Analyze users who trigger `date_search_submitted` but never trigger `results_page_load_started`. This indicates a client-side crash or network failure before the request leaves the device.
+
+**3. Reading Rules (How to Decide)**
+*   **If** the gap between `submitted` and `load_started` is high on mobile: The friction is **performance**. *Action:* Engineering to optimize bundle size and API latency for mobile networks.
+*   **If** `load_completed` is high but users bounce immediately: The friction is **content/expectation**. *Action:* UX to audit the immediate visual hierarchy (are prices clear? are filters visible?).
+*   **If** drop-off is uniform across speed and device: The friction is likely **trust or flow logic**. *Action:* A/B test adding trust signals (e.g., "Free Cancellation" badges) directly on the date selection screen.
+
+**4. This-Week Steps**
+1.  **Engineering:** Implement the five events listed above with `session_id` and `load_time_ms` properties by Wednesday. Verify data flow in the analytics dashboard.
+2.  **UX/Product:** Run a segmented query comparing drop-off rates by device and load time buckets (<2s, 2-4s, >4s) once 500 new sessions are collected.
+3.  **Decision Gate:** If mobile load time >3s correlates with >10% higher drop-off than desktop, assign Sprint 1 to performance optimization. If no performance correlation exists, assign Sprint 1 to redesigning the date-screen layout to include trust signals and price estimates.
+
+*Note: All metrics must be compared to your internal baseline from May 5–20; no external benchmarks are applied. Ensure `session_id` is pseudonymous and routed per privacy compliance standards.*

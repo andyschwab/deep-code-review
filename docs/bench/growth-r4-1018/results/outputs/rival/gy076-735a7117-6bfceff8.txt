@@ -1,0 +1,67 @@
+# CryptoPulse Event Logging Proposal: Volatility-Resilient Audit Trail
+
+## Executive Summary
+To address the 5% event loss during high-volatility windows (e.g., the October 5 Bitcoin swing) while ensuring data integrity for the December 1 regulatory review, we propose a **Dual-Tier Logging Architecture**. This approach decouples critical compliance data from operational telemetry, guaranteeing an immutable audit trail without compromising system stability.
+
+**Core Strategy:** Do not reduce granularity for compliance events. Instead, isolate them into a high-priority, append-only stream, while allowing lower-fidelity aggregation for non-critical system metrics during peak loads.
+
+## Critical Event List & Data Attributes
+
+The following events are classified as **Tier 1 (Immutable)**. These must never be dropped, sampled, or aggregated. They constitute the legal audit trail.
+
+### 1. `order_intent_received`
+*Trigger: User or algorithm submits a trade request.*
+*   **event_id**: UUID (Unique per request, prevents duplication)
+*   **timestamp_utc**: ISO 8601 with millisecond precision (e.g., `2023-10-05T14:02:01.123Z`)
+*   **user_id**: Anonymized internal ID
+*   **asset_pair**: e.g., `BTC-USD`
+*   **side**: `BUY` or `SELL`
+*   **order_type**: `MARKET`, `LIMIT`, `STOP`
+*   **requested_quantity**: Decimal precision (no rounding)
+*   **requested_price**: Null if market order; otherwise exact limit price
+*   **volatility_context**: Boolean flag (True if local market variance > threshold)
+
+### 2. `order_execution_confirmed`
+*Trigger: Exchange confirms fill.*
+*   **event_id**: UUID
+*   **correlation_id**: Links to `order_intent_received` event_id
+*   **execution_timestamp_utc**: Exchange-provided time (critical for slippage analysis)
+*   **fill_price**: Exact execution price
+*   **fill_quantity**: Actual amount filled
+*   **fee_amount**: Trading fee charged
+*   **fee_asset**: e.g., `USD` or `BTC`
+*   **exchange_order_id**: External reference for reconciliation
+*   **slippage_bps**: Calculated deviation from intent price
+
+### 3. `risk_management_trigger`
+*Trigger: System halts trading or modifies orders due to volatility.*
+*   **event_id**: UUID
+*   **trigger_type**: `CIRCUIT_BREAKER`, `LIQUIDATION_PREVENTION`, `MAX_DRAWDOWN`
+*   **threshold_breached`: Specific metric value (e.g., "Price change > 5% in 1 min")
+*   **action_taken**: `HALT_TRADING`, `CANCEL_OPEN_ORDERS`, `REDUCE_POSITION`
+*   **affected_users**: Count or list of IDs (if small)
+
+### 4. `state_snapshot_hash`
+*Trigger: Every 60 seconds or per 100 trades (whichever comes first).*
+*   **snapshot_id**: UUID
+*   **timestamp_utc**: Time of snapshot
+*   **merkle_root**: Cryptographic hash of all Tier 1 events since the last snapshot
+*   **total_open_positions**: Aggregate count
+*   **total_exposure_usd**: Aggregate value
+*   *Note: This allows rapid integrity verification without replaying every single log line.*
+
+## Architecture Recommendations for Stability
+
+1.  **Priority Queuing**: Implement two distinct write paths. Tier 1 events bypass standard buffering and write directly to an append-only ledger (e.g., Write-Ahead Log or Immutable Object Store). Tier 2 events (UI updates, non-critical analytics) utilize standard buffering and can be sampled/dropped during backpressure.
+2.  **Local Persistence**: The trading engine must write Tier 1 events to local disk *before* acknowledging success to the user or attempting network transmission. This prevents loss during network partitions.
+3.  **Asynchronous Replication**: Do not wait for remote database confirmation to execute trades. Queue Tier 1 events for async replication to the central compliance warehouse.
+
+## Compliance Validation Plan (For Dec 1 Review)
+
+*   **Continuity Test**: Simulate >15% price swings; verify 0% loss of Tier 1 events.
+*   **Reconciliation**: Demonstrate that `state_snapshot_hash` values match the recomputed hash of the stored event stream.
+*   **Immutability Proof**: Show that stored logs are write-once-read-many (WORM) with no delete/update capabilities enabled for application services.
+
+This plan ensures that even if the system degrades performance during extreme volatility, the legal record of every user action remains complete, accurate, and verifiable.
+
+*Implementation requires immediate schema updates to the ingestion pipeline before the next sprint begins.*

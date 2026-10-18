@@ -1,0 +1,73 @@
+# Event Taxonomy Specification: Semantic Search Launch
+**Audience:** Backend Engineering Team
+**Deadline:** Infrastructure ready before May 1 launch
+**Goal:** Measure value delivery (applications), not just activity (clicks).
+
+## 1. Core Principle
+Do not instrument "everything." Track only events that answer specific questions about whether the semantic matching improves **retention of intent** (application) compared to the legacy 15% click-through baseline. All events must include a `search_session_id` (stable per user session) and `search_type` (enum: `semantic` | `legacy`) to enable cohort comparison.
+
+## 2. Required Events & Parameters
+
+### Event: `search_query_submitted`
+*   **Question Answered:** What is the entry volume and query complexity?
+*   **Trigger:** User executes a search.
+*   **Parameters:**
+    *   `query_text` (string, truncated to 256 chars)
+    *   `query_length_tokens` (integer)
+    *   `filters_applied` (array: e.g., `["location", "salary"]`)
+    *   `user_cohort_id` (string, pseudonymous)
+
+### Event: `search_results_rendered`
+*   **Question Answered:** Did the system return results, and how many? (Denominator for CTR).
+*   **Trigger:** Results list loads on client.
+*   **Parameters:**
+    *   `result_count` (integer)
+    *   `latency_ms` (integer)
+    *   `top_match_score` (float, 0.0–1.0, internal confidence score of top result)
+    *   `search_session_id` (string)
+
+### Event: `search_result_clicked`
+*   **Question Answered:** Is the initial relevance high? (Your current vanity metric, now contextualized).
+*   **Trigger:** User clicks a job card in the results list.
+*   **Parameters:**
+    *   `result_position` (integer, 1-based)
+    *   `job_id` (string)
+    *   `match_score` (float, the score assigned to this specific result)
+    *   `time_to_click_ms` (integer, time from render to click)
+    *   `search_session_id` (string)
+
+### Event: `search_refined` (**Critical New Metric**)
+*   **Question Answered:** Does the user need to correct the system? (High rate indicates confusion/poor semantic match).
+*   **Trigger:** User modifies the query or adds filters within 60 seconds of the previous `search_results_rendered` without clicking a result.
+*   **Parameters:**
+    *   `refinement_type` (enum: `query_edit` | `filter_add` | `filter_remove`)
+    *   `previous_result_count` (integer)
+    *   `search_session_id` (string)
+
+### Event: `job_application_started`
+*   **Question Answered:** Did the click translate to intent?
+*   **Trigger:** User clicks "Apply" or begins the application form.
+*   **Parameters:**
+    *   `job_id` (string)
+    *   `source_search_session_id` (string, link back to original search)
+    *   `application_method` (enum: `easy_apply` | `external_redirect`)
+
+### Event: `job_application_completed` (**North Star Input**)
+*   **Question Answered:** Did the feature deliver actual value?
+*   **Trigger:** Successful submission confirmation.
+*   **Parameters:**
+    *   `job_id` (string)
+    *   `source_search_session_id` (string)
+    *   `time_to_complete_seconds` (integer)
+
+## 3. Implementation Constraints
+1.  **No PII:** Do not log raw user names, emails, or full resume text in event properties. Use `user_cohort_id`.
+2.  **Identifier Seam:** The `search_session_id` must persist across page reloads for the same user to track the funnel from query to application. This differs from standard ops logging which often drops user context; ensure this ID is passed through the backend chain.
+3.  **Baseline Comparison:** The `search_type` parameter is mandatory. Without it, we cannot calculate the lift against the legacy 15% CTR baseline.
+
+## 4. This Week's Steps
+1.  **Engineering:** Implement the schema above in the logging pipeline by April 24, ensuring `search_session_id` propagation is tested.
+2.  **Product:** Define the "Refinement Rate" threshold for failure (e.g., if >25% of semantic searches trigger `search_refined` without a click, the model is confusing users).
+3.  **Analytics:** Pre-commit the A/B test design: set the sample size required to detect a 2% lift in `job_application_completed` rate before looking at day-1 data to avoid peeking bias.
+
+*Note: Do not estimate expected conversion rates for applications; these are `UNVERIFIED` until the May 1 launch generates real data. Compare only against your own legacy baseline.*

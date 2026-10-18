@@ -1,0 +1,41 @@
+# SwiftChat Voice Messaging: Minimum Viable Instrumentation Plan
+
+**Objective:** Validate viral growth hypotheses and feature stickiness within the six-week holiday window while minimizing engineering overhead.
+
+**Strategic Pivot:** Do **not** limit tracking to latency and crashes. While performance is a hygiene factor, your marketing pitch relies on *viral growth patterns*. Ignoring social sharing and replay frequency will blind you to whether the feature actually drives acquisition or retention. You cannot iterate on "virality" if you do not measure the actions that create it.
+
+## 1. Critical Events (Implement Immediately)
+These events are non-negotiable for answering whether the feature drives growth. They must be implemented before launch.
+
+| Event Name | Trigger | Essential Properties | Decision Informed |
+| :--- | :--- | :--- | : |
+| `voice_message_created` | User finishes recording | `duration_sec`, `creation_method` (hold-to-talk vs. upload) | Validates if users prefer short/long messages; informs UI tweaks. |
+| `voice_message_sent` | Message successfully leaves device | `latency_ms`, `network_type`, `file_size_kb` | Confirms your "speed" assumption; identifies network bottlenecks. |
+| `voice_message_replayed` | User presses play on a received message | `replay_count` (per session), `listener_user_id` | **Critical:** Measures stickiness. High replays = high engagement/clarity issues. |
+| `voice_message_shared` | User shares via native OS sheet or in-app link | `share_channel` (ios_system, whatsapp, copy_link), `message_id` | **Critical:** Direct measure of viral coefficient. Without this, you cannot prove growth. |
+| `voice_message_failed` | Send or playback fails | `error_code`, `failure_stage` (upload vs. decode) | Prioritizes bug fixes beyond simple crash reports. |
+
+## 2. What to Ignore Until Version 2
+To protect the six-week timeline, explicitly **exclude** the following. Do not build custom dashboards or complex funnels for these yet:
+
+*   **Audio Quality Scores:** Do not implement client-side audio analysis algorithms. Rely on `replay_count` as a proxy; if audio is unclear, users replay or complain (support tickets), not necessarily drop off immediately.
+*   **Granular Engagement Heatmaps:** Do not track exactly where users tap within the player UI.
+*   **User Sentiment Analysis:** Do not instrument NLP on message content.
+*   **Background Process Metrics:** Ignore battery drain or background data usage unless crash rates spike.
+
+## 3. Implementation Guidelines for Engineering
+*   **Naming Convention:** Use `snake_case` for all event names and properties (e.g., `share_channel`, not `shareChannel`).
+*   **Data Layer:** Push these events to a single data layer object. Do not create separate pipelines for performance vs. behavior; merge them to correlate latency with drop-off.
+*   **Privacy:** Ensure `listener_user_id` and `creator_user_id` are hashed IDs, not raw PII.
+*   **Validation:** The lead engineer must verify that `voice_message_shared` fires *before* the share sheet closes, not after, to avoid undercounting.
+
+## 4. Success Metrics for the VP of Product
+Focus your weekly reviews on these three derived metrics only:
+1.  **Share Rate:** `(voice_message_shared) / (voice_message_sent)` — Target: >15% (indicates viral potential).
+2.  **Replay Ratio:** `(voice_message_replayed) / (voice_message_sent)` — Target: >1.2 (indicates content value or clarity issues).
+3.  **Send Success Rate:** `(voice_message_sent) / (voice_message_created)` — Target: >98% (hygiene metric).
+
+If Share Rate is low, the feature isn't viral regardless of speed. If Replay Ratio is high but Share Rate is low, the content is engaging but not shareable. This distinction dictates your marketing pitch.
+
+*Note: Re-evaluate "ignored" metrics only if Share Rate exceeds 20% and you need to optimize specific sharing channels.*
+*Do not instrument "message listened to completion" yet; partial listens often indicate multi-tasking, not failure.*

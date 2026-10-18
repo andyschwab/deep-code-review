@@ -1,0 +1,31 @@
+# Investigation Plan: Checkout Discrepancy Diagnosis & Impact Quantification
+
+**Objective:** Distinguish between revenue loss (abandonment) and visibility loss (tracking failure) to prioritize engineering vs. product fixes.
+
+### 1. Immediate Data Reconciliation (The "Truth" Baseline)
+Stop relying on the frontend script for total volume. Use the backend transaction logs as the single source of truth for successful payments.
+*   **Action:** Query backend logs for all transactions with `status=success` created after Oct 5.
+*   **Action:** Cross-reference these IDs against the frontend analytics events.
+*   **Metric:** Calculate the **"Silent Success Rate"** = (Successful Backend Transactions Missing Frontend Event) / (Total Successful Backend Transactions).
+*   **Interpretation:** If this rate is high (e.g., >80% of the 12% gap), the issue is technical visibility, not revenue loss. If low, the gap is likely true abandonment or backend-confirmed failures not yet logged as "success."
+
+### 2. Technical Forensics (Isolating the Failure Mode)
+To confirm if network errors or browser restrictions are killing the pixel:
+*   **Action:** Instrument a secondary, robust logging mechanism for the specific "Pay Click" to "Confirmation Load" window. Use a beacon API (`navigator.sendBeacon`) instead of standard XHR/fetch for the tracking call, as it survives page unloads.
+*   **Action:** Correlate server access logs (Nginx/Apache) for the confirmation page URL against the analytics events. If the server served the confirmation page (200 OK) but no analytics event fired, it is a **client-side tracking failure**.
+*   **Action:** Check for spikes in 4xx/5xx errors or timeouts on the tracking endpoint specifically after Oct 5.
+
+### 3. Financial Impact Quantification
+Present the impact in two distinct buckets for the CPO:
+*   **Bucket A (Visibility Loss):** `Silent Success Count` × `Average Order Value (AOV)`. This is revenue *captured* but unmeasured. It distorts marketing ROI but does not hit the P&L.
+*   **Bucket B (Revenue Loss):** `Total Gap` − `Silent Success Count`. This represents users who clicked pay but never completed. This is actual lost revenue requiring UX or payment gateway intervention.
+
+### 4. Decision Matrix & Next Steps
+*   **If Bucket A dominates:** Prioritize the Site Reliability Engineer to fix the tracking pipeline (switch to server-side tracking or beacon API). No product changes needed.
+*   **If Bucket B dominates:** Prioritize the Product team to investigate payment gateway latency, error messaging, or friction points between the "Pay" click and confirmation.
+
+**This Week's Step:**
+1.  Run the backend-vs-frontend ID reconciliation query today to establish the "Silent Success Rate."
+2.  If >50% of the gap is silent success, deploy a server-side tracking patch for the confirmation event within 48 hours to restore data fidelity.
+
+**Note:** Do not assume the 12% is abandonment; treating a tracking bug as a UX problem will waste engineering cycles on the wrong fix. All metrics must be derived from your internal logs; no external benchmarks apply here.

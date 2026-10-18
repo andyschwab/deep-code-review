@@ -1,0 +1,36 @@
+### Event Tracking Strategy: Private Family Journals
+
+**Objective:** Measure adoption and completion of the journal upload feature while adhering to strict privacy constraints (no PII, no file names, no IP addresses).
+
+#### 1. Event Taxonomy
+Instrument only the following three events. Each answers a specific question without capturing sensitive content.
+
+| Event Name | Question Answered | Properties (Strictly Non-PII) |
+| :--- | :--- | :--- |
+| `journal_upload_started` | Do users attempt to use the feature? | `entry_point` (e.g., "dashboard_banner", "profile_menu"), `device_type` (mobile/desktop), `browser_locale` (e.g., "en-US" only, no region) |
+| `journal_upload_failed` | Where is the technical or friction drop-off? | `failure_stage` ("file_selection", "processing", "encryption", "network"), `error_code_category` (e.g., "timeout", "format_unsupported"), `file_size_bucket` ("small", "medium", "large") |
+| `journal_upload_completed` | Did the user successfully deliver value? | `duration_seconds_bucket` ("<30s", "30-60s", ">60s"), `file_size_bucket`, `entry_point` |
+
+**Privacy Implementation Notes for Engineering:**
+*   **Identifier Seam:** Use a stable, pseudonymous user ID (hashed internally) to track cohorts across sessions. Do not log raw IPs or device fingerprints.
+*   **Content Safety:** The `file_size_bucket` and `error_code_category` must be derived locally or stripped of any filename/path context before logging. No metadata describing the *content* of the journal (e.g., "diary", "letters") is to be captured.
+*   **Retention:** Set event data retention to 90 days to minimize long-term exposure, aligning with the privacy charter.
+
+#### 2. Measurement Logic & Thresholds
+**North Star Metric:** `journal_upload_completed` count per weekly active user (WAU).
+**Input Metric:** Completion Rate = (`journal_upload_completed` / `journal_upload_started`).
+
+**Alerting Thresholds:**
+You requested an alert if adoption falls below 5% of active users.
+*   **Metric:** Weekly Adoption Rate = (Unique users with `journal_upload_completed` in Week N) / (Total WAU in Week N).
+*   **Trigger:** Alert if Weekly Adoption Rate < 5% for two consecutive weeks post-launch (Nov 1–Nov 14).
+*   **Drop-off Alert:** Alert if `journal_upload_failed` at stage "encryption" exceeds 10% of `journal_upload_started` events, indicating a privacy-tooling friction point.
+
+**Note on Benchmarks:** The 5% threshold is a business constraint you provided, not an industry benchmark. There is no external "good" rate for private journal uploads; success is defined strictly by AncestryPath's internal ROI requirements relative to the $45k sunk cost.
+
+#### 3. Immediate Next Steps
+1.  **Engineering:** Implement the three events above with the specified property allow-list; verify via staging that no file names or IPs appear in the payload.
+2.  **Legal:** Review the `error_code_category` list to ensure no edge cases leak path information.
+3.  **Data Lead:** Pre-build the dashboard query for the "Weekly Adoption Rate" using the pseudonymous ID, ready for Nov 1 launch.
+
+No further instrumentation is recommended until these core questions are answered.

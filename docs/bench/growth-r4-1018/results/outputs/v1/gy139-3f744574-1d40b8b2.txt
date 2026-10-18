@@ -1,0 +1,35 @@
+# Data Integrity Recovery & Prevention Plan
+
+**Audience:** VP of Engineering, Analytics Team
+**Objective:** Restore segmentation capability for Q4 marketing ROI and prevent further data degradation.
+
+### 1. Immediate Containment (Prevent Gap Widening)
+Do not wait for the full code fix to stop the bleeding. Implement a **schema-level guardrail** in the ingestion pipeline effective immediately:
+*   **Action:** Configure the event collector to reject or quarantine any `workout_completion` event missing `source_campaign` or `device_model`.
+*   **Mechanism:** Route rejected events to a "dead letter queue" (DLQ) rather than dropping them silently. This preserves the raw payload for later replay once the app fix is deployed.
+*   **Result:** Metrics calculated from the main warehouse will reflect only complete records, preventing the dilution of "unknown" traffic into your core retention numbers. The volume of events in the DLQ becomes your real-time indicator of the bug's severity.
+
+### 2. Historical Data Strategy (September 20 – Present)
+**Do not impute missing values.** Statistical imputation (guessing `source_campaign` based on averages) will fabricate attribution data, leading to false conclusions about holiday campaign ROI. Instead, isolate and label:
+*   **Segmentation:** Create a distinct cohort flag: `data_quality_issue_sep20`. All affected records are tagged with this flag.
+*   **Analysis Protocol:**
+    *   **Exclude** this cohort from all official marketing ROI and channel-specific retention reports. Report these metrics as "Verified Data Only."
+    *   **Quantify the Bias:** Calculate the percentage of total volume affected daily. If the missing data rate is uniform across all known channels, you may report high-level aggregate retention with a prominent "confidence interval" note, but **never** break this down by channel.
+    *   **Salvage via Join (Limited):** If `user_id` is present and stable, attempt to join against the *last known good* `source_campaign` from that user's pre-Sept 20 events. Only apply this if a user's acquisition channel is immutable. If a user could have arrived via multiple campaigns, mark as `UNVERIFIED`.
+
+### 3. Technical Roadmap to Fix
+*   **Root Cause Validation:** You hypothesize a race condition. Validate this by sampling the DLQ logs for timestamp deltas between property initialization and event fire. Do not inspect "massive" raw logs blindly; sample 1,000 failed events to confirm the pattern.
+*   **The Fix:** Modify the client-side logging library to block the event dispatch until required properties are resolved (synchronous wait) or implement a local cache that retries sending the event once properties load.
+*   **Backfill Strategy:** Once the code fix is shipped in the next app update, **do not attempt to retroactively fix old mobile logs**. The data for the Sept 20–Fix window is permanently partial. Accept this loss to preserve integrity.
+
+### 4. Communication to Marketing
+*   **Narrative:** "Due to a logging integrity issue identified on Sept 20, channel-specific attribution is temporarily paused to prevent reporting inaccurate ROI. We are reporting aggregate retention only. Full channel visibility will resume upon the next app release (estimated date: X)."
+*   **Deliverable:** A dashboard showing "Verified Volume" vs. "Quarantined Volume" to demonstrate transparency on data completeness.
+
+### This-Week Steps
+1.  **Engineering:** Deploy the ingestion filter to route incomplete events to the DLQ by EOD tomorrow.
+2.  **Analytics:** Publish the Q4 report explicitly excluding the `data_quality_issue_sep20` cohort, noting the exact percentage of excluded volume.
+3.  **Decision:** If the quarantined volume exceeds 50% of daily traffic, trigger an emergency hotfix for the logging library; otherwise, schedule for the standard sprint.
+
+*Note: No benchmarks for "acceptable" data loss are asserted here; the threshold for emergency action is derived from your specific traffic volume and reporting needs.*
+*All missing values remain `UNVERIFIED`; no synthetic data has been introduced.*

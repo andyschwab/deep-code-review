@@ -1,0 +1,49 @@
+### Minimal Instrumentation Plan for RemoteSync Async Video Launch
+
+**Audience:** Co-founder and Lead Developer
+**Goal:** Validate demand and identify recording flow drop-offs with minimal engineering effort by December 1.
+
+#### Non-Negotiable Events (The "Must-Haves")
+Instrument only these four events. Each answers a specific question about user value or failure. Do not add properties unless listed.
+
+1.  **`recording_started`**
+    *   **Question:** How many users attempt the core action?
+    *   **Properties:** `browser_type`, `os`.
+    *   **Why:** Establishes the top of your specific funnel. Without this, you cannot calculate conversion rates.
+
+2.  **`recording_permission_denied`**
+    *   **Question:** Are users blocked by browser permissions before they can record?
+    *   **Properties:** `error_code` (if available from the browser API), `browser_type`.
+    *   **Why:** You explicitly cited zero visibility here. This event isolates technical friction from product disinterest. If this spikes, fix the permission UI, not the video feature.
+
+3.  **`video_sent`** (Your proposed core action)
+    *   **Question:** Did the user successfully deliver value? (North Star input)
+    *   **Properties:** `duration_seconds`, `recipient_count`.
+    *   **Why:** This is your success metric. Comparing `recording_started` to `video_sent` reveals your true activation rate.
+
+4.  **`video_viewed_by_recipient`**
+    *   **Question:** Is the content actually consumed? (Retention signal)
+    *   **Properties:** `time_to_view_minutes`.
+    *   **Why:** "Sent" is vanity if no one watches. This validates that the async loop is closing.
+
+#### What to Defer (Post-Launch)
+Do not build tracking for these yet. They create noise without answering immediate survival questions:
+*   **UI Interactions:** Clicks on "pause," "trim," or "preview." Only instrument these if `recording_started` is high but `video_sent` is low *after* launch.
+*   **Share Channel:** Whether shared via Slack, Email, or Link. Know *that* it was shared first; know *how* later.
+*   **Sentiment/Reaction:** Emoji reactions or comments. Validate the core loop first.
+
+#### Manual Data Accuracy Verification
+With no QA automation, use this "sanity check" protocol for the first 48 hours post-launch:
+
+1.  **The "Five-User" Test:** Have the two engineers and three external users perform the full flow on different browsers (Chrome, Safari, Firefox). Manually count the successful `video_sent` actions you know occurred.
+2.  **Log Sampling:** Query your analytics for that specific 30-minute window. If you performed 5 sends and the dashboard shows 4 or 6, your instrumentation is likely correct (allowing for network dropouts). If it shows 0 or 20, the implementation is broken.
+3.  **Permission Spot-Check:** Intentionally deny camera access in one test run. Verify that `recording_permission_denied` fires and `recording_started` does *not* incorrectly cascade to `video_sent`.
+
+#### Reading the Data (Bottom-Up)
+Do not look at total signups. Read the funnel in this order:
+1.  **Retention/Value:** Is `video_viewed_by_recipient` happening? If no, the feature provides no value regardless of send rates.
+2.  **Activation:** What is the % of `recording_started` that becomes `video_sent`? If <50%, investigate `recording_permission_denied`.
+3.  **Acquisition:** Only after the above are healthy, worry about driving more `recording_started` events.
+
+**Note:** Ensure the user identifier passed with these events is stable across sessions to track cohorts, but keep it pseudonymous to comply with privacy standards.
+**Note:** If `recording_permission_denied` exceeds 10% of `recording_started`, pause acquisition efforts and fix the permission prompt immediately.

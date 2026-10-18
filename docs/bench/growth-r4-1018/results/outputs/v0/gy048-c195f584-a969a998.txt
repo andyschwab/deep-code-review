@@ -1,0 +1,43 @@
+# User Path Analysis Framework: Custom Dashboard Adoption
+
+**Objective:** Diagnose friction points in the custom dashboard creation workflow to increase adoption from the current 12% baseline among active users.
+
+## 1. Event Taxonomy: Answering Named Questions
+Do not instrument "everything." Track only the events required to answer specific drop-off questions. Every event below must include a `session_id` and a stable, pseudonymous `user_id` to enable path reconstruction across sessions.
+
+| Event Name | Question Answered | Required Properties |
+| :--- | :--- | :--- |
+| `dashboard_create_started` | How many users attempt the flow? | `entry_point` (nav bar, empty state, prompt) |
+| `data_source_selected` | Do users get stuck selecting data? | `source_type`, `time_to_select` (ms), `search_query_used` (bool) |
+| `widget_added` | Is the canvas interaction the barrier? | `widget_type`, `position_x`, `position_y`, `is_first_widget` |
+| `config_panel_opened` | Do users try to configure but fail? | `widget_id`, `property_changed` |
+| `dashboard_save_attempted` | Is the final commit the friction point? | `widget_count`, `validation_errors` (array) |
+| `dashboard_save_success` | **Core Action:** Did they complete value delivery? | `dashboard_id`, `time_to_complete` (ms) |
+| `dashboard_create_abandoned` | Explicit abandonment or 10-min inactivity. | `last_step`, `duration_seconds` |
+
+## 2. Segmentation Strategy
+Segment users to isolate whether the friction is universal or specific to certain behaviors.
+
+*   **Power User Tier:** Users with >20 weekly sessions. Compare their drop-off rates against the general population. If they struggle, the UI is likely fundamentally flawed, not just a learning curve issue.
+*   **Entry Point Cohort:** Group by `entry_point`. Users entering via a prompt may have higher intent than those navigating manually.
+*   **Complexity Bucket:** Segment by `widget_count` attempted. Do users drop off only when adding a 3rd widget, suggesting cognitive overload later in the flow?
+*   **Data Source Type:** Segment by `source_type`. Complex sources (e.g., SQL connectors) may have higher friction than simple CSV uploads.
+
+## 3. Handling Non-Linear Behavior
+Since data scientists do not follow a strict linear path, avoid simple funnel charts which assume Step A → Step B → Step C. Instead:
+
+*   **Path Exploration Queries:** Use analytics tools to visualize the most common sequences *between* `dashboard_create_started` and `dashboard_save_success`. Look for loops (e.g., `widget_added` → `config_panel_opened` → `widget_added` → `config_panel_opened`). High loop counts indicate confusion or iterative tweaking.
+*   **Time-Decay Analysis:** Measure the time delta between `data_source_selected` and `widget_added`. A long gap suggests the user is stuck or distracted; a very short gap followed by abandonment suggests a mismatch in expectations.
+*   **Error State Correlation:** Correlate `validation_errors` with `dashboard_create_abandoned`. If 80% of abandonments follow a specific error type, that is your primary fix.
+
+## 4. Implementation Plan & Next Steps
+*   **Engineering:** Implement the seven events above with pseudonymous IDs by next Monday. Ensure `session_id` persists across tab refreshes.
+*   **UX Research:** Prepare to interview 5 users who trigger `dashboard_create_abandoned` after `config_panel_opened` to qualitative validate the quantitative drop-off.
+*   **Analysis Date:** First full cohort read-out scheduled for March 26th (14 days post-launch of tracking).
+
+**This Week's Actions:**
+1.  **Engineering:** Commit the event schema for `widget_added` and `dashboard_save_attempted` including error arrays; verify pseudonymous ID generation.
+2.  **Product/UX:** Define the "abandonment" timeout threshold (recommend 10 minutes of inactivity) to ensure consistent `dashboard_create_abandoned` firing.
+3.  **Decision Rule:** If >40% of users drop off at `data_source_selected`, prioritize simplifying the connector UI; if drop-off is at `widget_added`, prioritize template presets.
+
+*Note: No benchmark for "good" completion rate is asserted; success is defined as an improvement over the current 12% baseline. PII handling for user paths must adhere to existing privacy compliance protocols.*

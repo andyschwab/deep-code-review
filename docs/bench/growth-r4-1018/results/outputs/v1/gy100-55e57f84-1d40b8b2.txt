@@ -1,0 +1,37 @@
+# Flight Telemetry & Event Tracking Specification for SkyDrop Rwanda
+
+**Objective:** Enable predictive maintenance and safety monitoring for scaling from 200 to 1,000 flights/month while respecting satellite bandwidth constraints.
+
+**Core Principle:** Instrument only events that answer specific safety or efficiency questions. Do not stream raw telemetry; stream state changes and anomalies.
+
+### 1. Event Taxonomy (What to Track)
+Every event below must include: `flight_id`, `drone_id`, `timestamp`, `gps_location`, and `battery_level`.
+
+| Event Name | Trigger Condition | Question Answered | Transmission Mode |
+| :--- | :--- | :--- | :--- |
+| `flight_phase_change` | State shifts (e.g., Takeoff → Cruise → Landing) | Is the flight progressing through the planned timeline? | **Real-time** (Low volume) |
+| `battery_voltage_drop_alert` | Voltage drops >15% within 2 mins OR below critical threshold | Is the power system degrading faster than expected under load? | **Real-time** (Critical) |
+| `wind_resistance_anomaly` | Motor thrust adjustment exceeds 20% above baseline for >30s | Are we encountering unexpected weather patterns affecting stability? | **Local Store** (High volume) |
+| `motor_temp_spike` | Motor temperature exceeds 70°C (or model-specific limit) | Is overheating occurring prior to motor failure? | **Real-time** (Critical) |
+| `route_deviation` | GPS path deviates >50m from planned corridor | Is the drone off-course due to wind or navigation error? | **Real-time** (Safety) |
+| `vibration_signature_change` | Accelerometer FFT shows frequency shift indicative of prop damage | Is there physical damage developing before catastrophic failure? | **Local Store** (High volume) |
+| `landing_impact_force` | G-force spike > threshold upon touchdown | Was the landing hard enough to cause structural stress? | **Real-time** (Maintenance trigger) |
+
+### 2. Data Strategy: Real-time vs. Local Storage
+To preserve satellite bandwidth, apply the following filtering logic in firmware:
+
+*   **Stream Real-time (Priority 1):** Only `flight_phase_change`, critical alerts (`battery_voltage_drop_alert`, `motor_temp_spike`, `route_deviation`), and `landing_impact_force`. These constitute <5% of total data points but drive immediate safety decisions.
+*   **Store Locally (Priority 2):** High-frequency telemetry for `wind_resistance_anomaly` and `vibration_signature_change`. Download these datasets only when the drone returns to base via high-bandwidth local Wi-Fi.
+*   **Aggregation Rule:** Do not stream continuous battery voltage. Instead, calculate the slope (drop rate) every 60 seconds onboard; stream only if the slope exceeds the alert threshold.
+
+### 3. Predictive Maintenance Indicators
+Based on your hypothesis, the earliest warning signs to validate are:
+1.  **Battery Health:** Correlate `battery_voltage_drop_alert` frequency with cycle count. A rising frequency indicates cell degradation before total failure.
+2.  **Propeller/Motor Health:** Correlate `vibration_signature_change` events logged locally with subsequent `motor_temp_spike` events. If vibration spikes precede heat spikes by >2 flights, you have a predictive model for motor failure.
+
+### 4. Implementation Deadlines & Actions
+*   **By May 15:** Firmware update to implement local buffering and threshold-based filtering for `wind_resistance_anomaly` and `vibration_signature_change`.
+*   **By May 25:** Validate that real-time stream size per flight is <50KB excluding payload data.
+*   **By June 1:** Full deployment. Begin collecting baseline data for "normal" vibration and wind profiles to refine thresholds.
+
+**Note:** This specification focuses strictly on product behavior (flight safety/efficiency). System health (server uptime, API latency) remains under existing ops observability protocols. No industry benchmarks for "good" vibration levels are asserted; thresholds must be derived from your own April baseline data.

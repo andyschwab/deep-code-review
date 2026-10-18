@@ -1,0 +1,56 @@
+# User Path Analysis Framework: Custom Dashboard Adoption
+
+## Objective
+Diagnose friction points in the custom dashboard creation workflow to increase adoption from the current 12% baseline among power users.
+
+## 1. Event Tracking Specification
+Move from aggregated metrics to granular, sequential event tracking. Implement the following `object_action` named events with strict property consistency.
+
+### Core Workflow Events
+| Event Name | Trigger Point | Essential Properties |
+| :--- | :--- | :--- |
+| `dashboard_creation_started` | Click "New Custom Dashboard" | `entry_point` (nav, shortcut), `user_segment` |
+| `data_source_selected` | Confirm data source choice | `source_type`, `search_query_used`, `time_to_select` (ms) |
+| `widget_added` | Drop a widget onto canvas | `widget_type`, `position_x`, `position_y`, `step_number` |
+| `widget_configured` | Save widget settings | `config_complexity` (low/med/high), `fields_mapped_count` |
+| `dashboard_layout_saved` | Click "Save Layout" | `total_widgets`, `time_elapsed` (ms) |
+| `dashboard_creation_abandoned` | Close modal/nav away before save | `last_completed_step`, `total_steps_attempted` |
+
+### Error & Friction Events
+| Event Name | Trigger Point | Essential Properties |
+| :--- | :--- | :--- |
+| `validation_error_triggered` | System blocks progression | `error_code`, `field_name`, `step_name` |
+| `help_docs_accessed` | Click "?" or help link | `context_step`, `topic_id` |
+| `undo_action_performed` | User reverses a change | `action_reversed`, `step_name` |
+
+## 2. Segmentation Strategy
+Do not analyze all users together. Segment by behavior and intent to isolate specific friction patterns.
+
+*   **Cohort A: The Attempters vs. Completers**
+    *   *Attempters:* Fired `dashboard_creation_started` but not `dashboard_layout_saved` within 24 hours.
+    *   *Completers:* Successfully fired `dashboard_layout_saved`.
+    *   *Goal:* Compare step-by-step drop-off rates between groups.
+*   **Cohort B: Power User Maturity**
+    *   Segment by `total_dashboards_created_lifetime` (0, 1-5, 5+).
+    *   *Hypothesis:* New power users may struggle with source selection; veterans may struggle with complex widget configuration.
+*   **Cohort C: Path Complexity**
+    *   Group by `total_widgets` in final/recent dashboard (Simple: 1-3, Complex: 4+).
+    *   *Goal:* Determine if friction scales linearly with complexity or spikes at specific thresholds.
+
+## 3. Analyzing Non-Linear Behaviors
+Standard funnel analysis fails when users iterate (add → delete → re-add). Use **Path Exploration** and **Sequence Analysis** instead of rigid funnels.
+
+*   **Loop Detection:** Calculate the average number of `widget_added` + `undo_action_performed` loops per session. High loop counts at specific steps indicate UI confusion or unclear affordances.
+*   **Step Skipping:** Identify users who jump from `data_source_selected` directly to `dashboard_layout_saved` (using defaults) vs. those who configure every widget. Correlate this with long-term retention of the feature.
+*   **Time-Decay Analysis:** Measure `time_elapsed` between `dashboard_creation_started` and `dashboard_layout_saved`.
+    *   *Too fast:* May indicate accidental clicks or superficial testing.
+    *   *Too slow:* Indicates cognitive overload or technical blockers.
+    *   *Benchmark:* Establish the median time for "Completers" and flag "Attempters" who exceed 2x this duration before abandoning.
+
+## 4. Implementation Timeline
+*   **Data Layer Update:** Engineering to push specified events to the data layer by EOD Thursday.
+*   **Validation:** QA to verify event firing and property population in debug mode by Friday noon.
+*   **Go-Live:** Tracking live by Monday AM.
+*   **First Review:** Preliminary path analysis available 7 days post-launch (March 19th) to ensure sufficient sample size.
+
+**Note:** Ensure `user_id` is consistently passed across all events to enable cross-session pathing. Avoid capturing PII in event properties.

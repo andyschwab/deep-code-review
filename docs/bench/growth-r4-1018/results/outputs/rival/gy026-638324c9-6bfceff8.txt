@@ -1,0 +1,35 @@
+# Data Reconciliation & Measurement Strategy for OmniShop
+
+**Objective:** Determine if the iOS vs. Android conversion gap is a real behavioral difference or a measurement artifact caused by tracking errors, device switching, or data silos.
+
+### Phase 1: Audit Tracking Implementation (Weeks 1-2)
+Before analyzing behavior, validate the data collection layer, specifically targeting the suspected Android SDK v4.2 issue.
+
+1.  **Event Parity Check:** Compare the ratio of `session_start` to `checkout_initiated` and `purchase_completed` across Web, iOS, and Android. A significant deviation in Android's funnel drop-off rates compared to industry benchmarks suggests implementation failure.
+2.  **SDK Validation:** Isolate traffic from Android SDK v4.2. Verify if `user_id` and `session_id` are persisting correctly across app backgrounding/foregrounding. If these IDs reset, session duration will be artificially low, and conversions may be attributed to "direct" or lost entirely.
+3.  **Debug Sample:** Request a raw data dump of 1,000 recent Android sessions. Manually inspect for missing properties (e.g., `referrer`, `campaign_source`) that are present in iOS/Web logs.
+
+### Phase 2: Unify Identity & Resolve Device Switching (Weeks 3-4)
+Address the "unknown" of mid-funnel device switching which causes double-counting or attribution loss.
+
+1.  **Implement/Verify User-ID Stitching:** Ensure your analytics platform (e.g., GA4, Mixpanel, Segment) is configured to stitch sessions using a persistent `user_id` (logged-in state) rather than relying solely on device IDs or cookies.
+    *   *Action:* If not active, prioritize engineering resources to fire the `user_id` trait immediately upon login/signup across all platforms.
+2.  **Cross-Device Funnel Analysis:** Once ID stitching is verified, re-run the conversion funnel report grouping by *User* instead of *Session*.
+    *   *Hypothesis Test:* If the iOS/Android gap narrows significantly when viewed by User, the issue was fragmented attribution. If the gap remains, the behavior is real.
+3.  **Attribution Window Check:** Ensure your attribution windows are consistent across platforms. Discrepancies here often make mobile look worse if the window is too short for mobile consideration cycles.
+
+### Phase 3: Segmented Behavioral Analysis (Week 5)
+If tracking is sound and the gap persists, investigate genuine UX differences.
+
+1.  **Checkout Flow Performance:** Segment the checkout funnel by platform. Identify the specific step where Android drops off (e.g., payment entry vs. shipping address).
+2.  **Technical Performance Correlation:** Correlate conversion rates with page load times and crash rates for Android v4.2. High latency or crash rates at specific steps confirm a performance bottleneck rather than a preference issue.
+3.  **Cohort Consistency:** Compare new vs. returning users. If the gap exists only for new users, it may be an onboarding friction issue specific to the Android UI.
+
+### Recommended Immediate Actions for Tom
+1.  **Freeze Major Changes:** Halt non-critical updates to the Android checkout flow until the audit is complete to avoid compounding variables.
+2.  **Engineering Ticket:** Create a high-priority ticket to audit the Android SDK v4.2 implementation, specifically focusing on `user_id` persistence and event firing triggers.
+3.  **Interim Reporting:** Report conversion metrics with a clear disclaimer distinguishing "Raw Device Data" from "Stitched User Data" once identity resolution is attempted. Do not allocate budget to "fix Android conversion" until the data integrity is confirmed.
+
+**Deliverable:** A validated data pipeline with unified user identities and a definitive report stating whether the 25% gap is technical or behavioral.
+
+*Note: This strategy prioritizes data integrity before optimization; fixing tracking often resolves apparent conversion gaps without code changes to the product itself.*

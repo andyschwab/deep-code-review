@@ -1,0 +1,69 @@
+# CasaFind Spain: Enhanced Conversion Funnel Definition
+
+To distinguish between UX friction and offline leakage, we must expand tracking from a binary "View → Submit" model to a multi-branch funnel that captures intent signals before the final conversion. This structure allows you to isolate where mobile users disengage versus where they succeed outside your platform.
+
+## 1. The Expanded Funnel Stages
+
+Define these five distinct stages to map the user journey:
+
+**Stage 1: Property Discovery (Intent Initiated)**
+*   **Definition:** User views a property detail page (PDP).
+*   **Current Status:** Tracked (15k/day).
+*   **New Requirement:** Segment by device (Mobile vs. Desktop) and interface version (Legacy vs. New Mobile Interface launched Aug 20).
+
+**Stage 2: Engagement Signal (Intent Validated)**
+*   **Definition:** User performs a low-friction action indicating serious interest *before* the contact form.
+*   **Events to Track:**
+    *   `click_to_reveal_phone`: User clicks to show the agent's number.
+    *   `click_to_copy_phone`: User copies the number to clipboard.
+    *   `click_to_email`: User clicks the email link (if separate).
+    *   `save_listing`: User favorites the property.
+*   **Why this matters:** If Stage 1 is high but Stage 2 is low on mobile, the new interface may be hiding contact options. If Stage 2 is high but Stage 3 is low, the friction is specifically in the submission/verification process.
+
+**Stage 3: Conversion Attempt (Friction Point)**
+*   **Definition:** User initiates the formal lead capture flow.
+*   **Events to Track:**
+    *   `contact_form_started`: Form modal opens or user scrolls to form.
+    *   `phone_verification_sent`: OTP/SMS triggered.
+    *   `phone_verification_failed`: Invalid entry or timeout.
+    *   `contact_form_abandoned`: User leaves after starting but before submitting.
+*   **Why this matters:** This isolates your hypothesis. A spike in `phone_verification_failed` or `contact_form_abandoned` on mobile confirms the verification step is the blocker.
+
+**Stage 4: Digital Conversion (Success)**
+*   **Definition:** Form successfully submitted.
+*   **Events to Track:** `contact_form_submitted` (Current metric).
+*   **Analysis:** Compare Stage 3 → Stage 4 conversion rates by device.
+
+**Stage 5: Offline Conversion (Leakage Detection)**
+*   **Definition:** User bypasses the form to call directly.
+*   **Events to Track:**
+    *   `tel_link_clicked`: Specific click on the `tel:` protocol link.
+    *   `whatsapp_link_clicked`: Click on WhatsApp deep link (highly relevant in Spain).
+*   **Why this matters:** If Stage 2 and Stage 5 are high, but Stage 4 is flat, your users are converting successfully via phone, rendering the form friction irrelevant for those specific users. The "problem" is actually a measurement gap, not a UX failure.
+
+## 2. Implementation Priorities for Q3 Roadmap
+
+Present these three specific workstreams to the Product Director:
+
+**A. Instrument "Pre-Form" Intent (Engineering - Low Effort)**
+Implement event listeners for `click_to_reveal_phone`, `tel_link_clicked`, and `whatsapp_link_clicked` immediately. This requires no UI change, only code instrumentation.
+*   *Success Metric:* Ratio of `tel_link_clicked` to `contact_form_submitted`. If this ratio is >2:1 on mobile, users prefer calling.
+
+**B. Audit Verification Friction (Product/UX - Medium Effort)**
+Add granular tracking to the verification step: `verification_input_started`, `verification_code_requested`, `verification_code_error`, `verification_timeout`.
+*   *Success Metric:* Drop-off rate between `verification_code_requested` and `contact_form_submitted`. If >40% on mobile, the hypothesis is confirmed.
+
+**C. Post-Conversion Validation (Ops/Engineering - High Effort)**
+Implement a "Did you call?" micro-survey or match inbound call logs (if agents log calls) against digital sessions.
+*   *Success Metric:* % of "digital leaks" recovered or attributed.
+
+## 3. Expected Outcome
+
+By splitting the funnel at **Engagement Signal** and **Conversion Attempt**, you will generate one of two clear narratives for the roadmap:
+1.  **UX Breakage:** High drop-off at verification → Prioritize simplifying mobile auth (e.g., remove OTP, use biometric).
+2.  **Channel Preference:** High click-to-call, low form start → Prioritize "Click-to-Call" UI enhancements and attribute those calls as wins, rather than forcing form usage.
+
+This approach stops guessing and provides the data needed to decide whether to fix the form or embrace the phone call.
+
+*Note: Ensure all phone number clicks are tagged with `event_category: outbound_contact` to separate them from internal navigation in GA4.*
+*Recommendation: Run a quick heuristic review of the mobile verification flow on a real device before engineering sprints begin to confirm the suspected friction.*

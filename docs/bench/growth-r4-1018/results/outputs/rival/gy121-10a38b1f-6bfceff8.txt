@@ -1,0 +1,43 @@
+### HealthGuard Data Minimization & Audit Readiness Plan
+
+**Objective:** Reduce logging footprint from 400+ events to a compliant, high-signal set that satisfies Ohio patient privacy regulations and audit requirements while maintaining security visibility.
+
+#### 1. Mandatory Events (Capture These)
+These events constitute the "minimum necessary" data access trail required for compliance and security forensics.
+
+| Event Name | Properties to Capture | Justification for Inclusion |
+| :--- | :--- | :--- |
+| `record_accessed` | `user_id`, `patient_id`, `access_timestamp`, `reason_for_access` (if prompted) | **Core Compliance:** Proves who viewed specific PHI (Protected Health Information) and when. Essential for breach investigation. |
+| `record_exported` | `user_id`, `patient_id`, `format` (PDF/CSV), `destination` | **High Risk:** Tracks data leaving the secure environment. Critical for detecting data exfiltration. |
+| `record_modified` | `user_id`, `patient_id`, `field_changed`, `old_value_hash`, `new_value_hash` | **Integrity:** Ensures an immutable audit trail of changes to patient records. |
+| `permission_elevated` | `user_id`, `previous_role`, `new_role`, `approver_id` | **Access Control:** Verifies that only authorized personnel gained elevated privileges. |
+| `failed_access_attempt` | `user_id`, `target_resource`, `failure_reason`, `ip_address` | **Security:** Detects brute force attacks or unauthorized probing of records. |
+| `session_started` / `session_ended` | `user_id`, `auth_method`, `device_fingerprint`, `duration` | **Context:** Defines the boundary of user activity for session reconstruction. |
+
+#### 2. Excluded Events (Do Not Capture)
+The following 390+ UI interaction events should be immediately disabled in your logging configuration.
+
+*   **UI Navigation:** `menu_expanded`, `tab_switched`, `page_hover`, `scroll_depth`.
+*   **Form Interaction:** `field_focused`, `typing_started`, `dropdown_opened`.
+*   **Visual States:** `tooltip_viewed`, `modal_displayed`, `button_hover`.
+
+**Justification for Exclusion (For the Auditor):**
+1.  **Data Minimization Principle:** These events do not represent an action upon patient data (PHI). Collecting them creates unnecessary risk without adding compliance value.
+2.  **Security Noise Reduction:** High-volume UI logs obscure genuine security anomalies. Removing them sharpens the signal for detecting actual breaches.
+3.  **Privacy Risk:** Detailed interaction logs (e.g., typing patterns or hover states) can inadvertently reconstruct user behavior profiles, violating the spirit of minimizing patient and provider data exposure.
+4.  **Operational Efficiency:** Reducing log volume by ~95% lowers storage costs and speeds up forensic queries during an incident.
+
+#### 3. Addressing the Security Anomaly Concern
+Your concern that excluding UI events hides security anomalies is valid but manageable without full logging:
+
+*   **Alternative Detection:** Security anomalies (e.g., rapid clicking, erratic navigation) are better detected via **rate limiting** and **behavioral heuristics** at the gateway/load balancer level, not by storing every hover event in application logs.
+*   **Targeted Debugging:** If a specific security incident occurs, you can temporarily enable verbose logging for a *specific* user ID or session for a short window (e.g., 1 hour) to investigate, rather than logging everything for everyone permanently.
+*   **Audit Trail Sufficiency:** For regulatory audits, the "Who, What, When, and Where" of data access (covered in Section 1) is the legal standard. "How they moved their mouse" is not a regulatory requirement for HIPAA or Ohio state law.
+
+#### 4. Implementation Checklist for November 15 Audit
+1.  **Configure Logging Agent:** Update filters to whitelist only the 6 mandatory event categories.
+2.  **Document Policy:** Create a "Data Retention & Minimization Policy" document citing this event list as the approved standard.
+3.  **Verify Deletion:** Confirm historical logs containing excluded UI events are purged or anonymized if older than the retention period.
+4.  **Access Review:** Ensure only the Compliance Officer and Security Lead have access to the raw `record_accessed` logs.
+
+This approach demonstrates to the auditor that HealthGuard actively practices data minimization while retaining full visibility into actual data usage and security threats.

@@ -1,0 +1,45 @@
+# Diagnostic Plan: MFA Setup Drop-Off Analysis
+**Audience:** CISO & VP Customer Success | **Deadline:** April 25th
+
+### 1. Immediate Data Segmentation (No New Instrumentation Required)
+Before deploying new mechanisms, slice the existing 700 failures by the hypotheses provided to isolate the signal.
+*   **Geographic Split:** Segment failures by region. If the "spotty coverage" hypothesis holds, failure rates in the 20% of clients in low-coverage areas should significantly exceed the baseline (e.g., >50% vs. 25%).
+*   **Time-of-Day Split:** Segment failures by hour of attempt. If "lack of personal device access" is the driver, failures should spike strictly during core work hours (9 AM–5 PM local time) and drop during evenings/weekends.
+*   **Action:** Run these two queries on current logs today. This distinguishes between a *technical* block (constant across time, specific to region) and a *behavioral* block (specific to work hours, constant across region).
+
+### 2. Targeted Event Instrumentation (Deploy Within 48 Hours)
+Instrument only the specific events needed to confirm the root cause. Do not track generic "clicks."
+*   **Event A: `mfa_sms_delivery_status`**
+    *   **Question:** Is the technology failing?
+    *   **Properties:** `region_code`, `carrier_id`, `delivery_latency_ms`, `error_code` (e.g., "undeliverable" vs. "timeout").
+    *   **Reading Rule:** If `error_code` indicates carrier rejection in specific regions, the issue is technical delivery.
+*   **Event B: `mfa_setup_abandonment_point`**
+    *   **Question:** Where does the user quit?
+    *   **Properties:** `step_name` (e.g., "entered_number", "waiting_for_code", "entered_code"), `time_elapsed_seconds`.
+    *   **Reading Rule:** If users drop at "waiting_for_code" with high `time_elapsed`, it suggests non-receipt (technical). If they drop immediately at "entered_number" during work hours, it suggests device unavailability (behavioral).
+*   **Event C: `mfa_resend_request_count`**
+    *   **Question:** Are users trying to recover?
+    *   **Properties:** `count_per_session`, `final_outcome` (success/fail).
+    *   **Reading Rule:** High resend counts followed by failure indicate delivery issues; zero resends indicate immediate abandonment due to lack of device access.
+
+### 3. User Feedback Mechanism (Contextual Micro-Survey)
+Deploy a single optional field on the failure screen or a triggered email 1 hour after abandonment.
+*   **Prompt:** "What prevented you from completing MFA setup?"
+*   **Options:** "No access to personal phone right now," "Did not receive SMS code," "Code expired," "Other."
+*   **Constraint:** Keep this optional to avoid adding friction. Even a 10% response rate from 700 users (70 data points) will provide qualitative validation of the quantitative logs.
+
+### 4. Decision Matrix & Next Steps
+Present findings using this logic to determine the immediate action:
+*   **Scenario A (Technical):** Failures correlate strongly with specific regions/carriers regardless of time.
+    *   **Action:** Switch SMS providers for affected regions or enable Voice Call fallback immediately.
+*   **Scenario B (Behavioral):** Failures correlate strongly with work hours across all regions.
+    *   **Action:** Do not force compliance aggressively. Implement a "grace period" allowing setup outside work hours, or offer alternative methods (e.g., hardware tokens, authenticator apps) that do not rely on personal mobile reception.
+*   **Scenario C (Mixed):** Both signals are present.
+    *   **Action:** Prioritize technical fixes for high-value regions first; adjust communication timing for behavioral issues.
+
+### This Week's Steps
+1.  **Run the geographic and time-of-day segmentation** on the existing 700 failure records by tomorrow EOD to establish the baseline split.
+2.  **Deploy the `mfa_sms_delivery_status` and `mfa_setup_abandonment_point` events** to capture the next 48 hours of traffic with the specified properties.
+3.  **Prepare the interim report** for the CISO/VP stating whether the drop-off is primarily technical (fixable by engineering) or behavioral (requiring policy adjustment), citing the specific correlation found in step 1.
+
+*Note: All user identifiers in these logs must be pseudonymized; route any PII handling to the privacy compliance protocol. Do not estimate a "good" drop-off rate; compare these figures only to your pre-April 10th baseline.*

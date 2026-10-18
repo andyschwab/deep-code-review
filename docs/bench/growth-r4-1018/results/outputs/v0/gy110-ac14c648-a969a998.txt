@@ -1,0 +1,39 @@
+# Dark Mode Impact Evaluation Plan for Engineering Leadership
+
+**Decision Context:** Determine whether to default Dark Mode for new users based on productivity impact, not just adoption.
+
+## 1. North Star & Input Metrics
+**North Star:** *Weekly Active Developers completing a "Successful Commit Cycle"* (defined as: code edit → build pass → commit merged). This measures value delivery, not just presence.
+**Input Metrics:**
+*   **Adoption Rate:** % of exposed users enabling Dark Mode (current: 60%).
+*   **Evening Session Duration:** Average minutes active between 6 PM – 12 AM local time.
+*   **Syntax Error Rate:** Count of lint/build failures per 1,000 lines edited.
+*   **Commit Frequency:** Commits per active user per day.
+
+## 2. Event Taxonomy (Instrument Only What Answers a Question)
+Do not instrument "everything." Add these specific events with properties:
+*   `theme_toggled`: Properties: `{ from: "light"|"dark", to: "light"|"dark", session_time_min }`. *Question: When do users switch, and do they switch back?*
+*   `build_failed`: Properties: `{ error_type: "syntax"|"logic", theme_active: "true"|"false" }`. *Question: Does Dark Mode correlate with higher syntax error rates?*
+*   `commit_merged`: Properties: `{ lines_changed, theme_active: "true"|"false", time_of_day_bucket }`. *Question: Is output volume maintained?*
+
+**Identifier Seam:** Ensure `user_id` is stable across sessions for cohort analysis but kept pseudonymous. Route any PII (if capturing code snippets for error context) to `privacy-compliance.md` protocols; do not store raw code in analytics.
+
+## 3. Reading the Conflicting Signals
+If **Session Time ↑** but **Commit Frequency ↓**:
+*   **Hypothesis A (Fatigue):** Users are struggling to read, slowing down output despite longer hours. *Check:* Did `syntax_error_rate` increase? If yes, readability is compromised.
+*   **Hypothesis B (Flow):** Users are entering deeper focus states, writing more code per commit (larger diffs) but committing less often. *Check:* Did `lines_changed per commit` increase? If yes, productivity may be stable or higher.
+*   **Action:** Correlate `theme_active` with `lines_changed per commit`. If lines/commit is flat or down while time is up, the feature is causing friction.
+
+## 4. Experiment Rigor & Pre-commitment
+*   **Current Status:** The test started July 5th. Do not declare a winner based on "first day" adoption.
+*   **Peeking Warning:** The 60% adoption figure is a usage stat, not a success metric. Checking significance daily on productivity metrics inflates false positives.
+*   **Design Fix:** Pre-commit to a **fixed horizon** (e.g., 14 days total) or use a **sequential testing** bound if monitoring continuously. Define the **primary metric** now: *Change in Successful Commit Cycles per user*. Define a **guardrail**: *Syntax Error Rate must not increase by >2%*.
+*   **Read Rule:** If the guardrail trips (errors spike), stop the rollout regardless of session time. If the primary metric is neutral but adoption is high, consider making it an opt-in default, not forced.
+
+## 5. This-Week Steps
+1.  **Verify Instrumentation:** Confirm `build_failed` events capture the active theme property; without this, the readability hypothesis is `UNVERIFIED`.
+2.  **Cohort Query:** Run a retention cohort for Day 1 adopters vs. non-adopters: compare their *Day 7* commit frequency. If adopters drop off faster, the novelty is wearing off due to fatigue.
+3.  **Decision Tripwire:** If `syntax_error_rate` for Dark Mode users exceeds Light Mode users by 5% in the evening cohort, recommend **against** making it the default next month.
+
+*Note: All benchmarks must be derived from CodeFlow's own baseline data; no external "industry standard" error rates apply here.*
+*Ensure the final report to leadership explicitly states if the sample size reached the pre-committed N before declaring significance.*

@@ -1,0 +1,51 @@
+**To:** Tom, Lead Analyst
+**From:** Growth Analytics Strategy
+**Subject:** Q4 Conversion Reconciliation & Drop-off Diagnosis Plan
+
+**Executive Summary**
+The observed 25% iOS vs. Android conversion gap is currently `UNVERIFIED`. It cannot be treated as a real product difference until we rule out the Android SDK 4.2 tracking error and the device-switching attribution leak. Per the retention-first principle, we must validate the measurement layer before optimizing the funnel.
+
+**Phase 1: The Identifier Seam (Weeks 1-2)**
+*Goal: Resolve the "unknown" of mid-funnel device switching.*
+Current silos prevent a unified view. We cannot measure true drop-off without a stable per-user identifier that persists across web, iOS, and Android.
+*   **Action:** Implement a pseudonymous User ID (e.g., hashed email or account ID) injected into all event payloads immediately upon login or cart creation.
+*   **Constraint:** Do not use device IDs alone; they break when users switch platforms.
+*   **Verification Query:** Run a cohort analysis on users who initiated a session on Android and completed on Web (or vice versa) in the last 30 days.
+    *   *If >5% of "dropped" Android users complete elsewhere:* The gap is an attribution artifact.
+    *   *If ~0%:* The gap is likely platform-specific behavior or a hard drop-off.
+
+**Phase 2: Instrumentation Audit (Weeks 2-3)**
+*Goal: Confirm if Android SDK 4.2 is lying.*
+Session duration inconsistency suggests broken heartbeat or lifecycle events on Android.
+*   **Action:** Audit the `checkout_start` and `purchase_complete` event fire rates against server-side order logs for Android SDK 4.2 specifically.
+*   **Metric to Watch:** Ratio of (App Events Recorded) / (Server Orders Confirmed).
+    *   *If Ratio < 0.95:* The SDK is dropping events. The 25% gap is artificial. Fix the SDK before any A/B testing.
+    *   *If Ratio ≈ 1.0:* The data is reliable; the drop-off is real user behavior.
+
+**Phase 3: Unified Funnel Reconstruction (Week 4)**
+*Goal: Identify true drop-off points.*
+Once IDs are unified and SDK integrity is confirmed, rebuild the AARRR funnel for Q3 data.
+*   **Event Taxonomy:** Define exactly three events for this analysis:
+    1.  `funnel_entry` (Property: `platform`, `user_id`)
+    2.  `checkout_step_N` (Property: `step_name`, `error_code_if_any`)
+    3.  `transaction_complete` (Property: `revenue`, `platform`)
+*   **Analysis:** Compare conversion rates *only* for users with a verified single-platform journey first, then compare with cross-platform journeys. This isolates whether the friction is in the *flow* or the *attribution*.
+
+**Decision Matrix & Next Steps**
+Do not allocate engineering resources to "fixing the checkout flow" yet. Use this week's data to trigger one of these paths:
+
+1.  **If SDK Audit fails (Ratio < 0.95):**
+    *   **Verdict:** Measurement Error.
+    *   **Action:** Engineering priority is strictly fixing Android SDK 4.2 event emission. Pause all conversion optimization hypotheses.
+2.  **If Cross-Platform Switching is high (>5%):**
+    *   **Verdict:** Attribution Leak.
+    *   **Action:** Implement cross-device session stitching in the analytics warehouse. Re-calculate conversion rates before judging platform performance.
+3.  **If Data is Clean & Gap Persists:**
+    *   **Verdict:** Real Product Friction.
+    *   **Action:** Isolate the specific checkout step where Android drops. Launch an A/B test on that specific step for Android users only, using the new unified ID as the primary key.
+
+**This Week's Step**
+Run the server-side vs. client-side event reconciliation query for Android SDK 4.2 orders from last month. If the discrepancy exceeds 5%, the 25% conversion gap is `UNVERIFIED` and the immediate task is an SDK patch, not a funnel redesign.
+
+*Note: All benchmarks above are derived from your stated 2M transaction volume and internal consistency checks; no external industry averages were applied.*
+*Ensure the new User ID implementation complies with privacy guidelines (pseudonymous only) before deployment.*

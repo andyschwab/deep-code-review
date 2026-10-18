@@ -1,0 +1,44 @@
+# Experimental Design: 30-Day Trial Extension (Seasonal Adjustment)
+
+**Objective:** Isolate the causal impact of extending the free trial from 14 to 30 days on conversion rates during the high-volatility post-holiday period (January–February), controlling for the known 15% seasonal baseline drop.
+
+### 1. Experimental Design: Randomized Controlled Trial (RCT)
+Do not use a before/after comparison. Seasonal noise will confound any time-based analysis. Instead, run a **parallel A/B test** where both groups experience the same seasonal conditions simultaneously.
+
+*   **Population:** All new sign-ups starting February 1st.
+*   **Randomization Unit:** User ID (stable identifier required to track across the extended 30-day window).
+*   **Allocation:** 50/50 split.
+    *   **Control (A):** 14-day trial (current standard).
+    *   **Treatment (B):** 30-day trial.
+*   **Duration:** Run for a fixed period (e.g., 4 weeks of enrollment) to capture enough users, then allow a **30-day observation window** for the Treatment group to expire before final analysis. Do not peek at results before the full 30-day cycle completes for the last enrolled user.
+
+### 2. Metrics & Guardrails
+*   **Primary Metric:** **Trial-to-Paid Conversion Rate** (Percentage of users who subscribe before or immediately upon trial expiration).
+    *   *Why:* This directly measures the "real value" hypothesis.
+*   **Guardrail Metric:** **Cost per Acquired Customer (CAC)** and **Support Ticket Volume**.
+    *   *Why:* A longer trial increases server costs and support load. If conversion lifts but margin collapses due to extended free usage, the feature is a net loss.
+*   **Secondary Metric:** **Day-14 Activation Rate**.
+    *   *Why:* To verify if the extra time helps users reach the "aha" moment who previously churned at day 14.
+
+### 3. Statistical Methodology: Handling Seasonality & Variance
+Since both groups run concurrently, the **seasonal 15% drop affects both A and B equally**. The *difference* between A and B isolates the treatment effect, mathematically canceling out the seasonal baseline shift.
+
+*   **Analysis Method:** Difference-in-Proportions Test (Z-test) on the final conversion rates.
+*   **Variance Reduction (CUPED):** If you have pre-trial data (e.g., user source, device type, or initial engagement score) for these users, apply **CUPED** (Controlled-Experiment Using Pre-Experiment Data) to reduce noise. This increases statistical power without needing more users, crucial during low-traffic slump periods.
+*   **Sample Size Calculation:**
+    *   Do not guess. Calculate the **Minimum Detectable Effect (MDE)** based on your current baseline conversion rate (adjusted for the expected 15% drop) and desired power (typically 80%).
+    *   *Formula Input:* Use the *expected* February baseline (Current Rate × 0.85) as the control proportion.
+    *   *Constraint:* If traffic is too low to detect a meaningful lift (e.g., <5% relative increase) within the February window, extend the enrollment period into March until the pre-committed sample size $N$ is reached, even if the trial exposure overlaps slightly with non-slump months. The concurrent control still validates the comparison.
+
+### 4. Decision Rules (Pre-Committed)
+*   **Ship:** If Treatment conversion is statistically significantly higher ($p < 0.05$) AND the guardrail (margin/CAC) remains within acceptable bounds.
+*   **Stop:** If no significant difference is found after reaching full sample size $N$, or if the guardrail metric degrades beyond the break-even point.
+*   **Invalid:** Any analysis performed before the 30-day cycle completes for the cohort is `UNVERIFIED`. Do not stop early because "p < 0.05" appears on day 10; this is peeking and inflates false positives.
+
+### This-Week Steps
+1.  **Instrumentation:** Verify the event taxonomy includes `trial_started` (with property `trial_length_days`), `trial_expired`, and `subscription_created` linked by a stable `user_id`.
+2.  **Power Analysis:** Compute the required sample size $N$ using the projected February baseline (Current Rate × 0.85) and your minimum viable lift; confirm if February traffic suffices or if enrollment must extend.
+3.  **Pre-Registration:** Document the primary metric, guardrail, sample size, and analysis date in a shared doc before launching the feature flag.
+
+*Note: Ensure user consent and data retention policies for the extended 30-day tracking window align with `privacy-compliance.md` requirements.*
+*No external benchmarks were used; all thresholds derive from TravelJoy's historical baseline and stated seasonal adjustment.*

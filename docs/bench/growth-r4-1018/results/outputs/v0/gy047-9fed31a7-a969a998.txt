@@ -1,0 +1,34 @@
+### Diagnostic Plan: VerifyFast KYC Drop-off Resolution
+
+**Objective:** Isolate technical failures (Android camera bugs) from usability issues (language barriers) to restore completion rates before the October 1st campaign.
+
+#### 1. Data Requests for Engineering (Technical Hypothesis)
+Request a segmented error analysis for **Android OS ≤ 10** specifically at the `document_upload_start` to `document_upload_success` transition.
+*   **Crash/Exception Logs:** Filter by `OS_Version` and `Device_Model`. Look for specific camera permission denials, timeout exceptions, or library crashes unique to older Android versions.
+*   **Latency Metrics:** Compare average time-to-upload and retry counts between Android ≤ 10 and iOS/Android ≥ 11. High latency or infinite loading states often mimic crashes.
+*   **Failure Codes:** Extract specific API response codes (e.g., 4xx vs 5xx) returned during the upload attempt for this cohort.
+
+#### 2. Data Requests for Data Analytics (Usability Hypothesis)
+Request a behavioral cohort analysis comparing drop-off patterns by **User Locale** and **Device Type**.
+*   **Step-Level Funnel:** Break down the flow into micro-steps: `view_instructions` → `click_upload` → `camera_open` → `image_captured` → `upload_complete`.
+    *   *Diagnostic Rule:* If users drop off at `view_instructions` → `click_upload`, the issue is likely **usability/language**. If they drop off at `camera_open` → `image_captured`, the issue is likely **technical**.
+*   **Session Replay Sampling:** Request 50 anonymized session recordings for each segment: (A) Android ≤ 10 drop-offs, and (B) Non-English locale drop-offs. Look for "rage clicks," rapid back-button usage, or frozen screens.
+*   **Support Ticket Correlation:** Query support logs for keywords ("camera," "upload," "doesn't work") tagged with OS version and user region from the last 30 days.
+
+#### 3. Validation Steps & Decision Matrix
+Execute these checks immediately to determine the fix path:
+
+| If Data Shows... | Then The Root Cause Is... | Immediate Action (Before Oct 1) |
+| :--- | :--- | :--- |
+| **High crash rate** or **timeout errors** exclusively on Android ≤ 10 | **Technical Failure** | Deploy a hotfix patch for the camera library or disable camera upload for these devices, forcing a "manual file upload" fallback. |
+| **High drop-off** at `view_instructions` for non-English locales; **zero** technical errors | **Usability/Language** | Implement dynamic instruction translation or replace text with universal iconography for the identified regions. |
+| **High drop-off** at `camera_open` on Android ≤ 10 with **no** crashes | **UX/Performance** | Simplify the camera UI for older devices (e.g., remove real-time validation overlays) to reduce processing load. |
+| **Uniform drop-off** across all devices and languages | **Process Friction** | The document requirements themselves may be too strict; review acceptable document types. |
+
+#### 4. This-Week Execution Steps
+1.  **Today:** Submit SQL queries to data team for the micro-step funnel segmented by `OS_Version` and `Locale`. Request engineering to export crash logs filtered for Android ≤ 10 upload events.
+2.  **Tomorrow:** Review session replays for the top 20 drop-off scenarios identified in step 1. Confirm if the failure is a hard stop (crash) or a soft stop (confusion).
+3.  **Day 3:** Select the single highest-impact fix based on the Decision Matrix. If technical, prioritize the hotfix; if usability, update copy/assets.
+4.  **Day 4:** Deploy the fix to a 10% canary group. Monitor the `document_upload_success` rate for 24 hours. If the rate improves by >5%, roll out to 100%.
+
+**Note:** Do not wait for 95% statistical significance given the October 1st deadline; rely on the magnitude of the lift in the canary group. If the root cause remains `UNVERIFIED` after 48 hours, implement a generic "Upload via Email" fallback immediately to capture the lost 3,800 users.

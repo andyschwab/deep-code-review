@@ -1,0 +1,46 @@
+### Measurement Plan: StockPop Pilot Early Warning System
+
+**Audience:** Regional Directors and Supply Chain Logistics
+**Objective:** Detect inventory misalignment within 48 hours of site opening to enable rapid reallocation before the Dec 15–17 peak.
+
+#### 1. The North Star (Pilot Success)
+**Metric:** **Peak Weekend Stockout Avoidance Rate**
+*Definition:* The percentage of high-demand SKUs available at the start of the Dec 15–17 weekend across all 20 locations.
+*Why:* Total revenue is a lagging outcome; for a 3-week pop-up, running out of stock during the single critical weekend is an irreversible failure. This metric focuses purely on readiness for the value moment.
+
+#### 2. The 48-Hour Leading Indicators (The "Fail Fast" Signals)
+Do not wait for monthly trends. Monitor these three inputs daily for the first two days to predict weekend stockouts.
+
+| Indicator | The Question It Answers | Warning Threshold (Trigger Action) |
+| :--- | :--- | :--- |
+| **Hourly Sell-Through Velocity vs. Baseline** | Is demand at this specific site significantly higher or lower than the 500 txn/day expectation? | If actual velocity deviates >20% from the projected hourly curve by Hour 24, flag for immediate transfer. |
+| **Empty Shelf Time (Top 20 SKUs)** | Are core items selling out faster than replenishment can occur? | If any Top 20 SKU is out of stock for >2 consecutive hours during peak operating times, trigger emergency restock. |
+| **Conversion Drop-off at POS** | Are customers abandoning purchases due to missing items? | If transaction count plateaus while foot traffic (door counters) remains high, assume inventory friction. |
+
+#### 3. Handling Unknown Foot Traffic
+Since external foot traffic is unknown, do not try to measure the traffic itself. Instead, measure the **ratio of internal signals**:
+*   **The Signal:** Compare *Transactions per Hour* against *Units Sold per Hour*.
+*   **The Logic:** If units sold spike but transactions remain flat, basket size is growing (good). If transactions flatline while staff report crowds, you have a stockout. This isolates inventory performance from external foot traffic variables without needing a foot-traffic counter.
+
+#### 4. Event Taxonomy (Instrument Only These)
+To answer the questions above, instrument only these specific events in your system. Do not track "page views" or generic logs.
+
+1.  **`sku_stock_status_change`**
+    *   *Properties:* `sku_id`, `location_id`, `previous_quantity`, `new_quantity`, `timestamp`.
+    *   *Question:* How quickly are we depleting specific SKUs at each site?
+2.  **`pos_transaction_complete`**
+    *   *Properties:* `location_id`, `timestamp`, `line_item_count`, `total_units`.
+    *   *Question:* What is the real-time velocity of sales compared to the 500 txn/day baseline?
+3.  **`stock_transfer_initiated`**
+    *   *Properties:* `from_location`, `to_location`, `sku_list`, `reason_code` (e.g., "velocity_mismatch").
+    *   *Question:* Are we successfully moving stock to where demand is proving highest?
+
+#### 5. Decision Rules for Logistics Team
+*   **Day 1 (24h mark):** Calculate actual sell-through velocity. If a site is >20% above baseline, pre-emptively pull stock from sites >20% below baseline. Do not wait for a stockout.
+*   **Day 2 (48h mark):** Review "Empty Shelf Time." Any location with >2 hours of empty shelf time on Top 20 SKUs requires an immediate emergency transfer from the nearest surplus site.
+*   **Dec 14 (Pre-Peak):** Freeze all non-critical transfers. Ensure 100% of Top 20 SKUs are stocked at 110% of predicted weekend demand based on Days 1–2 velocity.
+
+**This Week's Step:**
+Configure your dashboard to display **Hourly Sell-Through Velocity** and **Empty Shelf Time** for the Top 20 SKUs by location. Set automated alerts to the logistics Slack channel if velocity deviates >20% from the 500 txn/day projection within the first 24 hours of any site opening.
+
+*Note: All thresholds are derived from your stated 500 txn/day baseline; no external benchmarks were invented. If POS data cannot capture "empty shelf" time directly, use a manual "out-of-stock" scan event by store staff every 2 hours.*

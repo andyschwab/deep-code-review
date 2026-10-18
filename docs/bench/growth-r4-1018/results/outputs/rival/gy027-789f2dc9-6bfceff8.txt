@@ -1,0 +1,44 @@
+# MeetSync Virtual Background Event Taxonomy
+**Version:** 1.0
+**Target Launch:** August 5
+**Stakeholder:** Jessica (Backend Team Lead)
+
+## Core Philosophy
+Track for decisions, not just data. We must validate the hypothesis that customization drives engagement while detecting performance friction that causes immediate abandonment. Avoid vanity metrics; every event must inform a specific product iteration.
+
+## Event Specification
+
+| Event Name | Trigger | Essential Properties | Decision Value |
+| :--- | :--- | :--- | : |
+| `background_panel_opened` | User clicks "Change Background" | `meeting_id`, `user_id`, `is_host` | Measures initial interest/discovery. |
+| `background_preview_loaded` | Image renders in preview pane | `asset_id`, `asset_type` (image/video/blur), `load_time_ms`, `device_model` | **Critical:** Identifies performance friction. High `load_time_ms` correlated with drop-off indicates optimization needed. |
+| `background_applied` | User confirms selection | `asset_id`, `asset_type`, `time_to_select_ms` (diff from panel_opened) | Validates successful activation. `time_to_select_ms` reveals UI complexity issues. |
+| `background_removed` | User disables active background | `previous_asset_id`, `session_duration_with_bg` | Detects abandonment. If triggered <30s after `applied`, suggests rendering performance issues or poor asset quality. |
+| `meeting_ended` | Call terminates | `total_duration_ms`, `bg_active_duration_ms`, `bg_changes_count` | Validates the core hypothesis: Does `bg_active_duration_ms` correlate with higher `total_duration_ms`? |
+
+## Implementation Guidelines
+
+### 1. Naming Conventions
+- Use `snake_case` (lowercase with underscores).
+- Format: `object_action` (e.g., `background_applied`).
+- Do not include PII (names, emails) in properties.
+
+### 2. Performance Metrics
+- **`load_time_ms`**: Time from request start to visual render in preview.
+- **`time_to_select_ms`**: Time from `background_panel_opened` to `background_applied`.
+- *Why:* If users abandon after opening the panel but before applying, check if `load_time_ms` spikes for specific `asset_type` or `device_model`.
+
+### 3. State Tracking
+Do not track every millisecond of usage. Instead, rely on the delta between `background_applied` and `background_removed` (or `meeting_ended`) to calculate engagement duration. This reduces data volume while preserving analytical power.
+
+### 4. Iteration Readiness
+- Include `asset_id` in all events. If a specific background causes high removal rates, we can isolate whether it is an asset quality issue or a general rendering bug.
+- Ensure `device_model` is captured to identify if low-end devices struggle with rendering, causing the "disable immediately" scenario you feared.
+
+## Validation Checklist for Dev
+- [ ] Events fire on both mobile and desktop clients.
+- [ ] `load_time_ms` accurately reflects render time, not just network latency.
+- [ ] `background_removed` fires even if the user disconnects abruptly (handle via session cleanup logic if necessary).
+- [ ] No PII leaks in `asset_id` or custom image paths.
+
+This taxonomy allows you to answer: "Are users struggling to render backgrounds?" (via `preview_loaded` vs. `applied` drop-off) and "Does using backgrounds actually extend meetings?" (via correlation of `bg_active_duration_ms` and `total_duration_ms`).

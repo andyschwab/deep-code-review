@@ -1,0 +1,46 @@
+# RetailMix Event Taxonomy Unification Plan
+
+## Executive Summary
+To meet the August 30 migration deadline for the new Customer Data Platform (CDP), we propose a **Hybrid Mapping Strategy**. This approach unifies future event ingestion under a single schema while preserving historical data integrity through a translation layer, ensuring zero disruption to finance dashboards. The estimated effort is **2.5 weeks**, fitting within your three-week assumption while buffering for validation.
+
+## Phase 1: Audit & Schema Definition (Days 1–5)
+**Objective:** Define the "Golden Record" and map legacy inconsistencies.
+*   **Inventory Current Events:** Catalog all existing event names (e.g., `buy_complete`, `transaction_final`, `order_done`) and their associated properties across microservices.
+*   **Define Target Schema:** Establish a consistent naming convention (recommended: `object_action` format, e.g., `purchase_completed`).
+*   **Mapping Table Creation:** Create a definitive lookup table linking every legacy event name to the new standard event name.
+    *   *Example:* `transaction_final` → `purchase_completed`
+*   **Stakeholder Review:** Validate the target schema with the Finance team to ensure no critical granularity required for legacy reports is lost.
+
+## Phase 2: The Hybrid Implementation (Days 6–12)
+**Objective:** Implement the unification without breaking existing workflows.
+*   **Strategy:** Do **not** perform a hard break on historical data. Instead, implement a **Translation Layer** within the CDP ingestion pipeline.
+    *   **Ingestion:** The CDP accepts all legacy event names.
+    *   **Transformation:** Upon ingestion, the CDP automatically renames legacy events to the new standard schema based on the Mapping Table.
+    *   **Preservation:** Add a property `legacy_event_name` to the unified event. This allows Finance to filter by the old names if specific legacy reports require exact string matching, while all new analytics use the unified name.
+*   **Forward-Looking Standard:** Update microservice codebases to emit *only* the new standard event names for all new features and updates starting immediately.
+
+## Phase 3: Validation & Dashboard Migration (Days 13–17)
+**Objective:** Ensure data accuracy and transition reporting.
+*   **Parallel Run:** Run the new unified stream alongside current logs for 48 hours to verify event counts match exactly.
+*   **Dashboard Update:** Gradually update Finance dashboards to point to the new unified event names. Because of the `legacy_event_name` property, any broken filters can be instantly patched without code changes.
+*   **Documentation:** Finalize the Event Dictionary and distribute to all engineering teams.
+
+## Resource Allocation & Timeline
+*   **Lead Data Architect:** 40% allocation (Schema design, mapping logic).
+*   **Backend Engineers:** 20% allocation (Updating microservice emitters).
+*   **Data Analyst:** 20% allocation (Dashboard validation, Finance liaison).
+*   **Total Duration:** 17 Business Days (Completion by August 20).
+*   **Buffer:** 10 days reserved for unforeseen integration complexities before the August 30 deadline.
+
+## Recommendation on Historical Granularity
+**Preserve via Translation, Do Not Force a Hard Break.**
+Forcing a hard break risks invalidating historical trend analysis for Finance and requires costly back-filling of data. The Hybrid approach allows you to:
+1.  **Unify Future Data:** All new data enters clean.
+2.  **Protect Historical Context:** Legacy reports continue to function using the `legacy_event_name` property.
+3.  **Enable Clean Migration:** Finance can migrate dashboards at their own pace without blocking the CDP launch.
+
+This strategy resolves the integration errors caused by inconsistent naming while mitigating the risk of disrupting critical financial reporting.
+
+---
+*Note: This plan assumes the selected CDP supports server-side transformation rules; if not, a lightweight middleware function will be required.*
+*Immediate next step: Schedule a 1-hour workshop with the Data Architect and Finance Lead to finalize the Mapping Table.*

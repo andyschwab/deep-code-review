@@ -1,0 +1,39 @@
+### Data Reconciliation & Event Cleanup Plan for April 5 Deployment
+
+**Objective:** Resolve the 3,800-ride discrepancy (45,000 recorded vs. 41,200 billed) by distinguishing between GPS signal loss errors and legitimate long-duration rentals, ensuring accurate billing without data fabrication.
+
+#### 1. Diagnostic Segmentation (Run Immediately)
+Before applying fixes, segment the 3,800 "stuck" rides to establish a data-driven threshold rather than assuming a 4-hour limit.
+*   **Query A (Location Context):** Filter stuck rides by `start_location` and `last_known_location`. Isolate those ending in known underground zones (geofenced parking garages).
+*   **Query B (Duration Distribution):** Plot the duration histogram of all completed rides. Identify the natural drop-off point. If 99% of legitimate rides end before 3 hours, but a distinct tail exists for tourist zones, the "impossible" threshold is likely higher than 4 hours.
+*   **Query C (Battery Telemetry):** Cross-reference with battery drain logs. A scooter reporting "in-use" for 6 hours with negligible battery drain indicates a stuck event (no motor draw), whereas steady drain suggests a real ride.
+
+#### 2. Decision Rules for Missing End-Events
+Apply the following logic to the 3,800 affected records. Do not delete records; update them with a `correction_flag`.
+
+**Rule A: The "Underground Gap" Fix (High Confidence)**
+*   **Condition:** `last_known_location` is inside a defined underground geofence AND `duration` > 2 hours AND no manual stop event received.
+*   **Action:** Infer the `end_time` as the moment the scooter left the geofence (if exit detected) or the time of the next successful heartbeat outside the zone. If no exit is detected, set `end_time` to the last valid heartbeat timestamp + 5 minutes (grace period).
+*   **Billing:** Charge based on the inferred duration.
+
+**Rule B: The "Zombie Ride" Fix (System Error)**
+*   **Condition:** `duration` > 6 hours (or the 99.9th percentile from Diagnostic Step 1) AND battery drain is < 5% over that period.
+*   **Action:** Force close the ride at the `last_valid_heartbeat` timestamp.
+*   **Billing:** Charge only for the verified active time. Flag account for manual review if this happens repeatedly.
+
+**Rule C: The "Long-Tail" Exception (Manual Review)**
+*   **Condition:** `duration` > 4 hours BUT battery drain correlates with usage AND location is in a tourist zone (not underground).
+*   **Action:** **Do not auto-close.** These are likely valid. Route to a customer support queue to verify with the user via app notification ("Did you finish your ride?").
+*   **Billing:** Hold billing until confirmed or until a hard cap (e.g., 12 hours) is reached, then charge the cap with a refund policy if disputed.
+
+#### 3. Implementation Steps for Engineering
+1.  **Backfill Script:** Run a one-time script on April 5 applying Rules A, B, and C to the historical backlog. Generate a reconciliation report showing: *Total Recovered Revenue*, *Writes-off (Rule B)*, and *Items Sent to Manual Review (Rule C)*.
+2.  **Real-Time Guardrail:** Update the ride-service logic to trigger an automatic "Are you still riding?" push notification after 2 hours of continuous movement without a stop event. If no response within 15 minutes, pause billing and mark the ride as "suspected stuck" until reconnected.
+3.  **Financial Reconciliation:** Pass the corrected dataset to Finance. The gap between 45k and 41.2k should now be explained as: (Recovered Billable Rides) + (Confirmed System Errors written off) + (Pending Manual Review).
+
+#### 4. This-Week Actions
+*   **Today:** Run the duration histogram and battery correlation query to validate the 6-hour "zombie" threshold.
+*   **April 4:** Deploy the backfill script to a staging environment with a sample of 100 stuck rides to verify billing calculations.
+*   **April 5:** Execute production deployment and deliver the reconciliation report to Finance.
+
+**Note:** No benchmark for "normal" ride length was assumed; the threshold must be derived from your specific battery and location data. Any ride corrected under Rule B remains `UNVERIFIED` until user confirmation, but allows books to close with a reserved liability.

@@ -1,0 +1,37 @@
+# Minimal Viable Audit Event Set for HealthRecord Pro
+
+**Objective:** Satisfy regulatory audit requirements (e.g., HIPAA) while reducing log volume from 4M/day to a sustainable baseline by shifting from "view logging" to "access context logging."
+
+### 1. Mandatory Event Taxonomy (The "Who, What, When, Why")
+Regulatory audits require proof of *authorized access* and *data integrity*, not a replay of every screen refresh. Instrument only these four event types. Each event must answer the specific question: "Did an unauthorized user access sensitive data, or did a user access data outside their normal scope?"
+
+| Event Name | Trigger Condition | Required Properties | Question Answered |
+| :--- | :--- | :--- | : |
+| `auth.session_start` | User successfully logs in or token refreshes. | `user_id` (pseudonymous), `role`, `ip_address`, `mfa_status`, `timestamp`. | Who entered the system and with what privileges? |
+| `data.access_granted` | **First** successful retrieval of a patient record in a session. | `user_id`, `patient_id` (hashed), `record_type`, `purpose_of_use` (e.g., "treatment", "billing"), `break_glass_flag`. | Who accessed which record and for what declared reason? |
+| `data.export_action` | Any download, print, or external transmission of data. | `user_id`, `patient_id` (hashed), `format` (PDF/CSV), `destination` (email/printer ID). | Did data leave the secure environment? |
+| `security.violation_attempt` | Failed login, unauthorized record access, or privilege escalation attempt. | `user_id` (or `unknown`), `target_resource`, `error_code`, `ip_address`. | Is there an active attack or insider threat? |
+
+**Exclusions (Do Not Log):**
+*   Subsequent views of the same record within the same session (assume continuity unless the context changes).
+*   UI interactions (scrolling, tab switching, hovering).
+*   Read-only queries that return zero results (unless part of a specific "search pattern" anomaly detection, which is a secondary derived metric, not a raw event).
+
+### 2. Anonymization & Utility Strategy
+To balance privacy with security review utility, apply the following transformation rules before writing to storage:
+
+*   **Diagnostic Codes (ICD-10/CPT):** Replace specific codes with **category-level buckets** for general logs (e.g., `F32.x` becomes `Mental_Health_Disorder`). Retain full precision only in a separate, highly restricted "Forensic Vault" accessible solely during a confirmed incident investigation.
+*   **Patient Identifiers:** Store only a salted hash of the `patient_id` in the primary log stream. Maintain the salt and mapping table in a separate, air-gapped key management system. This allows correlation of events per patient without exposing names in the log database.
+*   **User Identifiers:** Use internal employee IDs rather than names in the log stream; join to HR data only during audit time.
+
+### 3. Projected Impact & Compliance Mapping
+*   **Volume Reduction:** By logging only the *first* access per session per record and excluding UI noise, estimated volume drops from 4M/day to ~200k–400k/day (an 80–90% reduction), bringing storage within projected capacity.
+*   **Audit Sufficiency:** This set satisfies HIPAA §164.312(b) (Audit Controls) by providing a reconstructable trail of *who* accessed *what* and *when*, without the noise that obscures real threats.
+
+### 4. Immediate Next Steps (Before August Audit)
+1.  **Implement the Schema:** Update the logging agent to emit only the four defined events with the specified properties by **May 15**.
+2.  **Validate the Hashing:** Run a parallel test for one week comparing the new hashed logs against the old raw logs to ensure 100% of `export_action` and `violation_attempt` events are captured correctly.
+3.  **Define Alert Thresholds:** Establish baseline metrics for `security.violation_attempt` rates to trigger immediate CISO notification, turning these logs from passive storage into active defense.
+
+*Note: This proposal assumes standard HIPAA/HITECH requirements; specific state-level mandates should be reviewed by legal counsel before final sign-off.*
+*Storage retention policies (e.g., 6 years) must be applied to this reduced dataset to ensure long-term compliance without excessive cost.*

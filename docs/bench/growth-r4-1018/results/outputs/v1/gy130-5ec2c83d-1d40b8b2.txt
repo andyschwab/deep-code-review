@@ -1,0 +1,37 @@
+### Investigation Plan: Checkout Discrepancy Diagnosis & Impact Quantification
+
+**Objective:** Distinguish between revenue loss (abandonment) and visibility loss (tracking failure) to prioritize engineering vs. product fixes.
+
+#### 1. Immediate Data Reconciliation (The "Truth" Baseline)
+*   **Action:** Query the backend transaction logs for all successful payments since October 5. Join this dataset with frontend checkout events using a unique, stable transaction ID generated *before* the payment gateway redirect.
+*   **Metric to Compute:** `Untracked Revenue = Sum(Amount) where Backend_Status = 'Success' AND Frontend_Event = 'Missing'`.
+*   **Decision Rule:** If `Untracked Revenue` > 0, the discrepancy is partially a **visibility failure**. If `Untracked Revenue` = 0, the discrepancy is entirely **user abandonment**.
+
+#### 2. Root Cause Segmentation
+Split the 12% gap into two cohorts based on the reconciliation above:
+
+*   **Cohort A: Silent Successes (Tracking Failure)**
+    *   **Diagnosis:** Analyze server logs for these specific transaction IDs. Look for patterns: specific browsers (Safari ITP), network timeouts during the "thank you" page load, or ad-blocker signatures.
+    *   **Question Answered:** "Is our instrumentation breaking for a specific subset of successful payers?"
+*   **Cohort B: True Abandonment (Revenue Loss)**
+    *   **Diagnosis:** Analyze the user journey logs up to the 'pay' click. Did the backend receive a gateway callback? If yes, did the user close the tab before the redirect completed? If no, did the gateway reject the transaction silently?
+    *   **Question Answered:** "Are users leaving because of friction, confusion, or perceived failure?"
+
+#### 3. Financial Impact Quantification
+Calculate the impact using only internal baselines (no external benchmarks):
+*   **Visibility Cost:** `Cohort A Count × Average Order Value`. This is not lost revenue, but lost attribution data affecting LTV calculations and ad optimization.
+*   **Revenue Loss:** `Cohort B Count × Average Order Value`. This is direct churn.
+*   **Trend Analysis:** Compare the daily rate of this 12% gap against the pre-October 5 baseline. Is the gap widening (active regression) or stable (new normal)?
+
+#### 4. Recommended Instrumentation Fixes
+*   **Server-Side Tracking (Critical):** Move the primary conversion event trigger to the backend webhook listener from the payment processor. This bypasses browser restrictions and network errors on the client side.
+*   **Hybrid Verification:** Implement a "reconciliation job" that runs hourly: match backend success webhooks against frontend events. Alert if the mismatch rate exceeds a dynamic threshold (e.g., baseline + 2σ).
+*   **Beacon API:** Replace standard XHR/Fetch for the final tracking pixel with the `navigator.sendBeacon()` API to improve delivery reliability during page unloads.
+
+#### This-Week Steps
+1.  **Run the Reconciliation Query:** Execute the backend-frontend join by Transaction ID today to separate Cohort A (Silent Success) from Cohort B (Abandonment).
+2.  **Calculate the Dollar Value:** Report the exact dollar amount of `Untracked Revenue` vs. `Lost Revenue` to the CPO.
+3.  **Deploy Server-Side Hook:** If Cohort A exists, prioritize the backend webhook event as the source of truth for analytics within 48 hours; do not wait for a frontend fix.
+
+**Note:** Do not assume the 12% is abandonment until the backend join proves the transactions did not occur.
+**Note:** If the Transaction ID is not present in both logs, the current schema prevents root cause analysis; this must be flagged as a blocking data debt item immediately.

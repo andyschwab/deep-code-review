@@ -1,0 +1,63 @@
+**To:** Lead Engineer, Data Infrastructure Team
+**From:** Growth Analytics
+**Subject:** Instrumentation Plan for Voice Search Latency Diagnosis
+**Deadline:** Implement by Friday to support August 15 Launch
+
+To diagnose the 2.4s latency spike and validate the transcription bottleneck hypothesis before launch, instrument the following four events. Each event answers a specific diagnostic question and isolates the delay source without capturing unnecessary session data.
+
+### 1. Event: `voice_search_initiated`
+*   **Question Answered:** When did the user actually start speaking relative to the UI trigger?
+*   **Properties:**
+    *   `user_id` (pseudonymous, stable across sessions)
+    *   `device_type` (mobile/desktop)
+    *   `browser_os`
+    *   `network_type` (wifi/cellular/unknown)
+    *   `timestamp_start` (ms precision)
+
+### 2. Event: `voice_audio_capture_complete`
+*   **Question Answered:** How long did the user speak, and when did the client finish buffering audio for upload? This isolates client-side capture delays from network/transcription delays.
+*   **Properties:**
+    *   `user_id`
+    *   `session_id` (links to `voice_search_initiated`)
+    *   `audio_duration_ms` (length of recorded speech)
+    *   `audio_payload_size_kb`
+    *   `timestamp_end_capture` (ms precision)
+    *   **Derived Metric:** `capture_latency` = `timestamp_end_capture` - `timestamp_start`
+
+### 3. Event: `voice_transcription_response`
+*   **Question Answered:** **Critical Path.** Did the delay occur during transcription (your hypothesis) or intent matching? This measures the external API or internal service round-trip specifically for speech-to-text.
+*   **Properties:**
+    *   `user_id`
+    *   `session_id`
+    *   `transcription_provider` (e.g., internal/external vendor name)
+    *   `transcription_status` (success/failure/timeout)
+    *   `error_code` (if failed)
+    *   `timestamp_transcription_complete` (ms precision)
+    *   **Derived Metric:** `transcription_duration` = `timestamp_transcription_complete` - `timestamp_end_capture`
+    *   **Derived Metric:** `time_to_first_byte` (if available from HTTP headers, otherwise omit; total duration is more actionable for bottleneck isolation than TTFB alone).
+
+### 4. Event: `voice_search_result_rendered`
+*   **Question Answered:** What is the total end-to-end latency perceived by the user, and does intent matching add significant overhead after transcription?
+*   **Properties:**
+    *   `user_id`
+    *   `session_id`
+    *   `query_intent_confidence_score`
+    *   `result_count`
+    *   `timestamp_results_visible` (ms precision)
+    *   **Derived Metric:** `total_latency` = `timestamp_results_visible` - `timestamp_start`
+    *   **Derived Metric:** `intent_matching_duration` = `timestamp_results_visible` - `timestamp_transcription_complete`
+
+### Implementation Rules for Engineering
+1.  **Correlation:** Every event in a single voice search attempt must share a unique `session_id` generated at `voice_search_initiated`. Without this, you cannot reconstruct the funnel to see where the 2.4s accumulates.
+2.  **Granularity:** Do not aggregate these metrics on the client. Send raw timestamps to the backend/infrastructure layer to calculate durations server-side. Client-side clock skew makes pre-calculated durations unreliable.
+3.  **Error Handling:** If `transcription_status` is failure, log the specific `error_code` immediately. A timeout vs. a 500 error requires different fixes.
+4.  **Privacy:** Ensure `user_id` is pseudonymous. Do not log the actual audio payload or the transcribed text string in these performance events; route any content logging to a separate compliance-reviewed pipeline.
+
+### Diagnostic Logic
+*   If `transcription_duration` accounts for >70% of `total_latency`, your hypothesis is correct: optimize the transcription provider or connection.
+*   If `intent_matching_duration` is high, the bottleneck is downstream in the search engine, not voice processing.
+*   If `capture_latency` is high, the issue is client-side performance or network upload speed, not backend processing.
+
+**Action:** Implement these four events with the specified properties by Friday. Run a load test mimicking last week's conditions and compare the new `transcription_duration` distribution against the 800ms target.
+
+*Note: Total session duration is irrelevant for this specific bottleneck analysis; focus strictly on the voice search sub-process timestamps. If the August 15 launch proceeds with latency >800ms, define a guardrail metric to auto-disable voice search if p95 latency exceeds 1.5s in production.*
