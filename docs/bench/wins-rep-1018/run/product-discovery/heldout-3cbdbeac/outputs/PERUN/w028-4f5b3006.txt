@@ -1,0 +1,50 @@
+### Comparative Analysis: PWA vs. Native for Rural Telemedicine
+
+**Context Constraints**
+- **Network:** Avg 1.5 Mbps, spikes to 0.3 Mbps (peak).
+- **Device:** 90% low-end Android, storage-constrained.
+- **Critical Failure Mode:** 12% consultation failure due to connection drops in beta.
+- **Goal:** Maximize successful consultation completion.
+
+#### 1. Offline Data Synchronization & Reliability
+*The critical unknown you identified.*
+
+- **Native Application:**
+  - **Mechanism:** Uses robust local databases (SQLite/Room) with background sync managers. Can queue complex medical history updates and retry automatically when connectivity flickers back to >0.3 Mbps.
+  - **Performance under 0.3 Mbps:** High reliability. The app can function fully offline and transmit small data packets asynchronously when the signal briefly stabilizes.
+  - **Risk:** Low. Established patterns for intermittent connectivity.
+
+- **Progressive Web App (PWA):**
+  - **Mechanism:** Relies on Service Workers and IndexedDB. While capable of offline caching, background sync capabilities on low-end Android browsers (often outdated WebView versions) are inconsistent.
+  - **Performance under 0.3 Mbps:** Moderate to High Risk. Service workers may be killed by the OS on low-memory devices before sync completes. Large medical history payloads may time out during the narrow windows of 0.3 Mbps availability.
+  - **Risk:** High. The 12% failure rate in your beta is likely a floor, not a ceiling, if moving to web without native fallbacks.
+
+#### 2. User Acquisition & Device Friction
+
+- **Native Application:**
+  - **Friction:** High. Requires download (even if small), installation permissions, and storage space (critical on low-end devices).
+  - **Mitigation:** Use "App Links" to deep link directly to the consultation screen, bypassing home screen navigation.
+
+- **Progressive Web App (PWA):**
+  - **Friction:** Low. Instant access via URL; no storage overhead; no installation barrier. Aligns with your 90% low-end Android user base constraints.
+  - **Trade-off:** You gain immediate access but risk the 12% failure rate increasing if sync logic fails on unstable connections.
+
+#### 3. Recommendation: The "Hybrid-First" Strategy
+
+Given the **12% failure rate** is your primary business risk (failed consultations = lost trust/revenue), reliability must outweigh acquisition friction. A pure PWA risks exacerbating connection drop failures on low-end devices.
+
+**Proposed Path:**
+1.  **Primary Build:** **Native Android Shell (Kotlin/Flutter)** optimized for low storage (<15MB).
+    -   *Why:* Guarantees robust background sync for medical history during 0.3 Mbps spikes. Directly addresses the "critical unknown."
+2.  **Acquisition Mitigation:** Implement **Android App Links** and a lightweight **SMS-to-App deep linking** flow.
+    -   *Why:* Reduces friction by allowing users to click a link in WhatsApp/SMS and land directly in the active consultation, mimicking the "instant" feel of the web.
+3.  **Validation Test (Before Full Build):**
+    -   Run a **Wizard-of-Oz test**: Have 20 beta users attempt to sync a mock medical record on their current devices using a prototype PWA vs. a simple native wrapper.
+    -   **Kill Threshold:** If the PWA sync failure rate exceeds **5%** under simulated 0.3 Mbps conditions, the PWA-only approach is rejected.
+
+**Investor Update Narrative:**
+"We prioritized consultation completion over instant access. While a web platform reduces download friction, our data shows connection drops cause 12% failure. On 0.3 Mbps networks, native background sync is the only proven method to ensure medical history reliability. We are building a ultra-light native shell to secure the core value prop, using deep-links to minimize acquisition friction."
+
+---
+*Note: This analysis assumes the "12% failure" was observed in a context similar to the proposed solution; if the beta was purely web-based, the native recommendation is even stronger.*
+*Do not proceed to full build without running the specific sync failure test on the actual target devices.*

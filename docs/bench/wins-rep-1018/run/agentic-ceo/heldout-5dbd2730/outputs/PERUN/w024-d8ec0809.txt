@@ -1,0 +1,36 @@
+**Decision: Halt the "AI optimizer" deployment for Monday.** The risk of irreversible double-booking due to unvalidated data migration in a <72-hour window outweighs the benefit of increasing capacity from 40 to 50 procedures. The only viable path to Monday operations is a **manual data migration to a deterministic rule-based scheduler**, deferring the AI optimization layer until after a full validation cycle.
+
+**Figures:** 5 architects × ~10 hours remaining (until weekend) = 50 hours total capacity. Validating 40 daily procedures × 30 days (1,200 records) with complex constraints requires ~2 hours per record for manual audit = 2,400 hours needed. The gap is 2,350 hours. Attempting AI training on unverified data guarantees failure modes (double-booking) that cannot be undone before Monday 8 AM.
+
+**Session Roadmap & Decision Matrix**
+
+1.  **Immediate Pivot (Now):** Abandon AI training for this window. Repurpose architects to build a **static constraint validator** that checks the current manual data against hard rules without attempting optimization.
+2.  **Order of Operations:**
+    *   **Phase 1: Data Forensics (Hours 0–12):** Audit current calendar data. Do not migrate yet.
+    *   **Phase 2: Rule Hardening (Hours 12–24):** Encode only "hard" constraints (Room A fits Surgeon X) into the new system. Disable all "optimization" logic.
+    *   **Phase 3: Dry-Run Migration (Hours 24–36):** Import data to a sandbox. Run collision detection.
+    *   **Phase 4: Manual Verification (Hours 36–48):** Humans verify the sandbox output against the source.
+    *   **Phase 5: Cutover (Sunday Night):** Only if Phase 4 shows zero conflicts.
+
+**Decisions Requiring Your Direct Authority:**
+*   **Constraint Hierarchy:** Define which rule breaks first if a conflict arises (e.g., "Surgeon availability trumps Room preference" vs. "Room capability trumps Surgeon preference"). The AI cannot guess this; it must be hardcoded.
+*   **Fallback Protocol:** Authorize the specific trigger to revert to the legacy manual system if the new tool shows *any* discrepancy during the Sunday dry-run.
+*   **Capacity Cap:** Mandate a limit of 40 procedures for Week 1. Do not attempt the jump to 50 until the system proves stable.
+
+**Tasks for Architects (Execution Only):**
+*   Extract raw data from the legacy system into a neutral format (CSV/JSON).
+*   Write scripts to flag specific inconsistencies (see below).
+*   Configure the new system's database schema to reject any entry missing a required constraint ID.
+*   Build the "collision detection" report for the dry-run.
+
+**First Specific Actions: Data Audit Protocol**
+Before any feed into the optimizer, your team must execute these three checks on the source data:
+1.  **The "Ghost Block" Scan:** Query all confirmed surgeon availabilities and cross-reference them against existing operating room blocks. Flag any surgeon marked "Available" who has no assigned room, or any room marked "Open" with no assigned surgeon for the same time slot.
+2.  **The "Overlap" Test:** Sort all procedures by start time. Identify any instance where `End_Time_Procedure_A > Start_Time_Procedure_B` within the same Room ID or for the same Surgeon ID. Manual systems often tolerate 15-minute overlaps; the AI will treat these as hard conflicts.
+3.  **The "Attribute" Gap:** List every procedure missing a definitive "Room Capability" tag (e.g., Laparoscopic, Stereotactic). If the room type is inferred rather than explicit, the migration will fail.
+
+**Halt Trigger:** If the "Overlap" Test finds >5% of records with ambiguous timing, stop migration. Revert to manual entry for Monday.
+**Fallback Trigger:** If the Sunday dry-run produces even one double-booked room, execute the Fallback Protocol immediately.
+
+*Note: This plan prioritizes patient safety and operational continuity over the strategic goal of AI adoption. The AI layer can be trained on the cleaned data post-deployment.*
+*Do not attempt to train the model this weekend; garbage in will result in catastrophic scheduling errors.*

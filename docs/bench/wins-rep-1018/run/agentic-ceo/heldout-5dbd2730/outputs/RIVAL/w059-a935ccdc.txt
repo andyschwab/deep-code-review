@@ -1,0 +1,34 @@
+### Tonight's Migration Plan: Podiatry Procedure Logs
+
+**Phase 1: Preparation and Key Verification (8:00 PM – 9:30 PM)**
+Before touching the 8,200 historical records, the team must validate the translation key logic. This phase is strictly for setup and safety checks. No bulk data movement occurs here.
+
+**Phase 2: Parallel Historical Migration (9:30 PM – 3:30 AM)**
+The 8,200 historical records will be split into three distinct subsets based on procedure year to allow independent processing by the three analysts:
+*   **Analyst A:** Records from 2019–2021 (~2,700 records).
+*   **Analyst B:** Records from 2022–2023 (~2,800 records).
+*   **Analyst C:** Records from 2024 to present (~2,700 records).
+Each analyst will run their subset through the mapping script, generating temporary output files. These files remain isolated until the validation gate.
+
+**Phase 3: Integrated Validation and Commit (3:30 AM – 4:30 AM)**
+Once all subsets are processed, the outputs are merged into a single staging table. A unified validation script runs against this merged set to check for ID format consistency and orphaned records. Only after this passes will the data be committed to the production surgical outcome tracking database.
+
+**Phase 4: Upcoming Procedures Sync (4:30 AM – 5:00 AM)**
+The 40 upcoming procedures scheduled for this week are migrated last. Because these are critical for immediate operations, they are treated as a high-priority delta load. A manual spot-check of these 40 records against the source tablets is required before final sign-off.
+
+**Required Personal Validation Samples**
+Before the final commit in Phase 3, you must personally review the following:
+1.  **The "Boundary" Sample:** 10 records from the very end of Analyst A's batch and the very start of Analyst B's batch to ensure the year-based splitting did not truncate or duplicate data at the seams.
+2.  **The "Complex ID" Sample:** 5 records containing hyphenated or legacy-format patient IDs to confirm the translation key handles non-standard formats correctly.
+3.  **The Billing Link Test:** 3 random records where you verify the new Patient ID successfully links to an existing billing record in the test environment.
+
+**First Concrete Step: Verifying Translation Key Integrity**
+Do not run the full dataset. Instead, execute a "Round-Trip" test on a single dummy record:
+1.  Take one known source Patient ID (e.g., `PT-12345`).
+2.  Apply the translation key script to generate the new ID.
+3.  Immediately apply the *reverse* logic (if available) or cross-reference the new ID against the master patient index manual lookup.
+4.  Confirm that the resulting ID matches the expected format exactly and resolves to the correct patient name in the new database schema.
+If this single record fails or produces an unexpected format variation, halt the process and recalibrate the key before proceeding to Phase 2.
+
+*Ensure all analysts have read-only access to the source tablets to prevent accidental locks during the window.*
+*Keep a rollback script ready to purge the staging table instantly if Phase 3 validation fails.*
