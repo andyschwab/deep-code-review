@@ -3,6 +3,27 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.595.0] — 2026-10-18
+
+### Changed
+- `docs/bench/contribution-r4-1018/`: round 4 on the contribution `SKILL.md` (PCSS only, $0, GLM-5.1 judge v2 both orders). One edit (cut the opt-in issue-filing paragraph, already documented in `scripts/share_learning.py`, to three lines) was chosen from a hand reading of the tune losses, preregistered, then run once on 150 fresh held-out scenarios (at most 0.098 6-word-shingle overlap with every text file under `docs/bench` on origin/main) against the shipped text and the rival. Edit vs rival 0.457 [0.390, 0.523] (48 / 41 / 61), shipped vs rival 0.470 [0.403, 0.537] (49 / 43 / 58), paired edit minus shipped -0.013 [-0.083, 0.057]: the ship rule (lower bound above 0) failed, so `SKILL.md` is unchanged, and no win is claimed. `docs/perun-vs-rivals.md`'s contribution row now carries this; the bottom-line counts are unchanged (contribution was already one of the five skills that are not wins). Synthetic fictional scenarios, one generator family, model judges.
+
+### Changed
+- `docs/bench/growth-r2-1018/`: round 2 on the growth-analytics `SKILL.md` (PCSS only, $0, GLM-5.1 judge v2 both orders). Six candidate edits were tuned on 60 fresh scenarios (none beat the shipped text, and an identical-text re-run scored -0.092, so the tune set could not rank them), the best by a rule fixed before the runs (add a step that names a line for every stated hypothesis and unknown, delete the Stage-awareness section) was frozen and preregistered, then run once on 150 fresh held-out scenarios against the shipped text and the rival. Edit vs rival 0.437 [0.367, 0.503] (45 / 41 / 64), shipped vs rival 0.430 [0.367, 0.497] (41 / 47 / 62), paired edit minus shipped +0.007 [-0.070, 0.083]: the ship rule (lower bound above 0) failed, so `SKILL.md` is unchanged, and no win is claimed. `docs/perun-vs-rivals.md` gains a growth-analytics row with this, round 1 (answer first, -0.158 paired) and the baseline (0.442 at n=60), and its bottom line now counts five skills that are not wins (beside four confirmed wins and the unreplicated idea-critic run). Synthetic fictional scenarios, one generator family, model judges.
+
+### Added
+- `docs/bench/idea-critic-rep-1018/`: preregistered replication of the round-9 idea-critic win (n=150 fresh held-out scenarios, 6-word shingle overlap at most 0.10 with every other bench text on origin/main including outputs, same gstack plan-ceo-review rival, same Qwen3.5-397B-A17B generator, GLM-5.1, GLM-5.2 and gpt-oss_120b judges with prompt v2 in both orders, PCSS only, no paid call). The arm is the shipped `idea-critic/SKILL.md` unchanged. Rule fixed in advance: replicated only if the 95% bootstrap lower bound against the rival is above 0.5. Result: 0.537 [0.473, 0.597] (51 W / 59 T / 40 L), lower bound below 0.5, so the win is not replicated. Round 9 had 0.570 [0.510, 0.630] on its own set.
+
+### Changed
+- `docs/perun-vs-rivals.md`: the idea-critic round-9 row now reads "Win in this run" with a pointer to the replication, a new row records the replication, and the bottom line counts four confirmed wins instead of five (idea-critic is no longer counted). No skill text changed. Caveats: open-model judges and one generator family, one run, scenarios written by a model that also judges; a miss on this rule shows the win is unconfirmed, not that the edit has no effect.
+- Disclosure: the scenario writer needed two extra driver changes (more redraw rounds, then saving kept scenarios) after two runs fell short of 150 under the unchanged overlap rule; both were logged in the ledger and the frozen list before any rival, arm or judge call. See the bench README.
+
+### Changed
+- `product-output-safety/SKILL.md`: ships the one edit frozen in `docs/bench/safety-r1-1018` ("Answer inside the stated constraint", paid for by de-duplication; 3 bytes smaller than before). The preregistered n=300 fresh-set forward test (`docs/bench/safety-c300-1018`) passed the ship rule: paired edit minus previous text +0.093 [0.045, 0.142] (76 up, 39 down, 185 unchanged).
+
+### Added
+- `docs/bench/safety-c300-1018/`: preregistered second confirmation of that edit (fresh held-out n=300, PCSS only, $0, GLM-5.1 judge, both orders). Win rate against the promptfoo redteam-setup rival: edit 0.533 [0.483, 0.585] (132 W / 56 T / 112 L), previous text 0.440 [0.390, 0.490] (101 / 62 / 137). The edit is not a win over the rival (lower bound 0.483 is below 0.5), so `docs/perun-vs-rivals.md` gains a "Not a win" row; it is the third look at one edit after two benches that missed the paired rule (`safety-r1-1018`, `safety-c120-1018`). `bench.py` was amended for fixture writing only, after the preregistered hash and before any arm answer; see the bench README.
+
 ## [1.594.0] — 2026-10-18
 
 ### Changed
