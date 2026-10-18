@@ -1,0 +1,26 @@
+### Pre-Launch Verification Protocol: Banned Profile Isolation
+
+**Phase 1: Manual QA Spot-Check Checklist**
+*Execute these steps immediately on the staging environment using a snapshot of production data.*
+
+1.  **Construct the "Poison Pill" List**: Extract 20 user IDs known to be banned for severe violations from the last 90 days. Ensure this list includes users banned at different times to test various database lag scenarios.
+2.  **Force High-Compatibility Scenarios**: Manually create test profiles in the staging environment that share high compatibility scores and exact location coordinates with the "Poison Pill" users.
+3.  **Execute Targeted Match Requests**: Run the matching algorithm for these test profiles. Do not rely on random sampling; force the system to attempt a match with the specific banned IDs.
+4.  **Verify Exclusion Logic**: Confirm that none of the 20 banned IDs appear in the resulting match queue.
+5.  **Inspect Internal Logs**: Cross-reference the match request timestamps with your existing internal logging tools. Verify that the system explicitly logged a "rejection" or "filter applied" event for each banned ID attempt. Absence of a log entry indicates a silent failure.
+6.  **Latency Simulation**: If possible, artificially introduce a 2–5 second delay in the database read operation for the ban-status table to simulate the reported lag. Repeat steps 3–5.
+
+**Phase 2: Automated Fail-Safe Mechanism**
+*Implement this logic within the existing application layer using current infrastructure.*
+
+1.  **Implement a "Double-Check" Gate**: Modify the final response serializer (the code that sends matches to the frontend) to include a mandatory, synchronous lookup against the `Banned_Users` table.
+    *   *Logic*: Before returning any match object, the system must query `SELECT status FROM Banned_Users WHERE user_id = [Match_ID]`.
+    *   *Action*: If the status is "banned" or the record exists, immediately strip the profile from the response array and log a `CRITICAL_FILTER_EVENT` to your internal logger.
+2.  **Cache Invalidation Strategy**: Since the issue is database lag, do not rely on the primary matching query's cached data for ban status. Force a "read-through" from the master database node for the ban-status check only, bypassing any read-replicas that might be lagging.
+3.  **Circuit Breaker Alert**: Configure your internal logging tool to trigger an immediate PagerDuty/Slack alert if more than zero `CRITICAL_FILTER_EVENT` logs occur within a 1-minute window during the launch. This indicates the primary filter is failing and the fail-safe is actively working, requiring immediate engineering intervention.
+4.  **Hard Fail Option**: If the ban-status database connection times out or returns an error, configure the matching endpoint to return an empty list or a "service unavailable" error rather than returning potentially unsafe matches. It is better to show no matches than to show banned users.
+
+**Deployment Rule**: Do not enable the public marketing campaign until Phase 1 confirms 100% exclusion of the "Poison Pill" list under simulated lag conditions, and Phase 2 code is merged and verified in staging.
+
+*Note: This protocol relies strictly on your existing internal logging and database infrastructure; no third-party tools are required.*
+*Ensure your "Poison Pill" list is sanitized and accessible only to senior engineers to prevent accidental data leaks.*

@@ -1,0 +1,37 @@
+### Pre-Launch Audit Plan: HudsonLibs Dispute Resolution
+
+Given the hard deadline and the known 5% sensor error rate, the audit must shift from verifying "perfect detection" to verifying "graceful failure." The goal is to prove that the system defaults to patron protection when sensor data is ambiguous.
+
+**1. Establish the "Ambiguity Threshold" Logic**
+Before testing workflows, confirm the code explicitly handles the 5% error margin. The system must not issue an immediate fine if sensor confidence is below a specific threshold (e.g., 95%).
+*   **Audit Action:** Review the decision tree. If a sensor identifies a book with only 80% confidence, the system must trigger a "Manual Review" or "Patron Confirmation" state, not a "Fine Issued" state.
+*   **Success Criteria:** Zero fines are generated automatically for any transaction flagged with low sensor confidence.
+
+**2. Synthetic Data Injection (The "Ghost Book" Test)**
+Since you cannot physically manipulate shelves at scale during UAT, inject synthetic sensor logs that mimic the known error patterns.
+*   **Audit Action:** Create a dataset of 1,000 simulated return events.
+    *   **800 events:** High confidence, clear matches (Control Group).
+    *   **200 events:** Deliberately introduce the 5% error signature (e.g., Book A returned, but sensor reports Book B with low confidence).
+*   **Workflow Verification:** Run these logs through the production-ready bot.
+    *   Verify that the 200 ambiguous events do **not** result in payment requests to the city system.
+    *   Verify that these events are routed to a human dashboard or a "dispute pending" queue.
+    *   Verify that the 800 clear events proceed normally.
+
+**3. The "Dispute-First" Stress Test**
+Test the resolution workflow assuming the bot *did* make a mistake. Since wrongful charges are the primary risk, the dispute mechanism must be faster and easier than the fining mechanism.
+*   **Audit Action:** Simulate a user receiving a wrongful fine notification.
+    *   Measure the steps required to dispute. It should be a single click or voice command ("I didn't return this").
+    *   Verify that initiating a dispute immediately pauses any payment transmission to the city integration.
+    *   Confirm that the system automatically pulls the specific sensor log in question and flags it for human review without requiring the patron to provide proof.
+
+**4. Integration Circuit Breaker**
+With the city payment system deadline approaching, you need a hard stop mechanism.
+*   **Audit Action:** Verify the existence of a global "Circuit Breaker." If the rate of disputed fines exceeds a set percentage (e.g., >2% of total transactions) within a 24-hour window, the system must automatically halt all outgoing payment files to the city.
+*   **Success Criteria:** The system suspends integration automatically during the test when the error threshold is breached, preventing mass wrongful charges.
+
+**5. Final "Go/No-Go" Metric**
+Do not launch based on "average" accuracy. Launch only if the **False Positive Rate for Fines** is 0% in the ambiguous dataset. If the sensor cannot distinguish the book, the business logic must assume the patron is innocent until proven otherwise by a human.
+
+**Deliverable Summary:** Execute the synthetic data injection immediately. If any ambiguous sensor reading results in an automated fine attempt, the integration with the city payment system must be blocked until the logic is patched to default to "manual review."
+
+*Note: This plan assumes you have access to the bot's logging interface to inject synthetic events. If physical sensor simulation is impossible, rely entirely on log injection.*

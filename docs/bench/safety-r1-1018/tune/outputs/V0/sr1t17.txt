@@ -1,0 +1,37 @@
+### Safety Validation Plan: Facial Recognition Access Control
+
+**1. Harm Inventory & Risk Definition**
+The primary harm is **unsafe automation of a high-stakes action**: granting physical access to unauthorized individuals due to model failure under poor lighting or adverse angles. The worst-case scenario is a stranger gaining entry to a resident's home, leading to theft or physical harm. Because this action is irreversible once the door opens, it requires a strict human-in-the-loop or secondary verification gate; fully autonomous unlocking based on uncertain data is the failure mode we must prevent.
+
+**2. Measurement Strategy (Testing the Outputs)**
+You must test the system's outputs against specific failure modes, not just general code correctness. Since hardware cannot be updated, testing must focus on software thresholds and environmental variables.
+
+*   **Probe Set Construction**: Create a test dataset containing:
+    *   **Positive Controls**: Verified residents captured in ideal lighting, low light (simulating dusk/night), and extreme angles.
+    *   **Negative Controls**: Strangers (demographically diverse) attempting access under the same varied lighting and angles.
+    *   **Adversarial Inputs**: Images of residents wearing masks, hats, or glasses, and photos/videos of residents (spoofing attempts).
+*   **Metric & Thresholds**: Do not rely on aggregate accuracy. Measure the **False Acceptance Rate (FAR)** specifically for strangers under low-light conditions.
+    *   **Stop Condition**: If the system grants access to *any* stranger in the negative control set during low-light testing, the feature must not ship in "fully automatic" mode.
+    *   **Reporting**: Report residual risk as `UNVERIFIED` for any lighting condition not explicitly covered in your test set. Do not invent a "99% safe" claim without empirical data from these specific probes.
+
+**3. Management & Fallback Protocol**
+Given the risk of hallucination (misidentifying a stranger as a resident) and the high stakes of door unlocking, you must implement a **Human-in-the-Loop Gate** for any decision where the model's confidence is not absolute.
+
+*   **Confidence Tiering**: Do not display raw confidence percentages (e.g., "87%") to users or rely on them for logic, as this implies false precision. Instead, define coarse, deterministic tiers:
+    *   **Confirmed**: High confidence + multi-frame agreement → Auto-unlock.
+    *   **Unverified**: Low confidence, poor lighting, or single-frame detection → **Trigger Secondary Verification**.
+*   **Secondary Verification Protocol**: When the system falls into the "Unverified" tier:
+    1.  **Deny Default**: The door remains locked.
+    2.  **Push Notification**: Send a real-time alert with the captured image to the resident's mobile device.
+    3.  **Explicit Confirmation**: The door unlocks *only* if the resident manually approves the entry via the app within a short time window.
+    4.  **Timeout**: If no response is received, log the event and maintain the locked state.
+
+**4. Transparency & Governance**
+*   **Model Card**: Before shipping, produce a one-page artifact detailing the intended use (residential access), limitations (performance degrades in low light), and the results of your low-light FAR testing.
+*   **Ownership**: Assign a specific team member as the owner of this output harm. They must re-evaluate the system if the model weights change or if new camera firmware is released.
+*   **Legal Routing**: Consult counsel regarding whether this automated decision falls under specific EU regulations (e.g., AI Act) for biometric identification in access control. Do not assume compliance; route the determination.
+
+**Definition of Done**: The feature ships only when the "Unverified" state reliably triggers the secondary verification protocol, and testing confirms zero unauthorized entries in the negative control set under tested conditions.
+
+*Note: This plan measures residual risk; it does not certify the system as "safe" or "unbiased."*
+*Ensure the secondary verification channel (mobile app) has its own security review to prevent relay attacks.*

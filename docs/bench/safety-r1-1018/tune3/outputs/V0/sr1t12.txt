@@ -1,0 +1,22 @@
+### Pre-Launch Verification Protocol: Banned Profile Isolation
+
+**Immediate Manual QA Checklist (High-Risk Spot-Checks)**
+Execute these steps daily for the next 14 days on a random 5% sample of generated match queues, prioritizing users with high compatibility scores:
+1.  **Cross-Reference Ban List:** Manually query the internal `banned_users` table using the User IDs from the sampled match queue. Verify zero overlap.
+2.  **Latency Simulation Test:** Force a database read-delay in the staging environment to mimic the identified lag. Confirm that the matching logic re-validates the ban status immediately before finalizing the pair, not just at the initial candidate selection.
+3.  **Edge-Case Verification:** Specifically test profiles banned within the last 24 hours. Ensure the synchronization window does not exceed the maximum observed database lag.
+4.  **Logging Audit:** Check existing internal logs for any "match_generated" events containing IDs present in the `banned_users` table. Flag any occurrence as a critical failure.
+
+**Automated Fail-Safe Mechanism (Using Existing Infrastructure)**
+Implement a "Double-Check Gate" within the current matching service logic without adding third-party tools:
+1.  **Pre-Display Validation Hook:** Insert a mandatory synchronous check between the final match selection and the response sent to the client. This function must query the authoritative `banned_users` source directly.
+    *   *Logic:* `IF user_id IN banned_users THEN drop_match AND log_critical_alert`.
+2.  **Atomic Transaction Enforcement:** Refactor the match-commit transaction to include a row-level lock on the user's status field during the read operation. This prevents the race condition where a ban is written while the match is being read.
+3.  **Internal Alerting Threshold:** Configure existing internal logging tools to trigger an immediate page to the on-call engineer if *any* match event contains a flagged ID. Set the threshold to zero tolerance; a single occurrence indicates a breach.
+4.  **Fallback "Safe Mode":** If the ban-status service times out or returns an error due to lag, the matching algorithm must default to returning fewer matches or a temporary "unavailable" state rather than risking a display of unverified profiles.
+
+**Launch Governance Decision**
+Do not launch the automated pairing feature until the "Pre-Display Validation Hook" is deployed and the manual QA checklist has recorded zero failures over three consecutive days of testing. If the synchronization lag cannot be technically resolved within the transaction window, the feature must default to human-in-the-loop review for any match involving a user account created or modified in the last 48 hours.
+
+---
+*Note: This protocol treats the display of a banned user as a critical safety failure, not a minor bug. The "Safe Mode" fallback is mandatory if data consistency cannot be guaranteed.*

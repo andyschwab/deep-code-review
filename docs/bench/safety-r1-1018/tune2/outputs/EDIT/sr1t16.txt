@@ -1,0 +1,26 @@
+**Pre-Launch Testing Strategy & Circuit Breaker Plan**
+
+**1. Simulation Framework (Run Immediately)**
+Construct a local "adversarial news feed" using your existing provider's schema. Do not rely on live data for this phase. Populate this feed with three specific probe sets:
+*   **Positive Controls (Known Bad):** Inject 50+ fabricated headlines (e.g., "CEO of [Major Co] arrested for fraud") and verified satirical articles (e.g., from known satire domains). The expected bot response is **zero trades**. Any execution here is a critical failure.
+*   **Negative Controls (Known Good):** Inject 50+ verified, high-impact breaking news items from historical records. The expected response is **correct directional trades** within latency limits.
+*   **Ambiguity Probes:** Inject headlines with conflicting signals or missing context (e.g., "Rumors swirl about merger" without source attribution). The expected response is **no trade** or a flag for review.
+
+Execute these probes in a shadow mode against your production logic. Record every instance where the bot attempts to trade on a Positive Control or Ambiguity Probe. There is no pass threshold for hallucination-driven trades; a single false positive on a fabricated headline requires a logic patch before launch.
+
+**2. Circuit Breaker Mechanism (Implementation)**
+Do not use raw model confidence percentages (e.g., "87%") as triggers; these are uncalibrated and invite over-reliance. Instead, implement a **Defined Confidence Tier** system mapped to deterministic rules:
+*   **Tier 1 (Confirmed):** Headline matches ≥2 independent sources in the feed + high model score. → *Action: Allow Trade.*
+*   **Tier 2 (Single-Source/Uncorroborated):** Headline from one source or low model score. → *Action: Block Trade.*
+*   **Tier 3 (Unverified/Satire Detected):** Keywords indicating rumor, satire, or low source reliability. → *Action: Block Trade + Alert.*
+
+**Hard Gate:** Any attempt to execute a trade classified as Tier 2 or Tier 3 must be automatically rejected by the execution engine. Additionally, implement a **Velocity Kill Switch**: if the bot attempts >X trades in Y minutes where the average confidence tier is below Tier 1, halt all outgoing orders immediately and page an on-call human.
+
+**3. Human-in-the-Loop Requirement**
+Because this system executes irreversible financial actions (high-stakes automation), fully autonomous operation is unsafe given the hallucination risk. Before Monday's open, you must configure the system to require **explicit human confirmation** for any trade exceeding a defined monetary threshold or involving volatile assets. If contractual or technical constraints prevent real-time human review, you must lower the position size limits to an amount the business can afford to lose entirely due to a hallucination.
+
+**Residual Risk Note:**
+Without external fact-checking APIs, you cannot verify truth, only consistency and source reliability. Mark the hallucination rate as **UNVERIFIED** until the shadow simulation above is run; do not invent a safety metric. If the simulation reveals any trades on fake news, the feature is not ready for launch regardless of the deadline.
+
+**Ownership:**
+Assign a specific engineer as the owner of this harm inventory. They must sign off on the simulation results and the circuit breaker logic before the market opens.

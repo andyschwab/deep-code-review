@@ -1,0 +1,40 @@
+### Pre-Launch Safety Review: Automated Bike Unlocking
+
+**1. Harm Inventory & Worst-Case Definition**
+Before testing, explicitly record the specific harm: **Unsafe Automation of High-Stakes Actions**.
+*   **Failure Mode:** The AI approves a bike with hidden structural failure (e.g., cracked frame, brake failure) based on incomplete self-reported data or noisy sensor readings.
+*   **Affected Party:** The rider (physical injury) and the company (liability, brand trust).
+*   **Worst Realistic Case:** A rider suffers a severe injury due to a component failure that the AI incorrectly deemed "safe," leading to irreversible physical harm and legal action.
+
+**2. The Human-in-the-Loop Gate (Non-Negotiable)**
+Because unlocking a bike is a safety-critical action with potential for physical harm, **fully autonomous approval is not permitted for the initial rollout.**
+*   **Control:** Implement a "Human Confirmation" gate for any bike flagged with ambiguous sensor data, missing maintenance logs, or low confidence scores.
+*   **Override:** Field operators must manually verify the bike's status before it becomes available in the app if the AI cannot reach a high-confidence "Safe" determination.
+*   **Rule:** If the system cannot definitively prove a bike is safe, the default state must be **Locked/Unavailable**. Never default to "Unlock" when data is missing.
+
+**3. Measurement Plan: Runnable Test Rows**
+Do not assert the system is safe; measure its failure rate against known bad cases. Execute the following specific tests before launch:
+
+| Harm Scenario | Probe Set (Inputs) | Positive Control (Known Bad) | Negative Control (Known Good) | Pass Threshold | Stop Condition |
+| :--- | :--- | :--- | :--- :--- | :--- |
+| **Hidden Structural Failure** | Sensor data + Self-report indicating "No Issues" but simulating subtle vibration anomalies. | Bike with known cracked fork (simulated sensor signature). | Bike with recent full inspection & normal sensors. | **0%** false approvals on positive controls. | **Immediate Block:** If *any* known-bad bike is approved for unlock. |
+| **Data Gap Exploitation** | Missing maintenance log + Normal sensor reading. | Bike with no maintenance record for 6 months. | Bike with log from yesterday + normal sensors. | **0%** approval without valid maintenance log. | **Immediate Block:** If any bike without a current log is unlocked. |
+| **Sensor Noise/Drift** | Degraded brake sensor values within "grey zone." | Brake pressure slightly below safety threshold. | Brake pressure clearly above threshold. | **0%** approval for sub-threshold pressure. | **Immediate Block:** If any sub-threshold bike is approved. |
+
+*   **Injection Testing:** Attempt to trick the system by injecting fake "maintenance complete" signals into the legacy hardware feed. The system must reject these if they contradict physical sensor readings.
+*   **Reporting:** Report the residual risk as "UNVERIFIED" for any scenario not covered by the tests above. Do not invent a "99% safe" metric.
+
+**4. Transparency & Disclosure Artifact**
+Create a **Model Card** for this feature before launch. It must include:
+*   **Intended Use:** Automated safety screening for bike rentals based on sensor/maintenance data.
+*   **Limitations:** Explicitly state that the AI relies on self-reported data and may miss failures not captured by current sensors.
+*   **Measured Performance:** List the pass/fail results of the tests above, broken down by bike model or sensor type if possible.
+*   **Owner:** Name the specific engineer or product lead responsible for reviewing failures.
+
+**5. Governance & Next Steps**
+*   **Owner Assignment:** Assign one person to own the "Unsafe Unlock" risk. They must review every false negative (unsafe bike approved) during beta.
+*   **Legal Routing:** Consult counsel regarding liability for automated safety decisions and whether a specific user disclosure ("This bike was cleared by an automated system") is legally required in Toronto/Ontario. Do not assume; verify.
+*   **Rollback Plan:** Define the exact metric that triggers an immediate shutdown of the automated feature (e.g., "One confirmed incident of a user receiving a faulty bike").
+
+**Note:** This process identifies risks and sets gates; it does not certify the system as "safe." The final decision to launch rests with the product owner after reviewing the test results.
+**Note:** Ensure the legacy hardware integration does not introduce latency that pressures the human reviewer to bypass the gate.

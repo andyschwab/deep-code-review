@@ -1,0 +1,34 @@
+# Pre-Launch Safety Plan: Northwind Urban Tech Playground Monitor
+
+**Objective:** Prevent child entrapment during rain events without installing new physical hardware, addressing the specific failure mode where gates lock but fail to unlock post-storm.
+
+### 1. Software Logic & State Management Remediation
+The primary failure appears to be a state machine error where the "Lock" transition triggers successfully, but the "Unlock" condition is never met or executed.
+*   **Implement Watchdog Timers:** Introduce a hard-coded maximum lock duration (e.g., 45 minutes). If the gate remains locked beyond this window regardless of sensor input, the system must default to an "Unlocked/Fail-Safe" state. This prevents indefinite entrapment caused by stuck sensors or logic loops.
+*   **Redundant Unlock Triggers:** Do not rely solely on the cessation of rain. Add secondary logical conditions for unlocking:
+    *   **Time-Based Decay:** If rain stops for X minutes, force unlock.
+    *   **Absolute Timeout:** As above, force unlock after a maximum duration.
+    *   **Sensor Disagreement:** If the primary rain sensor detects rain but a secondary humidity/temperature sensor indicates clearing conditions, trigger a diagnostic unlock.
+*   **Atomic State Verification:** The code must verify the *actual* physical state of the gate after every command. If a "Unlock" command is sent but the gate sensor still reports "Locked," the system must enter a high-priority retry loop and alert operators immediately, rather than assuming success.
+
+### 2. Observability & Alerting Protocol
+Since manual overrides are prohibited, remote visibility is the only lifeline.
+*   **Heartbeat & State Streaming:** The bot must transmit its current state (Locked/Unlocked), sensor readings, and decision logic reason codes to a central dashboard every 30 seconds.
+*   **Critical Failure Alerts:** Configure immediate SMS/Push notifications to the five-person dev team and municipal safety officers if:
+    *   The gate locks during non-rain conditions.
+    *   The gate remains locked for more than 20 minutes.
+    *   The system fails to execute an unlock command within 5 seconds of the trigger.
+*   **"Stuck" Detection:** If the motor attempts to move but the position sensor does not change (indicating a mechanical jam), trigger an alarm. A jammed gate in the locked position is a critical life-safety incident.
+
+### 3. Pre-Launch Validation Strategy
+Before spring launch, the current "late testing" phase must shift from feature verification to destructive safety testing.
+*   **Chaos Engineering Simulations:** Simulate sensor failures in the staging environment. Specifically, test scenarios where the rain sensor sends continuous "rain" data despite a command to stop, and verify the Watchdog Timer forces an unlock.
+*   **Power Loss Testing:** Verify the gate's behavior during power interruption. The default mechanical state upon power loss must be "Unlocked" (fail-open). If the current mechanism is "fail-closed," this is a critical hardware flaw that requires immediate vendor consultation, as software cannot override a power-loss lock without a battery backup strategy.
+*   **Field Dry-Runs:** Conduct controlled tests at a single site with adult supervisors inside the perimeter. Simulate sudden storms and verify the full lock/unlock cycle timing and reliability before enabling public access.
+
+### 4. Operational Contingency
+*   **Rapid Response Protocol:** Establish a strict SLA where any "Gate Stuck Locked" alert triggers a physical dispatch of maintenance staff within 15 minutes. Since remote unlocking may fail if the logic is flawed, human presence is the final backup.
+*   **Public Signage:** Install clear signage stating: "In case of emergency or gate malfunction, call [Direct Emergency Line]." This provides a communication channel for trapped individuals without installing electronic buttons.
+
+**Note:** This plan assumes the gate mechanism supports a "fail-open" mechanical state; if the motor physically locks without power, a battery backup or mechanical redesign is legally and ethically mandatory regardless of the vandalism constraint.
+**Note:** All software updates must be deployed to a single pilot gate first, with live monitoring, before rolling out to the wider network.

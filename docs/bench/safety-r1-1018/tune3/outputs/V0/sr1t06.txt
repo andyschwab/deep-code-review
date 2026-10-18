@@ -1,0 +1,36 @@
+### Step-by-Step Audit and Monitoring Framework for Housing Filter Fairness
+
+**Phase 1: Immediate Harm Inventory & Logic Audit (Days 1–3)**
+Before testing, explicitly document the risk: "Biased filters systematically exclude listings from specific neighborhoods, limiting housing access."
+1.  **Map the Logic:** Manually trace the filtering code path. Identify every rule, weight, or threshold that uses location, neighborhood name, or proxy variables (e.g., school district codes, zip codes) as an input.
+2.  **Define Protected Segments:** List the specific neighborhoods or areas of concern. Do not rely on the model to define these; use external demographic or geographic data known to your team.
+3.  **Construct Counterfactual Probes:** Create pairs of identical listing profiles that differ *only* by neighborhood.
+    *   *Positive Control:* A high-quality listing in a favored neighborhood (expected to pass).
+    *   *Negative Control:* A low-quality listing in any neighborhood (expected to fail).
+    *   *Test Case:* A high-quality listing in a marginalized neighborhood (should pass if unbiased).
+4.  **Run Static Sweeps:** Execute these probes against the current staging environment. Record the visibility rate (percentage of test listings shown) for each neighborhood. If the visibility rate for marginalized areas is significantly lower than the baseline for identical profiles, you have confirmed the harm.
+
+**Phase 2: Measurement & Threshold Setting (Days 4–6)**
+Do not assert the system is "fair." Measure the disparity.
+1.  **Calculate Disparity Metrics:** Compute the ratio of visibility rates between the most-favored and least-favored neighborhoods.
+2.  **Set Owner-Defined Thresholds:** Your team must decide the maximum acceptable disparity (e.g., "Visibility in any neighborhood cannot be less than 80% of the city-wide average for equivalent listings").
+3.  **Define Stop Conditions:** Establish a hard rule: "If the disparity exceeds the threshold in final testing, the launch is blocked until a human-in-the-loop review overrides or fixes the logic." Never launch with unverified disparity.
+
+**Phase 3: Post-Launch Monitoring System (Days 7–10)**
+Since retraining is not possible, you must monitor outputs aggressively.
+1.  **Deploy Shadow Probes:** Inject a small, continuous stream of synthetic listing queries (the counterfactual pairs from Phase 1) into the live traffic at random intervals.
+2.  **Automated Alerting:** Configure alerts to trigger immediately if the visibility disparity for any neighborhood breaches your defined threshold.
+3.  **Human-in-the-Loop Gate:** For any automated decision that permanently hides a listing or blocks a user view based on these filters, ensure there is an easy mechanism for human review or user appeal. Do not allow irreversible exclusion without an override path.
+4.  **Transparency Artifact:** Publish an internal "Model Card" for this feature. It must state:
+    *   **Intended Use:** Filtering listings based on quality/relevance.
+    *   **Limitations:** Explicitly note the lack of diverse training data and the potential for residual bias.
+    *   **Measured Performance:** Report the disparity metrics found in Phase 2 as `UNVERIFIED` for long-term stability, noting they are based on pre-launch probes.
+    *   **Owner:** Name the specific team member responsible for reviewing weekly disparity reports.
+
+**Critical Constraints & Warnings**
+*   **No Certification:** Do not claim the system is "unbiased" or "safe." State clearly that residual risk exists due to data limitations.
+*   **Legal Routing:** Housing discrimination is a severe legal risk. Immediately route the question of whether this filter violates local or EU housing laws to legal counsel. Do not make this determination yourself.
+*   **Confidence Display:** If the platform shows users *why* a listing was hidden, do not use precise percentages (e.g., "87% match"). Use coarse, defined tiers (e.g., "Matches criteria" vs. "Does not match criteria") to avoid false precision.
+
+**Note:** This framework measures harm; it does not eliminate the root cause (data bias).
+**Note:** If the disparity metric exceeds your threshold, the only safe action is to delay launch or disable the biased filters.

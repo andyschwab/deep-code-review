@@ -1,0 +1,36 @@
+### Testing Roadmap: Emergency Responder Toll Waiver System
+
+**1. Harm Inventory & Worst-Case Definition**
+Before testing, acknowledge the specific risks:
+*   **False Negative (High Severity):** System fails to recognize a valid emergency vehicle during a disaster, charging a responder en route to save lives. *Worst case:* Delayed response due to payment friction or administrative burden during a crisis.
+*   **False Positive (Medium Severity):** System incorrectly waives fees for non-emergency vehicles. *Worst case:* Revenue loss and potential abuse of the system.
+*   **Automation Bias:** Operators assume the AI is infallible and fail to monitor edge cases during chaotic events.
+
+**2. Runnable Test Plan (One Row Per Harm)**
+Execute these specific evaluations within the 10-day window. Do not rely on aggregate accuracy; focus on the "worst realistic case."
+
+| Harm Scenario | Probe Set (Inputs) | Controls | Metric & Threshold | Stop Condition |
+| :--- | :--- | :--- | :--- :--- |
+| **False Negative in Chaos** | License plates of valid emergency vehicles under: heavy rain, low light, partial occlusion (mud/debris), and high-speed approach. Simulate "disaster declared" status in the database. | **Positive Control:** Clear image, valid plate, active disaster flag (Must Waive).<br>**Negative Control:** Valid plate, *no* disaster flag (Must Charge). | **Metric:** False Negative Rate (FNR) on exempt vehicles.<br>**Threshold:** Owner-defined (Propose **0% tolerance** for valid exempt vehicles during active disasters). | **BLOCK LAUNCH** if any valid emergency vehicle is charged in a simulated disaster scenario. |
+| **False Positive / Abuse** | Non-emergency vehicles with plates visually similar to emergency fleets; valid emergency plates when *no* disaster is declared. | **Positive Control:** Non-emergency plate, no disaster (Must Charge).<br>**Negative Control:** Emergency plate, active disaster (Must Waive). | **Metric:** False Positive Rate (FPR).<br>**Threshold:** Owner-defined based on acceptable revenue leakage. | **BLOCK LAUNCH** if FPR exceeds budgeted loss limits or shows systematic bias against specific plate formats. |
+| **System Integrity & Injection** | Inputs containing adversarial patterns (stickers on plates), corrupted data feeds for "disaster status," and latency spikes. | **Control:** Standard clean input stream. | **Metric:** System crash rate or fallback to "Charge" default. | **BLOCK LAUNCH** if the system fails open (waives fees without verification) or crashes under load. |
+
+**3. Human-in-the-Loop Gate (Irreversible Action Control)**
+Since charging a responder during a life-saving mission is a high-stakes error with difficult reversal:
+*   **Mandatory Override:** Implement a "Disaster Mode" dashboard where a human supervisor can instantly force a global waiver or manually override individual charges in real-time.
+*   **Uncertainty Rendering:** If the AI confidence in reading a plate is low (e.g., due to mud or rain), do not output a percentage (e.g., "87% sure"). Instead, route the transaction to a **"Review Required"** queue with a clear label: *Unverified – Manual Check Needed*. Never auto-charge or auto-waive on low-confidence reads.
+
+**4. Transparency Artifact (Model Card)**
+Before launch, publish a one-page internal "Model Card" containing:
+*   **Intended Use:** Waiving tolls *only* during declared disasters for verified fleets.
+*   **Limitations:** Explicitly list conditions where recognition degrades (e.g., "severe obscuration").
+*   **Measured Results:** Report the FNR from the test plan above. If a metric was not tested, mark it **UNVERIFIED**. Do not invent a "99% accuracy" claim.
+*   **Owner:** Name the specific individual responsible for monitoring post-launch performance.
+
+**5. Governance & Next Steps**
+*   **Owner Assignment:** Assign one person to own the "False Negative" risk. They must sign off on the test results.
+*   **Legal Routing:** Consult counsel immediately to confirm if automatic waiver logic triggers specific regulatory disclosures under local transport laws or the EU AI Act (given the automated decision-making nature). Do not assume compliance; verify the duty.
+*   **Rollout Strategy:** Given the 10-day constraint, consider a staged rollout where the system *recommends* waivers for human confirmation for the first 48 hours of the storm season, rather than full automation.
+
+**Note:** This plan measures residual risk; it does not certify the system as "safe" or "unbiased." The decision to ship rests with the product owner.
+**Note:** Ensure all test data respects privacy regulations; use synthetic or properly anonymized license plate data for testing.

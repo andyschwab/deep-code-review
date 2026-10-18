@@ -1,0 +1,40 @@
+**Pre-Launch Safety Review Plan: Automated Eviction Notice Module**
+
+**1. Harm Inventory & Risk Assessment**
+*   **Primary Harm:** Wrongful eviction notices due to data import errors (false positives), causing severe tenant distress and potential legal liability.
+*   **Affected Parties:** Tenants with accurate payment records; Property Managers (reputational risk); Landlords (legal risk).
+*   **Worst Case:** A tenant receives a formal legal notice despite being current on rent, leading to panic, credit damage, or unlawful displacement attempts.
+
+**2. Measurement Strategy (Within Current Constraints)**
+Since new data validation layers cannot be added, we must test the *existing* pipeline's failure modes:
+*   **Adversarial Probe Set:** Create a "poisoned" test dataset in the staging environment where payment logs explicitly contradict bank confirmation emails (e.g., log shows "missed," email shows "paid").
+*   **Metric:** False Positive Rate (FPR) on this specific conflict scenario.
+*   **Threshold:** **Zero tolerance.** If the system generates a notice draft for any tenant in the "conflict" test set, the feature fails the safety gate.
+*   **Stop Condition:** If FPR > 0% in staging, the automated generation component is disabled immediately. Do not proceed to the board demo with live generation enabled; demonstrate the *detection* of the error instead.
+
+**3. Management Controls: The Human-in-the-Loop Gate**
+Given the high-stakes and irreversible nature of eviction notices, full automation is prohibited. The following workflow is mandatory:
+
+*   **Step A: Conflict Detection (Logic, not new layers):**
+    Instead of adding a new validation layer, modify the *generation trigger*. The system must not generate a notice draft if the payment log status is "missed" but a corresponding bank confirmation email exists in the inbox.
+    *   *Action:* Implement a simple logical check: `IF (Payment_Status == "Missed") AND (Bank_Email_Found == True) THEN Flag_For_Review ELSE Generate_Draft`.
+    *   *Note:* This uses existing data sources without new infrastructure.
+
+*   **Step B: Mandatory Human Verification:**
+    *   **No Auto-Send:** The system must technically lack the permission to send emails directly. It can only queue drafts.
+    *   **Review Interface:** Property Managers must actively open a "Pending Notices" dashboard.
+    *   **Verification Step:** The manager must visually confirm the payment discrepancy is real and click "Approve & Send."
+    *   **Uncertainty Display:** If the system detects *any* ambiguity (e.g., email timestamp is close to the deadline), the UI must display a prominent warning: "Payment Status Disputed – Verify Manually." Do not show a percentage confidence (e.g., "87% likely missed"); use clear text tiers like "Unverified" or "Conflicting Data."
+
+*   **Step C: Transparency Artifact (Model/Data Card):**
+    Prepare a one-page document for the board and internal records stating:
+    *   **Intended Use:** Drafting assistance only; never final legal action without human sign-off.
+    *   **Known Limitation:** Susceptible to data import latency; relies on human review to catch conflicts.
+    *   **Owner:** Name the specific Product Owner responsible for this module.
+
+**4. Governance & Next Steps**
+*   **Owner:** Assign one engineer to own the "False Positive" metric and one Property Manager to own the review workflow.
+*   **Board Presentation Strategy:** Do not demo "efficiency" by showing fast auto-generation. Demo "safety" by showing how the system *stops* itself when data conflicts arise and forces human review. This turns a potential liability into a governance strength.
+*   **Legal Routing:** Immediately route the question of "automated legal notice disclosure requirements" to legal counsel. Do not assert compliance internally.
+
+**Note:** This plan refuses to certify the system as "safe" or "unbiased"; it establishes a control framework to manage residual risk. The "Zero Tolerance" threshold for false positives in testing is non-negotiable for high-stakes housing actions.

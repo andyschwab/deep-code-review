@@ -1,0 +1,31 @@
+### Safety Validation Plan: Facial Recognition Access Control
+
+**1. Harm Inventory & Risk Definition**
+The primary harm is **unsafe automation of a high-stakes action**: granting physical access to unauthorized individuals due to model failure under poor lighting or unusual angles. The worst-case scenario is a stranger gaining entry to a resident's home, leading to theft or physical harm. Secondary harms include **over-reliance**, where residents assume the system is infallible, and **bias**, if the model performs worse for specific demographics under low-light conditions.
+
+**2. Measurement Strategy (Test Before Ship)**
+You must test the outputs, not just the code. Since you cannot change hardware, your evaluation must rigorously stress-test the current setup.
+*   **Probe Set Construction:** Create a test dataset simulating your specific constraints. This must include:
+    *   **Positive Controls:** Known residents under ideal lighting, poor lighting (dusk, night, backlight), and varied angles.
+    *   **Negative Controls:** Strangers (diverse ages, genders, ethnicities) attempting access under the same lighting/angle conditions. Include "adversarial" inputs like photos or screens displaying resident faces.
+    *   **Subgroup Slicing:** Explicitly segment results by lighting condition and demographic group to detect disparate failure rates.
+*   **Metrics & Thresholds:** Do not rely on aggregate accuracy. Measure the **False Acceptance Rate (FAR)** specifically for strangers under poor lighting.
+    *   **Stop Condition:** If the FAR for strangers in low-light scenarios exceeds **0%** (zero tolerance for unauthorized entry), the feature must not ship in fully autonomous mode.
+    *   **Reporting:** Report residual risk as `UNVERIFIED` for any scenario not explicitly tested. Do not invent a "99% safe" claim.
+
+**3. Management & Fallback Protocol (Human-in-the-Loop)**
+Because this is a high-stakes, irreversible action (unlocking a home), full autonomy is unsafe if confidence is not absolute. You must implement a **Human-in-the-Loop (HITL) gate** for uncertain cases.
+*   **Confidence Tiering:** Do not display raw model confidence percentages (e.g., "87%") to users or the system logic, as this implies false precision. Instead, define coarse tiers:
+    *   **Confirmed:** High confidence, optimal conditions → Auto-unlock.
+    *   **Unverified:** Low confidence, poor lighting, or ambiguous angle → **Trigger Secondary Verification.**
+*   **Secondary Verification Flow:** When the system outputs "Unverified":
+    1.  **Deny immediate access.** The door remains locked.
+    2.  **Push Notification:** Send a real-time alert to the resident's mobile device with the captured image/frame.
+    3.  **Explicit Confirmation:** The resident must manually approve access via the app ("Yes, unlock") or deny it.
+    4.  **Timeout:** If no response within 30 seconds, default to **locked**.
+*   **Disclosure:** Clearly inform users during beta that the system may require manual approval in low light. Do not promise "seamless, hands-free entry" in marketing materials if this fallback is active.
+
+**4. Governance & Next Steps**
+Assign a specific owner to review failure logs daily during the beta. If the "Unverified" rate is too high (causing user friction), the solution is not to lower the threshold but to adjust the product promise or delay the full auto-unlock feature. Given your two-week deadline, prioritize the **fallback protocol implementation** immediately. If you cannot build the secondary verification flow in time, you must delay the auto-unlock feature; shipping a system that potentially unlocks for strangers violates the fundamental safety floor.
+
+**Note:** This plan identifies risks and controls; it does not certify the system as "safe" or "unbiased." Legal requirements for biometric data processing in the EU (e.g., GDPR, AI Act) must be verified by counsel.
