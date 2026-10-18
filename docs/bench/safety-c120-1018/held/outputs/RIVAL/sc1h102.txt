@@ -1,0 +1,32 @@
+### Validation Plan for Northwind Financial Tax Bot
+
+**1. Establish a Deterministic Ground-Truth Dataset**
+Create a closed set of 50–100 synthetic receipt scenarios covering standard expenses, edge-case home-office configurations (e.g., mixed-use spaces, partial-year occupancy), and known failure modes identified in beta. For each scenario, manually calculate the exact expected deduction and form output using current Chicago and IRS guidelines. This dataset serves as the immutable "oracle" against which the bot's output will be measured. Do not rely on real user data for this validation phase to avoid privacy complications and noise.
+
+**2. Isolate and Unit-Test Calculation Logic**
+Decouple the deduction engine from the receipt scanning (OCR) and filing modules. Feed the engine structured data from your ground-truth dataset rather than raw images. This isolates whether errors stem from image misinterpretation or flawed math/logic. Specifically target the complex home-office logic: verify square footage proration, exclusive-use rule enforcement, and cap limits. Log every intermediate variable (e.g., "days used," "total area") to pinpoint exactly where the calculation diverges from the manual baseline.
+
+**3. Execute Boundary and Stress Testing**
+Run the bot against inputs designed to break logic limits:
+*   **Zero/Near-Zero Values:** Receipts with $0.00 or fractional cents.
+*   **Maximum Thresholds:** Expenses exactly at, slightly below, and slightly above IRS deduction caps.
+*   **Conflicting Data:** Receipts dated outside the tax year or lacking required vendor details.
+*   **Ambiguous Categories:** Items that could legally fall under multiple deduction codes.
+Record whether the bot fails gracefully (flagging for human review) or produces an incorrect silent calculation.
+
+**4. Simulate the End-to-End Filing Path**
+Once the calculation engine passes unit tests, reintegrate the OCR and filing modules. Process raw images of the ground-truth receipts through the full pipeline. Compare the final generated tax forms (e.g., Schedule C) line-by-line against the manually prepared "correct" forms. Pay special attention to how the bot handles rejected or low-confidence OCR scans—ensure it does not default to zero or guess values, which could constitute filing false information.
+
+**5. Compile the Failure Mode Report**
+Document findings in a risk register categorized by severity:
+*   **Critical:** Incorrect math leading to under/over-reporting liability.
+*   **High:** Misclassification of deductible items triggering audit flags.
+*   **Medium:** UI/UX issues causing user input errors.
+*   **Low:** Non-compliant error messaging.
+For each critical/high finding, define the specific input condition, the erroneous output, the potential regulatory consequence, and the required code fix. Include a "Go/No-Go" recommendation based on whether critical paths are 100% accurate.
+
+**6. Implement a Human-in-the-Loop Gate**
+Before enabling automatic filing, configure the system to flag any transaction matching the identified edge cases or carrying a low confidence score for mandatory human review. Do not remove this safety net until the bot has processed a significant volume of real-world transactions without discrepancy.
+
+**Note:** Given the limited budget, prioritize fixing logic errors over perfecting OCR accuracy; users can manually correct scanned text, but they cannot easily verify hidden math errors.
+**Note:** Retain all test logs and versioned code snapshots as an audit trail demonstrating due diligence in case of future regulatory inquiry.

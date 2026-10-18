@@ -1,0 +1,37 @@
+# Safety Validation Plan for Facial Recognition Access System
+
+## 1. Testing Protocol for Recognition Accuracy
+
+Since hardware cannot be upgraded, validation must rigorously map the software's failure modes under constrained conditions. Execute the following test matrix using recorded video feeds or controlled live simulations rather than relying solely on static images, as motion and lighting shifts affect edge-device processing differently.
+
+**Test Matrix Variables:**
+*   **Lighting Conditions:** Test across five specific tiers: (1) Bright daylight (direct sun), (2) Overcast day, (3) Indoor artificial light, (4) Twilight/Dusk (low contrast), and (5) Night with only streetlight/porch light illumination. Include scenarios with strong backlighting (subject standing between camera and light source) and sudden light changes (car headlights sweeping across the lens).
+*   **Angle and Distance:** Vary the subject's approach angle from -45° to +45° relative to the camera axis. Test distances ranging from the closest possible detection point to the maximum recognized range. Include variations in head tilt (looking down at a phone, looking up) and partial occlusions (wearing hats, scarves, or glasses common in Berlin winters).
+*   **Subject Diversity:** Use a group of 10 "residents" (enrolled) and 10 "strangers" (unenrolled). Ensure the stranger group includes individuals with varying degrees of resemblance to residents (e.g., siblings, similar hair color) to test for false positives specifically.
+
+**Execution Method:**
+Conduct 50 trials per combination of lighting and angle. Record the system's output: "Unlock," "Deny," or "No Decision." Calculate the False Acceptance Rate (FAR) specifically for the "Night" and "Backlit" categories. If the FAR exceeds 0.1% in any low-light scenario, the current threshold is unsafe for deployment.
+
+## 2. Fallback Protocol: Secondary Verification
+
+Implement a software-only "Confidence Gate" immediately within the existing processing pipeline. This requires no new hardware, only a logic update to the decision threshold.
+
+**The Logic Flow:**
+1.  **High Confidence (>95%):** System grants immediate access.
+2.  **Low Confidence (<80%):** System denies access silently and logs the event as "Unknown."
+3.  **Ambiguous Zone (80% – 95%):** This is the critical failure zone under poor lighting. Instead of unlocking, the system must trigger a **Secondary Verification Step**:
+    *   **Action A (Push Notification):** Send an immediate alert to the resident's registered mobile device containing the captured snapshot. The door unlocks *only* if the resident manually swipes "Approve" within 30 seconds.
+    *   **Action B (Audio Challenge):** If the device has a speaker, emit a verbal prompt: "Verification required. Please state your name." If the system includes basic voice recognition, match the voice; if not, require the user to press a physical doorbell button to signal they are a resident expecting entry, which then notifies the homeowner.
+    *   **Action C (Time-Based Lockout):** If no mobile response occurs within 30 seconds, the system resets and requires a full re-scan or manual keypad entry (if available).
+
+**Implementation Constraint Check:**
+This protocol relies entirely on existing network connectivity and the companion mobile app, bypassing the need for increased edge-device processing power. The heavy lifting of image review is offloaded to the human user via the app.
+
+## 3. Deployment Recommendation
+
+Given the two-week deadline, do not attempt to retrain the model unless you have verified training data that specifically matches your camera's low-light noise profile. Instead, raise the global acceptance threshold to reduce false positives, accepting that residents may face more frequent secondary verification checks in bad weather. It is safer to inconvenience a resident with a phone prompt than to unlock the door for a stranger.
+
+Prioritize testing the "Ambiguous Zone" logic first. Ensure the mobile app fallback works reliably when the primary biometric system is uncertain, as this is your only remaining safety net before shipment.
+
+*Note: Ensure all test data involving facial images is anonymized and stored securely to comply with GDPR regulations applicable in Berlin.*
+*This plan assumes the existing camera feed can be accessed by the mobile app for the secondary verification step.*

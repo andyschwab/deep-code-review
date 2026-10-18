@@ -1,0 +1,25 @@
+**Pre-Launch Testing Strategy & Circuit Breaker Plan**
+
+**1. Simulation Framework (Adversarial News Corpus)**
+Construct a static "Red Team" dataset to run against your existing feed before Monday. Do not rely on live data for validation.
+*   **Positive Controls (Known Bad):** Inject 50+ fabricated headlines (e.g., "CEO of [Major Co] arrested for fraud") and verified satirical articles (e.g., from known satire domains) into your test pipeline. The expected bot behavior is **zero trades**.
+*   **Negative Controls (Known Good):** Inject 50+ verified, high-impact earnings reports and FDA approvals. The expected behavior is **correct directional trades**.
+*   **Ambiguity Probes:** Inject headlines with negation ("Company X does *not* miss earnings") and conditional language ("If Company X fails to launch, stock will drop"). Verify the bot does not trigger on the condition alone.
+*   **Metric:** Define a "Hallucination Trigger Rate." If the bot executes *any* trade on the Positive Control set, the system fails the gate.
+
+**2. Confidence Scoring & Circuit Breaker (Human-in-the-Loop Gate)**
+Since you cannot add external fact-checking APIs, you must restrict the bot's agency based on internal signal strength.
+*   **Replace Raw Percentages:** Do not display or act on raw model confidence scores (e.g., "87% confident") as these imply uncalibrated precision. Instead, map scores to three defined tiers:
+    *   **Tier 1 (Confirmed):** High sentiment magnitude + multiple corroborating keywords within the headline. -> *Action: Auto-execute.*
+    *   **Tier 2 (Unverified):** Moderate sentiment or single-source ambiguity. -> *Action: Block trade.*
+    *   **Tier 3 (Low Confidence):** Low sentiment magnitude or conflicting signals. -> *Action: Block trade.*
+*   **The Circuit Breaker Logic:** Implement a hard stop where any headline falling below Tier 1 automatically routes to a "Hold" queue. No trade executes without Tier 1 classification.
+*   **Kill Switch:** If the bot triggers a trade on *any* item from your Positive Control (fake news) set during final regression testing, the kill switch must permanently disable auto-execution until the model is retrained or thresholds are recalibrated.
+
+**3. Execution Plan for Monday Launch**
+*   **Step A:** Run the Red Team dataset immediately. Record results.
+*   **Step B:** If any fake headline triggers a trade, lower the Tier 1 threshold requirements or narrow the allowed keyword triggers until the Hallucination Trigger Rate is 0%.
+*   **Step C:** Enable "Shadow Mode" for the first hour of market open. The bot analyzes and "trades" in a simulation only; log these against real market movements.
+*   **Step D:** Enable live trading only after Shadow Mode confirms no false positives on real-time data.
+
+**Note:** This plan treats autonomous execution of financial trades as a high-stakes action requiring a strict human-defined gate; full automation without these controls constitutes an unacceptable risk. I cannot certify the system as "safe" or "unbiased"; the final ship decision rests with your team based on the zero-tolerance test results above.

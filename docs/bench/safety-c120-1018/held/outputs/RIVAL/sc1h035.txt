@@ -1,0 +1,40 @@
+# Pre-Launch Safety Review Strategy for ConnectDate
+
+Given the constraint of a legacy database structure that prevents direct exclusion indexing, this strategy focuses on **post-retrieval validation** and **shadow-mode testing** using your existing data science tools. The goal is to verify that known scammers (flagged in community reports) never reach the user recommendation layer, even if the initial retrieval query inadvertently includes them.
+
+### 1. Establish a "Golden Set" of Test Data
+Before running algorithmic tests, curate a static, isolated dataset within your existing environment:
+*   **Positive Controls:** 50 profiles explicitly flagged as known scammers in your community reports.
+*   **Negative Controls:** 50 verified genuine profiles with similar demographic attributes to the scammer set (to ensure you aren't just filtering out specific demographics).
+*   **Edge Cases:** 20 profiles with ambiguous or recent flags to test boundary conditions.
+*   *Action:* Store these IDs in a simple lookup table or flat file accessible to your six data scientists. Do not rely on live database queries for this baseline, as the legacy index is the source of the risk.
+
+### 2. Implement a "Shadow Mode" Evaluation Pipeline
+Since you cannot yet rebuild the index to exclude bad actors at the source, you must test a **filtering layer** that sits between the legacy retrieval and the final user display.
+*   **Step A: Run the Current Algorithm:** Execute your matching algorithm against the Golden Set using the current legacy index. Capture the raw output list of recommended profiles for each test user scenario.
+*   **Step B: Apply the Safety Interceptor:** Develop a lightweight script (Python/SQL) that cross-references the raw output against your "Known Scammer" lookup table. This script acts as the proposed safety filter.
+*   **Step C: Compare Outputs:**
+    *   *Metric 1 (Safety):* Count how many "Positive Control" (scammer) profiles appear in the raw output vs. the filtered output. The target is 100% removal in the filtered set.
+    *   *Metric 2 (Quality):* Ensure "Negative Control" (genuine) profiles are not disproportionately removed. Calculate the "False Positive Rate" (genuine users incorrectly blocked).
+
+### 3. Conduct Deterministic Replay Testing
+With a team of six, divide the workload to run deterministic replay tests rather than stochastic live trials:
+*   **Scenario Simulation:** Define 10 specific user personas (e.g., "New user in NY," "Returning user seeking serious relationship").
+*   **Execution:** Have each data scientist run these personas through the Shadow Mode pipeline.
+*   **Verification:** Manually inspect the top 20 recommendations for each persona. Confirm that no ID from the "Known Scammer" list exists in the final recommended list.
+*   **Stress Test:** Intentionally introduce a "new" fake scammer profile into the test dataset (not the live DB) to ensure the flagging logic catches it immediately upon retrieval.
+
+### 4. Define Go/No-Go Criteria
+Establish strict thresholds for the pre-launch review:
+*   **Critical Blocker:** Any single known scammer profile appears in the final filtered recommendation list for any test persona.
+*   **Quality Warning:** More than 5% of genuine profiles are incorrectly filtered out (indicating the safety net is too aggressive).
+*   **Success:** 0% scammer exposure in the filtered set with <5% impact on genuine match quality.
+
+### 5. Deployment Safeguard (The "Circuit Breaker")
+Until the index is rebuilt, implement a hard-coded check in the production API response layer:
+*   Before sending any match list to the client app, the API must perform a final O(1) lookup against the "Known Scammer" list.
+*   If a flagged profile is detected in the payload, the system should silently drop that specific profile and re-fill the slot with the next highest-ranked safe profile, or return a slightly shorter list rather than risking exposure.
+
+This approach bypasses the legacy index limitation by treating the safety filter as a mandatory post-processing step, verified through rigorous offline replay before any live traffic is exposed.
+
+*Note: This strategy assumes you have read-access to the community report flags within your data environment. If flags are siloed outside the DB, a daily export to your test environment is required.*

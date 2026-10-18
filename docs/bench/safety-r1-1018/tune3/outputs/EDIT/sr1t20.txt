@@ -1,0 +1,37 @@
+### Safety Assessment Plan: Size Recommendation Engine
+
+**1. Harm Inventory & Immediate Gate**
+The primary identified harm is **unsafe automation of high-stakes actions**, specifically recommending restrictive clothing that causes physical discomfort or minor injury. Secondary harms include **bias** (systematic undersizing for specific body types not well-represented in training data) and **over-reliance** (users trusting the algorithm over their own judgment).
+
+*   **Immediate Action:** Do not enable fully automated size selection in the checkout flow within the four-day window. Implement a **human-in-the-loop gate** or, more feasibly for this timeline, a **mandatory explicit confirmation step**. The system must never pre-select a size that carries a "high risk" flag; the user must actively click to accept a risky recommendation.
+
+**2. Measurement Strategy (Validation Without New Data)**
+Since collecting new body measurement data is prohibited, validation must rely on **adversarial testing** and **segmented analysis** of existing historical data.
+
+*   **Probe Set Construction:** Create a test suite using existing purchase history where returns occurred due to "fit issues." Isolate cases where the item was returned because it was "too small."
+*   **Subgroup Slicing:** Run the algorithm against historical data sliced by available proxies for body diversity (e.g., past purchase sizes, geographic region if correlated with sizing standards, or self-reported height/weight if available in legacy profiles). Do not rely on aggregate accuracy; measure the **false-negative rate for "too small" predictions** specifically for each subgroup.
+*   **Positive/Negative Controls:**
+    *   *Positive Control:* Inputs known to result in undersizing in the past. The system must flag these as low confidence.
+    *   *Negative Control:* Inputs with clear, non-ambiguous fit history. The system should show high confidence.
+*   **Stop Condition:** If the "too small" error rate exceeds 0% for any identified subgroup in the probe set, the feature cannot launch with automated suggestions for that segment.
+
+**3. Confidence Threshold & Uncertainty Disclosure**
+Do not display raw probability scores (e.g., "87% fit") as this implies false precision and invites over-reliance. Instead, implement a **defined coarse tier system** for confidence:
+
+*   **Tier 1: Confirmed Fit** (High agreement between photo analysis and purchase history). Action: Show recommendation with standard disclosure.
+*   **Tier 2: Estimated Fit** (Conflicting signals or low-quality photo). Action: Show recommendation with a prominent warning: *"Our analysis suggests Size M, but confidence is limited based on available data. Please verify against our size chart."*
+*   **Tier 3: Unverified / High Risk** (Signals indicate potential restrictive fit or high variance). Action: **Suppress the specific size recommendation.** Display: *"We cannot confidently recommend a size based on this photo. Please consult our detailed size guide or customer support."*
+
+**4. Transparency Artifact (Model Card Lite)**
+Before deployment, publish an internal "Model Card" summary for the product team containing:
+*   **Intended Use:** Sizing assistance only, not a guarantee of fit.
+*   **Known Limitations:** Explicitly list body types or clothing categories where the "too small" error rate was observed during testing.
+*   **Residual Risk:** State clearly that the risk of restrictive fit is `UNVERIFIED` for segments lacking sufficient historical data.
+
+**5. Governance**
+Assign a specific product owner to review any "high risk" suppression logs daily post-launch. If injury claims persist, the kill switch must be activated to disable the photo-based recommendation entirely, reverting to manual size selection.
+
+***
+
+**Note:** Legal counsel must review the specific wording of the disclaimer to ensure it meets EU consumer protection standards regarding automated decisions.
+**Note:** This plan assumes the "four-day" constraint allows for rapid execution of the historical data slicing; if not, the feature must be delayed.

@@ -1,0 +1,52 @@
+### Software-Only Verification Checklist for Drone Drop Safety
+
+Given the high-stakes risk of physical harm to pedestrians and the constraint of zero additional hardware budget, the following verification process must be implemented before any pilot launch. This plan treats the "two-week" deadline as fixed but asserts that **no automated drop occurs in borderline conditions without a human-in-the-loop gate**.
+
+**1. Harm Inventory & Worst-Case Definition**
+*   **Primary Harm:** Physical injury to pedestrians from falling packages due to wind miscalculation.
+*   **Affected Parties:** Pedestrians in drop zones, property owners, and the startup's legal viability.
+*   **Worst Realistic Case:** A package strikes a pedestrian in a crowded area during a sudden gust, causing severe injury or death, leading to immediate program shutdown and liability.
+
+**2. Simulation Scenarios (The "Runnable" Test Rows)**
+You must simulate these specific scenarios using existing telemetry logs. Each scenario requires a **positive control** (known failure input) and a **negative control** (known safe input).
+
+*   **Scenario A: Sudden Gust Injection**
+    *   *Probe:* Inject synthetic wind spike data (e.g., +15km/h sudden increase) into stable flight logs at varying altitudes (5m, 10m, 20m).
+    *   *Metric:* Time-to-abort vs. time-to-impact.
+    *   *Pass Threshold:* Bot initiates abort/hold sequence < 200ms after simulated gust detection.
+    *   *Stop Condition:* Any simulation where the bot proceeds with the drop sequence despite the gust exceeding safety limits.
+
+*   **Scenario B: Urban Canyon Turbulence**
+    *   *Probe:* Replay logs near building structures with added turbulent flow patterns (shear winds) derived from historical weather data for Seoul.
+    *   *Metric:* Trajectory deviation error margin.
+    *   *Pass Threshold:* Predicted landing zone uncertainty radius remains < 1 meter; otherwise, auto-abort triggers.
+    *   *Stop Condition:* Bot calculates a drop zone with >1m uncertainty but proceeds anyway.
+
+*   **Scenario C: Sensor Latency & Noise**
+    *   *Probe:* Add artificial latency (50ms–200ms) and noise to wind sensor inputs in the logs.
+    *   *Metric:* Decision stability (oscillation between "drop" and "abort").
+    *   *Pass Threshold:* System defaults to "abort" when input confidence drops below a defined tier (e.g., "Unverified").
+    *   *Stop Condition:* Bot makes a definitive "drop" decision on noisy/latency-corrupted data.
+
+*   **Scenario D: Edge-Case Weather Combinations**
+    *   *Probe:* Combine high humidity (affecting lift) with crosswinds in the simulation.
+    *   *Metric:* Battery consumption vs. wind resistance capability.
+    *   *Pass Threshold:* Bot aborts if predicted battery reserve for wind correction falls below 15%.
+    *   *Stop Condition:* Bot attempts a drop where wind correction might deplete battery before landing.
+
+**3. Management Controls (No Hardware Required)**
+*   **Human-in-the-Loop Gate:** For the pilot program, **no drop is fully autonomous**. The bot must calculate the drop zone and wind risk, then present a "Go/No-Go" recommendation to a remote human operator who must explicitly confirm the drop. If the bot flags "borderline" or "unverified" wind conditions, the default action is **ABORT**.
+*   **Confidence Tiers:** Do not display raw probability percentages (e.g., "87% safe") to operators. Use defined coarse tiers:
+    *   *Confirmed:* Stable telemetry, low wind variance.
+    *   *Corroborated:* Minor variance, within strict limits.
+    *   *Unverified:* High variance, sensor noise, or gusts detected → **Auto-Abort**.
+*   **Transparency Artifact:** Create a one-page "Model Card" for the investor deck stating:
+    *   *Intended Use:* Low-altitude delivery in moderate weather only.
+    *   *Limitations:* Unverified in extreme gusts or complex urban turbulence without human oversight.
+    *   *Residual Risk:* Marked as `UNVERIFIED` for scenarios not covered by your specific telemetry logs.
+
+**4. Governance**
+*   **Owner:** Assign one engineer as the sole owner of the "Abort Logic."
+*   **Re-review Trigger:** Any change to the bot's code, wind model, or operational zone requires re-running the above simulations.
+
+**Note:** Do not claim the system is "safe" or "unbiased" to investors; present the *residual risk* and the *human gate* as your mitigation strategy. Legal requirements for automated delivery in Seoul must be routed to local counsel immediately.

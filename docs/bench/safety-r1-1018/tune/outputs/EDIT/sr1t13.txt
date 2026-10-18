@@ -1,0 +1,29 @@
+### Risk Mitigation Plan: Pilot Phase Dispatch Safety
+
+**1. Pre-Dispatch Validation Logic (The "Hard Gate")**
+Implement a synchronous, pre-dispatch validation step that blocks assignment rather than correcting it post-hoc. Since real-time government verification is unavailable, treat internal profile data as the single source of truth but apply a "stale-data penalty."
+*   **Logic:** Before an order is assigned, the system must check the driver's `certification_expiry_date` and `last_verified_timestamp` against the order's `required_certification`.
+*   **Stale Data Rule:** If a driver's profile has not been manually re-verified by support within the last 7 days (or a stricter window you define), flag that profile as "Unverified for High-Stakes Dispatch."
+*   **Action:** If the driver lacks the specific certification flag OR if their data is "Unverified," the dispatch algorithm must **exclude** them from the candidate pool for that specific order type. Do not assign and hope for the best; exclude proactively.
+
+**2. The Human-in-the-Loop Queue (Exception Handling)**
+Orders that cannot be automatically matched to a "Verified + Certified" driver due to the constraints above must not be auto-dispatched.
+*   **Routing:** Route these specific orders to a "Manual Review Queue" visible to your support team.
+*   **Support Workflow:** Support agents receive an alert: "Auto-match failed due to certification uncertainty." They must manually call the driver or check external documents before approving the dispatch.
+*   **Fallback:** If no verified driver is available and support cannot verify within the customer's wait window, the system should trigger a "Service Unavailable" message to the customer rather than risking a regulatory violation.
+
+**3. Communication Protocol for Support Intervention**
+To ensure support can intervene before the driver accepts the job, the system must decouple "Assignment" from "Notification."
+*   **Hold State:** When an order is matched to a driver with potential data conflicts (e.g., certification expires in <48 hours), place the assignment in a "Pending Confirmation" state. The driver sees nothing yet.
+*   **Alert Payload:** Send an immediate high-priority notification to the support dashboard containing:
+    *   Driver ID and Name.
+    *   Specific Mismatch: "Order requires Type B Vehicle; Driver profile shows Type A or Expired Certificate."
+    *   Data Age Warning: "Profile last updated 14 days ago."
+    *   Action Buttons: [Force Override & Log Reason] or [Cancel Assignment & Refund Customer].
+*   **Timeout:** If support does not act within 60 seconds, the system automatically cancels the assignment and searches for the next fully verified driver.
+
+**4. Pilot-Specific Constraints**
+*   **Zero-Tolerance Policy:** For the 10-day pilot, configure the system to fail closed. It is better to lose an order than to dispatch an uncertified driver.
+*   **Audit Log:** Every exclusion and manual override must be logged with a timestamp and operator ID for the upcoming regulatory inspection.
+
+**Note:** This plan relies on a "fail-closed" architecture where uncertainty results in no dispatch rather than risky dispatch. Ensure your support team is staffed specifically to handle the increased volume of manual reviews during this pilot window.

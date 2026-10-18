@@ -1,0 +1,40 @@
+### Safety Validation Protocol: Fall Detection False Negative Mitigation
+
+**1. Harm Inventory & Worst-Case Definition**
+*   **Harm:** False Negative (Failure to Alert). The device fails to detect a serious fall, leaving an elderly user unattended.
+*   **Affected Group:** Elderly users with limited mobility or medical vulnerabilities.
+*   **Worst Realistic Case:** User suffers a hip fracture or head trauma on ice; device remains silent; delayed medical response leads to permanent disability or death.
+*   **Constraint Acknowledgement:** The on-device "light" algorithm increases false negative risk compared to cloud models. This risk must be managed, not ignored.
+
+**2. Measurement Plan: Adversarial & Edge-Case Testing**
+Do not rely on aggregate accuracy. Build a test matrix where **every row targets a specific false negative scenario**. Each test must include a "Positive Control" (a known hard fall that *must* trigger) and a "Negative Control" (normal activity that must *not* trigger).
+
+*   **Probe Set A: Fall Dynamics (The "How")**
+    *   *Inputs:* Simulated falls varying by angle (forward, backward, lateral), height (standing vs. seated), and surface hardness (carpet vs. ice/concrete).
+    *   *Specific Focus:* "Soft" falls onto snow/ice which dampen accelerometer spikes, and slow slides that mimic fainting rather than impact.
+    *   *Metric:* Detection Rate per fall type.
+    *   *Threshold:* **Zero tolerance** for missed detections in "High-Impact" and "Head-Strike" simulations. Any miss here is a hard block on launch.
+
+*   **Probe Set B: Environmental & Battery Stress**
+    *   *Inputs:* Device operation at low battery thresholds (where CPU throttling may occur) and extreme cold temperatures (affecting sensor responsiveness).
+    *   *Metric:* Latency to alert and detection success rate under stress.
+    *   *Threshold:* Detection must succeed even at minimum viable battery; if the algorithm cannot run reliably at low power, the device must default to a "safe mode" or prevent deep sleep, not silently fail.
+
+*   **Probe Set C: User Diversity (Bias Check)**
+    *   *Inputs:* Data representing varying body weights, gait speeds, and tremor conditions (e.g., Parkinson's) to ensure the "light" model doesn't filter out atypical fall signatures as noise.
+    *   *Metric:* False Negative Rate segmented by user profile.
+    *   *Threshold:* No subgroup may have a significantly higher miss rate than the baseline.
+
+**3. Management Controls: The Human Gate**
+Because this is a high-stakes, irreversible action (life-or-death alerting), code correctness is insufficient.
+*   **Uncertainty Handling:** Do not output a raw confidence percentage (e.g., "82% likely fall") to the logic gate. Define coarse tiers: **Confirmed Fall** (Alert immediately), **Ambiguous Event** (Trigger strong haptic feedback asking "Are you OK?" with a short timeout before alerting), and **Normal**.
+*   **Fail-Safe Default:** In ambiguous cases where the model is unsure, the system must bias toward **false positives** (nuisance alerts) over false negatives. A user cancelling a false alarm is preferable to silence during a real emergency.
+*   **Stop Condition:** If *any* High-Impact fall simulation in Probe Set A fails to trigger an alert during validation, the release is blocked regardless of schedule pressure.
+
+**4. Transparency Artifact**
+Create a **Model Card** for this firmware version documenting:
+*   Intended Use: Fall detection for elderly on ice/hard surfaces.
+*   Limitations: Explicitly list fall types or conditions where detection is `UNVERIFIED` or known to be lower confidence.
+*   Owner: Name the specific engineer accountable for the detection logic.
+
+**Note:** This protocol measures residual risk; it does not certify the device as "safe." The final ship decision rests with the product owner, who must accept the documented residual risk of false negatives. Legal counsel must review whether this automated decision triggers specific regulatory disclosures.

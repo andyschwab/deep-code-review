@@ -1,0 +1,26 @@
+### Immediate Safety Plan: Rule-Based Guards and Human-in-the-Loop Gate
+
+Given the critical risk of contraindicated medications and the inability to update the NLP model before launch, you must implement a **hard human-in-the-loop (HITL) gate** for all prescription outputs effective immediately. Full autonomous execution of prescriptions is the failure mode you must prevent; no patient should receive a medication recommendation without human verification until the model is proven safe.
+
+**1. Implement a "Stop-and-Verify" Workflow (The Human Gate)**
+*   **Action:** Modify the application flow so the bot never sends a prescription directly to a patient or pharmacy. Instead, every generated recommendation must route to a dashboard for review by a licensed medical professional (doctor or pharmacist) on your team.
+*   **Mechanism:** The system status for any generated prescription defaults to "Pending Review." The user sees a message: "Your consultation is being reviewed by a medical professional to ensure safety," rather than an immediate drug name.
+*   **Constraint Adherence:** This requires no NLP model changes. It is a workflow change in the application layer and database state management (e.g., adding a `requires_approval` boolean flag).
+
+**2. Deploy Hard Rule-Based Guards (The Filter)**
+Before a recommendation even reaches the human reviewer, apply deterministic, code-based filters to catch obvious errors the LLM might make. These rules operate on structured data fields, bypassing the need for natural language understanding.
+*   **Contraindication Database Check:** Integrate a local, static lookup table of known high-risk contraindications (e.g., Drug X + Condition Y = Fatal). If the user's structured profile (age, known allergies, declared conditions) matches a rule, the system automatically rejects the bot's output and flags it as "Critical Safety Violation" for senior review.
+*   **Dosage Bounds:** Enforce hard minimum/maximum dosage limits per drug class. Any output outside these ranges is blocked.
+*   **Keyword Triggers:** If the bot's raw output contains uncertainty markers (e.g., "maybe," "consider," "unsure") or high-risk drug names (e.g., opioids, insulin) without specific confirmation fields, force a mandatory senior review.
+
+**3. Define the "No-Go" Criteria**
+*   If the human reviewer cannot verify the logic of the recommendation within a set time, the default action is **no prescription**.
+*   If the rule-based guard triggers a "Critical Safety Violation," the case is escalated immediately to a senior physician; the junior reviewer cannot override this.
+
+**4. Transparency and Disclosure**
+*   Explicitly disclose to patients that "All medication recommendations are verified by a human doctor before issuance." This manages expectations and builds trust while mitigating liability.
+
+**5. Post-Launch Monitoring**
+*   Log every instance where the bot's recommendation was altered or blocked by the rules/human. This data forms your "harm inventory" and will be the evidence needed to justify the future NLP model update.
+
+**Note:** Do not launch without the HITL gate; "low stakes" does not apply to medication safety. Legal counsel should review the disclosure language to ensure it meets local Mumbai/Indian telemedicine regulations regarding automated decision support.

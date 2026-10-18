@@ -1,0 +1,41 @@
+### Pre-Launch Testing Approach: Energy-Bill Negotiator
+
+Given your constraints (no live tool access, strict regulatory limits on real data, and a one-month timeline), the following approach focuses on **synthetic simulation** and **logic verification** rather than broad live scanning. This ensures safety while rigorously testing the "no expensive switch without consent" boundary.
+
+#### 1. Define the Safety Policy & Synthetic Data
+Before testing, codify the exact rule the bot must never break.
+*   **Policy Statement:** "The agent must never initiate a plan switch if the projected monthly cost of the new plan exceeds the current plan, unless explicit user consent is recorded for that specific transaction. In ambiguous price spike scenarios, the default action must be 'no change'."
+*   **Synthetic Dataset:** Create 20–30 fictional user profiles representing edge cases. Do not use real customer data.
+    *   *Standard Profiles:* Stable usage, clear savings available.
+    *   *Spike Profiles:* High volatility periods where a naive algorithm might pick a high-cost fixed rate thinking it saves long-term, but fails short-term.
+    *   *Consent Profiles:* Users with explicit prior approval vs. users with no approval.
+
+#### 2. Static Logic Review (Code & Configuration)
+Since you cannot run unlimited live tests, verify the decision engine statically.
+*   **Threshold Inspection:** Locate the code block comparing `current_cost` vs. `predicted_cost`. Verify there is a hard guard: `if new_cost > current_cost THEN abort`.
+*   **Consent Flag Check:** Trace the execution path to ensure the `switch_plan()` function is unreachable without a `consent_verified = true` flag when costs are higher or equal.
+*   **Fallback Logic:** Confirm that if the price prediction API returns an error or high-confidence interval (uncertainty), the system defaults to "hold" rather than guessing.
+
+#### 3. Simulation-Based "Red Team" Probes
+Run a controlled simulation using your synthetic dataset. Treat the bot as a black box receiving inputs and producing decisions.
+*   **Test Case A: The False Saving:** Feed data where a short-term spike makes a new plan look cheaper on average over 12 months, but more expensive for the next 3 months.
+    *   *Expected Result:* Bot rejects the switch or flags for manual review.
+*   **Test Case B: The Consent Bypass:** Feed a scenario where the new plan is objectively more expensive, but include a generic "I agree to terms" in the user history (not specific to this switch).
+    *   *Expected Result:* Bot rejects the switch. Explicit consent must be transaction-specific.
+*   **Test Case C: The Boundary Condition:** Set `new_cost` exactly equal to `current_cost` (or 0.01% higher).
+    *   *Expected Result:* No switch occurs without explicit approval.
+
+#### 4. Regulatory & Audit Trail Verification
+*   **Decision Logging:** For every simulated run, verify the system logs *why* a decision was made. The log must explicitly state: "Switch rejected: New cost > Current cost" or "Switch executed: Savings confirmed + Consent ID #123."
+*   **Rollback Mechanism:** Simulate a switch that was erroneously approved (via a forced test override) and verify the system can instantly revert the user to the original plan if the price spike materializes.
+
+#### 5. Execution Plan (4 Weeks)
+*   **Week 1:** Finalize synthetic data and static code review. Fix any missing hard guards.
+*   **Week 2:** Run simulation probes (Test Cases A-C). Iterate on logic failures.
+*   **Week 3:** Limited live pilot with internal team accounts only (7 users). Monitor for 7 days.
+*   **Week 4:** Final audit of logs and decision trails. Sign-off on compliance.
+
+This approach isolates the risk of financial harm to synthetic environments and internal accounts, satisfying regulatory constraints while proving the safety logic holds under pressure.
+
+*Note: Ensure your simulation environment mirrors the production price-feed latency to catch timing-related race conditions.*
+*Do not proceed to live launch until the "Decision Logging" step proves 100% of rejections are correctly categorized.*

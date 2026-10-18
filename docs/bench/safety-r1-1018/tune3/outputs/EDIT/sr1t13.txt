@@ -1,0 +1,20 @@
+### Risk Mitigation Plan: Pilot Dispatch Safety Gate
+
+**1. Pre-Dispatch Validation Logic (The "Hard Stop")**
+Implement a synchronous, pre-dispatch check that runs immediately before any assignment is finalized. Since real-time government API access is unavailable, rely strictly on your internal "Source of Truth" database with the following rules:
+*   **Staleness Threshold:** Define a maximum age for certification data (e.g., 24 hours). If a driver's profile has not been refreshed or verified within this window, flag the record as `UNVERIFIED`.
+*   **Negative-Only Assignment:** The system may only assign an order requiring specific certification if the internal record explicitly shows a **valid, non-expired** certificate matching the vehicle type.
+*   **Default Deny:** If the record is missing, expired, flagged as `UNVERIFIED`, or the data timestamp exceeds the staleness threshold, the dispatch logic must **default to denial**. Do not attempt to "guess" or proceed with a warning; the assignment must fail automatically.
+*   **Fallback Queue:** Orders that cannot be safely assigned due to data uncertainty are routed to a manual "Hold Queue" for human dispatcher review, rather than being pushed to a potentially uncertified driver.
+
+**2. Human-in-the-Loop Intervention Protocol**
+Establish a real-time alert stream for your support team to handle exceptions before driver acceptance:
+*   **Pre-Acceptance Hold:** For any assignment where the confidence in credential validity is not absolute (e.g., data is valid but near expiry, or a manual override was attempted), the driver's app must not show an "Accept" button immediately. Instead, display a "Pending Verification" state.
+*   **Support Dashboard Alert:** Push a high-priority ticket to the support dashboard containing: Order ID, Driver ID, Specific Certification Mismatch Risk, and the Data Timestamp causing the flag.
+*   **Intervention Window:** Support agents have a fixed window (e.g., 60 seconds) to manually verify the driver's status via phone or alternative channels and either "Force Release" (with logged justification) or "Reassign."
+*   **Audit Trail:** Every manual override and automated block must be logged with a timestamp and operator ID for the upcoming regulatory inspection.
+
+**3. Inspection Readiness Artifact**
+Prepare a "Safety & Limitations" one-pager for the inspectors. Explicitly state that due to API constraints, the system operates on a **conservative deny-by-default model** during the pilot. Include the logic flowchart showing the `UNVERIFIED` → `Block` path and the manual intervention queue. This demonstrates proactive risk management rather than claiming perfect data accuracy.
+
+**Note:** Do not present internal data accuracy as "100% certified"; label it "Validated against internal records as of [Timestamp]" to avoid fabricating a guarantee you cannot meet. Ensure the "Deny by Default" rule is hard-coded and cannot be bypassed by configuration changes during the pilot.

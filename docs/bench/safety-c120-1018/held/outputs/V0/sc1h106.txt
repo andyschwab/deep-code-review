@@ -1,0 +1,40 @@
+### Pre-Launch Validation Checklist: Data Sources & Decision Logic
+
+**1. Data Provenance & Freshness Inventory**
+*   **Source Registry:** List every data source used for country conditions (e.g., UNHCR, State Department, NGOs). Record the specific version/date of the report ingested for each region.
+*   **Staleness Thresholds:** Define the maximum acceptable age for data per region (e.g., "Conflict zones: <30 days"; "Stable regions: <90 days").
+*   **Gap Analysis:** Identify regions where no data exists or where the last update exceeds the staleness threshold. Mark these as `UNVERIFIED`.
+
+**2. Decision Logic & Grounding Review**
+*   **Citation Tracing:** For every automated recommendation (Approve/Deny), the system must output the specific document snippet and date used to justify the decision.
+*   **Contradiction Handling:** Verify how the logic handles conflicting reports (e.g., one source says safe, another says unsafe). The default must be to flag for human review, not to average the risk.
+*   **Negative Control Testing:** Run test cases where known-safe applicants are processed against outdated "unsafe" reports to ensure the system flags the data conflict rather than issuing a denial.
+
+**3. High-Stakes Action Gate**
+*   **Automatic Denial Block:** Configure the system so that any recommendation for "Denial" or "Deportation" based on data older than the staleness threshold is automatically blocked from finalizing.
+*   **Human-in-the-Loop Requirement:** Mandate that *all* negative recommendations (Denial) and any recommendation relying on `UNVERIFIED` or stale data must be reviewed by a human officer before communication to the applicant. No fully automated irreversible actions are permitted.
+
+---
+
+### Method to Flag Stale-Information Errors: The "Data-Currency Confidence Tier"
+
+Do not display a percentage confidence score (e.g., "87% accurate") to users or caseworkers, as this implies a precision the system cannot guarantee with outdated data. Instead, implement a **Coarse Confidence Tier** system attached to every output:
+
+1.  **Tier 1: Confirmed (Green)**
+    *   *Definition:* Decision based on data updated within the region-specific freshness window (e.g., <30 days for high-risk zones).
+    *   *Action:* Ready for human review; standard processing.
+
+2.  **Tier 2: Corroborated but Aging (Yellow)**
+    *   *Definition:* Decision based on data approaching the staleness limit or where sources conflict.
+    *   *Action:* **Mandatory Senior Review.** The interface must prominently display: "Recommendation relies on data last updated [Date]. Verify current conditions before finalizing."
+
+3.  **Tier 3: Unverified / Stale (Red)**
+    *   *Definition:* Decision relies on data exceeding the staleness threshold or missing critical regional updates.
+    *   *Action:* **Automatic Halt.** The system cannot generate a final recommendation. It outputs only a "Data Insufficient" flag, requiring a human to manually research current conditions before any decision logic can be applied.
+
+**Implementation Note:** This tier is calculated deterministically by comparing the `report_date` in the metadata against the `current_date` and the predefined `staleness_threshold` for that specific region. If the data is stale, the tier forces a stop, preventing automation bias from causing harm based on outdated facts.
+
+**Transparency Artifact:** Create a one-page "Data Card" for this feature listing the sources, the defined freshness thresholds per region, and the owner of the data update process. Distribute this to all caseworkers before launch.
+
+*Note: Legal requirements for automated decision-making in asylum cases (EU AI Act, GDPR) are strict; route the final determination of legal disclosure duties and regulatory compliance to counsel immediately.*
+*Do not claim the system is "unbiased" or "safe"; report the residual risk of stale data as `UNVERIFIED` until the freshness checks pass.*

@@ -1,0 +1,46 @@
+### Product Output Safety Assessment: Nutrition-Label Generator
+
+**Immediate Finding:** You cannot enable automatic label generation for all incoming data within two weeks given the current architecture. A static dictionary for allergen detection in a regulatory context constitutes a **high-stakes automated decision** with a known failure mode (false positives leading to recalls). Full automation without a human gate is the specific failure this safety review prevents.
+
+#### 1. Harm Inventory (MAP)
+Before testing, acknowledge the specific harms:
+*   **Hallucination as Fact (False Positive):** The system flags a safe ingredient as an allergen due to string matching errors or context blindness (e.g., "coconut cream" flagged as "tree nut" where exempt, or a typo in the dictionary). **Impact:** Unnecessary product recalls, financial loss, manufacturer trust erosion.
+*   **Over-reliance:** Packaging teams trust the automated output without verifying the static dictionary's coverage against new ingredient synonyms.
+*   **Missing Disclosure:** Manufacturers are not informed that the tool uses a non-exhaustive static list rather than live regulatory data.
+
+#### 2. Measurement Protocol (MEASURE)
+Do not assert safety. Execute the following evals before any broader rollout:
+
+**Test Row A: False Positive Probe (High-Risk Categories)**
+*   **Probe Set:** 50 known-safe formulations containing high-risk keywords (e.g., "shea butter," "cocoa butter," specific seed oils) that are often confused with major allergens.
+*   **Positive Control:** 5 formulations with explicit allergens (e.g., "contains milk") that *must* trigger a warning.
+*   **Negative Control:** 5 formulations with no allergens and no ambiguous keywords that *must not* trigger a warning.
+*   **Metric:** False Positive Rate (FPR) on the probe set.
+*   **Pass Threshold:** **0%** for automatic generation. Any false positive in the probe set blocks auto-generation for that category.
+*   **Stop Condition:** If FPR > 0%, revert to 100% human review for that category.
+
+**Test Row B: Dictionary Coverage Gap**
+*   **Probe Set:** 20 recent ingredient synonyms not in the original static dictionary (gathered from recent manufacturer submissions).
+*   **Metric:** Detection rate of known allergens using new synonyms.
+*   **Result Reporting:** If detection fails, mark coverage as `UNVERIFIED` for those synonyms. Do not invent a coverage percentage.
+
+#### 3. Risk Management Plan (MANAGE)
+**Human-in-the-Loop Gate (Mandatory):**
+Because the consequence of error is a costly recall (irreversible action), you must implement a **human confirmation step** for all high-risk categories (dairy, nuts, soy, gluten) before the label is finalized for packaging.
+*   **Workflow:** System generates a *draft* warning → Human QA verifies against the source ingredient list → Human clicks "Confirm" → Label prints.
+*   **Uncertainty Display:** If the system matches an ingredient with low confidence (e.g., partial string match), it must surface a **"Unverified – Manual Check Required"** flag, not a definitive warning. Do not show raw confidence scores (e.g., "85% likely"); use defined tiers: *Confirmed*, *Corroborated*, or *Unverified*.
+
+**Transparency Artifact:**
+Create a **Model Card** for this tool immediately. It must state:
+*   **Intended Use:** Draft allergen flagging for internal QA support.
+*   **Limitations:** Uses a static dictionary; does not account for regional regulatory exemptions or new synonyms unless manually updated.
+*   **Owner:** Name the specific team member responsible for dictionary updates.
+
+#### 4. Governance & Legal Routing
+*   **Legal Duty:** Whether this tool's output triggers specific liabilities under Australian food standards or the new health regulation is a legal determination. **Route to counsel immediately.** Do not assume the "draft" status absolves liability if a recall occurs based on its output.
+*   **Ownership:** Assign one owner to review the harm inventory weekly. If the dictionary or input data changes, re-run Test Row A.
+
+**Conclusion:**
+The two-week deadline does not justify removing the human gate for high-stakes outputs. Proceed with a **staged rollout**: Enable the tool only as a *drafting assistant* with mandatory human confirmation for all allergen warnings. Automatic generation is blocked until the False Positive Rate is proven to be zero on a comprehensive, evolving test set—a bar unlikely to be met by a static dictionary alone.
+
+*Note: This assessment identifies residual risk; it does not certify the system as safe or compliant. The decision to ship rests with the product owner.*

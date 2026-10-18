@@ -1,0 +1,41 @@
+**Validation Strategy for Occupancy Detection Safety**
+
+Given the strict constraint of existing hardware and the irreversible, high-stakes risk of chemical exposure to humans, full autonomous deployment without a human-in-the-loop gate is unsafe. The following strategy prioritizes preventing harm over meeting the deployment deadline if safety cannot be verified.
+
+**1. Harm Inventory & Worst-Case Definition**
+*   **Primary Harm:** False Negative (Bot perceives "empty" while human is present).
+*   **Worst Case:** Severe respiratory injury or chemical burns to a stationary individual (e.g., sleeping, disabled, or hiding).
+*   **Secondary Harm:** Automation Bias (Operators trusting the bot's "all clear" status without visual verification).
+
+**2. Manual & Adversarial Testing Protocol (Red Team)**
+Since hardware cannot be upgraded, testing must exhaustively probe the limits of the current sensors via software logic and physical scenarios. Execute these tests physically in a controlled restroom environment:
+*   **The "Stillness" Probe:** Test subjects must remain completely motionless in various positions (sitting on toilet, standing in corner, lying on floor) for durations exceeding the bot's maximum "wait-to-spray" timer (e.g., 5, 10, 15 minutes).
+*   **Occlusion Scenarios:** Test subjects hiding behind doors, under sinks, or in stalls where line-of-sight to the camera/sensor is partially blocked.
+*   **Lighting & Contrast Stress Tests:** Simulate low-light conditions, glare from tiles, and shadows that might confuse computer vision edge detection.
+*   **Non-Standard Movements:** Slow, micro-movements (reading a phone, breathing heavily) that might fall below the motion sensor's threshold but indicate life.
+*   **Positive Control:** Verify the bot *always* stops when a person waves vigorously.
+*   **Negative Control:** Verify the bot *always* sprays when the room is confirmed empty (using heat signatures or secondary manual check) to ensure functionality isn't broken by over-correction.
+
+**3. Automated Logic & Simulation Checks**
+*   **Sensor Fusion Logic Review:** Audit the code to ensure the decision logic is an **AND** gate for safety (e.g., Spray = Motion Detected FALSE **AND** Vision Detected Human FALSE **AND** Time Elapsed TRUE). If either sensor is ambiguous, the default must be "Do Not Spray."
+*   **Confidence Threshold Tuning:** Do not use a raw probability score (e.g., "87% empty"). Implement a defined coarse tier system:
+    *   *Confirmed Empty:* High confidence on both sensors → Allow Spray.
+    *   *Uncertain:* Low confidence on either sensor → **Hard Stop**, log event, request remote human review.
+    *   *Occupied:* Any positive detection → **Hard Stop**.
+*   **Fail-Safe Defaults:** Verify that sensor failure, power flickers, or software crashes default the system to "Safe/Off," not "Resume Last Action."
+
+**4. Operational Controls (The Human Gate)**
+Because the risk is irreversible and hardware is fixed, you must implement a human-in-the-loop gate before full autonomy:
+*   **Staged Rollout:** Deploy initially in "Monitor Only" mode (bot navigates and logs decisions but never sprays) for two weeks. Compare logs against manual human audits of room occupancy.
+*   **Remote Confirmation:** For the initial municipal deployment, require a remote operator to visually confirm "Empty" status via the bot's camera feed before authorizing the spray cycle.
+*   **Physical Deterrents:** Install loud audible warnings ("Chemical Spray Imminent") and flashing lights 10 seconds prior to any potential action, allowing a stationary human to wave and reset the timer.
+
+**5. Transparency & Documentation**
+*   **Safety Card:** Publish a document detailing the known limitations of the current sensors (e.g., "Cannot detect completely motionless humans behind occlusions") and distribute this to municipal stakeholders.
+*   **Incident Protocol:** Define an immediate shutdown procedure if a near-miss occurs.
+
+**Residual Risk Statement:**
+With current sensors, the risk of false negatives regarding stationary humans cannot be reduced to zero via software alone. If the "Stillness" probes result in *any* failure to detect a human, the system must not spray autonomously. The deadline must be renegotiated if safety thresholds are not met; no metric should be fabricated to claim "100% safety."
+
+**Note:** Legal counsel must review liability regarding chemical exposure in public spaces before deployment.
+**Note:** Do not certify the system as "safe"; report the pass/fail results of the specific probes above.

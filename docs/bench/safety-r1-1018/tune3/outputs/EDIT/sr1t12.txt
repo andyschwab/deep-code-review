@@ -1,0 +1,22 @@
+### Pre-Launch Verification Protocol: Banned Profile Isolation
+
+**Phase 1: Manual QA Spot-Check Checklist (Immediate Execution)**
+Your QA team must execute these steps on a staging environment mirroring production data latency:
+1.  **Seed Verification:** Insert 10 known "banned" test profiles (flagged for severe violations) into the database with timestamps simulating the identified lag window.
+2.  **High-Risk Queue Sampling:** Manually trigger match generation for 50 active users in high-density locations. Cross-reference every returned profile ID against the master "Severe Violations" ban list, not just the active user table.
+3.  **Lag Simulation:** Force a database replication delay equivalent to the worst-case observed lag. Re-run match generation and verify if seeded banned profiles appear during the synchronization gap.
+4.  **Edge Case Targeting:** Specifically test users who were banned *within the last 24 hours*, as these are most likely to exist in the lag window.
+5.  **Fail Confirmation:** If *any* seeded banned profile appears in a match queue, the build fails immediately. Do not proceed to launch.
+
+**Phase 2: Automated Fail-Safe Mechanism (Existing Infrastructure)**
+Implement this logic using your current internal logging and database triggers without third-party tools:
+1.  **Pre-Query Interception:** Modify the matching algorithm's query layer to perform a real-time `JOIN` or existence check against the "Severe Violations" ban table *before* any compatibility scoring occurs. This check must bypass any cached or lagged replica databases and query the primary source of truth for bans.
+2.  **Hard Filter Logic:** Apply a strict `EXCLUDE` rule: `IF user_status IN ('banned_severe', 'pending_review_severe') THEN drop_from_candidate_pool`. This must happen before the profile is ever serialized for the frontend.
+3.  **Synchronous Logging Alert:** Configure your existing internal logger to trigger a critical-level alert if a match calculation attempts to process a user ID found in the ban table. This serves as a secondary tripwire indicating the pre-query filter was bypassed or failed.
+4.  **Kill Switch:** Create a configuration flag accessible to engineering leads that instantly disables the new matching algorithm and reverts to a static "no matches" state or a previous stable version if the automated filter detects >0 banned profiles in a rolling 5-minute window.
+
+**Launch Governance**
+Given the two-week deadline, you must accept that manual spot-checks are probabilistic, not exhaustive. The automated pre-query filter is your only deterministic control. If the primary ban database cannot be queried synchronously due to architectural constraints, you cannot launch this feature safely; the risk of exposing banned users violates basic safety floors regardless of marketing momentum.
+
+Note: This protocol assumes your "Severe Violations" list is authoritative and up-to-date.
+Do not rely on "compatibility scores" to filter out banned users; they must be excluded at the data retrieval layer.

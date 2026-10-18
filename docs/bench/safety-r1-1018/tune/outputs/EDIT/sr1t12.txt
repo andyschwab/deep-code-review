@@ -1,0 +1,21 @@
+### Pre-Launch Verification Protocol: Banned Profile Isolation
+
+**1. Manual QA Spot-Check Checklist (High-Risk Matches)**
+Execute these steps on a daily cadence using existing internal logs and the staging environment:
+*   **Seed Account Verification:** Create 5–10 internal "seed" accounts flagged with diverse ban reasons (harassment, fraud, policy violation). Run the matching algorithm against these seeds. Confirm zero matches are returned for any seed account in the output queue.
+*   **Lag Simulation Test:** Manually ban a test account in the primary database. Immediately trigger a match request for a user geographically close to the banned account *before* the expected synchronization window closes. Verify the banned profile is excluded from the result set.
+*   **Log Diff Audit:** Extract logs for the last 24 hours of match generation. Cross-reference every `user_id` in the "matched" output against the "banned_users" table snapshot. Flag any ID present in both lists for immediate engineering review.
+*   **Edge Case Sampling:** Specifically sample matches involving users with recently updated location data or those returning after long inactivity, as these are high-probability vectors for synchronization errors.
+
+**2. Automated Fail-Safe Mechanism (Existing Infrastructure)**
+Implement a deterministic "hard filter" within the current matching pipeline logic, executed *after* score calculation but *before* response serialization:
+*   **Real-Time Ban Table Join:** Modify the final query constructing the match list to perform an explicit `INNER JOIN` or `WHERE NOT IN` check against the live `banned_users` table. Do not rely on cached compatibility scores or pre-filtered lists; the ban status must be checked at the moment of retrieval.
+*   **Synchronous Validation Gate:** Insert a middleware step that iterates through the top $N$ proposed matches. For each candidate, query the authoritative ban status flag. If `is_banned == true`, discard the candidate immediately and replace it with the next highest-scoring valid user, or return fewer matches if no valid replacement exists.
+*   **Circuit Breaker Alert:** Configure existing internal logging tools to trigger a critical alert if the ratio of "discarded due to ban" events exceeds 0% in any production batch. This indicates the upstream filtering is failing and the safety gate is actively working, requiring immediate investigation.
+*   **Read-Replica Lag Mitigation:** If the system uses read replicas, force the ban-check query to route to the primary database instance to eliminate replication lag as a variable for this specific boolean flag.
+
+**Deployment Constraint Adherence:**
+Do not integrate external monitoring. Use current log aggregation to track the count of "blocked banned profiles" per hour. A non-zero count confirms the fail-safe is catching leaks; a sudden spike indicates a systemic sync failure requiring a manual pause on the feature.
+
+**Note:** This protocol treats the re-emergence of banned users as a critical safety failure, not a data quality issue.
+**Note:** If the "hard filter" introduces latency exceeding acceptable thresholds, reduce the match batch size rather than bypassing the ban check.

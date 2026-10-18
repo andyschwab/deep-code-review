@@ -1,0 +1,43 @@
+### Testing Protocol for VineGuard Climate Control Bot
+
+**1. Harm Inventory & Worst-Case Definition**
+Before testing, formally record the specific failure mode: **Unsafe automation of high-stakes actions**.
+*   **Harm:** Irreversible damage to high-value assets (wine collections) due to sensor misreading leading to extreme temperature drops.
+*   **Affected:** Vineyard clients, their inventory, and VineGuard's contractual viability.
+*   **Worst Case:** Total loss of a vintage collection due to freezing; reputational collapse preventing future contracts.
+
+**2. Measurement Plan: Adversarial Sensor Simulation**
+Do not test only "happy path" scenarios. You must build an evaluation suite that simulates sensor failures before the bot controls any real hardware. Since you cannot replace legacy thermostats, your software must act as the primary safety gate.
+
+Create one test row for each identified sensor failure mode:
+*   **Probe Set:** Inject synthetic sensor data streams that mimic specific failures:
+    *   *Stuck Low:* Sensor reports -5°C while actual is 14°C.
+    *   *Noise Spike:* Rapid oscillation between 5°C and 25°C within seconds.
+    *   *Drift:* Gradual, unrealistic decline over 4 hours.
+    *   *Null/Timeout:* Complete loss of signal.
+*   **Controls:**
+    *   *Positive Control (Known Bad):* Feed a "freezing" signal; the bot **must not** activate cooling.
+    *   *Negative Control (Known Good):* Feed a "slightly warm" signal; the bot **should** activate cooling moderately.
+*   **Metric:** Binary pass/fail on "Cooling Activation" during fault injection.
+*   **Pass Threshold:** **Zero tolerance.** Any activation of cooling during a "stuck low" or "noise" simulation is an automatic fail.
+*   **Stop Condition:** If the bot attempts to cool during a simulated sensor fault, the deployment is blocked immediately. Do not proceed to live calibration until this passes 100% of the time.
+
+**3. Management Controls: The Human-in-the-Loop Gate**
+Because this feature executes an irreversible, high-cost action (freezing wine), full autonomy is the failure state you must prevent.
+*   **Mandatory Gate:** Implement a hard rule: If sensor data deviates from historical norms by >2 standard deviations, or if multiple sensors disagree, the system must **default to "Hold"** (maintain current state) and alert a human operator. It must never guess by cooling aggressively.
+*   **Uncertainty Display:** Do not show clients a precise temperature confidence (e.g., "98% accurate"). Instead, display status tiers: **Confirmed** (sensors agree), **Corroborated** (legacy + new agree), or **Unverified** (disagreement detected). In the "Unverified" state, automatic adjustment is disabled.
+*   **Override:** Ensure a physical or software "Emergency Stop" is instantly accessible to the client to halt all automated adjustments.
+
+**4. Transparency Artifact**
+Prepare a **Model/Data Card** for the vineyards. This document must list:
+*   **Intended Use:** Automated climate stabilization within defined sensor reliability bounds.
+*   **Limitations:** Explicitly state that the system will pause automation if sensor data is anomalous (the "Hold" state).
+*   **Measured Results:** Report the pass rate of your adversarial sensor tests. If you have not yet run the tests, mark the safety metric as **UNVERIFIED**. Do not invent a safety percentage.
+
+**5. Governance**
+Assign one team member as the owner of this output harm. They must sign off on the "Zero Tolerance" test results before any code touches a live cellar. Re-review this protocol if the sensor hardware or the legacy thermostat interface changes.
+
+***
+
+**Note:** This protocol treats the recent freezing glitch as a confirmed high-stakes failure mode; do not ship until the "Stop Condition" above is met.
+**Note:** Legal liability regarding the recent damage should be routed to counsel; this plan focuses strictly on preventing recurrence via technical controls.

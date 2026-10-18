@@ -1,0 +1,17 @@
+**Urgent Audit Plan and Containment Strategy**
+
+**Immediate Containment (Do this now):**
+Implement a "circuit breaker" configuration at the API gateway or load balancer level. Create a feature flag or environment variable (e.g., `DISABLE_THIRD_PARTY_SHARING=true`) that hard-blocks all outbound HTTP requests to domains not explicitly whitelisted as "core infrastructure" (e.g., your own databases, auth providers). This effectively disables all third-party data sharing, including advertising partners, without requiring code refactoring. Verify this block by attempting a test transmission to a known ad-partner endpoint; it must time out or return a 403/503 error immediately.
+
+**Data Flow Tracing Method (Audit Plan):**
+Since you cannot refactor the pipeline, use passive observation and active probing on the existing system:
+
+1.  **Log Interrogation:** Query your application and network logs for the last 48 hours. Filter for any outbound requests containing keywords like "location," "coordinates," "lat," "long," or user IDs associated with minors. Cross-reference the destination IP addresses and domains against your list of authorized guardians vs. known advertising partners. Any match with an ad partner is a confirmed breach.
+2.  **Synthetic Tracing:** Deploy a non-production "canary" account with a unique, dummy minor profile. Generate specific, unique location coordinates (e.g., Lat: 0.0001, Long: 0.0001) for this account. Monitor all outbound traffic from your system while triggering updates for this canary user. If these unique coordinates appear in any external request logs or are detected by network monitoring tools heading to unauthorized domains, the leak path is confirmed.
+3.  **Packet Capture Sampling:** On the server hosting the routing logic, run a short-duration packet capture (e.g., using `tcpdump`) filtered for outbound traffic on ports 80/443 during a location update event. Inspect the payload headers and body of a small sample set to verify if PII is present in plaintext or easily decodable formats before encryption leaves your perimeter.
+
+**Verification Step:**
+Do not declare the system "safe" based on this audit. Instead, produce a "Residual Risk Report" stating: "Third-party sharing is disabled via gateway block. Audit traced X data paths; Y paths remain unverified due to legacy opacity. Launching with human-in-the-loop monitoring on all outbound traffic is recommended until full refactoring occurs."
+
+**Note:** Given the involvement of minors' location data, this potential exposure likely triggers strict legal notification duties under UK GDPR and child safety regulations; you must route this specific finding to legal counsel immediately for breach assessment.
+Do not attempt to launch with third-party integrations active until the synthetic tracing shows zero leakage to unauthorized domains.
