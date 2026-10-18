@@ -1,0 +1,35 @@
+### Pre-Launch Safety Protocol: Smart-Watering System
+
+**1. Harm Inventory & Failure Mode Analysis**
+Before simulation, explicitly document the worst-case scenario: a single sensor misreading saturated soil as dry, triggering continuous irrigation, causing flooding, soil erosion, and damage to community plants. The affected parties are gardeners, local property owners, and the municipal water authority. Acknowledge that without redundant hardware, the software must act as the sole gatekeeper against this specific failure.
+
+**2. Simulation Strategy (Software-in-the-Loop)**
+Since physical redundancy is impossible, you must simulate sensor failures within your existing test environment.
+*   **Adversarial Input Injection:** Create a test suite that feeds the control logic known "bad" data streams. Specifically, inject signals indicating "critically dry" while simultaneously forcing the system's internal state (or a secondary logical check, if available) to reflect "recent heavy rainfall" or "valve already open."
+*   **Positive/Negative Controls:**
+    *   *Positive Control:* Feed a confirmed dry signal; verify the valve opens correctly.
+    *   *Negative Control:* Feed a confirmed wet signal; verify the valve stays closed.
+    *   *Failure Probe:* Feed a "dry" signal that contradicts a time-based constraint (e.g., watering occurred 10 minutes ago) or a physical limit (e.g., flow meter shows water moving despite the valve command being "closed").
+*   **Edge Case Sweeps:** Test boundary conditions where moisture readings hover exactly at the threshold, introducing noise to ensure the system doesn't "chatter" (rapidly open/close) or get stuck in an open state due to logic race conditions.
+
+**3. Software Safeguards & Logical Gates**
+Implement and validate these non-hardware constraints in your code:
+*   **Time-Based Cooldowns:** Hard-code a maximum irrigation duration per cycle (e.g., 15 minutes). Even if the sensor screams "dry," the valve must force-close after this window.
+*   **Frequency Capping:** Enforce a minimum time interval between watering cycles (e.g., no more than once every 4 hours). This prevents a stuck sensor from causing continuous flooding.
+*   **Flow Anomaly Detection:** If your system has access to total water usage data (even without per-valve flow meters), set a global cap. If total district usage spikes abnormally, trigger a system-wide emergency shutdown.
+*   **State Consistency Checks:** The software must verify that a "open valve" command results in an expected change in system state. If the logic detects an inconsistency (e.g., command sent but no corresponding pressure drop or usage tick where expected), it must default to "closed."
+
+**4. Human-in-the-Loop for High-Stakes Actions**
+Flooding is an irreversible, high-cost event. Therefore, full autonomy is unsafe under these constraints.
+*   **Escalation Protocol:** If the system detects a sensor reading that contradicts recent watering history or exceeds normal dryness gradients, it must **not** auto-activate. Instead, it should flag the zone for human review via a dashboard or alert.
+*   **Manual Override:** Ensure gardeners or city operators have a physical or digital "emergency stop" accessible without latency.
+
+**5. Validation & Go/No-Go Criteria**
+*   **Run the Simulation:** Execute the adversarial test suite.
+*   **Pass Threshold:** The system must successfully prevent flooding in 100% of simulated sensor-failure scenarios where logical safeguards (time/frequency caps) are triggered.
+*   **Residual Risk Report:** Document any scenario where the software could not definitively rule out a false positive. Do not claim the system is "flood-proof." State clearly: "System prevents flooding via time/frequency caps, but relies on correct clock synchronization and assumes no simultaneous multi-sensor failure."
+*   **Transparency Artifact:** Publish a brief "System Limitations" note for the gardeners, explaining that the system auto-shuts off after X minutes and that they should report unexpected watering immediately.
+
+**Decision Gate:** Do not roll out city-wide if the simulation reveals any path where a single sensor error leads to >15 minutes of uncontrolled water flow. The budget constraint on hardware cannot be compensated by relaxing the software safety floor.
+
+*Note: This plan assumes your software architecture allows for injected test inputs and logical time/frequency constraints. Legal requirements for automated infrastructure in public spaces should be verified by counsel.*

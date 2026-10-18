@@ -1,0 +1,29 @@
+### Immediate Action Plan: Q3 Revenue Correction & Data Integrity
+
+**Phase 1: Triage and Segmentation (Days 1-2)**
+Do not attempt to clean all 2.5 million records blindly. First, isolate the noise.
+1.  **Segment by Date:** Filter events before and after October 5th. Calculate the variance in revenue per region/browser for both periods. This confirms if the frontend update is the sole culprit or if legacy data issues exist.
+2.  **Identify Ambiguous Records:** Query records where the currency field contains symbols (`$`, `€`, `£`) instead of ISO codes (`USD`, `EUR`, `GBP`). Group these by `user_ip_region` and `browser_user_agent`.
+3.  **Cross-Reference Transaction Status:** Join these ambiguous records with your payment gateway logs (Stripe, PayPal, etc.) using `booking_id` or `session_id`.
+    *   If the gateway shows "Success" with a specific currency, update the event record to match the gateway's ISO code.
+    *   If the gateway shows "Failed" or no record exists, flag these as non-revenue events. Do not guess the currency; exclude them from revenue totals but keep them in funnel drop-off analysis.
+
+**Phase 2: Historical Data Cleaning (Days 3-4)**
+Execute a targeted update script only on records with confirmed successful transactions but malformed currency tags.
+*   **Rule:** Never infer currency based on user location alone (e.g., a US user buying a tour in Japan might pay in JPY). Only use the actual transaction currency from the payment processor.
+*   **Execution:** Run updates in batches of 10,000 to avoid locking the database. Log every changed row for audit purposes.
+*   **Reconciliation:** Sum the corrected Q3 revenue and compare it against the finance team's bank deposit records. The discrepancy should now be near zero. If a gap remains, it represents truly untraceable data; report this specific amount as "Unreconciled Due to Data Corruption" rather than inflating numbers with estimates.
+
+**Phase 3: Future Validation Rules (Day 5)**
+Prevent recurrence by enforcing strict schema validation at the ingestion layer.
+1.  **Frontend Fix:** Modify the booking form to submit only ISO 4217 codes (USD, EUR, GBP). Remove free-text fields for currency.
+2.  **Backend Guardrail:** Implement a database constraint or event validation pipeline (e.g., in GTM or your data warehouse) that rejects any event where the currency field does not match an allowed list of ISO codes.
+3.  **Alerting:** Set up an automated alert that triggers if >0.1% of incoming events contain non-ISO currency values.
+
+**Metrics to Monitor for Funnel Integrity**
+To ensure future analysis remains accurate without losing data points, track these specific metrics:
+*   **Data Quality Rate:** Percentage of events with valid ISO currency codes vs. total events. Target: 99.9%.
+*   **Reconciliation Delta:** The difference between aggregated analytics revenue and payment gateway revenue, reported daily.
+*   **Ambiguous Drop-off Rate:** The percentage of users who reach the payment step but generate no valid currency event. A spike here indicates a new frontend validation error blocking successful tracking, not necessarily failed sales.
+
+**Note:** Do not recalculate historical conversion rates until the revenue denominator is corrected; otherwise, your ROI calculations will remain skewed. Prioritize the payment gateway join over heuristic guessing to maintain CFO trust.

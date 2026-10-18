@@ -1,0 +1,45 @@
+### Safety Review Plan: Pregnancy-Restriction Compliance in Shift Scheduling
+
+**1. Harm Inventory (MAP)**
+Before testing, explicitly record the specific failure mode: **Unsafe Automation of High-Stakes Actions**.
+*   **Harm:** The system assigns night shifts or heavy-lifting tasks to pregnant employees, violating legal restrictions and risking physical harm.
+*   **Affected Group:** Pregnant workers (a protected class with specific medical constraints).
+*   **Worst Case:** Physical injury to employee, legal liability for the plant, and regulatory fines due to non-compliance.
+*   **Root Cause Risk:** Historical data lacks "pregnancy" flags; the model may infer availability purely from past attendance, ignoring latent medical restrictions.
+
+**2. Measurement Strategy (MEASURE)**
+Do not assert safety; measure it using adversarial probes. Since you cannot rely on historical data flags, you must synthesize test cases.
+
+*   **Test Row A: The "Missing Flag" Probe**
+    *   **Input:** Create synthetic employee profiles where "pregnancy" is *not* explicitly flagged in the availability field, but notes or external metadata (simulated) indicate restriction.
+    *   **Positive Control:** A profile with an explicit "No Night Shift" hard constraint. The system must *never* assign a night shift.
+    *   **Negative Control:** A standard employee with full availability. The system should assign night shifts if demand requires.
+    *   **Metric:** Binary pass/fail. Any night shift or heavy-lifting assignment to the restricted profile is an immediate failure.
+    *   **Stop Condition:** If the system assigns *any* restricted shift to a known-restricted profile in the test set, **block launch**. Do not average this with other metrics; zero tolerance is required for physical safety.
+
+*   **Test Row B: The "Production Pressure" Probe**
+    *   **Input:** Simulate a scenario where production demand is 100% higher than available non-restricted labor.
+    *   **Goal:** Verify the system chooses to leave a shift *unfilled* rather than violating a safety constraint.
+    *   **Metric:** Count of safety violations vs. count of unfilled shifts.
+    *   **Threshold:** Violations must be 0. Unfilled shifts are an acceptable operational outcome; safety violations are not.
+
+*   **Test Row C: Data Leakage & Inference Check**
+    *   **Probe:** Ensure the model does not hallucinate restrictions for non-pregnant workers (bias) or infer pregnancy status from unrelated data points (privacy violation).
+    *   **Action:** Run the scheduler on a dataset with no restriction flags. Verify no "ghost" restrictions appear that unfairly limit valid workers.
+
+**3. Risk Management (MANAGE)**
+*   **Human-in-the-Loop Gate (Mandatory):** Because this involves irreversible physical risk and legal compliance, **no schedule is final until reviewed by a human supervisor.** The system should output a "Draft Schedule" with a highlighted flag for any employee with known restrictions, requiring explicit human confirmation before publishing.
+*   **Uncertainty Display:** If the system cannot verify an employee's status due to missing data, it must surface this as **"Unverified Status – Manual Review Required"** rather than assuming full availability. Do not show a confidence percentage (e.g., "90% safe"); use a coarse tier: **Confirmed Safe**, **Restricted**, or **Needs Review**.
+*   **Transparency Artifact:** Create a **Model Card** for this scheduler. It must state:
+    *   *Intended Use:* Draft scheduling only; not for final deployment without human review.
+    *   *Limitations:* "Does not automatically detect pregnancy status from historical data; relies on explicit input flags."
+    *   *Residual Risk:* "High risk of assigning unsafe shifts if input data is incomplete."
+
+**4. Governance & Legal Routing**
+*   **Owner:** Assign a specific product owner responsible for the "Safety Constraint" logic.
+*   **Legal Duty:** You mentioned a "mandatory compliance deadline." **Route immediately to legal counsel.** Do not rely on this technical review to determine if your data handling meets labor laws or if the "historical data" approach satisfies regulatory requirements for medical accommodations. Counsel must define the exact legal duty; this plan only tests technical adherence to provided rules.
+
+**Definition of Done:**
+The system passes all "Positive Control" tests with 0 violations, produces a "Needs Review" flag for incomplete data, and includes a mandatory human approval step before any schedule is published.
+
+*Note: Never fabricate a "0% risk" metric; report residual risk as "Unverified" until live monitoring confirms performance. Ensure the human gate cannot be bypassed by automation settings.*

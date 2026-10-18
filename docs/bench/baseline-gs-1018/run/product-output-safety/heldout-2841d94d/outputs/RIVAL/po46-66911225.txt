@@ -1,0 +1,31 @@
+### Pre-Launch Date Validation Review Process
+
+**Phase 1: Input Normalization and Sanitization**
+Before any logic is applied, establish a strict ingestion gate. Since the legacy library cannot be upgraded, create a wrapper function that intercepts all raw date strings from warehouse inputs.
+1.  **Format Whitelisting:** Define an explicit allow-list of expected input formats (e.g., `YYYY-MM-DD`, `DD/MM/YYYY`, Unix timestamps). Reject any string that does not match these patterns immediately, flagging it for human review rather than attempting automatic parsing.
+2.  **Ambiguity Resolution:** Implement a deterministic rule for ambiguous dates (e.g., `01/02/2024`). Hard-code the system to assume a specific format (e.g., `DD/MM/YYYY`) based on the warehouse's geographic region, and log a warning if the input could be interpreted differently.
+3.  **Sanitization:** Strip all non-date characters except separators before parsing to prevent injection of hidden logic or malformed strings that might confuse the legacy parser.
+
+**Phase 2: The "Double-Check" Logic Layer**
+Do not rely on the legacy library's single output. Implement a redundant verification step using a separate, isolated logic block (even if it requires a simple, custom-written date comparison function that does not rely on the full library).
+1.  **Parse Twice:** Parse the input date using the legacy method and a secondary, simplified validation method (e.g., regex extraction of year/month/day integers).
+2.  **Consistency Check:** Compare the results. If the legacy library interprets `01/13/2024` as a valid date (perhaps rolling over to the next year) while the secondary check flags month `13` as invalid, trigger an immediate hard stop.
+3.  **Explicit Expiry Calculation:** Calculate the "Donation Eligibility Date" (Expiry Date minus Safety Buffer) immediately upon ingestion. Store this calculated timestamp as an integer (Unix time) to avoid further string manipulation errors downstream.
+
+**Phase 3: Boundary and Edge Case Stress Testing**
+Execute a manual test suite against the staging environment using a curated dataset of "poison pill" inputs before connecting to live charity networks.
+1.  **The "Tomorrow" Test:** Input dates that are exactly one day past expiry. Verify the system categorizes these as "Unsafe/Dispose" and not "Donate."
+2.  **Format Chaos:** Feed inputs with leading zeros missing, single-digit months, mixed separators (e.g., `2024.1.5`), and textual months (e.g., `Jan 5, 24`). Ensure none bypass the whitelist.
+3.  **Leap Year and Rollover:** Test dates around February 29th and year-end transitions to ensure the legacy library does not miscalculate the safety buffer.
+4.  **Null and Default Values:** Input empty strings, `null`, `0`, or default database dates (e.g., `1970-01-01`). Confirm these default to "Unsafe" rather than triggering a donation workflow.
+
+**Phase 4: The "Human-in-the-Loop" Fail-Safe**
+Configure the system with a "Gray Zone" protocol.
+1.  **Uncertainty Flagging:** If any validation step returns a low-confidence score or requires a fallback interpretation, the item must automatically route to a "Manual Review" queue.
+2.  **Default-Deny Policy:** Hard-code the global default state: if a date cannot be verified with 100% confidence, the item is classified as "Expired/Unsafe." Donation is an opt-in action only for clearly valid data; it is never the default outcome of an error.
+
+**Phase 5: Final Audit Trail Verification**
+Before launch, generate a log report of the stress test run. Verify that every rejected item has a corresponding log entry stating specifically which validation rule failed. If an item is marked for donation, the log must show the successful pass of all five previous phases.
+
+*Note: This process assumes the ability to write wrapper code around the existing library without modifying the library itself.*
+*Ensure all test results are documented and signed off by two senior developers before the partner network integration goes live.*

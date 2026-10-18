@@ -1,0 +1,47 @@
+### Validation Workflow for Legal Citation Accuracy
+
+To address the risk of hallucinated precedents without paid databases, implement a three-tier "Open-Source Triangulation" workflow. This strategy leverages free, authoritative legal repositories and deterministic checking scripts to validate citations before the conference demo.
+
+**1. Establish the "Golden Source" Baseline**
+Restrict your validation scope to jurisdictions and courts fully covered by free, high-fidelity open sources. For UK law, rely exclusively on:
+*   **BAILII (British and Irish Legal Information Institute):** The primary source for full-text judgments.
+*   **The National Archives (Legislation.gov.uk):** For statutory references.
+*   **Supreme Court & Judiciary.uk:** For recent high-court rulings.
+*   **Google Scholar (Case Law filter):** As a secondary cross-check for citation density.
+
+*Action:* Create a "Allowed Corpus" list. If your tool generates a citation outside these freely accessible repositories (e.g., a niche tribunal not indexed on BAILII), flag it immediately as "Unverifiable – High Risk" rather than attempting to guess its validity.
+
+**2. The Deterministic Citation Extractor (Pre-Screening)**
+Before human review, run a lightweight script to parse every generated summary.
+*   **Extraction:** Use regular expressions to isolate potential citation patterns (e.g., `[Year] Court Abbreviation Page`, `v. [Party Name]`).
+*   **Format Validation:** Check if the citation structure matches known UK legal formats (e.g., ensuring "EWCA Civ" exists for Court of Appeal cases).
+*   **Existence Check:** Automate a headless browser request (using Puppeteer or Playwright) to query the extracted case name + year against BAILII or Google Scholar.
+    *   *Pass:* The search returns a result with a matching party name and year.
+    *   *Fail:* Zero results or a mismatch in parties/dates. Flag as "Potential Hallucination."
+
+**3. The "Two-Point" Human Verification Protocol**
+For cases that pass the automated screen, junior lawyers must perform a rapid two-point check:
+*   **Point A (Existence):** Confirm the case exists on BAILII using the provided neutral citation.
+*   **Point B (Principle Match):** Read only the headnote or the first two paragraphs of the actual judgment. Verify that the *legal principle* your tool claimed the case supports is actually mentioned in the introduction. Do not read the whole case; just verify the specific proposition.
+
+**4. The "Negative Control" Test Set**
+To measure your false-negative rate (hallucinations you missed):
+*   Take 10 known, real cases from your training data.
+*   Intentionally alter the year or party name in the prompt to force a hallucination or error.
+*   Run your workflow. If your process fails to catch these intentional errors, refine your regex or search queries until they are detected.
+
+**5. Conference Demo Safeguard: The "Confidence Toggle"**
+For the live demo, modify the UI to display a "Verification Status" badge next to every citation:
+*   **Green:** Verified against BAILII/Legislation.gov.uk via your script.
+*   **Amber:** Format valid, but full-text match pending (requires manual click-through).
+*   **Red:** Unverifiable in open sources.
+*   *Crucial:* For the demo, hard-code the system to **refuse** to generate a summary if the confidence score is below a strict threshold, displaying "Insufficient open-source data to verify this precedent" instead of risking a hallucination.
+
+**Implementation Timeline (3 Days)**
+*   **Day 1:** Build the regex extractor and BAILII search script.
+*   **Day 2:** Run the script against your current test suite; manually verify the "Amber" flags.
+*   **Day 3:** Integrate the "Confidence Toggle" into the demo build and train the team on the Two-Point Protocol.
+
+This approach shifts the burden from "trusting the AI" to "verifying via open infrastructure," ensuring professional reliability without licensing costs.
+
+*Note: This workflow assumes the tool outputs standard UK citation formats; non-standard outputs will require regex adjustments. Always disclose to demo attendees that the tool is an assistive research aid, not a substitute for qualified legal advice.*

@@ -1,0 +1,25 @@
+### Tracking Audit & Cleanup Roadmap for ShopRight
+
+**Phase 1: Non-Intrusive Discovery (Weeks 1-2)**
+Do not modify live code yet. Deploy a read-only audit layer to map the current state without risking sales disruption.
+1.  **Tag Mapping Inventory:** Create a single spreadsheet listing every "purchase" event across the four platforms. Columns must include: Platform Name, Event Trigger (e.g., "Thank You Page Load" vs. "Button Click"), Event Name (e.g., `purchase`, `order_complete`, `txn_success`), and Parameters sent (e.g., `revenue`, `total`, `value`, `currency`).
+2.  **Network Traffic Sampling:** Use browser developer tools or a proxy tool (like Charles Proxy) on a staging environment that mirrors production data to capture actual network requests. Identify duplicate firings by looking for multiple requests triggered by a single user action. Note the timing delta between duplicates; immediate duplicates suggest double-tagging, while delayed duplicates may indicate retry logic errors.
+3.  **Domain & Subdomain Scope:** Document exactly which domains/subdomains each brand operates on and where tags are injected (e.g., via Google Tag Manager, hard-coded snippets, or platform-native integrations).
+
+**Phase 2: Standardization Logic Design (Week 3)**
+Define the "Golden Record" before touching implementation.
+1.  **Unified Event Schema:** Define one canonical event name (e.g., `purchase_completed`) and a strict parameter list (e.g., `transaction_id`, `revenue`, `currency`, `items`). Map every legacy parameter to this new schema in your inventory sheet.
+2.  **Deduplication Strategy:** Decide on the primary key for deduplication. Typically, this is the `transaction_id`. Establish a rule: if the same `transaction_id` fires twice within a 5-minute window from the same user session, count only the first instance.
+3.  **Source of Truth Hierarchy:** If platforms differ in calculation logic (e.g., one includes tax/shipping, another excludes it), designate the most accurate financial system as the baseline for reconciliation.
+
+**Phase 3: Staged Validation & Deployment (Weeks 4-6)**
+Execute changes in isolation to prevent live data corruption.
+1.  **Staging Environment Replay:** Implement the unified schema and deduplication logic in a staging environment. Replay historical transaction logs (anonymized) to verify that the new logic reduces the variance to <1%.
+2.  **Parallel Running (Shadow Mode):** Deploy the new tracking code to a small percentage of live traffic (e.g., 5%) alongside the legacy tags. Send new events to a separate "audit" dataset in your analytics tool. Compare the "audit" revenue against the legacy revenue and the actual financial database.
+3.  **Full Rollout by Brand:** Once the 5% sample shows consistent alignment with financial records, roll out the fix brand-by-brand, starting with the lowest traffic site. Wait 48 hours between each brand to monitor for anomalies.
+
+**Phase 4: Reconciliation & Reporting (Ongoing)**
+1.  **Daily Variance Report:** Until the December migration, generate a daily automated report comparing the sum of cleaned tracking data against the actual ERP/financial database. Flag any day where variance exceeds 2%.
+2.  **Board Review Disclaimer:** For the upcoming board review, present revenue figures sourced directly from the financial database, not the analytics dashboards. Include a footnote explaining the tracking audit is in progress and providing the current variance range (e.g., "Analytics data is undergoing standardization; financial figures are source of truth").
+
+**Note:** Do not attempt to "fix" historical data in your analytics platform; instead, annotate the timeline where the cleanup occurred so trends can be analyzed with proper context. Ensure all user identifiers used for deduplication are pseudonymized to maintain privacy compliance.

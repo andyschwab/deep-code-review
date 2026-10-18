@@ -1,0 +1,27 @@
+# PagoRapido Launch Tracking Plan (Top 5 Events)
+
+To validate your core assumption that retention correlates with small-value transaction frequency (<50 BRL), you must instrument events that capture the full lifecycle of a micro-transaction, not just the completion. Given your limited bandwidth and the Brazilian market's reliance on instant payments (PIX) and QR codes, prioritize these five events in this exact order:
+
+### 1. `wallet_funded`
+*   **Properties:** `amount`, `method` (e.g., PIX, boleto, card), `source_app` (if PIX), `timestamp`.
+*   **Why First:** In Brazil, a funded wallet is the strongest leading indicator of intent. Without funds, no transaction can occur. Tracking the *method* is critical because PIX is instantaneous and dominates micro-transactions, while boletos have a delay. You need to distinguish between users who fund via instant methods (high intent) versus those who don't. If a user doesn't fund within 24 hours of signup, they will not transact.
+
+### 2. `qr_scan_initiated`
+*   **Properties:** `merchant_id`, `location_type` (retailer partner vs. open network), `scan_source` (camera vs. gallery).
+*   **Why Second:** Your growth relies on retailer partnerships. This event measures *intent to pay* at the point of sale, even if the transaction fails. In early launches, friction often occurs between scanning and paying. If you only track successful payments, you cannot diagnose where users drop off. High scan volume with low completion indicates UX or connectivity issues at partner locations.
+
+### 3. `payment_completed`
+*   **Properties:** `amount`, `currency`, `merchant_id`, `transaction_type` (merchant vs. P2P), `is_under_50_brl` (boolean flag).
+*   **Why Third:** This is your primary outcome metric. Explicitly flagging `is_under_50_brl` at the source simplifies your analysis of the core retention hypothesis. Do not calculate this later; engineer it now to ensure data accuracy. Differentiating between merchant payments and P2P transfers is vital because your hypothesis specifically targets *merchant* usage driven by retailer partnerships.
+
+### 4. `first_transaction_latency`
+*   **Properties:** `time_to_first_tx_seconds` (calculated from `signup_completed`), `days_since_funding`.
+*   **Why Fourth:** Speed to first value is the strongest predictor of Day-7 retention in fintech. This event (or derived metric) tells you if your onboarding flow is too long. In the competitive Brazilian market, if a user cannot complete a sub-50 BRL transaction within 48 hours of funding, churn probability spikes. This validates the "frequency" part of your hypothesis by establishing the baseline speed.
+
+### 5. `app_reopen_post_transaction`
+*   **Properties:** `days_since_last_tx`, `previous_tx_amount`, `session_duration`.
+*   **Why Fifth:** Retention is defined by returning to the app. Tracking re-opens specifically *after* a transaction allows you to correlate the *size* of the previous transaction with the likelihood of return. This directly tests your hypothesis: do users who transact <50 BRL return more frequently than those who transact >50 BRL? Without this specific trigger, you cannot segment retention behavior by transaction value.
+
+**Implementation Note:** Do not track peer-to-peer (P2P) transfers as a primary event yet. Your hypothesis and growth strategy are built on *merchant* transactions via retailer partnerships. P2P adds complexity and noise to your initial validation.
+
+**Engineering Constraint:** Ensure all events include a `user_id` and `session_id` to allow for precise cohorting. Use a boolean flag for the <50 BRL threshold at the point of emission to reduce downstream data processing load.
