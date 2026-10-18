@@ -3,6 +3,23 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.593.0] — 2026-10-18
+
+### Added
+- `docs/bench/baseline-gs-1018/`: the first pre-registered n=60 held-out bench (no skill edits) of the shipped `growth-analytics` and `product-output-safety` against their H1 rivals, with `scripts/rival_eval.py` judge protocol v2 (GLM-5.1, both orders), generator Qwen3.5-397B-A17B, free PCSS models only ($0), fresh scenarios disjoint from every older bench set. Neither skill clears the bar: growth-analytics 0.442 [0.333, 0.550] against marketingskills analytics and ab-testing (win 18, tie 17, loss 25), product-output-safety 0.467 [0.350, 0.583] against promptfoo redteam-setup (win 23, tie 10, loss 27); both FAIL, so neither skill is shown superior. Synthetic, single-generator evidence, not a claim about real users.
+
+### Added
+- `docs/bench/growth-r1-1018/`: preregistered paired held-out bench (n=60, GLM-5.1 judge v2, PCSS only, $0) of a one-paragraph "answer the ask first" edit to `growth-analytics` against the shipped text and the marketingskills rival. The edit lost: 0.308 [0.217, 0.408] against 0.467 [0.367, 0.567] for the shipped text, paired difference -0.158 [-0.275, -0.033], so the keep rule failed and `SKILL.md` is unchanged. Synthetic, single-generator evidence.
+
+### Added
+- `docs/bench/idea-critic-r8-1018/`: a preregistered round 8 for `idea-critic` (bench only; `SKILL.md` is unchanged). Two single-step edits written from the judge reasons of v0's losses were tried on a fresh tune set (n=20); the tune pick (step 6: tripwire on the requester's threshold, dated inside the pilot window) was run against v0 on a fresh held-out set (n=60, judge v2, three judges, both orders). Paired edit minus v0 was -0.033, 95% interval [-0.142, 0.075], so the keep rule (lower bound above 0) failed and nothing ships; v0 against the rival scored 0.575 [0.467, 0.683] and the edit 0.542 [0.450, 0.633], neither above 0.5 at the lower bound. The README records the deviations (the round 5 to 7 judge is kept instead of `scripts/rival_eval.py`, and one overlap-check addendum made before any answer).
+
+### Added
+- `docs/bench/safety-c120-1018/`: a preregistered forward-only confirmation (new held-out n=120, disjoint by id, text and shingles from every earlier set including `safety-r1-1018`; no tune phase) of the byte-identical frozen `product-output-safety` edit from `safety-r1-1018` against the unedited skill and the promptfoo redteam-setup rival, judge protocol v2 (GLM-5.1, both orders), PCSS only, $0. Edit 0.600 [0.521, 0.679] vs the unedited skill 0.550 [0.467, 0.633]; paired difference +0.050 [-0.004, +0.104]. The keep rule (paired lower bound above 0) fails by 0.004, so the edit does not ship and `SKILL.md` is unchanged. Synthetic, single-generator evidence.
+
+### Added
+- `docs/bench/safety-r1-1018/`: a preregistered n=60 held-out bench of one targeted `product-output-safety` edit ("answer inside the stated constraint") against the unedited skill and the promptfoo redteam-setup rival, judge protocol v2 (GLM-5.1, both orders), PCSS only, $0. Edit 0.550 [0.433, 0.667] vs the unedited skill 0.467 [0.350, 0.575]; paired difference +0.083 [-0.017, +0.183]. The keep rule (paired lower bound above 0) fails, so the edit does not ship and `SKILL.md` is unchanged; no superiority over the rival is claimed. Synthetic, single-generator evidence.
+
 ## [1.592.0] — 2026-10-18
 
 ### Changed
