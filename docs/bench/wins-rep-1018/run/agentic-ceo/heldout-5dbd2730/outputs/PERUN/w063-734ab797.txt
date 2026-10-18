@@ -1,0 +1,24 @@
+**Decision:** Proceed with a "Validate-Then-Lock" sequence. Do not begin data cleansing until a read-only snapshot is verified, and do not schedule the final cutover until a dry-run restoration proves 100% data fidelity. The October 1st deadline is secondary to the 48-hour read-only window; missing the window delays the project, but a bad swap destroys it.
+
+**Figures:** 50,000 records / 3 developers = ~16,667 records per person. At 48 hours (2,880 minutes) until read-only, the team has ~0.17 minutes (10 seconds) per record to audit, cleanse, and validate before the lock. This density confirms that manual cleansing is impossible; automation must handle 99% of the load, leaving humans only for exception handling.
+
+**Order of Operations:**
+1.  **Freeze & Snapshot (Hours 0–2):** Confirm legacy system is read-only. Generate a cryptographic hash of the full 50k dataset to prove no changes occurred during the handover.
+2.  **Automated Cleansing & Dry-Run (Hours 2–36):** Run scripts to map legacy fields to the new lens ordering schema. Execute a full transfer to a staging environment. Do not touch production yet.
+3.  **Validation & Exception Repair (Hours 36–44):** Compare row counts and checksums between legacy and staging. Isolate failed records (e.g., malformed dates, missing cylinder values) for manual fix.
+4.  **Final Cutover (Hours 44–48):** Only if validation passes 100%, execute the irreversible swap to the live integration system.
+5.  **Post-Migration Audit (Hour 48+):** Sample 5% of live records against the legacy snapshot to confirm visual accuracy in the new UI.
+
+**Delegation to Junior Developer:**
+Assign the junior developer exclusively to **Step 3 (Validation Scripting)**. Their task is to write the comparison logic that flags discrepancies between the legacy snapshot and the staged data. They must not perform manual data entry or cleansing, as this introduces human error at scale. Their output must be a list of exactly which Record IDs failed and why, nothing else.
+
+**Risks You Must Evaluate Personally:**
+1.  **Data Loss Vector:** Verify that the "irreversible step" includes a verified, restorable backup of the *raw* legacy data, not just the transformed data. If the new system rejects a valid prescription format, you need the original raw string.
+2.  **Schema Mismatch:** Confirm that every legacy field has a mandatory destination in the new system. If the new system requires a "Patient ID" format that the legacy system lacks, the migration will halt mid-stream.
+3.  **Rollback Feasibility:** Since you stated the swap is irreversible without manual re-entry, define the "stop condition." If 501 records fail validation, do you proceed with 49,499 or abort entirely? Decide this threshold now.
+
+**First Immediate Task:**
+Generate the read-only snapshot of the 50,000 records and calculate its SHA-256 hash. Store this hash in a secure location separate from the database. This is your only proof of data integrity before the 48-hour clock starts ticking on the cleansing phase.
+
+**Halt Trigger:** If the dry-run validation shows >0.1% data corruption (50+ records) after automated cleansing, stop the cutover immediately.
+**Fallback Trigger:** If the legacy system cannot be confirmed read-only within 4 hours, delay the cleansing phase and notify insurance billing of a potential slip.

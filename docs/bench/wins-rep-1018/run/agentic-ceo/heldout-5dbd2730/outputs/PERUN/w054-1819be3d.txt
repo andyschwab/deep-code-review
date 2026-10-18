@@ -1,0 +1,23 @@
+**Decision:** Do not flip the production switch to "live" at 8:00 AM. The go-live is conditional on a manual, verified pass of the offline-sync test and a bucket-permission audit. If these two checks are not signed off by 7:45 AM, the launch slips to the next business day. No patient data enters the system until both pass.
+
+**Figures:** 40 nurses × 6 visits/day = 240 daily assessments. At a conservative 2 photos per visit, that is 480 photos (approx. 2.4 GB assuming 5MB/photo) hitting storage on Day 1. If permissions fail, 2.4 GB of PHI becomes publicly exposed instantly.
+
+**Order of Testing and Deployment:**
+1.  **Infrastructure Lock (Now):** Configure the cloud storage bucket to "Private" by default. Explicitly deny all public access at the organization level, not just the bucket level. Enable versioning and object lock to prevent accidental deletion or overwriting during the rush.
+2.  **Offline-First Verification (Critical Path):** Before any nurse logs in, the dev lead must simulate a "tunnel" scenario (zero connectivity). Take a photo, save the assessment, force-close the app, restore connectivity, and verify the sync. If the photo fails to upload or duplicates upon reconnection, the build is rejected.
+3.  **Pilot Group Rollout:** Do not enable all 40 nurses at 8:00 AM. Enable 5 nurses in high-signal areas first. Monitor their first successful sync. Once confirmed, enable the remaining 35 in batches of 10 every 30 minutes.
+4.  **Privacy Policy Switch:** Only after the first batch successfully syncs do you update the privacy policy settings to reflect the new data processing activity. This setting must explicitly state that photos are encrypted at rest and in transit, and that offline caching occurs on the device only.
+
+**Exact Configuration Decision: Data Retention**
+You must decide the **Device-Side Cache Expiration Policy** before launch.
+*   **Option A (Default/High Risk):** Photos remain on the nurse's device indefinitely until manually deleted. *Risk:* Lost/stolen devices expose full patient history.
+*   **Option B (Recommended/Strict):** Photos auto-delete from the local device cache immediately upon successful server acknowledgment (HTTP 200 OK).
+*   **The Call:** Choose **Option B**. Set the retention policy to "Zero-Day Local Cache." The app must be configured to purge local images the moment the server confirms receipt. This minimizes the blast radius of a lost phone. If the server is unreachable, the image stays encrypted locally but is flagged "Pending Sync" and cannot be viewed without authentication.
+
+**First Actionable Item for the Development Lead:**
+Write and execute a script *tonight* that attempts to access the new storage bucket via a public URL. The script must return a `403 Forbidden` error. If it returns anything else (including a redirect or a 200 OK), the deployment is halted. Send the screenshot of the `403` error to you by 7:00 AM as the "Green Light" token.
+
+**Halt Trigger:** If the offline-sync simulation fails to upload within 2 minutes of restoring connection, or if the public access test returns anything other than `403 Forbidden`.
+**Fallback Trigger:** If cellular signal averages below 2 bars in the pilot zone, switch nurses to "Store Only" mode (no sync attempts) until they return to the office Wi-Fi.
+
+**Note:** This plan prioritizes safety over speed; a 24-hour delay is preferable to a reportable HIPAA breach. Ensure the legal team has pre-approved the "Zero-Day Local Cache" language for the privacy policy update.

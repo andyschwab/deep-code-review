@@ -1,0 +1,27 @@
+**Decision Memo: Glacia Return Automation Surge**
+
+**Call:** Proceed with automation but **defer auto-approval** for the January 2 surge; implement a "human-in-the-loop" triage for all transactions under $50 until fraud logic is proven safe in production. The single number driving this is the **$200 labor cost vs. potential unlimited fraud loss**; you cannot afford a 1% fraud spike on high volume, which would exceed the manual labor savings instantly.
+
+**Figures:**
+*   **Labor Savings:** 20 staff × $200/return × (Volume Spike) = Variable savings based on volume.
+*   **Fraud Exposure:** If 1,000 fraudulent returns/day slip through at $50 each = $50,000/day loss (irreversible).
+*   **Timeline:** 6 weeks total. Week 1-2 (Plan/Rule Def), Week 3-4 (Build/DB Throttling), Week 5 (Shadow Test), Week 6 (Triage Launch).
+*   **Correction:** You stated "auto-approval" is the plan. This is corrected to "auto-flagging with manual release" for the initial launch. Auto-approval is deferred to Phase 2 (post-surge) after data validation.
+
+**Decisions Required:**
+1.  **Fraud Threshold:** Do not set a binary "under $50 = safe" rule. Decide on a **multi-factor score** (item category + customer history + return frequency) where *any* high-risk flag forces manual review, regardless of dollar amount.
+2.  **Database Load:** Decide on a **queueing mechanism** now. You must decouple the intake from the write operation. If the legacy DB limit is X writes/minute, the intake system must buffer requests and drip-feed them, rejecting or queuing excess traffic immediately to prevent a crash.
+
+**Failure Modes & Triggers:**
+*   **Fraud Logic Flaw:** Triggered if fraud rate exceeds 0.5% in shadow testing. Action: Halt all automation, revert to 100% manual.
+*   **DB Crash:** Triggered if write latency spikes >200ms. Action: Automatically throttle intake to 50% of current rate.
+*   **Sign-off:** Product Owner (Fraud Rules), CTO (DB Throttling Architecture).
+
+**Halt Trigger:** If shadow testing (Week 5) shows >1% false positives on legitimate returns, halt launch.
+**Fallback Trigger:** If the queue depth exceeds 1,000 pending items for >15 minutes, alert on-call engineer to manually flush or scale buffers.
+
+**First Actionable Task:**
+Task the lead engineer to **build a read-only "Shadow Mode" prototype** within 3 days. This tool must ingest live return requests, apply your proposed rules, and output a "Decision Log" (Approve/Deny/Flag) **without writing to the legacy database or issuing refunds**. This validates the fraud logic and estimates the queue depth against the DB write limit without risking capital or system stability.
+
+**Note:** We will structure the session to prioritize the "Shadow Mode" build first; all other workflow automation is secondary until the risk model is validated.
+Do not attempt to optimize the legacy DB writes until the Shadow Mode confirms the actual load profile.

@@ -1,0 +1,31 @@
+### Feasibility Assessment: Crisis Line Integration & Infrastructure Risks
+
+**Executive Summary**
+While current peak traffic (4,200 rpm) sits within the API limit (5,000 rpm), the assumption that crisis traffic will remain a static 2% of total volume is a critical single point of failure. During regional outages or mass-casualty events, crisis volume does not scale linearly with standard messaging; it spikes disproportionately. Relying on a fixed percentage assumption creates a high risk of exceeding capacity exactly when the system is most needed, potentially blocking life-saving handoffs.
+
+**Identified Failure Points**
+
+1.  **The "Non-Linear Spike" Failure**
+    *   **Assumption:** Crisis interactions will consistently represent only 2% of total volume.
+    *   **Risk:** Crisis events are often triggered by external news or outages, causing crisis traffic to surge independently of standard chat. If a regional outage (like the recent 45-minute East Coast incident) causes user anxiety, crisis requests could jump from 2% to 20% or higher instantly.
+    *   **Capacity Breach:** At current peak (4,200 rpm), you have 800 rpm headroom. If total traffic remains stable but the *mix* shifts to 20% crisis due to an event, and crisis handoffs require additional API calls for counselor routing, you may exceed the 5,000 limit. If total traffic also surges during the event, the system will hit the ceiling immediately, dropping critical requests.
+
+2.  **The "Latency Cascade" During Outages**
+    *   **Assumption:** Standard latency metrics apply during server degradation.
+    *   **Risk:** During the recent 45-minute outage, standard messages likely queued or failed. Crisis handoffs require real-time synchronization between the chat interface and the counselor dispatch system. If the API is throttled at 5,000 rpm, the system must decide which requests to drop. Without explicit priority tagging, crisis handoffs may be treated identically to standard messages, leading to indefinite queuing.
+    *   **Safety Impact:** A 30-second delay in standard chat is an annoyance; a 30-second delay in connecting a suicidal user to a counselor is a safety failure. The current infrastructure lacks a documented mechanism to prioritize crisis packets over standard traffic when approaching the 5,000 rpm limit.
+
+3.  **The "Headroom Illusion"**
+    *   **Assumption:** 800 rpm of headroom is sufficient buffer.
+    *   **Risk:** 800 rpm represents only a 19% buffer. In distributed systems, traffic spikes during outages often exceed 50-100% as users retry failed messages. If the East Coast outage recurs and users retry messages while simultaneously seeking help, the combined load of retries + new crisis requests will almost certainly breach the 5,000 limit.
+    *   **Consequence:** Once the limit is hit, the API provider will likely reject *all* excess requests. If the rejection logic is not configured to fail open for crisis routes, users will see generic errors instead of being connected to help.
+
+**Critical Recommendations for CTO & Legal**
+*   **Reject the Static Percentage Assumption:** Model scenarios where crisis traffic constitutes 10%, 25%, and 50% of total volume during incidents.
+*   **Implement Priority Queuing:** The architecture must distinguish crisis handoffs from standard messages, ensuring crisis requests bypass queues when near capacity limits.
+*   **Define "Fail-Safe" Behavior:** Legal counsel must define the required system behavior when capacity is exceeded. The system cannot simply "drop" requests; it must have a fallback (e.g., redirecting to a static emergency number page) that does not rely on the strained API.
+
+**Conclusion**
+Under current assumptions, the integration is not feasible for high-reliability safety use cases. The lack of priority handling and the reliance on a fixed traffic mix assumption create an unacceptable risk of service denial during the exact moments of highest user vulnerability.
+
+*Note: This assessment relies solely on the traffic figures and outage history provided. Actual failure thresholds may vary based on the specific computational cost of a "crisis handoff" versus a standard message.*

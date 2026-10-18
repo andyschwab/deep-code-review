@@ -1,0 +1,25 @@
+**Decision: HALT immediate migration planning; the current timeline is mathematically impossible without data loss or audit failure.**
+
+**Figures:** 2,500,000 records ÷ 50,000 records/hour = 50 hours of pure ingestion time. With a 10-day (240-hour) window, you have only 21% buffer for extraction, transformation, validation, and network latency. If any validation fails or throughput dips below 95%, you will miss the November 15th audit. The "48-hour decommission" clause creates a single-point failure with no rollback path.
+
+**Critical Go/No-Go Decisions (Owner Only):**
+1.  **Authorize Timeline Extension or Scope Reduction:** You must decide today whether to negotiate the audit date, request a temporary legacy read-only extension, or migrate only active patient records (e.g., last 2 years) to fit the window. Proceeding with "all records" in "10 days" is a guaranteed failure mode.
+2.  **Approve Parallel Validation Strategy:** Decide if we accept a "sample-based" validation (statistically significant subset) for the initial go-live to save time, versus 100% record checksums which will exceed the 10-day limit.
+3.  **Confirm Rollback Capability:** Since the old system vanishes in 48 hours, you must authorize the creation of a full cold-storage backup *before* migration starts. If ingestion fails at hour 49, you have no source to retry from.
+
+**Optimal Sequence of Operations:**
+1.  **Phase 1: Throughput Proof-of-Concept (Hours 0–4):** Run a pilot migration of 10,000 records end-to-end. Measure actual extraction, transfer, and ingestion speeds. If the real-world rate is <48k/hr, stop and re-plan.
+2.  **Phase 2: Pipeline Construction & Parallelization (Days 1–6):** Build the extraction and transformation scripts. Do not wait for full validation logic; build the pipe first.
+3.  **Phase 3: Staged Migration (Days 7–9):** Begin transfer in batches. Do not attempt a "big bang" cutover.
+4.  **Phase 4: Final Validation & Cutover (Day 10):** Execute final delta sync and validation.
+
+**Delegation Plan:**
+*   **Junior Staff:** Assign immediately to **Data Profiling and Sanitization**. They must scan the 2.5M records for schema mismatches, null values in critical fields, and formatting errors *before* the pipeline touches them. This is the highest risk for ingestion rejection.
+*   **Senior Engineers:** Focus exclusively on **Pipeline Throughput and Error Handling**. They must ensure the system can retry failed batches automatically without manual intervention.
+
+**Concrete First Actions for This Session:**
+1.  **Run the Math:** Calculate the exact "latest start time" based on the pilot throughput. If that time has already passed, the plan is dead.
+2.  **Draft the Risk Memo:** Document the impossibility of the current constraints and the required owner decisions (above). Send this to stakeholders immediately.
+3.  **Initiate Backup:** Command the team to create a full, verified backup of the legacy system to external storage. This is your only insurance policy.
+
+*Note: Do not write a single line of migration code until the throughput pilot confirms the 50k/hr limit is achievable in your network environment. The cost of rework exceeds the cost of delay.*
