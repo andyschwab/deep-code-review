@@ -1,0 +1,46 @@
+# Analysis Plan: Mortgage Application Upload Friction (Q4)
+
+**Objective:** Isolate causes of leakage between "Application Start" and "Pre-Approval" to drive a 10% conversion lift by year-end.
+**Baseline:** Q3 Conversion = 8.5% (850/10,000). Target = ~9.4% (940/10,000).
+
+### 1. Event Taxonomy (Instrument Only What Answers a Question)
+Do not instrument "everything." Implement these four specific events to distinguish technical failure from user readiness. Each event includes properties to segment by device, browser, and file type.
+
+| Event Name | Question Answered | Key Properties |
+| :--- | :--- | :--- |
+| `upload_attempt_started` | Did the user engage with the uploader? | `document_type` (tax_return, id, etc.) |
+| `upload_error_triggered` | Did the system reject the file? | `error_code` (size_limit, format_invalid, timeout) |
+| `upload_success` | Did the file land on the server? | `file_size_kb`, `duration_seconds` |
+| `step_abandonment` | Did the user leave the page without success? | `time_on_step`, `last_action` (error vs. idle) |
+
+**Identifier Seam:** Ensure a stable, pseudonymous `user_id` ties these events across sessions to track return attempts. Route PII handling to privacy compliance; do not log file contents.
+
+### 2. Diagnostic Analysis (Read the Data Bottom-Up)
+Before testing solutions, categorize the 9,150 drop-offs from Q3 logic into three buckets using the new events:
+
+*   **Technical Blockers:** High volume of `upload_error_triggered` with `size_limit` or `format_invalid`.
+    *   *Action:* If >20% of drop-offs are here, fix validation logic or increase limits immediately. This is a bug, not a UX test.
+*   **Readiness Friction:** High `step_abandonment` with long `time_on_step` but zero `upload_attempt_started`.
+    *   *Action:* Users lack documents. Test a "Save & Email Reminder" flow or a checklist preview before the upload screen.
+*   **Interface Friction:** High `upload_attempt_started` followed by `step_abandonment` without errors.
+    *   *Action:* The UI is confusing or slow. Proceed to A/B test the simplified interface.
+
+### 3. Experiment Design (Pre-Commit to Rigor)
+If Interface Friction is confirmed, run an A/B test in November.
+*   **Primary Metric:** `pre_approval_conversion_rate` (Users reaching pre-approval / Users starting app).
+*   **Guardrail Metric:** `support_ticket_volume` regarding uploads (ensure simplification doesn't increase confusion later).
+*   **Design Rule:** Do not peek. Calculate the required sample size based on current traffic (10k/mo ≈ 333/day). To detect a 10% relative lift (8.5% → 9.35%) with 80% power, you need approx. 2,500 users per variant.
+*   **Duration:** Run for 15 days minimum. Read results **once** at the end. A "significant" result on Day 3 is `UNVERIFIED` noise due to peeking.
+
+### 4. Decision Matrix (Make Every Cut Decide Something)
+*   **If Technical Blockers > 20%:** Ship backend fix immediately. No A/B test needed.
+*   **If Readiness Friction dominates:** Launch "Save for Later" feature. Measure return rate within 48 hours.
+*   **If Interface Friction dominates & Test Wins (>9.35% conv):** Roll out to 100% by mid-December.
+*   **If Test Loses or Inconclusive:** Stop. Do not iterate on UI; pivot to investigating document readiness (e.g., partner with tax software for direct API pulls).
+
+**This Week's Steps:**
+1.  Approve the four-event taxonomy above for engineering implementation (est. 3 days).
+2.  Pull raw logs for Q3 to estimate the split between "no attempt" vs. "failed attempt" using existing error logs as a proxy before new instrumentation lands.
+3.  Draft the "Save & Email Reminder" copy variant in parallel, assuming readiness is a factor.
+
+*Note: All baseline comparisons must use LoanCompare's Q3 data; no external mortgage benchmarks are applied. If traffic drops in November, recalculate the test duration to meet the sample size requirement.*

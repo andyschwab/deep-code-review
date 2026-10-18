@@ -1,0 +1,33 @@
+# Measurement Plan: Recommendation Engine Health (PageTurners)
+
+**North Star Metric:** Weekly Active Users completing a "Value Loop" (defined as: *Click Recommended Item* AND *Post Review or Comment within 7 days*).
+*Rejection of Vanity:* Do not use "Total Clicks" or "Total Reviews" alone. Clicks rose 25% while reviews fell 10%; optimizing for clicks alone is degrading community value.
+
+### 1. Event Taxonomy (Instrument Only What Answers a Question)
+Stop instrumenting generic "clicks." Implement these specific events with properties to distinguish consumption from contribution:
+*   `recommendation_served`: Properties: `algorithm_version`, `diversity_score` (entropy of suggested topics vs. user history).
+*   `recommendation_clicked`: Properties: `item_id`, `topic_cluster`, `time_to_click`.
+*   `review_started`: Properties: `source_referrer` (did they come from a recommendation?), `time_since_last_click`.
+*   `review_published`: Properties: `topic_cluster`, `sentiment_score`.
+*   `session_end`: Properties: `total_consumption_time`, `total_creation_time`.
+
+**The Identifier Seam:** Ensure a stable, pseudonymous `user_id` links these events across sessions to track if the *same* users who click more are reviewing less. Route PII handling to privacy compliance; do not store raw text in analytics.
+
+### 2. Diagnostic Funnel (Retention & Contribution First)
+Analyze the drop in reviews by cohort, not aggregate:
+*   **Cohort A (Heavy Clickers):** Users in the top 25% of recommendation clicks. Did their review rate drop disproportionately?
+*   **Cohort B (Control/Pre-Pilot):** Compare current behavior to their own baseline (Feb 1–28).
+*   **Diversity Check:** Calculate the `topic_cluster_variance` of reviews published. If variance dropped >15%, the "filter bubble" hypothesis is supported. If variance is stable but volume dropped, the "time displacement" hypothesis is supported.
+
+### 3. Experiment Rigor & Guardrails
+The current 25% lift in clicks is **UNVERIFIED** as a success because the test lacks a pre-committed design and ignores the guardrail failure (reviews).
+*   **Primary Metric:** "Value Loop" completion rate (defined above).
+*   **Guardrail Metric:** Weekly Reviews Per Active User. **Stop Rule:** If this drops >5% below the Feb baseline for 7 consecutive days, the algorithm tuning must pause regardless of click gains.
+*   **Design Fix:** Do not peek at daily p-values. Pre-commit to a 14-day evaluation window ending March 14th. Compute the sample size needed to detect a 2% change in the "Value Loop" rate based on your current traffic. If you must monitor daily, use an always-valid sequential testing bound (e.g., mSPRT) to avoid false positives from repeated looks.
+
+### 4. This-Week Steps
+1.  **Engineers:** Instrument `diversity_score` on served recommendations and `source_referrer` on review starts by **March 5th**. Without these properties, we cannot distinguish filter bubbles from time displacement.
+2.  **Community Managers:** Query the data for the top 100 most active reviewers from February. Manually check if their individual review frequency has dropped. If yes, recruit 10 for immediate interviews to ask *why* (time vs. inspiration).
+3.  **Product Lead:** Set the guardrail alert: "Pause algorithm rollout if Reviews/Active User < 0.85x February Baseline." Share this threshold with engineering today.
+
+**Note:** The 25% click increase is a leading indicator of engagement but a lagging indicator of community health; do not optimize for it in isolation. All benchmarks must be calculated against PageTurners' February 2024 data, not industry averages.

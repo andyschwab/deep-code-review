@@ -1,0 +1,33 @@
+# Chat Flow Tracking Plan for SolucionesRápidas
+
+To diagnose the 30% abandonment rate before your May 1st launch, implement the following event schema. These events are designed to distinguish between Natural Language Understanding (NLU) failures, latency issues, and user confusion.
+
+## Core Event Schema
+
+| Event Name | Trigger Point | Essential Properties | Diagnostic Value |
+| :--- | :--- | :--- | : |
+| `chat_session_started` | User opens chat interface | `entry_point` (e.g., home_screen, balance_btn), `user_segment` | Establishes baseline volume and entry context. |
+| `chat_prompt_displayed` | Bot displays a message/question | `prompt_id`, `prompt_type` (open_ended, multiple_choice), `turn_number` | Measures if specific prompts correlate with drop-offs. |
+| `user_input_received` | User submits text or selection | `input_type` (text, button_click), `input_length`, `turn_number` | Differentiates between typing friction vs. selection friction. |
+| `nlu_intent_detected` | System processes user input | `intent_name` (e.g., check_balance, dispute_txn), `confidence_score`, `is_fallback` | **Critical:** Low confidence or high fallback rates indicate NLU model failures. |
+| `bot_response_rendered` | Bot reply appears on screen | `response_latency_ms`, `response_type` (text, form, error), `turn_number` | **Critical:** High latency (>2s) suggests technical bottlenecks causing abandonment. |
+| `chat_session_ended` | User closes chat or times out | `exit_reason` (user_close, timeout, error), `total_turns`, `last_prompt_id` | Identifies the exact step where users abandon the flow. |
+| `chat_error_triggered` | System encounters an unrecoverable error | `error_code`, `error_message`, `turn_number` | Captures hard failures distinct from soft abandonment. |
+
+## Implementation Priorities
+
+1.  **Latency Tracking:** Ensure `bot_response_rendered` captures `response_latency_ms` calculated as the delta between `user_input_received` and the render timestamp. If latency averages >1.5 seconds, the issue is infrastructure, not script design.
+2.  **NLU Confidence:** Log `confidence_score` for every `nlu_intent_detected`. If users abandon immediately after a prompt where the system returned a low confidence score or a fallback intent, your training data needs expansion, not script rewriting.
+3.  **Funnel Visualization:** Construct a funnel from `chat_session_started` → `user_input_received` (Turn 1) → `user_input_received` (Turn 2). The drop-off between Turn 1 and Turn 2 inputs will isolate whether the *first* bot response is the friction point.
+
+## Immediate Analysis Plan
+
+Once data flows (allow 24-48 hours for significance):
+*   **Segment by Entry Point:** Do users entering from "Disputes" abandon faster than "Balance"? This indicates topic-specific complexity.
+*   **Correlate Latency vs. Abandonment:** Plot abandonment rate against `response_latency_ms` buckets (0-500ms, 500-1500ms, 1500ms+).
+*   **Analyze Fallback Loops:** Count sessions where `is_fallback` = true more than once. Repeated failures to understand user intent are a primary driver of chat abandonment.
+
+This schema provides the granularity needed to decide whether to optimize the NLU model, improve server response times, or rewrite conversation scripts.
+
+*Ensure your engineering team instruments these events with unique `session_id` and `user_id` properties to enable path analysis across turns.*
+*Validate events in a staging environment using real-device testing before Friday's review to confirm property population.*

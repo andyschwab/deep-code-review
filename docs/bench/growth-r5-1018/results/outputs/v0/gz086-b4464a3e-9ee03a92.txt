@@ -1,0 +1,45 @@
+### Event Taxonomy & Analysis Plan: Time Slot Selection Friction
+
+**Objective:** Distinguish between supply scarcity (no cleaners available) and UI friction (confusing interface) to decide between recruiting cleaners or redesigning the UI before the Diwali promotion.
+
+**Target Audience:** Product Design Team, Local Operations Head.
+
+#### 1. Core Events to Instrument
+Instrument only these events to answer specific questions. Do not track generic clicks.
+
+| Event Name | Question It Answers | Required Properties |
+| :--- | :--- | :--- |
+| `time_slot_viewed` | Did the user see the availability calendar? | `date_selected`, `preferred_window_start`, `preferred_window_end`, `location_pincode` |
+| `slot_availability_status` | **Critical:** Was there actually supply for the requested window? | `slots_available_count` (0 if none), `total_cleaners_in_radius`, `is_fully_booked` (boolean) |
+| `calendar_interaction` | Are users trying to find a slot or giving up? | `action_type` (e.g., "switch_date", "refresh_page", "expand_window"), `attempt_number` |
+| `booking_flow_exit` | Where exactly do they drop off? | `exit_point` (e.g., "after_viewing_zero_slots", "during_date_switch"), `time_on_screen_seconds` |
+| `payment_initiated` | Did they successfully pass the friction point? | `time_to_complete_seconds`, `slot_final_selected` |
+
+#### 2. Analysis Logic & Decision Rules
+Analyze the data using the following segments to trigger specific actions.
+
+**Segment A: The "Zero Supply" Cohort**
+*   **Filter:** Users where `slot_availability_status.slots_available_count` = 0.
+*   **Metric:** % of this cohort who perform `calendar_interaction` (switch date/window) vs. `booking_flow_exit`.
+*   **Decision Rule:**
+    *   If >60% exit immediately without switching dates: **Recruit more cleaners** in those specific pincodes. The demand exists, but supply is absent.
+    *   If >60% switch dates/windows: Supply is tight but flexible; prioritize **dynamic pricing** or "notify me" features rather than immediate mass hiring.
+
+**Segment B: The "Available Supply" Cohort**
+*   **Filter:** Users where `slot_availability_status.slots_available_count` > 0.
+*   **Metric:** Drop-off rate between `time_slot_viewed` and `payment_initiated`.
+*   **Decision Rule:**
+    *   If drop-off > 40% despite available slots: **Redesign the UI**. The interface is confusing or the selection mechanism is broken.
+    *   Check `time_on_screen_seconds`: High time + no conversion confirms confusion.
+
+**Segment C: The "Refresh/Loop" Behavior**
+*   **Filter:** Users with >2 `calendar_interaction` events within 60 seconds.
+*   **Interpretation:** Users are desperately hunting for a slot.
+*   **Action:** If `slots_available_count` was 0 during these loops, this is a critical supply failure requiring immediate ops intervention before Diwali.
+
+#### 3. This-Week Steps
+1.  **Engineering:** Deploy the `slot_availability_status` event immediately. Without knowing if `slots_available_count` was 0 or 10, the 3,000 exits are `UNVERIFIED` noise.
+2.  **Ops Head:** Run a query on last week's logs grouping `booking_flow_exit` by `location_pincode` where `slots_available_count` = 0. Identify the top 3 pincodes with high demand/zero supply for targeted recruiting.
+3.  **Design Team:** If the "Available Supply" cohort shows >40% drop-off, schedule a usability test on the calendar component focusing on the "confirm" button visibility and load states.
+
+*Note: All metrics must be compared to CleanSweep's own baseline from two months ago; do not use industry benchmarks for "good" conversion rates. If the `slot_availability_status` property was not previously logged, historical root-cause analysis is impossible.*

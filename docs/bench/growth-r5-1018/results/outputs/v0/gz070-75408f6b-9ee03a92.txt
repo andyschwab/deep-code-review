@@ -1,0 +1,48 @@
+**Findings Report: Driver License Portal Friction Analysis**
+**To:** CIO, City of Ottawa
+**Date:** [Current Date]
+**Subject:** Data-Driven Diagnosis of 25% Completion Drop (v2.0 Launch)
+
+**Executive Summary**
+Completion rates dropped from 85% to 60% post-March 25 launch, concentrated at the document upload step. To approve the hotfix budget, we must distinguish between technical failure, user confusion, or privacy hesitation using existing telemetry, avoiding unverified assumptions about file size limits.
+
+**Diagnostic Framework: Differentiating the Cause**
+We will analyze the funnel by segmenting the "Upload Start" to "Upload Success" transition into three distinct behavioral signatures. Each signature points to a specific root cause and corresponding fix.
+
+**1. Technical Errors (System Failure)**
+*Hypothesis:* The server rejects valid files or the client crashes during transmission.
+*Data Signals to Examine:*
+*   **HTTP Status Codes:** Filter for 4xx (client error, e.g., 413 Payload Too Large) and 5xx (server error) responses at the upload endpoint. A spike in 500/503 errors confirms infrastructure instability.
+*   **Client-Side Exception Logs:** Look for JavaScript timeouts or network abort errors occurring *during* the transfer progress bar, not just at submission.
+*   **Actionable Threshold:** If >15% of drop-offs correlate with non-200 status codes, the cause is technical.
+*   **Implication:** Budget approves immediate backend scaling or configuration rollback.
+
+**2. Confusion on File Types/Sizes (UX Failure)**
+*Hypothesis:* Users attempt to upload, fail validation, and abandon the process due to unclear error messaging.
+*Data Signals to Examine:*
+*   **Validation Loop Frequency:** Count the average number of "Upload Attempt" events per session before abandonment. High repetition (e.g., >3 attempts) indicates users are trying to comply but failing.
+*   **Error Message Interaction:** Track clicks on "Help" tooltips or expansion of "Accepted Formats" accordions immediately preceding drop-off.
+*   **File Metadata Analysis:** If logged pseudonymously, analyze the `file_size` and `mime_type` properties of *rejected* upload events. If the median rejected file is 2MB but the limit is 5MB, the issue is file type, not size.
+*   **Actionable Threshold:** High retry rates + low technical error codes = UX/Clarity failure.
+*   **Implication:** Budget approves UI copy changes, dynamic validation messages, or format conversion tools.
+
+**3. Privacy Concerns (Trust Failure)**
+*Hypothesis:* Users reach the upload step, see the permission request or file picker, and voluntarily exit without attempting an upload.
+*Data Signals to Examine:*
+*   **Zero-Attempt Abandonment:** Measure the % of users who trigger the "Open File Picker" event but generate *zero* "File Selected" or "Upload Attempt" events before exiting.
+*   **Session Duration:** Compare time-on-step for drop-offs. Privacy hesitation often shows longer dwell time (reading warnings) compared to confusion (rapid retry) or errors (instant fail).
+*   **Exit Vector:** Analyze if users navigate to "Privacy Policy" or close the tab/browser entirely (vs. navigating back to the previous step).
+*   **Actionable Threshold:** High volume of zero-attempt exits with normal dwell time suggests trust friction.
+*   **Implication:** Budget approves trust signals (security badges), revised consent language, or alternative submission channels.
+
+**Validation Strategy Without Surveys**
+We will validate the "file size" assumption by correlating `file_size` properties of failed uploads against the drop-off rate. If drop-offs remain high even for files well under the limit, the assumption is false, and we must pivot to file type or privacy causes. We will run this query on the March 25–Present cohort, segmented by device type (mobile often has stricter OS-level file handling issues).
+
+**Recommendation for Thursday Decision**
+Do not allocate the full hotfix budget yet. Authorize a **48-hour data sprint** to extract these three specific event streams.
+*   **If Technical:** Approve full engineering remediation budget.
+*   **If Confusion:** Approve lightweight design/copy fix budget (lower cost).
+*   **If Privacy:** Pause hotfix; initiate legal/comms review (different budget line).
+
+**Next Step (This Week)**
+Query the analytics platform for "Upload Attempt" vs. "HTTP Error" correlation by March 27. If error rates are <5%, immediately pivot analysis to "Retry Count" per session to confirm UX confusion.

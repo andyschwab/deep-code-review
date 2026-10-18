@@ -1,0 +1,40 @@
+### Instrumentation Plan: Review Flow & Photo Impact
+**Audience:** Chief Product Officer, Saborea
+**Objective:** Measure friction in the new review prompt timing and validate if photo uploads drive future bookings (trust), starting November 15th.
+
+#### 1. Event Taxonomy (What to Tag)
+Tag only events that answer specific questions about friction and value. Do not instrument generic clicks.
+
+| Event Name | Trigger Point | Properties to Capture | Question Answered |
+| :--- | :--- | :--- | : |
+| `review_prompt_shown` | Modal appears (immediate vs. T+24h) | `prompt_timing` (immediate/delayed), `user_cohort`, `device_type` | Does the prompt reach the user? |
+| `review_prompt_dismissed` | User closes modal without action | `prompt_timing`, `time_on_screen_ms` | **Friction:** Is the immediate prompt too aggressive? |
+| `review_submission_started` | User types first character or taps stars | `prompt_timing`, `has_photo_intent` | Did they attempt to write? |
+| `photo_upload_attempted` | User taps camera/gallery icon | `prompt_timing`, `file_size_mb` (client-side est.) | **Friction:** Does the upload UI fail or deter? |
+| `photo_upload_success` | Image confirms uploaded | `prompt_timing`, `upload_duration_ms` | Did the technical flow work? |
+| `review_submitted` | Final "Post" tap | `prompt_timing`, `has_photo` (bool), `rating_value`, `text_length_chars` | **Completion:** What is the final conversion rate? |
+| `review_helpful_voted` | Another user clicks "Helpful" | `review_id`, `has_photo` (from review metadata) | **Quality:** Do photos actually increase perceived helpfulness? |
+| `booking_made_from_review` | User clicks a restaurant link *within* a review feed | `review_id`, `has_photo` (of the source review) | **Value:** Do photo reviews drive future revenue? |
+
+#### 2. Experiment Design: Prompt Timing (A/B Test)
+*   **Hypothesis:** Immediate prompting reduces completion rates compared to T+24h.
+*   **Primary Metric:** `review_submitted` rate per `review_prompt_shown`.
+*   **Guardrail Metric:** `checkout_abandonment_rate` (ensure the prompt doesn't kill bookings).
+*   **Design:** Split 50k monthly bookings 50/50.
+    *   **Group A:** Prompt immediately after payment success.
+    *   **Group B:** Prompt via push/email 24 hours later.
+*   **Pre-commitment:** Run for 14 days (through Nov 29) to capture weekend dining cycles. Do not peek at significance before Nov 29; early reads will be noisy due to day-of-week effects.
+*   **Stop Rule:** If `checkout_abandonment_rate` in Group A rises >0.5% absolute vs. baseline, halt immediate prompts immediately.
+
+#### 3. Measuring Photo Impact on Trust (Observational Cohort)
+Since we cannot ethically force users to upload photos, we analyze the `review_submitted` cohort post-launch.
+*   **Comparison:** Compare `booking_made_from_review` rates for reviews *with* photos vs. *without*.
+*   **Validation:** Cross-reference with `review_helpful_voted` rates. If photos increase "Helpful" votes but do not increase `booking_made_from_review`, they improve community engagement but not commercial trust.
+*   **Baseline:** Current 10% submission rate. Target: Maintain >9% in the immediate group while increasing photo attachment rate.
+
+#### 4. This-Week Steps
+1.  **Engineering:** Implement the 6 events above with strict property naming by Nov 14. Verify `booking_made_from_review` attribution logic (cookie/session matching).
+2.  **Data Science:** Pre-calculate the minimum detectable effect (MDE) for a 0.5% drop in checkout abandonment given 25k users/arm to set the guardrail threshold.
+3.  **Product:** Define the "Helpfulness Score" formula now (e.g., Helpful Votes / Impressions) to ensure the dashboard is ready on Day 1 of the test.
+
+*Note: All metrics must be compared against Saborea's own pre-Nov 15 baseline; no external industry benchmarks will be used. PII in review text must be hashed before analytics ingestion.*

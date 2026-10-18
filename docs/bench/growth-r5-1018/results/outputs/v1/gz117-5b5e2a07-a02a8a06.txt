@@ -1,0 +1,52 @@
+### Essential Event Taxonomy for MedConnect Consultation Flow
+
+To diagnose whether drop-offs stem from connection stability or cost anxiety, instrument only the following five events. Each answers a specific question and includes properties required to segment by device, network, and cost visibility.
+
+1.  **`consultation_summary_viewed`**
+    *   **Question:** Do users see the cost before abandoning?
+    *   **Properties:** `total_cost_displayed`, `currency`, `doctor_id`, `estimated_wait_time`.
+    *   **Why:** If drop-offs spike immediately after this event, cost is the likely friction point.
+
+2.  **`join_call_attempted`**
+    *   **Question:** Did the user try to connect despite the cost?
+    *   **Properties:** `device_type`, `browser_version`, `connection_type` (e.g., 4G, WiFi), `signal_strength` (if available via client API).
+    *   **Why:** This marks the transition from decision to technical execution.
+
+3.  **`media_permission_requested`**
+    *   **Question:** Did the browser/device block the technical handshake?
+    *   **Properties:** `permission_type` (camera/mic), `request_result` (granted/denied/ignored).
+    *   **Why:** A high denial rate here indicates UX confusion or privacy anxiety, not network failure.
+
+4.  **`media_connection_established`**
+    *   **Question:** Did the technical handshake succeed?
+    *   **Properties:** `time_to_connect_ms`, `ice_connection_state`, `network_protocol` (UDP/TCP).
+    *   **Why:** If users trigger `join_call_attempted` but never fire this event, the failure is technical (network/firewall).
+
+5.  **`consultation_flow_abandoned`**
+    *   **Question:** Where exactly did they leave?
+    *   **Properties:** `last_step_completed`, `time_on_step_seconds`, `error_code` (if any), `exit_url`.
+    *   **Why:** Captures the final state for users who close the tab without completing the flow.
+
+### Analysis Method: The Funnel & Cohort Split
+
+Do not look at aggregate drop-off alone. Analyze the sequence using two specific cuts to isolate the cause:
+
+**1. The "Cost vs. Tech" Split**
+Create two cohorts based on the time delta between `consultation_summary_viewed` and `join_call_attempted`.
+*   **Cohort A (Immediate):** Users who clicked "Join" within 10 seconds of seeing the summary.
+    *   *Hypothesis:* These users accepted the cost. If they drop off between `join_call_attempted` and `media_connection_established`, the cause is **connection stability**.
+*   **Cohort B (Hesitant):** Users who lingered on the summary screen for >30 seconds or refreshed the page before attempting to join.
+    *   *Hypothesis:* These users are evaluating the cost. If they drop off before `join_call_attempted`, the cause is **cost anxiety**.
+
+**2. The Network Stability Cut**
+Filter the funnel by `connection_type` and `device_type`.
+*   If drop-off between `join_call_attempted` and `media_connection_established` is significantly higher on mobile data (4G/5G) versus WiFi, prioritize technical optimizations for low-bandwidth environments before the rainy season.
+*   If drop-off is uniform across all network types but high among hesitant users, prioritize UI changes to clarify value or hide costs until later in the flow.
+
+### This Week's Steps
+
+1.  **Instrument:** Deploy the five events above with the specified properties; ensure `connection_type` is captured client-side.
+2.  **Query:** Run a funnel report segmenting by "Time on Summary Screen" (<10s vs >30s) to separate technical failures from cost hesitation.
+3.  **Decide:** If >60% of drop-offs occur in the "Hesitant" cohort before the join attempt, redesign the summary screen to emphasize insurance coverage or payment flexibility; if >60% occur after the attempt on mobile, implement a "low-bandwidth mode" toggle.
+
+*Note: Do not track generic page views for this flow; they cannot distinguish between a user reading the cost and a user stuck on a loading spinner. All metrics must be compared to your current baseline; no external benchmarks are applied.*

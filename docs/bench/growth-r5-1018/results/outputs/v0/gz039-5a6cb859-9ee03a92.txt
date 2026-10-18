@@ -1,0 +1,44 @@
+### Diagnostic Plan: Power User Churn Analysis
+**Audience:** Engineering Lead
+**Deadline:** August 8th
+
+**1. Define the North Star & Segment**
+*   **North Star:** Weekly Active Power Users completing a "Complex Build" (defined below).
+*   **Cohort:** Users with >50 dashboards created.
+*   **Baseline:** Compare Q2 retention of this cohort against Q1 (pre-interface change). Do not use industry benchmarks; your 4% casual churn is your internal control group, not an external standard.
+
+**2. Event Taxonomy: Instrument Only What Answers a Question**
+Do not log "everything." Implement these specific events to isolate the "moment of decision":
+*   `feature_access_attempt`: Logs when a power user tries to access a removed/hidden advanced feature (e.g., custom SQL, specific chart types).
+    *   *Properties:* `feature_name`, `ui_path`, `outcome` (blocked/redirected/success).
+    *   *Question:* Are users hitting dead ends in the new UI?
+*   `workflow_abandonment`: Triggered when a user starts a complex build (>3 steps) but does not save within 10 minutes.
+    *   *Properties:* `step_count`, `last_action`, `session_duration`.
+    *   *Question:* Does the new interface increase friction mid-task?
+*   `error_encountered`: Specific to power-user actions (timeout on large datasets, rendering failures).
+    *   *Question:* Is this a capability gap or a performance regression?
+*   `cancel_initiated`: The moment the user clicks "Cancel."
+    *   *Properties:* `days_since_last_complex_build`, `preceding_error_code`.
+
+**3. Analysis Method: Bottom-Up Funnel (Retention First)**
+Ignore acquisition metrics. Focus entirely on **Retention** of the core action:
+*   **Step A:** Correlate `feature_access_attempt` (failure) with `cancel_initiated`. If 60% of churned users hit a blocked feature 24 hours before canceling, the cause is **capability**.
+*   **Step B:** Correlate `workflow_abandonment` rates pre- vs. post-change. If abandonment spiked while error rates remained flat, the cause is **usability/friction**.
+*   **Step C:** Check performance logs only if `error_encountered` correlates with churn. If errors are flat, do not blame performance.
+
+**4. Experiment Rigor for Fixes**
+If you roll back a feature or tweak the UI:
+*   **Pre-commit:** Define the sample size and duration before looking at results. Do not peek at day 2.
+*   **Guardrail:** Monitor casual user activation to ensure simplifying for power users doesn't break the core flow for the 96% who stay.
+*   **Verdict:** A fix is only valid if power user retention lifts *without* degrading the guardrail.
+
+**5. Unknown Factors & Competitor Moves**
+*   **Status:** `UNVERIFIED`.
+*   **Action:** I cannot source Swiss market competitor data or benchmark "good" churn rates. You must route this to your market intelligence team or sales logs. Do not assume competitor moves caused this without evidence; the internal correlation between your UI change and the churn spike is the primary hypothesis to test first.
+
+**This Week's Steps:**
+1.  **Query:** Run a cohort analysis comparing `workflow_abandonment` rates for power users in Q1 vs. Q2. If Q2 is >20% higher, the UI is the blocker.
+2.  **Instrument:** Add the `feature_access_attempt` event to the build pipeline by August 2nd to capture data before the August 8th review.
+3.  **Decision Rule:** If >50% of churned users have a `feature_access_attempt` (failure) in their last 3 days, prioritize restoring the top 3 blocked features. If not, investigate performance logs.
+
+*Note: All metrics must be calculated against your own Q1 baseline; external benchmarks are irrelevant here. Ensure user IDs in logs are pseudonymous to comply with privacy standards.*

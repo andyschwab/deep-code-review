@@ -1,0 +1,47 @@
+# Onboarding Drop-Off Analysis Plan: SecureWallet
+
+**North Star Metric:** Weekly Active Users completing their first successful transaction (value delivered), not cumulative signups.
+
+**Current Baseline (UNVERIFIED without raw counts):**
+- Total Signups: 3,000
+- Drop-off Post-Seed Phrase: ~60% (Leaving ~1,200)
+- Drop-off Post-Identity Verification: ~20% of remaining (Leaving ~960)
+- *Note: These percentages describe the leak; they do not explain the cause. Do not treat "simplifying language" as a solution until the specific friction source is isolated.*
+
+### 1. Event Taxonomy: Instrument Only What Answers a Named Question
+Stop instrumenting generic "page views." Implement these specific events with properties to distinguish fear, confusion, or bugs:
+
+| Event Name | Question Answered | Required Properties |
+| :--- | :--- | :--- |
+| `onboarding_step_exit` | Did they leave voluntarily or crash? | `step_name`, `exit_type` (voluntary vs. error_timeout), `device_os`, `app_version`, `time_on_step_seconds` |
+| `seed_phrase_action` | Are they engaging with security or skipping? | `action` (viewed, copied, written_down_flag, skipped_attempt), `duration_seconds` |
+| `identity_verify_submit` | Is compliance failing technically or psychologically? | `submit_count`, `error_code` (if any), `document_type`, `failure_reason_api` |
+| `session_rage_indicator` | Is there UI friction? | `rapid_taps_count`, `scroll_depth_percent`, `background_app_switch_count` |
+
+**Identifier Seam:** Ensure a stable, pseudonymous `user_id` ties these events across sessions to track return attempts. Do not log PII (names, ID images) in analytics; route those to secure compliance logs per `privacy-compliance.md`.
+
+### 2. Diagnostic Segmentation (The "Why" Matrix)
+Analyze the 60% drop-off at the seed phrase step by splitting the data into these three cohorts. The action depends entirely on which cohort is largest:
+
+*   **Hypothesis A: Technical Failure (Bugs)**
+    *   *Signal:* High `exit_type: error_timeout` or crash reports correlated with specific `device_os` or `app_version`.
+    *   *Action:* If >10% of drop-offs are technical errors on a specific OS, prioritize an engineering hotfix. Do not change copy.
+*   **Hypothesis B: Psychological Friction (Fear/Confusion)**
+    *   *Signal:* High `time_on_step_seconds` (>3 mins) combined with `background_app_switch_count` > 2 or `rage_taps`. Users are hesitating or looking for help elsewhere.
+    *   *Action:* If this cohort dominates, the "simplified language" assumption may be wrong. Test a "Why this matters" tooltip or a video walkthrough *before* the step, not just simpler text.
+*   **Hypothesis C: Process Abandonment (Intent)**
+    *   *Signal:* Immediate exit (<10 seconds) with no interaction.
+    *   *Action:* The user never intended to fund. No UX fix will help; this is an acquisition quality issue.
+
+### 3. Experiment Design for Fixes
+Do not ship changes based on this historical data alone. Once a hypothesis is leading:
+*   **Pre-commit:** Define the primary metric (e.g., `onboarding_completion_rate`) and a guardrail (e.g., `support_tickets_per_100_users` or `failed_security_audits`).
+*   **Rule:** Run an A/B test with a fixed sample size calculated to detect a 5% relative lift. Do not peek at results daily. If monitoring continuously, use a sequential testing bound (mSPRT).
+*   **Security/Compliance Balance:** Any change to the seed phrase flow must pass a security review *before* the experiment starts. If the guardrail (security risk) trips, stop immediately regardless of conversion gains.
+
+### This Week's Steps
+1.  **Query:** Run a breakdown of `onboarding_step_exit` at the seed phrase step grouped by `device_os` and `exit_type` to rule out bugs first.
+2.  **Review:** Watch 20 session recordings specifically where `time_on_step_seconds` > 120s to observe hesitation patterns.
+3.  **Decide:** If bugs are <5% of exits, draft an A/B test plan for a "security education" modal vs. current flow, defining the success metric and guardrail before engineering begins.
+
+*All metrics above are `UNVERIFIED` until queried against your actual event logs. No external benchmarks for crypto onboarding retention are used here.*

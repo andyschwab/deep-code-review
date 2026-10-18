@@ -1,0 +1,46 @@
+### Behavioral Signal Plan: Technical Friction vs. Content Disinterest
+
+To distinguish between network-induced failure and content rejection for the CTO and Regional Expansion Team, instrument only these four events. Each answers a specific binary question required for Friday's budget decision.
+
+**1. `video_start_attempt`**
+*   **Properties:** `user_id` (pseudonymous), `region` (rural/urban), `device_type`, `estimated_bandwidth` (if available from client handshake).
+*   **Question:** Are users even trying to play, or dropping off at the UI layer?
+*   **Reading Rule:** If `start_attempt` is low relative to `episode_page_view`, the friction is UI/discovery, not playback.
+
+**2. `buffering_state_change`**
+*   **Properties:** `state` (start/stall/resume), `duration_ms`, `episode_id`, `bitrate_current`.
+*   **Question:** Is the stream technically failing to sustain playback?
+*   **Reading Rule:** High frequency of `state=stall` with `duration_ms > 2000` preceding abandonment confirms technical friction. If this metric is low, the network is not the primary blocker.
+
+**3. `playback_completion`**
+*   **Properties:** `episode_id`, `completion_percentage` (0-100), `exit_reason` (user_click, network_error, end_of_file).
+*   **Question:** Did they finish, and why did they stop?
+*   **Reading Rule:** Compare completion rates between users with `buffering_state_change` (high stall time) vs. those without.
+    *   *Scenario A (Technical):* Low completion correlates strongly with high stall time. Rural users drop at the exact moment of stalls.
+    *   *Scenario B (Content):* Completion is low even for users with zero stall events, or drop-off happens at specific narrative points regardless of region.
+
+**4. `low_bandwidth_mode_toggle` (Prototype Event)**
+*   **Properties:** `action` (enabled/disabled), `trigger_context` (auto/manual).
+*   **Question:** If given the option, do users self-select lower quality to finish content?
+*   **Reading Rule:** High adoption + increased completion among togglers validates the low-bandwidth mode investment.
+
+---
+
+### Decision Logic for Friday's Recommendation
+
+Run a cohort analysis on the 15,000 migrated users segmented by `region` and `buffering_intensity`. Do not compare against German benchmarks; compare Polish rural vs. Polish urban to isolate the variable.
+
+**Recommendation Matrix:**
+
+| If Data Shows... | Then The Cause Is... | Friday's Decision |
+| :--- | :--- | :--- |
+| **High stall duration** precedes 80% of drop-offs in rural areas; urban completion is normal. | **Technical Friction** | **Invest in Low-Bandwidth Mode.** Allocate budget to engineering for adaptive bitrate optimization and offline caching. Delay marketing spend until stability is proven. |
+| **Low stall duration**; drop-off occurs at similar rates in urban/rural and matches specific episode timestamps. | **Content Disinterest** | **Change Content Library.** Do not build low-bandwidth mode. Allocate budget to licensing local Polish content or re-editing intros. |
+| **High stall duration** BUT users who enable manual low-quality finish the episode. | **Technical Friction (Solvable)** | **Invest in Low-Bandwidth Mode + UI Prompt.** Build the feature and surface the toggle prominently on connection warnings. |
+
+**Critical Constraint:** If `buffering_state_change` events are missing from current logs, the root cause is **UNVERIFIED**. You cannot decide between infrastructure vs. content spend without this signal. In this case, the Friday recommendation must be: "Pause marketing budget approval. Deploy instrumentation for buffering events immediately. Re-evaluate in 7 days once data accumulates." Spending on marketing while the funnel leaks due to unmeasured technical errors will burn cash on users who cannot load the product.
+
+**This Week's Step:**
+1.  Ship the `buffering_state_change` and `exit_reason` instrumentation to the Polish cohort by Wednesday.
+2.  Query the correlation between `duration_ms` (stall) and `completion_percentage` for rural users on Thursday.
+3.  Present the binary outcome (Table above) to the CTO on Friday morning.

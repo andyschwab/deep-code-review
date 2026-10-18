@@ -1,0 +1,47 @@
+# Requirements: Student Risk & Engagement Telemetry (CodeClimb)
+
+**Objective:** Replace vanity metrics (video views) with actionable behavioral indicators predicting dropout within the first four weeks. Implementation target: February 1 cohort.
+
+## 1. North Star & Input Metrics
+*   **North Star:** Weekly Active Learners completing ≥3 hands-on coding challenges.
+*   **Rejection of Vanity:** Cumulative video views and raw quiz scores are deprecated as primary health indicators; they correlate poorly with retention if challenges are not attempted.
+
+## 2. Event Taxonomy (Engineering Specification)
+Instrument the IDE to emit the following events. Each event must include `user_id` (pseudonymous), `cohort_id`, `module_id`, and `timestamp`.
+
+| Event Name | Trigger Condition | Properties | Question Answered |
+| :--- | :--- | :--- | : |
+| `challenge_start` | User clicks "Start" on a challenge. | `difficulty_level`, `estimated_time` | Is the student attempting the core value action? |
+| `code_compile` | User successfully compiles code. | `attempt_number` (per session), `time_since_start` | Is the student making forward progress? |
+| `error_loop_detected` | ≥5 failed compilations within 10 minutes without a successful compile. | `error_type_category`, `duration_minutes` | **Risk Signal:** Is the student stuck in unproductive struggle? |
+| `idle_timeout` | No keystroke or mouse activity for >15 mins during an active session. | `session_duration_prior`, `last_action_type` | **Risk Signal:** Has the student disengaged due to frustration? |
+| `hint_request` | User clicks "Show Hint" or "Solution Peek". | `hint_level`, `time_to_first_hint` | Are they bypassing the learning loop? (High frequency = low retention risk). |
+| `challenge_complete` | Tests pass and user submits. | `total_attempts`, `total_time_spent`, `hints_used_count` | Did they achieve the "flow" completion state? |
+
+## 3. Derived Risk Indicators (Data Engineering Logic)
+Compute these daily per student for the dashboard:
+
+*   **Struggle Score:** Ratio of `error_loop_detected` events to `challenge_complete` events over a 48-hour window.
+    *   *Threshold:* Score > 0.6 triggers a "High Friction" alert.
+*   **Flow Index:** Average time between `challenge_start` and `challenge_complete` where `attempt_number` ≤ 3 and `hints_used_count` = 0.
+    *   *Threshold:* Declining Flow Index over 3 consecutive days signals dropping engagement.
+*   **Silent Dropout Probability:** Count of `idle_timeout` events followed by session end without `challenge_complete`.
+    *   *Threshold:* ≥2 occurrences in 7 days predicts churn with high confidence.
+
+## 4. Actionable Reading Rules (Curriculum Team)
+Do not report raw counts. Report status against these decision rules:
+
+*   **If** `error_loop_detected` is high but `challenge_complete` is normal: **Action:** Auto-suggest a targeted hint or peer mentor connection; do not intervene manually yet.
+*   **If** `idle_timeout` spikes for a cohort segment: **Action:** Investigate specific module difficulty; likely content issue, not student issue.
+*   **If** `hint_request` frequency > 3 per challenge average: **Action:** Flag student for "Surface Learning" risk; trigger email encouraging deep practice.
+*   **If** North Star (3+ challenges/week) drops < 80% of baseline: **Action:** Halt new module releases; fix activation friction before acquiring more students.
+
+## 5. Implementation Constraints
+*   **Privacy:** No code content or PII is transmitted. Only event metadata and error categories.
+*   **Volume:** Do not log every keystroke. Aggregate locally in the IDE and emit only on state changes (compile, idle, complete) to reduce noise.
+*   **Baseline:** Establish the "normal" Struggle Score and Flow Index using the January pilot data; do not use external industry benchmarks.
+
+**Next Step for Engineering:** Schema review by Jan 10. **Next Step for Curriculum:** Define "error_type_category" mapping by Jan 15.
+
+*Note: All metrics are `UNVERIFIED` until the February 1 instrumentation goes live; do not project retention improvements until baseline data is collected from the new cohort.*
+*This spec excludes system health (logs/traces); route infrastructure monitoring to the Ops team separately.*

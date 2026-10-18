@@ -1,0 +1,52 @@
+# EduNaija Homework Feature: Tracking Plan & Metrics Framework
+
+To distinguish between technical barriers and engagement gaps while accommodating shared-device constraints, implement the following event tracking schema and metric definitions. This plan prioritizes offline-first data capture with synchronization upon connectivity.
+
+## 1. Core Event Schema
+
+Capture these events locally and sync when online. Ensure every event includes `user_id`, `device_id`, `school_id`, and `timestamp_local`.
+
+| Event Name | Trigger | Critical Properties | Purpose |
+| :--- | :--- | :--- | : |
+| `content_download_started` | User initiates download | `content_id`, `file_size_mb`, `network_type` (wifi/mobile/offline) | Identify intent vs. technical failure. |
+| `content_download_completed` | File fully saved locally | `content_id`, `duration_seconds`, `error_code` (if failed) | Measure technical success rate. |
+| `content_viewed` | Student opens downloaded material | `content_id`, `time_spent_seconds`, `scroll_depth_pct` | Distinguish download from actual consumption. |
+| `assignment_started` | Student begins inputting answers | `assignment_id`, `attempt_number` | Measure engagement initiation. |
+| `assignment_submitted` | Final sync of completed work | `assignment_id`, `time_to_complete_minutes`, `is_late` | Primary success metric for learning outcomes. |
+| `sync_attempted` | App tries to push/pull data | `sync_direction`, `records_count`, `success_bool`, `failure_reason` | Diagnose connectivity friction specific to your infrastructure. |
+
+## 2. Primary Metrics for Stakeholders
+
+Report these metrics weekly to administrators and investors. They separate technical performance from user behavior.
+
+### A. Technical Health (Infrastructure Performance)
+*   **Download Success Rate:** `(content_download_completed) / (content_download_started)`
+    *   *Goal:* >95%. Low rates indicate server or client-side storage issues.
+*   **Sync Latency:** Average time between `assignment_submitted` (local) and successful server acknowledgment.
+    *   *Goal:* <24 hours. High latency frustrates teachers waiting for grades.
+
+### B. Engagement & Effectiveness (Learning Outcomes)
+*   **Activation Rate:** `(content_viewed) / (content_download_completed)`
+    *   *Insight:* If high download but low view, the content isn't relevant or accessible offline.
+*   **Completion Rate:** `(assignment_submitted) / (assignment_started)`
+    *   *Insight:* Your pilot showed a drop from 80% download to 40% submission. This metric isolates where students quit.
+*   **Effective Usage Ratio:** `(assignment_submitted) / (content_viewed)`
+    *   *Insight:* Measures if viewing content leads to action.
+
+## 3. Handling Shared Device Constraints
+
+For students accessing the app only once a week on shared devices, standard "daily active user" metrics are misleading. Use **Cohort-Based Weekly Windows**:
+
+1.  **Define the Observation Window:** Align metrics to the school week (e.g., Monday–Sunday) rather than rolling 24-hour periods.
+2.  **Unique Student Reach:** Count distinct `user_id`s who triggered `assignment_submitted` within the weekly window, regardless of `device_id`.
+3.  **Device Turnover Rate:** Track `device_id` to `user_id` ratios per school. A high ratio indicates heavy sharing; correlate this with completion rates to see if sharing hinders progress.
+4.  **Pending State Handling:** Do not count an assignment as "failed" if the submission window is still open. Mark submissions as "Pending Sync" until the next successful connectivity event.
+
+## 4. Implementation Notes for March 20th Rollout
+
+*   **Offline Queueing:** Ensure the app queues events locally with a unique local ID. If sync fails, retry with exponential backoff. Do not lose data if the app closes.
+*   **Error Categorization:** Explicitly tag download failures as `network_error`, `storage_full`, or `timeout`. This allows you to tell investors if the barrier is infrastructure (fixable by you) or device capacity (requires school intervention).
+*   **Baseline Comparison:** Use your pilot data (80% download, 40% submit) as the baseline. Set a target to improve the *Conversion Rate* (Download → Submit) by 10% in the first month by addressing the specific drop-off points identified in the new events.
+
+*Ensure your data pipeline deduplicates events based on local IDs to prevent double-counting during intermittent syncs.*
+*Review the first week's `sync_attempted` failure reasons immediately post-launch to address critical connectivity blockers.*

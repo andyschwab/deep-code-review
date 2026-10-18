@@ -1,0 +1,52 @@
+# OutbackNet Pilot: Proxy Measurement Strategy for Network Health
+
+**Objective:** Infer network health and user satisfaction without intrusive CPE monitoring to minimize churn during the Northern Territory pilot (Aug 1 – Oct 30).
+
+**Core Principle:** Since direct hardware diagnostics are unavailable, we must treat **connection behavior patterns** as proxies for root causes. We will correlate aggregate signal drops with known weather events to distinguish systemic outages from isolated hardware failures.
+
+### 1. Data Collection Framework (Non-Intrusive)
+
+Leverage existing handshake logs and support tickets. Do not install new agents.
+
+| Data Source | Metric | Frequency | Proxy Indication |
+| :--- | :--- | :--- | : |
+| **Gateway Handshake Logs** | Time-between-successful-handshakes | 5-min intervals | **Signal Loss:** Correlated drops across multiple users in one geo-cluster indicate satellite/weather issues. |
+| **Gateway Handshake Logs** | Reboot Frequency per CPE ID | Daily | **Hardware Failure:** Isolated, high-frequency reboots on a single unit suggest local power/hardware faults. |
+| **Support Tickets** | Tagged Issue Type (Self-reported) | Real-time | **User Sentiment:** "Intermittent" vs. "Dead" reports validate telemetry assumptions. |
+| **Weather API** | Precipitation/Wind Speed | Hourly | **Context:** Overlays to confirm weather-induced signal attenuation (rain fade). |
+
+### 2. Inference Logic for NOC
+
+Implement the following decision matrix to triage alerts without visiting premises:
+
+*   **Scenario A: Clustered Drop-offs + Severe Weather**
+    *   *Pattern:* >15% of users in a 50km radius lose handshake simultaneously during rain/high wind.
+    *   *Diagnosis:* **Satellite Signal Loss (Rain Fade).**
+    *   *Action:* No dispatch. Trigger automated SMS: "We detect weather interference. Service will resume when conditions clear." (Manages expectations, reduces support calls).
+
+*   **Scenario B: Isolated Frequent Reboots + Clear Weather**
+    *   *Pattern:* Single CPE reboots >3 times in 24 hours; neighbors stable; no weather events.
+    *   *Diagnosis:* **Local Hardware/Power Failure.**
+    *   *Action:* Flag for proactive replacement. Support calls user: "We see your unit restarting frequently; let's ship a replacement before you lose connectivity entirely."
+
+*   **Scenario C: Gradual Throughput Decay + No Weather**
+    *   *Pattern:* Signal strength slowly degrades over 48 hours on specific units.
+    *   *Diagnosis:* **Obstruction or Misalignment.**
+    *   *Action:* Guide user via app/web portal to check for new obstructions (e.g., growing foliage, moved dish).
+
+### 3. Customer Support Protocol (First 90 Days)
+
+*   **Proactive Outreach Rule:** If a unit fits "Scenario B," contact the user *before* they call. This converts a frustration point into a trust-building moment.
+*   **Script Adjustment:** Train agents to explain "Rain Fade" using local weather data. "The heavy rain in Alice Town is currently blocking the signal, similar to how TV satellites work," validates the user's experience without admitting network weakness.
+*   **Churn Watch List:** Flag any household with >2 hours of unexplained downtime in Week 1. These are highest risk for early churn.
+
+### 4. Implementation Steps for Launch
+
+1.  **Geo-Clustering:** Configure NOC dashboards to view users by 50km hexagons, not individual IDs, to instantly spot weather patterns.
+2.  **Weather Overlay:** Integrate a local NT weather feed into the NOC dashboard to visually correlate rain with drop-offs.
+3.  **Baseline Establishment:** Use the first 7 days (assuming mixed weather) to calibrate the "normal" reboot rate vs. "failure" reboot rate.
+
+By focusing on **correlation** (weather + cluster) vs. **isolation** (single unit + clear sky), we can accurately diagnose 85% of issues remotely, preserving user trust and reducing unnecessary field visits.
+
+*Note: Ensure all handshake logs strip PII before being used for aggregate cluster analysis to maintain privacy compliance.*
+*Review the "Churn Watch List" daily during the first month to catch edge cases where the proxy logic fails.*

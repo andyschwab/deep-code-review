@@ -1,0 +1,79 @@
+# CargoFlow Dashboard Event Tracking Plan
+
+**Objective:** Capture granular interaction data on the new real-time shipment dashboard to validate user value hypotheses (ETA vs. Weight vs. Location) without data overload.
+**Implementation Deadline:** November 15th
+**Target Audience:** Engineering Team (Hamburg)
+
+## 1. Tracking Strategy & Hierarchy
+
+Do not track mouse hovers; they generate noise without indicating intent. Focus on **distinct interaction events** that signal information consumption or action. We will use a three-tier hierarchy:
+
+*   **Tier 1: Exposure (Passive)** – What data is immediately visible upon load.
+*   **Tier 2: Engagement (Active)** – Deliberate actions to reveal more data.
+*   **Tier 3: Value/Conversion (Outcome)** – Actions taken based on the data.
+
+## 2. Event Specifications
+
+Implement the following events via Google Tag Manager or direct dataLayer pushes. All events must include the `user_id` and `account_id` for B2B segmentation.
+
+### A. Dashboard Load (Tier 1)
+*Trigger: When the dashboard successfully renders shipment data.*
+*   **Event Name:** `dashboard_shipments_loaded`
+*   **Properties:**
+    *   `shipments_visible_count` (Integer): Number of shipments in the default view.
+    *   `default_sort_column` (String): e.g., "eta", "status", "driver_name".
+    *   `time_to_load_ms` (Integer): Performance metric.
+    *   `filter_applied` (Boolean): Whether default filters were active.
+
+### B. Data Expansion (Tier 2 - Critical for Hypothesis Testing)
+*Trigger: When a user clicks to expand a shipment card or toggle a specific data column.*
+*   **Event Name:** `shipment_detail_expanded`
+*   **Properties:**
+    *   `shipment_id` (String): Unique identifier.
+    *   `expanded_data_type` (String): **Crucial.** Values: `eta_details`, `cargo_weight`, `driver_location`, `documents`.
+    *   `time_on_page_before_expand` (Integer): Seconds elapsed since load.
+    *   `is_primary_action` (Boolean): True if this is the first expansion in the session.
+
+### C. Data Interaction (Tier 2)
+*Trigger: Clicking specific actionable elements within the expanded view.*
+*   **Event Name:** `shipment_action_clicked`
+*   **Properties:**
+    *   `shipment_id` (String)
+    *   `action_type` (String): Values: `contact_driver`, `download_pod`, `edit_eta`, `view_route_map`.
+    *   `source_context` (String): e.g., "expanded_card", "list_view_inline".
+
+### D. Export/Share (Tier 3 - Value Signal)
+*Trigger: Exporting data or sharing status.*
+*   **Event Name:** `shipment_data_exported`
+*   **Properties:**
+    *   `export_format` (String): `csv`, `pdf`, `email_link`.
+    *   `records_count` (Integer): Number of rows exported.
+    *   `columns_included` (Array): List of columns selected for export (e.g., `["eta", "weight"]`). *This directly reveals what data they value enough to save.*
+
+## 3. Standard Properties (Attached to Every Event)
+
+To enable segmentation by company size and account type later, ensure these global properties are appended to every event payload:
+
+*   `user_id`: Internal user ID.
+*   `account_id`: Company identifier.
+*   `account_segment`: String (e.g., "enterprise", "mid-market", "small"). *Populate this from your CRM/User table at load time, do not hardcode.*
+*   `user_role`: String (e.g., "logistics_manager", "dispatcher", "admin").
+*   `page_url`: Full URL.
+*   `session_id`: To group events per visit.
+
+## 4. Implementation Requirements for Engineering
+
+1.  **Data Layer Structure:** Push events to `dataLayer` immediately upon trigger. Do not batch client-side.
+2.  **Sampling:** Do **not** sample events; 1,200 daily page views is low volume, so capture 100% of interactions.
+3.  **Validation:** Use GTM Preview Mode to verify that `expanded_data_type` correctly distinguishes between ETA, Weight, and Location clicks before merging to main branch.
+4.  **Privacy:** Ensure no PII (driver names, phone numbers) is sent in event properties. Send IDs only.
+
+## 5. Success Metrics for Analysis
+
+Once implemented, we will measure:
+*   **Expansion Rate by Type:** % of sessions where `eta_details` is expanded vs. `cargo_weight`.
+*   **Time-to-Value:** Average time from `dashboard_shipments_loaded` to first `shipment_detail_expanded`.
+*   **Export Composition:** Frequency of `eta` appearing in `columns_included` arrays during exports.
+
+---
+*Note: Ensure the `account_segment` property is dynamically populated from the user session object to avoid manual tagging errors. If a new data point is added to the UI later, it must be added to the `expanded_data_type` allowlist immediately.*

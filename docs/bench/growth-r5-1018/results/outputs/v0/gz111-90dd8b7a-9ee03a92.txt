@@ -1,0 +1,38 @@
+### Behavioral Signals & Decision Framework for StreamFlow Poland
+
+To distinguish between technical friction and content disinterest, instrument only these three events. Each answers a specific question required to make the Friday decision.
+
+**1. Event: `playback_start_attempted`**
+*   **Properties:** `user_id` (pseudonymous), `region` (rural/urban), `device_type`, `estimated_bandwidth` (if available from client), `content_id`.
+*   **Question Answered:** Are users able to initiate playback at all? A drop here versus the German baseline suggests immediate technical blocking or severe latency preventing the player from loading.
+
+**2. Event: `buffering_state_changed`**
+*   **Properties:** `user_id`, `session_id`, `duration_ms` (time spent buffering), `timestamp`, `playback_position_seconds`.
+*   **Question Answered:** Is the video stopping due to network constraints? High frequency or long duration of this event correlated with abandonment confirms the "slow internet" hypothesis. If this metric is low but abandonment is high, the issue is likely content or UX, not bandwidth.
+
+**3. Event: `playback_abandoned`**
+*   **Properties:** `user_id`, `session_id`, `completion_percentage`, `exit_reason` (explicit if available, else implicit), `time_watched_seconds`.
+*   **Question Answered:** At what point do users leave? If abandonment clusters at specific timestamps where `buffering_state_changed` is also high, it is technical. If abandonment is early (e.g., <10%) with zero buffering events, it is content disinterest or a localization issue (e.g., audio/language mismatch).
+
+#### How to Read the Data for the Friday Decision
+
+Do not look at aggregate completion rates alone. Segment the Polish cohort by **buffering intensity** (total buffer time per session) and compare their abandonment rates.
+
+*   **Scenario A (Technical Friction):** Users with high `buffering_state_changed` duration have a significantly higher `playback_abandoned` rate than those with low buffering. The drop-off correlates strongly with `estimated_bandwidth` or `region` (rural).
+    *   **Verdict:** Invest in **Low-Bandwidth Mode**. The content is desired, but the delivery mechanism fails in current network conditions.
+    *   **Action:** Prioritize adaptive bitrate streaming optimization or a "data saver" toggle before approving the marketing budget. Marketing spend on a broken technical experience will burn cash.
+
+*   **Scenario B (Content Disinterest):** `buffering_state_changed` is low/negligible across the cohort, yet `playback_abandoned` remains 40% higher than the German baseline, specifically within the first 60 seconds.
+    *   **Verdict:** Change the **Content Library** or Localization. The technology works; the value proposition does not resonate.
+    *   **Action:** Halt broad marketing spend. Investigate content relevance, dubbing quality, or introductory hooks. A low-bandwidth mode will not fix content mismatch.
+
+*   **Scenario C (Mixed/Unverified):** Buffering data is missing or inconclusive.
+    *   **Verdict:** `UNVERIFIED`. You cannot decide yet.
+    *   **Action:** Deploy the instrumentation immediately as a hotfix. Run a 48-hour data collection sprint on a 10% canary of Polish traffic. Do not approve the full marketing budget until the correlation between buffering and abandonment is statistically clear.
+
+#### Recommendation for Friday
+
+Given the current lack of data, you cannot yet confirm the root cause. Your immediate step is to ship the three events above to your analytics pipeline today. By Thursday, segment the Polish users by buffering duration. If the top 20% of buffers account for >50% of the churn, build the low-bandwidth mode. If buffering is flat across churners, pivot the content strategy. Do not guess; let the correlation between `buffering_state_changed` and `playback_abandoned` drive the budget allocation.
+
+*Note: Ensure `user_id` remains pseudonymous and routing of any PII complies with GDPR before instrumentation.*
+*Baseline comparison must use your own German migration data, not external industry benchmarks.*

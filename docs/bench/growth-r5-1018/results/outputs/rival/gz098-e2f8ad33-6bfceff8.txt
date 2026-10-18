@@ -1,0 +1,61 @@
+# WanderAI Core Event Tracking Plan
+**Prepared for:** Omar Hassan, Lead Engineer
+**Deadline:** Code Freeze (Friday)
+**Launch Context:** Dubai Expo, May 15th Launch
+
+To validate the hypothesis that "saved itineraries drive hotel bookings" and determine the optimal timing for location data collection, implement the following minimal viable event set. This schema prioritizes decision-ready data over volume.
+
+### 1. Core Conversion Events (Priority: Critical)
+These events directly measure the primary business loop: Suggestion → Save → Book.
+
+| Event Name | Trigger | Essential Properties |
+| :--- | :--- | :--- |
+| `itinerary_saved` | User clicks "Save" on an AI-generated plan. | `itinerary_id`, `suggestion_source` (e.g., "expo-pavilions"), `item_count`, `user_session_id` |
+| `booking_initiated` | User clicks a partner hotel link within a saved itinerary. | `itinerary_id`, `partner_name`, `time_since_save` (calculated client-side or via session), `device_type` |
+| `booking_completed` | User returns to app or webhook confirms successful booking. | `itinerary_id`, `partner_name`, `booking_value`, `time_since_save` |
+
+**Implementation Note:** The `time_since_save` property is crucial. If the delta between `itinerary_saved` and `booking_initiated` is consistently <5 minutes, prioritize immediate booking prompts. If the delta is >24 hours, implement re-engagement emails/push notifications for saved items.
+
+### 2. AI Interaction Events (Priority: High)
+Measure whether the AI suggestions are relevant enough to warrant saving.
+
+| Event Name | Trigger | Essential Properties |
+| :--- | :--- | :--- |
+| `ai_suggestion_viewed` | An AI suggestion card renders on screen. | `suggestion_id`, `suggestion_category`, `rank_position` |
+| `ai_suggestion_dismissed` | User swipes away or clicks "Not interested." | `suggestion_id`, `reason_code` (if provided) |
+| `ai_chat_interaction` | User refines a request via text/voice. | `intent_category`, `turn_number` (in session) |
+
+### 3. Location & Personalization (Priority: Experimental)
+To address the friction concern, do **not** track real-time location continuously by default. Instead, track permission acceptance and contextual usage.
+
+| Event Name | Trigger | Essential Properties |
+| :--- | :--- | :--- |
+| `location_permission_requested` | App prompts for location access. | `context_trigger` (e.g., "nearby_recommendations") |
+| `location_permission_granted` | User accepts the prompt. | `context_trigger` |
+| `location_permission_denied` | User rejects the prompt. | `context_trigger` |
+| `nearby_suggestion_clicked` | User engages with a location-based tip. | `distance_from_user` (approximate bucket: <1km, 1-5km), `permission_status` |
+
+**Strategy:** Compare conversion rates (`booking_completed`) between users who granted permission and those who denied it. If the lift is negligible, real-time tracking is unnecessary friction. If the lift is significant, use the `context_trigger` to identify which prompts work best.
+
+### 4. Standard Context Properties (Attach to All Events)
+Do not create separate events for these; append them as global properties to every event listed above.
+*   `user_id` (hashed/anonymized)
+*   `session_id`
+*   `app_version`
+*   `os_version`
+*   `traffic_source` (UTM parameters from install)
+*   `user_type` (e.g., "expo_visitor" vs "local" – derive from onboarding)
+
+### Excluded Events (Do Not Track Yet)
+To prevent data overload during launch, exclude:
+*   Generic page views (use `ai_suggestion_viewed` instead).
+*   Button hovers or scrolls without action.
+*   Real-time location coordinates (store only if `location_permission_granted` and needed for specific "nearby" features).
+*   Error logs (use dedicated crash reporting tool, not analytics).
+
+### Next Steps for Engineering
+1.  **Schema Definition:** Define these events in your analytics tool (e.g., Mixpanel/Amplitude/GA4) immediately.
+2.  **Naming Convention:** Stick strictly to the `object_action` format listed above.
+3.  **Validation:** Test that `itinerary_id` persists correctly across the `saved` → `booking` flow to ensure accurate attribution.
+
+This set provides the exact data needed to answer your booking timing and location friction questions without overwhelming the pipeline.

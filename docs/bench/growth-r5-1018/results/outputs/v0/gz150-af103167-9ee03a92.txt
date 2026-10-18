@@ -1,0 +1,32 @@
+# Upsell Experiment Post-Mortem & Diagnostic Plan
+
+**Verdict:** The experiment failed due to a lack of pre-committed guardrails and insufficient event granularity, rendering the root cause (price vs. timing) `UNVERIFIED`. The 12% spike in account deletions indicates the intervention actively destroyed value rather than failing to capture it.
+
+### Key Ambiguities in Current Data
+Your current measurement approach aggregates outcomes, hiding the specific friction point. We cannot distinguish between three failure modes:
+1.  **Timing Friction:** The modal interrupted the "flow state" immediately after project creation (the third project), causing reactive churn.
+2.  **Value Mismatch:** Users creating a third project are not yet ready for "advanced budget tracking"; the feature does not match the "serious intent" assumption.
+3.  **Price Sensitivity:** 18 NZD is above the willingness-to-pay threshold for this specific cohort, regardless of timing or feature fit.
+
+Without event-level data separating *dismissal* from *exposure*, and lacking a control group analysis for the deletion spike, the data only confirms harm, not cause.
+
+### Variables You Should Have Tracked
+To diagnose the churn spike and isolate variables, the following event taxonomy was required but missing:
+*   `modal_viewed` (Property: `trigger_context` = "post_project_3"): To establish the denominator of exposed users.
+*   `modal_dismissed` vs. `modal_clicked`: To measure immediate rejection vs. interest.
+*   `session_abandoned_post_modal`: Did they leave the app immediately after seeing the prompt without deleting? This isolates workflow interruption from total churn.
+*   `account_deletion_reason` (Property: `survey_text` or `selection`): Explicitly capturing *why* they left.
+*   `core_action_retention` (Cohort: Exposed vs. Control): Did the modal reduce the frequency of project creation for those who *didn't* delete?
+
+### Critical Questions Before the Next Test
+Answer these using your existing logs before designing a new experiment:
+1.  **Baseline Stability:** Was the 2.1% baseline conversion stable over the prior 4 weeks, or was October an anomaly? Compare the exposed cohort's deletion rate against a holdout group (users who hit 3 projects but were *not* shown the modal) to confirm the 12% spike is causal.
+2.  **Workflow Correlation:** What is the average time-between-projects for retained users? If the third project usually happens days apart, the "immediate" modal might be less intrusive than assumed; if it happens in rapid succession, the timing is likely the killer.
+3.  **Feature Relevance:** Do users who *already* pay for Pro actually use "advanced budget tracking" as their primary feature? If not, the upsell offer itself is misaligned with buyer motivation.
+
+### This-Week Steps
+1.  **Run a Cohort Analysis:** Query your database to compare the 7-day retention and deletion rate of users who hit "3 projects" in September (no modal) vs. October 5–19 (modal exposed). If the deletion gap persists, the modal is the sole driver.
+2.  **Instrument "Soft" Signals:** Deploy tracking for `modal_dismissed` and `session_duration_post_modal` immediately. Do not re-enable the upsell until these events are live.
+3.  **Pause Aggressive Triggers:** Halt the "post-project-3" trigger. Switch to a passive banner or email sequence for this cohort to test value proposition without workflow interruption, establishing a new baseline for "intent" without the churn risk.
+
+The pivot decision depends on whether the churn was a *presentation* error (fixable) or a *product-market* error (users don't want this feature at any price). The current data cannot tell you which.

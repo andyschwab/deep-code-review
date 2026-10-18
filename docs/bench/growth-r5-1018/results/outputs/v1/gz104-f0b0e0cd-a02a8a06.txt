@@ -1,0 +1,32 @@
+### Executive Brief: Isolating Price Sensitivity vs. Operational Friction
+
+**Current Status:** The 9% churn rate (vs. 4% baseline) is a critical signal, but attributing it solely to the Jan 15 price hike is `UNVERIFIED` without isolating the logistics variable. The coincidence of the partner change creates a confounder that invalidates a simple "before/after" comparison.
+
+**1. Cohort Segmentation Strategy (Who is leaving?)**
+Do not analyze aggregate churn. Slice the data into these four specific cohorts to isolate the driver:
+*   **Cohort A (Price Only):** Customers billed the new rate *before* the logistics partner switch date.
+*   **Cohort B (Logistics Only):** Customers on the old price plan who experienced the new logistics partner.
+*   **Cohort C (Combined):** Customers hit by both the price hike and the new logistics.
+*   **Cohort D (Control):** Customers grandfathered on old pricing (if any) or regions where the logistics switch hasn't occurred yet.
+
+*Interpretation:* If Cohort A churn matches baseline, price is not the primary driver. If Cohort B spikes, the logistics partner is the culprit. If only Cohort C spikes, the issues are multiplicative.
+
+**2. Event Taxonomy & Instrumentation (What to measure?)**
+Stop tracking generic "cancellation" events. Implement these specific events immediately to capture intent:
+*   `cancellation_initiated`: Must include properties `reason_code` (mapped from UI selection: "price", "delivery issues", "other"), `current_plan_price`, and `days_since_last_successful_delivery`.
+*   `delivery_failure`: Log every failed attempt with `error_type` (late, damaged, lost) linked to the `user_id`.
+*   `support_ticket_created`: Tag tickets with `topic` and correlate with `billing_cycle_date`.
+
+**3. Analysis Plan for March 10 Board Meeting**
+*   **Step 1 (Correlation Check):** Overlay the daily `delivery_failure` rate against the daily `cancellation_initiated` rate from Jan 15–Feb 28. A visual spike in failures preceding churn confirms the logistics hypothesis.
+*   **Step 2 (Survival Analysis):** Run a retention curve comparing users who received a "perfect delivery" post-hike vs. those with ≥1 failure post-hike. This quantifies the breaking point.
+*   **Step 3 (Price Elasticity Calculation):** For users with perfect delivery records who still churned, calculate the specific price sensitivity. Compare this against the industry inflation context you mentioned, but rely *only* on your internal baseline trend, not external benchmarks.
+
+**4. Immediate Actions (This Week)**
+1.  **Query the Data:** Run the four-cohort breakdown defined above. If the data lacks the `logistics_switch_date` flag per user, engineering must backfill this metadata immediately.
+2.  **Audit Cancel Reasons:** Manually review 50 recent cancellation tickets tagged "price" to verify if users actually mentioned delivery delays (users often blame price when service degrades).
+3.  **Define the Guardrail:** For any future pricing tests, set a guardrail metric on `delivery_success_rate`. If this drops below 98%, pause pricing experiments until operations stabilize.
+
+**Verdict:** Do not present a single cause to the board yet. Present the *segmentation matrix* showing whether churn is concentrated in the "logistics-impacted" group. If Cohort B (Logistics Only) shows elevated churn, the recommendation is to fix operations before considering price reversals.
+
+*Note: All metrics above must be calculated against GourmetDelight's own historical baseline; no external "acceptable churn" benchmarks apply here. If the logistics switch date cannot be mapped to individual user accounts, the price effect remains statistically unisolatable.*

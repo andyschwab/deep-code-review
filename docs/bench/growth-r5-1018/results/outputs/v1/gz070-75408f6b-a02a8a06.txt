@@ -1,0 +1,42 @@
+# Findings Report: Driver License Portal Funnel Friction
+**To:** CIO, City of Ottawa
+**Date:** [Current Date]
+**Subject:** Data-Driven Diagnosis of 25% Completion Drop (v2 Launch)
+
+### Executive Summary
+Completion rates dropped from 85% to 60% post-March 25 launch, concentrated at the document upload step. To approve the hotfix budget by Thursday, we must distinguish between **technical failure** (system errors), **usability friction** (confusion on limits/types), and **privacy hesitation** without new user surveys. The following data interrogation isolates the root cause.
+
+### 1. Differentiate Technical Errors vs. User Confusion
+Examine the **client-side vs. server-side error logs** for the upload endpoint between March 25 and present.
+
+*   **Hypothesis A: Technical Failure.** If the drop is caused by broken uploads, server logs will show a spike in **HTTP 5xx errors** (server failure) or **413 Payload Too Large** errors triggered automatically by the server before the user can react.
+    *   *Action:* Filter logs for `POST /upload` returning status codes ≥ 500 or specific 413s. If >80% of drop-offs correlate with these codes, the cause is technical.
+*   **Hypothesis B: Usability/Confusion.** If users are confused by file size limits or types, they will likely trigger **client-side validation rejections** (HTTP 400) or, crucially, **abandon the session without triggering an error code**.
+    *   *Action:* Compare the ratio of `400 Bad Request` (invalid file type/size rejected by logic) vs. total upload attempts. A high volume of 400s indicates users are *trying* but failing validation rules. A high volume of **zero-event drop-offs** (user lands on upload screen, no network request sent, session ends) indicates the UI itself is blocking action due to confusion or fear.
+
+### 2. Validate the "File Size Limit" Assumption
+To confirm if size limits are the specific friction point without asking users:
+
+*   **Analyze Attempted File Metadata:** If your frontend captures file metadata *before* upload (even if rejected), query the distribution of **attempted file sizes** for failed sessions.
+    *   *Signal:* If the median attempted file size clusters just above the new limit (e.g., limit is 2MB, median attempt is 2.4MB), the limit is the direct cause.
+    *   *Signal:* If attempted sizes are well within limits but file types vary widely (e.g., many `.heic` or `.tiff`), the issue is **file type confusion**, not size.
+*   **Retry Behavior Analysis:** Track **retry counts** per session ID at the upload step.
+    *   *Signal:* High retry rates (user tries 3+ times) suggest a technical glitch or unclear error message they are trying to overcome.
+    *   *Signal:* Zero retries (one attempt or no attempt) suggests immediate resignation due to confusing constraints or privacy concerns.
+
+### 3. Isolate Privacy Concerns
+Privacy hesitation often manifests as **delayed action** or **device-specific drop-offs**.
+
+*   **Time-on-Step Analysis:** Compare the average time spent on the upload screen pre-launch vs. post-launch.
+    *   *Signal:* A significant increase in time-on-step followed by abandonment suggests users are reading warnings, hesitating, or trying to reduce file sizes manually before giving up.
+*   **Device/Context Segmentation:** Break down drop-off rates by **device type** (mobile vs. desktop) and **referrer**.
+    *   *Signal:* If drop-offs are disproportionately high on mobile, it may be a technical issue with camera uploads or specific mobile privacy permissions. If drop-offs spike only for users arriving from external links (less trust) vs. direct navigation, privacy may be a factor.
+
+### Recommendation for Hotfix Budget
+*   **Approve Technical Hotfix If:** Server logs show >15% 5xx/413 errors or client logs show high 400s with clear "invalid type" patterns.
+*   **Approve UX/Content Hotfix If:** Data shows high "zero-event" drop-offs or retry loops with no server errors, indicating the interface or error messaging is unclear.
+*   **Defer/Investigate Further If:** Drop-offs are uniform across all technical metrics but correlate with specific high-security user segments, suggesting a need for trust signaling rather than code fixes.
+
+**Next Step:** Run the log queries for HTTP status codes and retry rates by EOD Tuesday to finalize the budget justification.
+
+*Note: All metrics must be compared against the pre-March 25 baseline to rule out seasonal traffic shifts. No external benchmarks are used.*

@@ -1,0 +1,63 @@
+# TutorLink Event Taxonomy Proposal
+
+**Objective:** Capture the end-to-end tutoring journey to identify drivers of repeat bookings and Lifetime Value (LTV), optimized for low-bandwidth mobile environments in Manila.
+
+**Implementation Strategy:**
+To minimize data noise and bandwidth usage, we will adopt a "Signal-First" approach. We will track only events that directly inform the hypothesis: *First session quality and friction predict retention.* We will avoid continuous streaming; all events are triggered by discrete user actions or state changes.
+
+## Core Event Taxonomy
+
+### 1. Booking & Matching (Pre-Session)
+*Focus: Measuring scheduling friction and tutor responsiveness.*
+
+| Event Name | Trigger | Essential Properties |
+| :--- | :--- | :--- |
+| `booking_requested` | Student submits a request | `subject`, `grade_level`, `requested_time_slot` |
+| `tutor_response_sent` | Tutor accepts/declines/replies | `response_time_seconds` (calculated client-side), `action_type` (accept/decline/counter) |
+| `booking_confirmed` | Both parties agree | `time_to_confirm_seconds`, `match_method` (auto/manual) |
+
+**Why this matters:** `tutor_response_sent` directly tests your "response time" hypothesis. Calculating `response_time_seconds` on the device before sending the event saves server computation and reduces payload size.
+
+### 2. Session Execution (During Session)
+*Focus: Measuring actual engagement vs. planned duration.*
+
+| Event Name | Trigger | Essential Properties |
+| :--- | :--- | :--- |
+| `session_started` | Video/call interface connects | `connection_quality_initial` (e.g., 4G/WiFi/3G), `planned_duration_min` |
+| `session_ended` | Call disconnects | `actual_duration_seconds`, `disconnect_initiator` (student/tutor/system), `connection_dropped` (boolean) |
+
+**Why this matters:** Comparing `planned_duration_min` vs. `actual_duration_seconds` reveals if sessions are being cut short due to poor quality or dissatisfaction. The `connection_dropped` flag is critical for distinguishing technical failures from user churn in low-bandwidth areas.
+
+### 3. Post-Session Sentiment (The Quality Signal)
+*Focus: Capturing immediate sentiment before memory fades.*
+
+| Event Name | Trigger | Essential Properties |
+| :--- | :--- | :--- |
+| `rating_submitted` | User submits 1-5 stars | `rating_value`, `user_role` (student/parent), `latency_seconds` (time from end to rating) |
+| `friction_reported` | User selects a specific issue tag | `issue_category` (e.g., audio_lag, tutor_no_show, content_mismatch) |
+
+**Why this matters:** Prioritize `rating_submitted` over complex surveys. In low-bandwidth environments, a simple integer (1-5) is robust. The `friction_reported` event replaces open-text fields with predefined tags to save data and standardize analysis.
+
+### 4. Retention Outcome (The North Star)
+*Focus: Measuring the ultimate business goal.*
+
+| Event Name | Trigger | Essential Properties |
+| :--- | :--- | :--- |
+| `repeat_booking_made` | Same student books same tutor again | `days_since_first_session`, `tutor_id`, `subject_match` (same/different) |
+
+## Technical Constraints & Optimization
+
+1.  **Payload Minimization:** Do not send full user objects. Send only IDs (`tutor_id`, `student_id`) and let the backend enrich data. This reduces event size by ~60%.
+2.  **Offline Queueing:** Implement local storage for events. If the network drops during a session, queue the `session_ended` and `rating_submitted` events to fire automatically when connectivity is restored.
+3.  **Batching:** Configure the SDK to batch non-critical events (like `friction_reported`) to send once per session rather than individually, reducing HTTP overhead.
+
+## Recommended Priority for Implementation
+
+Given the two-week deadline, implement in this order:
+1.  **`rating_submitted`**: Immediate sentiment is the strongest leading indicator of LTV.
+2.  **`tutor_response_sent`**: Validates the operational friction hypothesis.
+3.  **`session_ended`** (with duration): Validates actual consumption vs. booking.
+
+Defer complex funnel visualization until these three data streams are stable.
+
+*Note: Ensure `user_id` is set as a global property upon login to avoid repeating it in every event payload. Test the `offline_queueing` logic specifically on 3G networks before the school term launch.*

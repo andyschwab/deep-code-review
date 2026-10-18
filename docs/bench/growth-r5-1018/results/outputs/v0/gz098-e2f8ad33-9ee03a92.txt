@@ -1,0 +1,54 @@
+**To:** Omar Hassan, Lead Engineer
+**From:** Growth Analytics
+**Subject:** MVP Event Schema for WanderAI (Code Freeze: Friday)
+
+Per the May 15th launch targeting 25k Expo visitors, here is the minimal event taxonomy required to validate your core hypotheses without data overload. This schema prioritizes the "save-to-book" conversion and resolves the location friction question. Do not instrument anything else at this stage.
+
+### 1. Core Value Events (The "North Star" Inputs)
+These events track whether users derive actual value (completed plans) rather than just vanity activity (pageviews).
+
+*   **`itinerary_generated`**
+    *   **Question:** Are users successfully getting AI suggestions?
+    *   **Properties:** `session_id`, `prompt_length`, `suggestion_count`, `generation_time_ms`.
+    *   **Why:** Baseline for activation. If this fails, nothing else matters.
+
+*   **`itinerary_saved`** (Your assumed "Aha" moment)
+    *   **Question:** Does saving correlate with eventual booking?
+    *   **Properties:** `session_id`, `itinerary_id`, `items_count`, `save_trigger` (button vs. auto-save).
+    *   **Why:** This is your primary activation metric. We will cohort users who fire this vs. those who don't to measure retention and booking rates.
+
+*   **`booking_initiated`**
+    *   **Question:** Do users book immediately or return later?
+    *   **Properties:** `session_id`, `itinerary_id`, `time_since_save_minutes`, `device_type`, `is_returning_user` (boolean).
+    *   **Why:** This directly answers your timing hypothesis. If `time_since_save` is high and `is_returning_user` is true, you need re-engagement emails. If low, optimize the immediate checkout flow.
+
+*   **`booking_completed`**
+    *   **Question:** What is the actual conversion rate from save to revenue?
+    *   **Properties:** `session_id`, `itinerary_id`, `partner_id`, `revenue_amount`, `currency`.
+    *   **Why:** The ultimate success metric. Compare the ratio of `booking_completed` / `itinerary_saved`.
+
+### 2. The Friction Test (Location Data)
+Do not track real-time location continuously. It creates privacy friction and data noise. Instead, treat location access as a binary experiment to measure its impact on retention.
+
+*   **`location_permission_requested`**
+    *   **Question:** Does asking for location kill the session?
+    *   **Properties:** `session_id`, `context` (e.g., "nearby suggestions"), `screen_name`.
+    *   **Why:** Measures the drop-off rate at the permission prompt.
+
+*   **`location_permission_granted`** (or `denied`)
+    *   **Question:** Does granting permission lead to higher retention or booking rates?
+    *   **Properties:** `session_id`, `permission_status` (granted/denied).
+    *   **Why:** Cohort analysis will reveal if users who grant permission have a statistically higher `booking_completed` rate. If the delta is negligible, remove the request to reduce friction.
+
+### 3. Identifier Seam
+*   **Requirement:** Ensure every event includes a stable `user_pseudonymous_id` (not raw PII) to track users across sessions. This is critical for answering the "return later" hypothesis. Raw GPS coordinates or personal emails must **not** be logged in these events; route those to your secure compliance store per privacy standards.
+
+### Implementation Rules for Friday
+1.  **No "Just in Case" Events:** If an event does not answer one of the questions above, do not log it.
+2.  **Baseline Only:** We cannot predict "good" conversion rates for Dubai Expo visitors. We will measure your internal baseline (e.g., Week 1 vs. Week 2) rather than comparing to external benchmarks.
+3.  **Schema Rigidity:** Lock these property names now. Changing them post-launch breaks cohort continuity.
+
+**Next Step:** Implement these five events with the specified properties. Once live, our first analysis will compare the `booking_completed` rate between users who saved itineraries and those who didn't, and the conversion lift of users who granted location access.
+
+*Note: If `booking_initiated` fires but `booking_completed` does not within 24 hours, trigger a manual review of the partner integration latency.*
+*Ensure `user_pseudonymous_id` is generated at first launch and persisted locally to maintain session continuity.*

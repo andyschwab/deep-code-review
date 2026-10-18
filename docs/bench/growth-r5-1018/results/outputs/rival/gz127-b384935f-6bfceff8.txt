@@ -1,0 +1,71 @@
+# Saborea Review System Instrumentation Plan
+
+## Executive Summary
+To validate whether photo uploads double review helpfulness and determine the optimal timing for review prompts without jeopardizing checkout conversion, we will implement a targeted event tracking schema. This plan isolates friction points in the new flow and measures the downstream impact of photo-rich reviews on booking decisions.
+
+## 1. Core Event Schema
+Implement the following events using your existing analytics provider (e.g., GA4, Mixpanel, Segment). Ensure all events include `user_id`, `restaurant_id`, and `booking_id` as standard properties.
+
+### A. Prompt Delivery & Timing (The Test Variable)
+*   **`review_prompt_shown`**
+    *   *Trigger:* When the review modal/screen appears.
+    *   *Properties:* `prompt_timing` (values: `immediate_post_payment`, `next_day_push`), `channel` (in-app, push, sms).
+*   **`review_prompt_dismissed`**
+    *   *Trigger:* User closes the prompt without starting a review.
+    *   *Properties:* `prompt_timing`, `step_in_flow` (e.g., `payment_success`, `home_screen`).
+
+### B. Review Creation Flow (Friction Analysis)
+*   **`review_started`**
+    *   *Trigger:* User clicks "Write a Review" or enters the first star rating.
+    *   *Properties:* `prompt_timing`, `time_since_booking_hours`.
+*   **`review_photo_added`**
+    *   *Trigger:* User successfully uploads at least one image.
+    *   *Properties:* `photo_count`, `upload_duration_seconds`.
+*   **`review_submitted`**
+    *   *Trigger:* Final submission confirmation.
+    *   *Properties:* `has_photos` (boolean), `rating_value`, `text_length_chars`, `prompt_timing`.
+*   **`review_submission_error`**
+    *   *Trigger:* API failure or validation error during submit.
+    *   *Properties:* `error_code`, `step_failed` (e.g., `image_upload`, `final_submit`).
+
+### C. Quality & Impact Signals (The Hypothesis)
+*   **`review_helpfulness_voted`**
+    *   *Trigger:* Another user clicks "Helpful" on a review.
+    *   *Properties:* `target_review_id`, `target_review_has_photos`, `voter_user_id`.
+*   **`restaurant_viewed_from_review`**
+    *   *Trigger:* User clicks a restaurant link within a review detail page.
+    *   *Properties:* `source_review_id`, `source_review_has_photos`.
+*   **`booking_initiated_from_review`**
+    *   *Trigger:* User starts a booking flow after viewing a specific review.
+    *   *Properties:* `source_review_id`, `source_review_has_photos`.
+
+## 2. Critical Measurement Logic
+
+### Checkout Safety Guardrail
+To ensure the new flow does not break checkout:
+*   Compare `checkout_completed` rates between the control group (no prompt) and the `immediate_post_payment` test group.
+*   **Alert Threshold:** If checkout conversion drops by >0.5% in the immediate group, halt the test immediately.
+
+### Hypothesis Validation (Photos vs. Helpfulness)
+Calculate the **Helpfulness Rate** per review type:
+$$ \text{Helpfulness Rate} = \frac{\text{Count of `review_helpfulness_voted`}}{\text{Count of `review_submitted`}} $$
+*   *Segment A:* Reviews where `has_photos` = true.
+*   *Segment B:* Reviews where `has_photos` = false.
+*   *Success Criteria:* Segment A rate is ≥ 2x Segment B rate.
+
+### Timing Optimization (Immediate vs. Delayed)
+Calculate the **Completion Funnel Drop-off**:
+1.  `review_prompt_shown` → `review_started`
+2.  `review_started` → `review_submitted`
+*   Compare drop-off percentages between `prompt_timing` variants. If immediate prompting increases drop-off by >20% but yields higher quality (photos), a hybrid approach (immediate nudge, delayed deep-link) may be required.
+
+## 3. Implementation Checklist for Data Science
+1.  **Tagging:** Deploy tags to the payment success listener and the scheduled notification service.
+2.  **Validation:** Use DebugView to confirm `prompt_timing` persists correctly through the session.
+3.  **Privacy:** Ensure no PII (specifically image content) is sent in event properties; only metadata (counts, booleans) is tracked.
+4.  **Dashboard:** Build a real-time view monitoring `checkout_completed` vs. `review_prompt_shown` ratios by variant.
+
+This instrumentation provides the exact signals needed to balance friction against trust scores before the holiday rush.
+
+*Note: Ensure the `next_day_push` variant includes a deep link directly to the review composer to minimize friction.*
+*Launch date confirmed for November 15th; allow 48 hours for data stabilization before analyzing trends.*

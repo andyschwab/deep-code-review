@@ -1,0 +1,73 @@
+# Time Slot Selection Friction Analysis Plan
+
+## Objective
+Determine whether booking drop-offs between time slot selection and payment confirmation are caused by **supply constraints** (no cleaners available) or **UX friction** (confusing interface), enabling a data-driven decision on cleaner recruitment vs. UI redesign before the Diwali promotion.
+
+## Key Events to Track
+
+### 1. Time Slot Screen Entry
+- **Event:** `time_slot_screen_viewed`
+- **Properties:** `user_id`, `session_id`, `selected_date`, `preferred_window_start`, `preferred_window_end`, `location_pincode`
+- **Purpose:** Establish baseline traffic entering the funnel step.
+
+### 2. Availability Check Triggered
+- **Event:** `availability_check_requested`
+- **Properties:** `search_date`, `search_window`, `location_pincode`
+- **Purpose:** Track when users actively search for slots; distinguishes passive viewing from active intent.
+
+### 3. Availability Results Displayed
+- **Event:** `availability_results_shown`
+- **Properties:** `slots_available_count`, `nearest_available_window`, `is_preferred_window_available` (boolean), `alternative_dates_suggested_count`
+- **Purpose:** **Critical diagnostic.** If `is_preferred_window_available` is false for >70% of users who exit, the issue is supply. If true but users still exit, the issue is likely UX.
+
+### 4. User Interaction with Results
+- **Event:** `time_slot_selected`
+- **Properties:** `slot_date`, `slot_time`, `was_preferred_window` (boolean), `attempts_before_selection` (integer)
+- **Purpose:** Measure success rate. High `attempts_before_selection` indicates users are struggling to find/confirm a slot.
+
+- **Event:** `date_changed`
+- **Properties:** `original_date`, `new_date`, `change_count_session`
+- **Purpose:** High frequency suggests users are hunting for availability across days, signaling supply issues.
+
+- **Event:** `refresh_availability_clicked`
+- **Properties:** `refresh_count_session`, `time_between_refreshes`
+- **Purpose:** Rapid refreshing implies users expect slots to appear (supply anxiety) or don't trust the display (UX doubt).
+
+### 5. Exit Behaviors
+- **Event:** `booking_flow_abandoned`
+- **Properties:** `exit_screen`, `last_action_taken`, `slots_visible_at_exit` (boolean), `session_duration_on_screen`
+- **Purpose:** Correlate exit with specific states (e.g., exiting immediately after seeing "0 slots" vs. exiting after 2 minutes of scrolling).
+
+- **Event:** `app_backgrounded` vs. `app_closed`
+- **Properties:** `screen_name`, `time_in_session`
+- **Purpose:** Distinguish between users stepping away (backgrounded) vs. giving up entirely (closed).
+
+## Analysis Framework
+
+### Supply Constraint Indicators
+- **Metric:** `% of sessions where is_preferred_window_available = false`
+- **Threshold:** If >60% of exiting users saw no preferred slots, prioritize **cleaner recruitment**.
+- **Metric:** `average_slots_available_count` for exiting users vs. converting users.
+- **Action:** Map exit hotspots by `location_pincode` to identify geographic supply gaps.
+
+### UX Friction Indicators
+- **Metric:** `% of sessions with is_preferred_window_available = true` but still abandoned.
+- **Threshold:** If >40% of exiting users had slots available but left, prioritize **UI redesign**.
+- **Metric:** `average_time_on_screen` for exits. Long durations (>90 seconds) with no selection suggest confusion.
+- **Metric:** `refresh_availability_clicked` rate. High refresh rates without slot changes indicate display trust issues.
+
+## Decision Matrix
+
+| Scenario | Data Pattern | Recommended Action |
+|----------|--------------|-------------------|
+| **Supply Crisis** | 70%+ exits see `is_preferred_window_available: false`; high `date_changed` events | Recruit cleaners in high-exit pincodes; display "next available" clearly |
+| **UX Confusion** | 50%+ exits see `is_preferred_window_available: true`; long time-on-screen; low `time_slot_selected` rate | Redesign calendar UI; simplify slot selection; add "recommended slot" highlights |
+| **Mixed Issue** | Moderate supply gaps + high refresh rates | Fix UI first (quick win), then target recruitment to specific gaps |
+
+## Implementation Notes
+- Deploy tracking via existing analytics stack (GA4/Mixpanel) within 48 hours.
+- Run analysis on last 7 days of data immediately; compare with pre-drop-off baseline.
+- Segment results by `location_pincode` to guide localized cleaner recruitment for Diwali.
+
+*Ensure event properties exclude PII; aggregate location data to pincode level only.*
+*Validate tracking in staging environment before production deployment to avoid data contamination.*

@@ -1,0 +1,30 @@
+### Valid Conversion Event Definition for DniproWork
+
+**Primary Conversion Event:** `contract_booking_confirmed`
+This event fires **only** when the backend successfully creates a binding contract record and returns a success state to the client. It is not the form submission, nor the initial click, nor the first message sent.
+
+**Required Properties for Legal & Engineering:**
+To address the legal risk regarding Terms of Service (ToS) acceptance and ensure accurate attribution, the event payload must include:
+1.  `tos_version_id`: The specific version of the ToS displayed at the moment of conversion.
+2.  `tos_interaction_type`: Must be recorded as `explicit_checkbox_click` (boolean: true). If your current flow allows conversion without a distinct click action on the ToS, the `tos_interaction_type` will be null, flagging a legal compliance gap.
+3.  `form_fields_completed`: Integer count (should be 3 post-redesign).
+4.  `session_id`: Unique identifier for the browser session.
+5.  `user_id`: Pseudonymous stable ID (to handle return visitors).
+
+**Handling Abandonment and Returns (Session Logic):**
+Do not count the initial price view or form abandonment as a conversion. For users who abandon after seeing the price but return within one hour:
+*   **Logic:** Treat the return as a **continuation of the original session** if the `session_id` persists (via cookie/local storage).
+*   **Attribution:** The `contract_booking_confirmed` event attributes to the **original entry source** and the **original session start time**, not the return timestamp.
+*   **Implementation:** If the user closes the tab and returns via a new link (new session), treat it as a **new session**. Only count the conversion if the `contract_booking_confirmed` event fires in this new session. Do not merge distinct sessions for legal audit trails; each binding contract must map to a specific session context where the ToS was presented.
+
+**Why Other Actions Are Excluded:**
+*   **Initial Click:** High false-positive rate; indicates interest, not value.
+*   **Form Submission:** Can fail validation or be abandoned before final confirmation; does not guarantee a binding contract.
+*   **First Message Sent:** Occurs post-conversion; measuring this delays the signal and conflates activation with conversion.
+
+**Immediate Next Steps:**
+1.  **Engineering:** Implement the `contract_booking_confirmed` tag with the `tos_version_id` and `tos_interaction_type` properties immediately. Verify that the current UI forces an explicit checkbox click; if not, flag this to legal as a critical risk before further A/B testing.
+2.  **Legal:** Confirm that `explicit_checkbox_click` satisfies jurisdictional requirements for "manifestation of assent" in Ukraine/EU. If "browsewrap" (scrolling only) is currently used, the `tos_interaction_type` will reveal zero compliant conversions.
+
+*Note: The rise from 450 to 520 bookings is an observed trend, not a verified causal win until the A/B test runs with pre-committed sample sizes and these specific event definitions.*
+*Ensure the `user_id` is pseudonymized before sending to analytics tools to comply with privacy standards.*

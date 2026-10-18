@@ -1,0 +1,33 @@
+# Measurement Strategy: Estonia Blockchain Voting Pilot (May 5)
+
+**North Star Metric:** Verified Ballot Completion Rate (percentage of voters who successfully cast a cryptographically verified vote). This measures real value delivery; raw session starts are vanity metrics that ignore the critical verification hurdle.
+
+### Event Taxonomy & Non-Personal Metrics
+Instrument only events that answer specific reliability questions. Do not record voter IDs, IP addresses, or timestamps granular enough to re-identify individuals within small precincts. Use ephemeral session tokens that dissolve upon ballot casting.
+
+| Event Name | Question Answered | Properties (Non-PII) | Privacy Guardrail |
+| :--- | :--- | :--- | :--- |
+| `voting_session_started` | Is the entry point accessible? | `entry_channel` (mobile/desktop), `locale` | No user ID; aggregate only. |
+| `verification_step_started` | Do users attempt the core action? | `device_os`, `browser_type` | Session token only. |
+| `verification_duration_bucket` | **Critical:** Does latency cause abandonment? | `duration_bucket` (<5s, 5-10s, >10s) | **Do not log exact milliseconds** per user; bin immediately to prevent fingerprinting. |
+| `verification_abandoned` | Where is the 10s threshold breached? | `step_failed`, `duration_bucket` | Correlate only with binned duration, not user identity. |
+| `ballot_cast_success` | Did the user complete the flow? | `total_duration_bucket` | Irreversible anonymization; cannot link back to start event. |
+| `system_error_generic` | Is the infrastructure failing? | `error_code` (no stack traces with PII) | Aggregated count only. |
+
+### Funnel Diagnosis (Bottom-Up)
+Analyze retention of the core action (verification) before assessing acquisition.
+1.  **Retention Check:** Calculate the drop-off rate specifically within the `verification_duration_bucket` > 10s. If abandonment spikes here, the assumption holds; latency is the blocker.
+2.  **Activation Check:** Of those who pass verification, what percentage complete `ballot_cast_success`? Low conversion here indicates UI confusion post-verification, not latency.
+3.  **Acquisition Context:** Only review `voting_session_started` volumes after confirming the downstream funnel is not leaking due to performance.
+
+### Privacy & Anonymity Constraints
+*   **No Persistent Identifiers:** Unlike standard growth analytics, do not track users across sessions. Each voting attempt is a standalone event to preserve ballot secrecy.
+*   **Data Aggregation:** Metrics must be reported as aggregates (counts, percentages) only. No raw event logs containing potential quasi-identifiers will be retained.
+*   **Threshold Monitoring:** Monitor the `verification_abandoned` rate in real-time. If the rate exceeds the baseline established during dry-runs by >20%, trigger an immediate infrastructure review without inspecting individual records.
+
+### This-Week Steps (Deadline: Next Tuesday)
+1.  **Implement Binning Logic:** Update the instrumentation code to bucket verification durations client-side (<5s, 5-10s, >10s) before transmission, ensuring exact latency data never leaves the voter's device.
+2.  **Define Tripwire:** Set a pre-commitment threshold: If `verification_abandoned` for the >10s bucket exceeds 15% during the first 1,000 votes, pause the pilot for engineering review.
+3.  **Audit Trail Review:** Submit this event schema to security auditors explicitly highlighting the absence of user IDs and the use of ephemeral tokens to confirm ballot secrecy compliance.
+
+*Note: All metrics are `UNVERIFIED` until the pilot launches; no benchmarks are asserted. This plan prioritizes ballot secrecy over granular user tracking.*

@@ -1,0 +1,55 @@
+# Measurement Strategy: Estonia Blockchain Voting Pilot (May 5)
+
+## Executive Summary
+This plan instruments the voting flow to measure usability and reliability without compromising ballot secrecy or voter anonymity. We will collect **aggregate, session-based metrics** that decouple identity from behavior. No PII, ballot choices, or unique voter IDs will be stored in the analytics layer.
+
+## Core Privacy Principles
+1.  **Zero-Linkage:** Analytics events cannot be linked back to a specific voter or ballot.
+2.  **Aggregation First:** Data is aggregated at the source; individual session logs are ephemeral and discarded after real-time monitoring.
+3.  **No PII:** Strict prohibition on capturing names, personal codes, IP addresses, or device fingerprints.
+
+## Key Metrics to Collect
+
+### 1. Funnel Completion Rates (Aggregate Only)
+Track the percentage of users reaching each stage relative to the previous stage.
+*   **Session Started:** Count of unique session tokens initialized.
+*   **Identity Verified:** Count of users passing the initial auth step (e.g., ID-card/Mobile-ID handshake).
+*   **Ballot Loaded:** Count of users who successfully retrieved the ballot interface.
+*   **Vote Cast (Pre-Verification):** Count of users who submitted a cryptographic ballot.
+*   **Verification Initiated:** Count of users who started the cryptographic proof check.
+*   **Verification Completed:** Count of users who successfully finished the proof check.
+*   **Receipt Generated:** Count of users who downloaded/viewed their voting receipt.
+
+*Calculation:* Drop-off rates are derived solely from the delta between these aggregate counts.
+
+### 2. Latency & Performance (The 10-Second Threshold)
+Measure time deltas between events to validate the abandonment hypothesis.
+*   **Verification Duration:** Time (ms) between `verification_initiated` and `verification_completed`.
+    *   *Alert Trigger:* Flag sessions where duration > 8,000ms for real-time ops monitoring.
+    *   *Reporting:* Report distribution percentiles (P50, P90, P99) daily. Do not store individual session times longer than 24 hours.
+*   **Page Load Latency:** Time to render the ballot interface after authentication.
+*   **Cryptographic Proof Generation Time:** Client-side processing time for generating the zero-knowledge proof or signature.
+
+### 3. Error & Abandonment Diagnostics
+Categorize failures without identifying the user.
+*   **Error Codes by Stage:** Aggregate count of specific technical errors (e.g., `ERR_TIMEOUT`, `ERR_CRYPTO_FAIL`, `ERR_NETWORK`) grouped by the funnel stage where they occurred.
+*   **Voluntary Exits:** Count of browser tab closures or navigation away from the domain during active sessions.
+*   **Retry Rates:** Aggregate count of re-authentication attempts per session ID (capped at 3 to prevent tracking).
+
+## Implementation Constraints for Auditors
+
+### Data Collection Method
+*   **Ephemeral Session IDs:** Use random, rotating UUIDs for session tracking that are destroyed immediately upon vote completion or session timeout. These IDs must never be mapped to voter rolls.
+*   **Client-Side Aggregation:** Where possible, calculate latency and success/failure status in the browser and send only the final metric (e.g., `{"stage": "verify", "status": "success", "duration_bucket": "5-10s"}`) to the server.
+*   **No IP Logging:** Configure the analytics endpoint to strip IP addresses before writing to disk.
+
+### Reporting Cadence
+*   **Real-Time Dashboard:** Displays current volume, aggregate success rates, and % of sessions exceeding the 10s threshold. No raw data access.
+*   **Daily Summary:** Aggregated funnel conversion table and latency distribution histogram.
+*   **Post-Election Audit:** A sanitized dataset containing only the aggregated counts and histograms, verified by the security team to ensure no re-identification vectors exist.
+
+## Validation of Core Assumption
+To test the "10-second abandonment" hypothesis, we will correlate the **Verification Duration** histogram with the **Voluntary Exit** rate specifically at the verification stage. If exits spike disproportionately in the `>10s` duration bucket compared to the `<5s` bucket, the assumption is validated without needing to know *who* left.
+
+---
+*Note: This plan requires pre-approval from the Data Protection Inspectorate (AKI) to confirm that ephemeral session IDs do not constitute personal data under GDPR. All analytics infrastructure must be hosted within Estonia or approved EU zones.*

@@ -1,0 +1,41 @@
+### Churn Driver Segmentation Framework for MusicRow Premium
+
+**Objective:** Isolate whether the April 10th shift to bi-weekly releases drives churn, or if factors like audio quality, host changes, or specific show dependency are the root causes. This framework enables a decision by month-end on reverting schedules versus investing in acquisition.
+
+#### 1. Define the North Star and Guardrails
+*   **North Star:** **Monthly Retained Power Listeners** (users completing ≥4 episodes/month). Vanity metrics like total downloads or cumulative signups are excluded; they rise even when value delivery fails.
+*   **Guardrail:** **Cost Per Acquired Listener (CPA)**. Do not approve marketing spend to fill a leaky bucket if retention is the primary failure.
+
+#### 2. Event Taxonomy (Instrument Only What Answers a Question)
+Do not instrument "everything." Define these specific events with properties to answer named questions:
+*   `subscription_cancelled`: Properties: `cancel_reason_code` (if captured), `days_since_last_listen`, `total_episodes_lifetime`.
+*   `episode_played`: Properties: `show_id`, `release_frequency_tag` (weekly vs. bi-weekly), `audio_bitrate` (proxy for quality), `host_id`.
+*   `user_segment_snapshot`: A daily computed property tagging users as `power_user` (≥10 eps/mo), `single_show_fan` (≥80% listens to one show), or `casual`.
+
+*Note on Data:* If your analytics platform lacks `user_segment_snapshot` historically, you must compute this retroactively from raw logs. Do not estimate these values; if the data is missing, the specific cut is `UNVERIFIED`.
+
+#### 3. Segmentation Strategy (The Cuts)
+Analyze churn rates for the period **April 11–Present** compared to **Jan 1–April 9** across these mutually exclusive cohorts. Compare each cohort's churn to its own baseline, not an external "industry benchmark."
+
+| Segment | Hypothesis Tested | Decision Rule (If Churn > Baseline) |
+| :--- | :--- | :--- |
+| **A. Single-Show Fans** (by Show ID) | Did a specific host change or show cancellation drive exits? | If churn spikes only for Show X, the issue is content/host specific, not frequency. **Action:** Investigate Show X production; do not change network-wide schedule. |
+| **B. Power Users** (≥10 eps/mo) | Did reduced frequency frustrate high-engagement users? | If churn rises here, the bi-weekly cadence broke the habit loop. **Action:** Revert to weekly for top 20% of shows; hold marketing budget. |
+| **C. Casual Listeners** (<4 eps/mo) | Is churn unrelated to frequency (e.g., audio quality, price)? | If churn rises here but not in Power Users, frequency is likely not the culprit. **Action:** Audit audio bitrate logs and pricing page friction; consider marketing to replace natural attrition. |
+| **D. Pre/Post Change Cohort** | Did the April 10th change cause a step-function increase? | Compare Week 1-2 April vs. Week 1-2 May. If the slope increases sharply post-change across all segments, frequency is the driver. |
+
+#### 4. Experiment Rigor & Analysis Rules
+*   **No Peeking:** Do not declare a "winner" based on the first week of May data. Aggregate the full month to smooth out weekly listening variance.
+*   **Confounding Variables:** Explicitly check if any host changes or known audio encoding issues coincided with April 10. If a host left on April 5, attribute churn to the host, not the schedule.
+*   **Baseline Comparison:** Reject the "4% industry benchmark" as a decision criterion. If your baseline was 5% and moved to 6.1%, the *delta* matters, not the absolute number.
+
+#### 5. This-Week Steps (Executable Plan)
+1.  **Query Construction:** By Wednesday, run the four segment cuts above using `episode_played` and `subscription_cancelled` events. Calculate the % change in churn rate for each segment vs. their Q1 average.
+2.  **Decision Matrix:**
+    *   If **Segment B (Power Users)** churn increased >20% relative to baseline: **Recommendation:** Revert top shows to weekly immediately. Marketing spend is wasted until retention stabilizes.
+    *   If **Segment A (Single-Show)** shows isolated spikes: **Recommendation:** Launch targeted win-back campaigns for those specific shows; maintain bi-weekly schedule for others.
+    *   If **all segments** are flat or within noise: **Recommendation:** Frequency is not the driver. Allocate budget to audit audio quality and host performance, then proceed with acquisition testing.
+3.  **Report Delivery:** Present the table of "Segment vs. Churn Delta" to the Content Director by Friday. Include the specific revenue impact: `(Churn Delta × Avg Lifetime Value)` to quantify the budget risk.
+
+*Note: Ensure user identifiers are pseudonymous in all reports to comply with privacy standards; route any PII handling to your compliance team.*
+*If historical data for "power user" classification is missing, flag those rows as `UNVERIFIED` rather than imputing values.*

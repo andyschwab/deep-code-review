@@ -1,0 +1,41 @@
+### Event Taxonomy Proposal: TutorLink Core Journey
+**Audience:** Mobile Engineering Lead, Operations Director
+**Goal:** Predict Lifetime Value (LTV) by isolating the "First Session Quality" signal without data noise.
+**Constraint:** Low-bandwidth optimization; implement within 2 weeks.
+
+We will instrument only four events that directly answer whether the first session drives retention. All other metrics are deferred.
+
+#### 1. `tutor_response_accepted`
+*   **Question Answered:** Does speed of acceptance correlate with student return?
+*   **Properties:** `booking_id`, `time_to_accept_seconds` (integer), `tutor_id` (pseudonymous), `device_type`.
+*   **Why:** Validates the "response time" hypothesis. If high LTV users consistently have lower `time_to_accept_seconds`, we prioritize speed in matching algorithms.
+
+#### 2. `session_completed`
+*   **Question Answered:** Did the core value exchange actually happen?
+*   **Properties:** `booking_id`, `scheduled_duration_minutes`, `actual_duration_minutes`, `connection_dropped_flag` (boolean), `tutor_id`, `student_id` (pseudonymous).
+*   **Why:** Distinguishes between a booked slot and a delivered service. `actual_duration` vs `scheduled_duration` reveals early exits (poor fit) vs. full sessions.
+
+#### 3. `post_session_rating_submitted`
+*   **Question Answered:** Is immediate sentiment a leading indicator of the 15% repeat rate?
+*   **Properties:** `booking_id`, `rating_score` (1-5), `sentiment_tag` (optional: "good", "ok", "bad" – stored as integer enum to save bandwidth), `submitted_latency_seconds`.
+*   **Why:** This is your primary proxy for "quality." We track `submitted_latency` to ensure the prompt isn't causing friction itself.
+
+#### 4. `repeat_booking_initiated`
+*   **Question Answered:** Did the user return? (The North Star Input)
+*   **Properties:** `student_id` (pseudonymous), `original_tutor_id` (boolean: same tutor?), `days_since_first_session`, `booking_channel` (app/web).
+*   **Why:** This is the outcome variable. We correlate this against the previous three events to find the predictor.
+
+### Implementation Rules for Low-Bandwidth & Noise Reduction
+1.  **Payload Minimization:** All events use integer enums for strings (e.g., `sentiment_tag`: 1=Good, 2=Ok, 3=Bad) to reduce payload size by ~60%.
+2.  **Batching & Retry:** Mobile SDK must queue events locally and batch-upload when Wi-Fi is detected or cellular signal > 3G. Do not block the user UI for event transmission.
+3.  **Stable Identifier:** Ensure `student_id` is a persistent, pseudonymous UUID generated at first app open, not reset on reinstall, to accurately track the 15% retention cohort across devices.
+4.  **No "Track Everything":** Do not instrument screen views, button hovers, or profile edits yet. These do not answer the specific question of "What drives the first repeat?" and will obscure the signal.
+
+### Reading the Data (The Decision Matrix)
+Once live, run this weekly cohort analysis:
+*   **If** `time_to_accept_seconds` < 60s correlates with >30% `repeat_booking_initiated`: **Action:** Optimize matching algo for speed.
+*   **If** `actual_duration_minutes` < 50% of scheduled time correlates with 0% repeat: **Action:** Investigate content mismatch or technical dropouts.
+*   **If** `rating_score` = 5 but repeat rate is still 15%: **Action:** The rating is vanity; friction exists in the *re-booking flow*, not the session quality.
+
+---
+*Note: This taxonomy assumes the `student_id` logic aligns with privacy compliance for pseudonymization. Any PII handling must route to your privacy protocol before engineering begins.*

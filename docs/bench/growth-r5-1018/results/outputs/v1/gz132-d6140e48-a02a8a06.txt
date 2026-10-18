@@ -1,0 +1,43 @@
+### Event Taxonomy for Conversational Interface Friction Analysis
+
+To diagnose the 30% abandonment rate before the May 1st release, instrument the following events. Each event answers a specific question to distinguish between Natural Language Understanding (NLU) failures, latency issues, and script friction.
+
+**1. `chat_intent_received`**
+*   **When:** Immediately after the user submits their first message.
+*   **Properties:** `message_length` (chars), `input_method` (voice/text), `session_id`.
+*   **Question Answered:** Are users abandoning before typing, or immediately after sending? Does message length correlate with drop-off?
+
+**2. `nlu_confidence_score`**
+*   **When:** After the system processes the intent but before responding.
+*   **Properties:** `intent_category` (e.g., "balance", "dispute"), `confidence_score` (0.0–1.0), `fallback_triggered` (boolean).
+*   **Question Answered:** Is the NLU model failing to understand users? If `confidence_score` < 0.6 correlates with abandonment, the issue is model accuracy, not script flow.
+
+**3. `response_latency_bucket`**
+*   **When:** When the system begins rendering the response.
+*   **Properties:** `latency_ms`, `latency_bucket` ("<1s", "1-3s", ">3s"), `intent_category`.
+*   **Question Answered:** Is latency causing the drop-off? If abandonment spikes in the ">3s" bucket, the friction is performance, not content.
+
+**4. `conversation_step_reached`**
+*   **When:** At every distinct turn in the dialogue flow (e.g., "Prompt 1", "Clarification Request", "Resolution").
+*   **Properties:** `step_name`, `step_number`, `requires_user_input` (boolean).
+*   **Question Answered:** Exactly which step causes the 30% exit? This creates a funnel visualization to pinpoint the specific script block failing.
+
+**5. `user_action_taken`**
+*   **When:** When a user selects a quick-reply button or types a follow-up.
+*   **Properties:** `action_type` (button_click/free_text), `option_selected`, `time_to_respond_sec`.
+*   **Question Answered:** Do users prefer buttons over typing? If `time_to_respond_sec` increases drastically at a specific prompt, the required effort is too high.
+
+**6. `chat_exit_reason`**
+*   **When:** When the session ends prematurely (before task completion).
+*   **Properties:** `last_step_name`, `total_duration_sec`, `completion_status` ("abandoned", "resolved", "escalated_to_human").
+*   **Question Answered:** What is the final state before abandonment? This validates if the "30% abandon after first prompt" hypothesis holds true once granular steps are visible.
+
+**Implementation Constraints for Friday Delivery**
+*   **Identifier Seam:** Ensure all events include a `pseudonymous_user_id` to track cohorts across sessions without exposing PII.
+*   **Scope:** Do not instrument generic "screen views." Only log events that map to the questions above to avoid noise.
+*   **Baseline:** Compare the new funnel against the old menu-based system's completion rate only after data collection stabilizes (approx. 48 hours post-instrumentation).
+
+**Reading Rule:** If `nlu_confidence_score` averages >0.8 and `latency_ms` is <1s, but drop-off remains high at `step_number` 2, the friction is in the conversation script itself (e.g., confusing wording), requiring immediate design iteration.
+
+*Note: These metrics measure product behavior, not system health; coordinate with engineering to ensure latency logging does not violate existing SLO observability rules.*
+*All thresholds for "high latency" or "low confidence" must be derived from your own April 10–24 beta data, not external benchmarks.*

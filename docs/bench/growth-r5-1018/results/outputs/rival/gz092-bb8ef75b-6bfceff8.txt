@@ -1,0 +1,71 @@
+# Acme Retail Voice Skill: Beta Tracking Plan (UK)
+
+**Objective:** Validate adoption hypotheses and command complexity while adhering to GDPR and storage constraints.
+**Audience:** Raj Patel, Head of Data
+**Context:** 10,000 beta users (London/Manchester), Launch June 1st.
+
+## 1. Core Principles & Privacy Constraints
+*   **No Raw Audio:** Do not store raw audio files in analytics pipelines. Process audio on-device or in ephemeral memory; log only the *structured intent* and *confidence score*.
+*   **GDPR Compliance:** All user IDs must be pseudonymized. Do not log PII (names, addresses) within event properties. Ensure "Right to be Forgotten" capability by mapping internal user IDs to delete requests.
+*   **Decision-First:** Every event below maps to a specific business question (Adoption vs. Complexity vs. Retention).
+
+## 2. Prioritized Event Taxonomy
+
+### A. Activation & Adoption (Validates Market Fit)
+*Goal: Are users returning and relying on the skill?*
+
+| Event Name | Trigger | Critical Properties | Decision Informing |
+| :--- | :--- | :--- | : |
+| `skill_enabled` | User adds skill to device | `device_type`, `city` (London/Manchester) | Geographic concentration of early adopters. |
+| `session_started` | User invokes skill wake word | `is_returning_user`, `days_since_last_use` | Daily Active Users (DAU) and retention curves. |
+| `session_ended` | Skill closes or times out | `session_duration_sec`, `commands_issued_count` | Engagement depth per session. |
+
+### B. Command Complexity (Validates Usage Hypothesis)
+*Goal: Are users sticking to staples or attempting complex searches?*
+
+| Event Name | Trigger | Critical Properties | Decision Informing |
+| :--- | :--- | :--- | :--- |
+| `intent_detected` | NLU processes voice input | `intent_category` (e.g., `reorder_staple`, `search_product`), `confidence_score` | Ratio of simple vs. complex intents. |
+| `search_executed` | User attempts product search | `search_complexity_score` (1-5), `filters_applied_count` | Validates if users filter by color/fabric. |
+| `clarification_prompted` | Skill asks user to repeat/clarify | `original_intent`, `failure_reason` | Identifies where voice recognition fails on complex queries. |
+
+### C. Conversion & Value (Validates Business Case)
+*Goal: Does voice drive actual revenue?*
+
+| Event Name | Trigger | Critical Properties | Decision Informing |
+| :--- | :--- | :--- | :--- |
+| `cart_added_voice` | Item added via voice command | `product_category`, `is_repeat_purchase` | Voice-specific basket composition. |
+| `checkout_completed` | Order confirmed | `order_value_gbp`, `payment_method`, `items_count` | Revenue attribution to voice channel. |
+| `checkout_abandoned` | User exits before payment | `abandonment_stage`, `last_intent` | Friction points in the voice checkout flow. |
+
+### D. Error & Quality (Technical Health)
+*Goal: Is the technology ready for scale?*
+
+| Event Name | Trigger | Critical Properties | Decision Informing |
+| :--- | :--- | :--- | :--- |
+| `intent_failed` | NLU returns low confidence/no match | `audio_duration_ms`, `background_noise_level` (if available) | Investment needed in NLU training for specific accents/terms. |
+| `fallback_triggered` | Skill defaults to generic web search | `original_query_text_transcript` | Specific vocabulary gaps (e.g., fabric names). |
+
+## 3. Implementation Specifications for Data Pipeline
+
+**Data Retention Policy:**
+*   Raw transcripts: Delete after 30 days unless flagged for model retraining (requires explicit opt-in).
+*   Aggregated metrics: Retain indefinitely.
+*   User-level event logs: Retain for 90 days for cohort analysis, then aggregate.
+
+**Required Derived Metrics (Daily Dashboard):**
+1.  **Complexity Ratio:** `(Count of intent_category = 'search_product' with filters > 1) / (Total Intents)`
+    *   *Target:* Monitor if this exceeds 15% to justify complex search inventory.
+2.  **Voice Conversion Rate:** `(checkout_completed) / (session_started)`
+    *   *Benchmark:* Compare against app/web baseline.
+3.  **Staple Reorder Rate:** `(intent_category = 'reorder_staple') / (Total Intents)`
+    *   *Validation:* Confirms or refutes the primary hypothesis.
+4.  **Clarification Rate:** `(clarification_prompted) / (Total Intents)`
+    *   *Threshold:* If >20%, UX intervention required before public launch.
+
+**GDPR Safety Check:**
+Ensure `city` is limited to "London" or "Manchester" (no postcodes). Ensure `device_type` does not include unique device serial numbers.
+
+---
+*Note: Configure pipeline to alert if `intent_failed` rate spikes >10% hour-over-hour, indicating potential service degradation.*
+*Recommendation: Add a post-session "thumbs up/down" event to capture subjective satisfaction without storing audio.*

@@ -1,0 +1,45 @@
+### Event Tracking Requirements: CargoFlow Dashboard Redesign
+**Target Implementation:** November 15th
+**Audience:** Engineering Team (Hamburg)
+
+**Objective:** Capture specific user value signals regarding shipment status updates without generating noise. We are shifting from vanity metrics (page views) to actionable interaction data to validate if "Estimated Arrival Time" is the primary value driver.
+
+#### 1. Core Event Taxonomy
+Do not track mouse hovers or passive scrolling. Instrument only distinct interactions that indicate intent or value consumption.
+
+| Event Name | Trigger Condition | Business Question Answered |
+| :--- | :--- | :--- |
+| `dashboard_viewed` | Dashboard loads successfully. | Baseline traffic volume (replace generic page view). |
+| `shipment_card_expanded` | User clicks a summary card to see details. | Which shipments attract immediate attention? |
+| `data_point_focused` | User clicks/toggles a specific detail tab (e.g., "ETA", "Location", "Weight"). | **Critical:** Do users care more about ETA vs. Location vs. Weight? |
+| `status_refresh_triggered` | User manually clicks "Refresh" or pulls to update. | How urgent is the need for real-time data? |
+| `alert_configured` | User sets a notification threshold for a specific metric. | High-intent signal of what data drives operational decisions. |
+
+#### 2. Required Event Properties
+Every event above must include the following properties to enable segmentation by company size and shipment context.
+
+*   **User Context:**
+    *   `user_id`: Stable pseudonymous ID (required for cohort retention; do not use PII).
+    *   `company_id`: Unique identifier for the freight forwarder.
+    *   `company_segment`: Derived from billing tier (e.g., "Enterprise", "SMB") to segment by size.
+*   **Shipment Context:**
+    *   `shipment_id`: Unique shipment reference.
+    *   `shipment_status`: Current state (e.g., "In Transit", "Delayed").
+    *   `data_point_type`: The specific element interacted with (e.g., "eta", "driver_location", "cargo_weight"). *Required for `data_point_focused`.*
+*   **Session Context:**
+    *   `session_id`: Groups events within a single login.
+    *   `timestamp`: UTC ISO 8601 format.
+
+#### 3. Implementation Rules for Engineering
+1.  **No "Track Everything":** Do not instrument hover states or time-on-element unless explicitly requested in a future hypothesis test. Unused events increase warehouse costs and analysis paralysis.
+2.  **Identifier Seam:** Ensure `user_id` persists across sessions to measure retention of the core action (checking critical shipments). This differs from system observability logs which should avoid high-cardinality user labels.
+3.  **Data Governance:** Do not send PII (names, exact addresses, phone numbers) to the analytics pipeline. Route sensitive data handling to the privacy compliance protocol.
+
+#### 4. Success Criteria & Next Steps
+This plan validates the "ETA Hypothesis." If `data_point_focused` events show >60% concentration on "eta" compared to "driver_location" within the first 14 days post-launch, we prioritize ETA accuracy features. If the split is even, we proceed with user interviews to understand the divergence.
+
+**Action for Engineering:** Implement schema above by Nov 15th.
+**Action for Growth:** Prepare cohort query to compare `data_point_focused` rates between "Enterprise" and "SMB" segments for the week of Nov 18th.
+
+*Note: Current baseline of 1,200 page views/day is insufficient to measure value; the new `data_point_focused` event will serve as the true North Star input.*
+*No external benchmarks for "good" engagement rates are applied; success is defined by CargoFlow's internal trend lines.*

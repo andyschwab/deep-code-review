@@ -1,0 +1,45 @@
+# AquaSmart Telemetry & Metrics Hierarchy
+
+To meet the $0.05/device/month budget while proving ROI to municipal partners by March, adopt a "Tiered Event Strategy." This prioritizes high-value outcome data over high-frequency behavioral logs, transmitting only what is necessary to validate the 25% savings hypothesis and distinguish engagement from confusion.
+
+### Tier 1: Critical Outcome Events (Transmit Immediately)
+*These events directly prove water savings and ROI. They are low-volume but high-value.*
+1.  **`schedule_automation_enabled`**: Triggered once when a user activates automated scheduling.
+    *   *Properties:* `days_since_install` (to verify the "first three days" hypothesis), `schedule_type`.
+    *   *Decision Impact:* Validates the core assumption that early automation drives the 25% reduction.
+2.  **`water_cycle_completed`**: Aggregated daily summary, not per-minute data.
+    *   *Properties:* `total_gallons_used`, `zone_count`, `automation_status` (manual vs. auto).
+    *   *Decision Impact:* The numerator for your ROI calculation (1.2M gallons saved). Essential for municipal reporting.
+3.  **`device_offline_alert`**: Triggered only on connection failure >24 hours.
+    *   *Decision Impact:* Operational reliability; prevents data gaps in savings reports.
+
+### Tier 2: Diagnostic Engagement Events (Transmit Weekly/Batched)
+*These events resolve the "engagement vs. confusion" unknown without flooding the server. Do not send every login.*
+1.  **`session_summary`**: A single aggregated packet sent once every 7 days per device.
+    *   *Properties:* `login_count`, `avg_session_duration`, `settings_changed_count`, `help_page_views`.
+    *   *Logic:* High logins + High settings changes = **Confusion**. High logins + Zero changes + Long duration = **Engagement/Monitoring**.
+    *   *Decision Impact:* Identifies UX friction without transmitting individual clickstreams.
+2.  **`feature_adoption_snapshot`**: Weekly count of unique features accessed (e.g., weather_skip, rain_delay).
+    *   *Decision Impact:* Shows product stickiness to partners without raw event volume.
+
+### Tier 3: Local-Only Events (Do Not Transmit)
+*Log these locally on the device for debugging if a user reports an issue, but do not send to the cloud.*
+*   Individual button clicks within the app.
+*   Screen views/navigation.
+*   Failed login attempts (unless >5 in a row, then flag as `security_alert`).
+*   Real-time sensor readings (transmit only the daily aggregate in Tier 1).
+
+### Success Metrics Framework
+To prove ROI to municipal partners, report these three derived metrics monthly:
+
+1.  **Automation Adoption Rate**: % of units with `schedule_automation_enabled` within 3 days of install.
+    *   *Target:* Correlate this cohort against the 25% savings goal.
+2.  **Efficiency Delta**: Average `total_gallons_used` per zone for Automated vs. Manual cohorts.
+    *   *Calculation:* (Manual Avg - Auto Avg) / Manual Avg. This is your primary ROI figure.
+3.  **Confusion Index**: Ratio of `settings_changed_count` to `login_count` from the weekly batch.
+    *   *Threshold:* If ratio > 0.5, users are struggling; prioritize UX fixes over new features.
+
+### Implementation Note for Engineering
+Configure the firmware to buffer Tier 2 events locally and compress them into a single JSON payload transmitted every Sunday at 02:00 local time. This reduces connection overhead and keeps transmission well under the $0.05 limit while preserving the analytical ability to distinguish confusion from engagement.
+
+This hierarchy ensures you capture the "why" behind the water savings without paying to store redundant click data.

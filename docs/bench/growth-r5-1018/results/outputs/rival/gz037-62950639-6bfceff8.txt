@@ -1,0 +1,33 @@
+### Deduplication Logic for UrbanGo Historical Data
+
+To resolve the 18% inflation in active user counts caused by duplicate `trip_started` events post-merger, apply the following logic to your historical dataset. This approach targets technical duplicates (same action, same moment, same device) while preserving legitimate multi-service usage.
+
+**1. Identification Criteria**
+Flag a record as a duplicate only if it matches an existing record on **all three** of the following keys:
+*   **`device_id`**: Exact match.
+*   **`event_name`**: Must be `trip_started`.
+*   **`timestamp`**: Within a **2-second window**. (Legacy SDK retries usually occur within milliseconds; a 2-second buffer captures network jitter without risking legitimate distinct trips).
+
+**2. Exclusion Logic (Protecting Legitimate Usage)**
+Do **not** flag records as duplicates if:
+*   The timestamps differ by more than 2 seconds (indicates a second, legitimate ride).
+*   The `session_id` differs significantly while the timestamp is close (indicates a crash/restart scenario where both events might be valid; prefer keeping the one with a completed `trip_ended` event if available).
+*   The event is part of a multi-service sequence (e.g., `trip_started` followed immediately by `food_order_started`). The logic above only compares `trip_started` against other `trip_started` events, so cross-service events are naturally ignored.
+
+**3. Execution Strategy: The "Shadow Table" Approach**
+Do not delete or update rows in your production `events_raw` table. Instead:
+1.  **Create a View or New Table:** Generate a new dataset (e.g., `events_cleaned_v1`) that selects all records from the source *except* those flagged as duplicates.
+2.  **Deterministic Selection:** When two records match the criteria, keep the one with the earliest `ingestion_timestamp` (or lowest `event_id`) to ensure the result is reproducible.
+3.  **Point Dashboards to New Source:** Update your MAU calculation queries to read from `events_cleaned_v1`. Keep the raw data untouched for auditability.
+
+**4. Validation Steps Before Production Rollout**
+Before switching the board reporting to the cleaned dataset, perform these three checks:
+
+*   **The "Zero-Loss" Sanity Check:** Run the deduplication logic on a known "clean" day prior to the June 15th merger. The output row count must match the input row count exactly (0% removal). If any records are dropped, your window is too wide.
+*   **The Multi-Service Integrity Test:** Isolate users who have both `trip_started` and `food_order_started` events within 5 minutes of each other on the same day. Verify that their `trip_started` events are not removed unless a true duplicate exists. Confirm their MAU status remains "Active."
+*   **The Aggregate Reconciliation:** Calculate the Daily Active Users (DAU) for the last 7 days using the raw data vs. the cleaned logic. The reduction should align closely with the reported ~18% inflation. If the drop is 40% or 2%, the logic is flawed. Investigate the delta before proceeding.
+
+By isolating the cleanup to a new view and validating against pre-merger baselines, you ensure real-time operations remain unaffected while delivering accurate MAU figures to the board.
+
+*Note: Ensure `device_id` is normalized (e.g., lowercased) before comparison to avoid case-sensitivity mismatches.*
+*Note: Document the specific `event_id`s removed in a separate audit log for future compliance queries.*

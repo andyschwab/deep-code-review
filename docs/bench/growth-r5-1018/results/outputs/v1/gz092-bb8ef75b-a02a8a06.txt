@@ -1,0 +1,31 @@
+**To:** Raj Patel, Head of Data
+**From:** Growth Analytics
+**Subject:** Beta Event Taxonomy & North Star Definition (Acme Retail UK Voice Skill)
+
+**1. The North Star Metric**
+**Weekly Active Reorders:** The count of unique users who successfully complete a voice-ordered replenishment of a household staple within a 7-day window.
+*Why:* This measures realized value (convenience) rather than vanity (downloads or total sessions). It directly validates the core business case of "voice for staples."
+
+**2. Prioritized Event Taxonomy (MVP Stage)**
+Instrument only these events to answer specific questions while minimizing PII storage. Do not store raw audio; store structured intent logs with pseudonymous User IDs.
+
+| Event Name | Properties (Non-PII) | Question Answered |
+| :--- | :--- | :--- |
+| `session_started` | `device_type`, `location_city` (London/Manchester) | Is adoption happening in target geos? |
+| `intent_detected` | `intent_category` (reorder vs. complex_search), `confidence_score` | Are users attempting complex searches despite our "staples" assumption? |
+| `order_completed` | `item_category`, `is_repeat_purchase`, `latency_ms` | Are users actually buying staples? (Moves North Star) |
+| `order_abandoned` | `failure_reason` (no_match, timeout, user_cancel), `step_in_flow` | Where does the voice interaction leak? |
+| `guardrail_privacy` | `pii_detected_flag` (boolean only) | Are we accidentally capturing raw PII in logs? |
+
+**3. Measurement Rules & Constraints**
+*   **Identifier Seam:** Use a stable, pseudonymous `user_id` generated at first launch to track retention cohorts across sessions. Do not use names, emails, or voice prints as primary keys.
+*   **Privacy First:** Raw audio must never enter the analytics pipeline. Log only the transcribed intent and the system's confidence score. If `intent_category` is "complex_search," flag it for qualitative review later, but do not store the specific query text if it contains potential PII.
+*   **No Benchmarks:** We will not compare our "completion rate" to industry averages. Success is defined by our own week-over-week retention of the `order_completed` event among the 10,000 beta users.
+
+**4. This-Week Steps**
+1.  **Configure Pipeline:** Ingest `intent_detected` with `intent_category` immediately to validate the "staples vs. complex" assumption within the first 48 hours of beta.
+2.  **Define Alert:** Set a trigger if `order_abandoned` rate exceeds 40% at the `intent_detected` step, indicating the voice model cannot understand user requests.
+3.  **Validate Anonymization:** Run a test batch to ensure `guardrail_privacy` flags any event containing raw text that looks like an address or name before it hits the warehouse.
+
+*Note: If users frequently attempt complex searches (high volume of `intent_category: complex_search`), we must pivot the product roadmap from "reordering only" to supporting discovery, or explicitly block those queries to manage expectations.*
+*All metrics are `UNVERIFIED` until the beta launches and data flows; do not pre-calculate conversion rates.*

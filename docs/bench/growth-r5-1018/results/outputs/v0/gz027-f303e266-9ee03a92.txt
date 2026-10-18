@@ -1,0 +1,56 @@
+# Requirements: Student Risk & Engagement Telemetry (CodeClimb)
+
+**Objective:** Replace vanity metrics (video views) with actionable behavioral indicators predicting churn within the first four weeks. Implementation target: February 1 cohort.
+
+## 1. North Star & Input Metrics
+*   **North Star:** Weekly Active Learners completing ≥3 hands-on coding challenges. (Video views are deprecated as a success metric).
+*   **Primary Input:** "Struggle Index" and "Flow Frequency" (defined below).
+*   **Guardrail:** Average time-to-complete challenge (ensure we do not incentivize rushing).
+
+## 2. Event Taxonomy (Engineering Specification)
+Instrument only the following events. Each must include `user_id` (pseudonymous), `cohort_id`, `challenge_id`, and `timestamp`.
+
+### A. The "Struggle" Signal (Risk Indicator)
+*Hypothesis: Excessive friction without resolution predicts dropout.*
+*   **Event Name:** `code_compile_failed`
+    *   **Properties:** `error_type` (syntax, logic, timeout), `attempt_number` (session-level).
+*   **Event Name:** `help_resource_accessed`
+    *   **Properties:** `resource_type` (docs, hint, solution_preview), `time_since_last_fail` (seconds).
+*   **Event Name:** `inactivity_timeout`
+    *   **Properties:** `duration_seconds`, `last_action_type` (e.g., stuck on compile fail).
+*   **Derived Metric (Struggle Index):** Ratio of `code_compile_failed` to `code_compile_success` over a rolling 24-hour window, weighted by `inactivity_timeout`.
+    *   *Action Rule:* If Struggle Index > 3.0 for 2 consecutive days → Trigger automated "stuck?" intervention or mentor alert.
+
+### B. The "Flow" Signal (Retention Indicator)
+*Hypothesis: Rapid iteration with successful compiles indicates engagement.*
+*   **Event Name:** `code_compile_success`
+    *   **Properties:** `lines_changed`, `time_since_previous_attempt`.
+*   **Event Name:** `challenge_stage_completed`
+    *   **Properties:** `stage_number`, `total_stages`, `is_first_try` (boolean).
+*   **Derived Metric (Flow Frequency):** Count of `code_compile_success` events where `time_since_previous_attempt` < 120 seconds within a 1-hour session.
+    *   *Action Rule:* If Flow Frequency = 0 for 3 consecutive days despite login → Risk of passive churn.
+
+### C. The "Activation" Threshold
+*   **Event Name:** `core_action_completed`
+    *   **Definition:** Student successfully compiles and submits their first unique algorithm challenge without viewing the full solution.
+    *   *Usage:* Measure % of enrolled users hitting this by Day 3. This is the primary activation metric, not video completion.
+
+## 3. Data Constraints & Privacy
+*   **Identifier Seam:** Use a stable, pseudonymous `student_token` for cross-session tracking. Do not log raw code content or PII in event properties.
+*   **Retention:** Raw event logs retained for 90 days; aggregated cohort metrics retained indefinitely.
+*   **Compliance:** Route consent management and PII handling to existing privacy protocols; do not store IP addresses in the analytics stream.
+
+## 4. Implementation Timeline
+*   **Jan 15:** Schema finalization and QA on staging environment.
+*   **Jan 22:** Backfill logic for current active users (if possible) or clear baseline start date.
+*   **Feb 1:** Go-live for new cohort; Dashboard v1 available showing Struggle Index vs. Retention.
+
+## 5. Decision Rules for Curriculum Team
+*   **If** Struggle Index spikes globally on Challenge #4 → **Then** Review challenge clarity/difficulty (product fix).
+*   **If** Struggle Index is high for specific users → **Then** Trigger mentor outreach (support fix).
+*   **If** Video views are high but `core_action_completed` is low → **Then** Deprioritize video production; increase interactive scaffolding.
+
+***
+
+**Note:** No benchmark "good" values are asserted above; thresholds (e.g., Struggle Index > 3.0) must be calibrated against the February 1 cohort's own baseline during week 1.
+**Note:** Do not instrument "mouse movements" or "eye tracking"; they add noise without answering a named retention question.

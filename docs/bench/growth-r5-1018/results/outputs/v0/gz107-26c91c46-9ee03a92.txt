@@ -1,0 +1,29 @@
+### Post-Mortem: Checkout Simplification A/B Test (SiamTravel)
+
+**Verdict: Stop and Revert.** Do not ship the simplified flow. The 12% drop in completed bookings is a catastrophic failure of the primary metric that outweighs the 40-second efficiency gain. Speed is a guardrail, not the North Star; if users book faster but fewer users book, value is destroyed.
+
+**Recomputed Impact**
+Assuming a baseline conversion rate typical for travel (e.g., 2-4%), a 12% relative decrease represents a massive revenue leak. Even if the baseline were as low as 1%, losing 12% of those conversions is financially material. The "win" on time-to-book is a vanity metric in this context because it measures the speed of abandonment just as well as the speed of purchase. Without a breakdown of *completed* vs. *abandoned* session times, the 40-second drop likely indicates users exiting earlier because a necessary trust signal or information point was removed.
+
+**Diagnosis: The "Confidence Gap"**
+Your hypothesis ("fewer clicks = higher conversion") failed because it treated friction as purely negative. In high-consideration verticals like travel booking, specific friction points serve as **confidence builders**. The removed steps likely housed:
+1.  **Critical Information:** Insurance options, cancellation policies, or fare rules that users need to verify before committing money.
+2.  **Pacing:** A moment to breathe and confirm details. Removing this creates "rush anxiety," causing users to bail out due to fear of error.
+
+**Signals to Investigate (Quantitative & Qualitative)**
+To confirm the root cause before the director's meeting, query your analytics for these specific signals immediately:
+*   **Funnel Drop-off Location:** Did the drop occur immediately upon entering the new simplified page, or at the final "Pay" button?
+    *   *If early:* Users are confused or missing context (the "Where did the insurance go?" problem).
+    *   *If late:* Users proceeded but lost confidence at the final review stage.
+*   **Support Ticket Spike:** Filter support chats/tickets from the test dates for keywords: "insurance," "cancel," "review," or "missing." A spike here confirms the qualitative "confidence" theory.
+*   **Device Segmentation:** Check if the drop is worse on mobile. Mobile users often rely more heavily on linear, step-by-step guidance than desktop users who can scan.
+
+**This-Week Action Plan**
+1.  **Immediate Revert:** Roll back to the original flow to stop the revenue bleed. The cost of 10 days of lost bookings exceeds the engineering cost of a revert.
+2.  **Targeted Instrumentation:** Do not instrument "everything." Add one specific event: `checkout_step_view` with a property `step_name` (e.g., "insurance_selection", "fare_rules"). This answers the named question: "Which specific removed step contained the necessary confidence signal?"
+3.  **Qualitative Flash-Check:** Watch 10 session recordings of users who abandoned during the test. Look specifically for "rage clicks" or rapid scrolling on the simplified page, indicating a search for missing information.
+
+**Decision Rule for Next Test**
+Do not re-test "fewer steps" as a blanket rule. Instead, test **progressive disclosure**: keep the steps but pre-fill data or collapse non-critical fields. Only ship a change if the primary metric (Completed Bookings) holds steady or improves; time-to-book is secondary.
+
+*Note: Ensure your session identifier persists across the checkout flow to accurately track the drop-off point; without a stable user ID, funnel analysis is unreliable. All benchmark comparisons above are derived strictly from your reported 12% lift/drop figures.*

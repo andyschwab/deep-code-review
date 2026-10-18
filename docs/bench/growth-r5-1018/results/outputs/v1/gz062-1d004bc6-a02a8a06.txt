@@ -1,0 +1,31 @@
+### Event Schema: `machine_stop`
+
+To distinguish planned maintenance from unexpected errors and evaluate the impact of micro-stops, instrument a single `machine_stop` event with the following required properties. This structure allows Elena to validate firmware overhead while ensuring the data team can segment stops by cause and duration later.
+
+**Core Identity & Timing**
+*   `event_name`: `"machine_stop"` (Constant)
+*   `timestamp`: ISO 8601 string with millisecond precision (Critical for calculating exact duration and sequencing micro-stops).
+*   `duration_ms`: Integer. Calculated at the end of the stop. Do not rely solely on start/end timestamps in post-processing; storing the computed duration reduces query error.
+*   `machine_id`: String. Stable unique identifier for the specific X-200 unit.
+*   `cycle_id`: String. Links the stop to the specific assembly cycle mentioned in your 50,000 cycle count.
+
+**Classification Context (The "Why")**
+*   `stop_category`: Enum. Must be one of: `planned_maintenance`, `unexpected_error`, `operator_initiated`, `unknown`.
+    *   *Logic:* Firmware should set this based on the trigger source. If the trigger is a scheduled routine or a manual "maintenance mode" switch, mark `planned_maintenance`. If triggered by a sensor fault or timeout, mark `unexpected_error`.
+*   `error_code`: String (Nullable). Populated only if `stop_category` is `unexpected_error`. Use standard ISO/manufacturer codes.
+*   `initiator`: Enum. `system_auto`, `human_manual`, `external_signal`. This helps distinguish if a "pause" was a deliberate human action (not a jam) even if it exceeded 30 seconds.
+
+**Operational State (The "Where")**
+*   `station_id`: String. If the arm has multiple sub-stations, identify which one halted.
+*   `product_sku`: String. The item being processed when the stop occurred. This reveals if specific products cause more micro-stops.
+*   `firmware_version`: String. Essential for correlating stop patterns with specific firmware releases.
+
+**Micro-Stop Specifics**
+*   `is_micro_stop`: Boolean. True if `duration_ms` < 5000.
+*   `preceding_stop_id`: String (Nullable). If this stop occurs within 10 seconds of the previous stop's end, link the previous `cycle_id` or a generated `stop_sequence_id`. This allows you to detect "chatter" (accumulating micro-stops) versus isolated events.
+
+**Implementation Note for Elena**
+To prevent lag, do not log high-frequency sensor telemetry (e.g., vibration samples) inside this event. This schema logs only the *resultant state change*. The `duration_ms` should be computed on the edge device before emission to avoid clock-skew issues during aggregation.
+
+**Next Step**
+Validate that the firmware can write this JSON blob within the 5ms interrupt window during a simulated high-frequency micro-stop sequence. If the write blocks the control loop, drop the `product_sku` and `firmware_version` fields first, as they can be enriched later via batch joins with the cycle log.

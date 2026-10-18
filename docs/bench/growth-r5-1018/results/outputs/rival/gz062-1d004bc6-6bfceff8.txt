@@ -1,0 +1,42 @@
+### Stop Event Schema for Alpine Robotics X-200
+
+To distinguish between planned maintenance, unexpected errors, and accumulating micro-stops, every stop event logged by the X-200 firmware must include the following context fields. These properties ensure Elena's team can validate logging frequency impacts while providing your data team with the granularity needed for downtime analysis.
+
+#### 1. Core Identification & Timing
+*   **`event_name`**: String. Fixed value indicating the event type (e.g., `machine_stop`).
+*   **`timestamp_start`**: ISO 8601 UTC. Exact moment the cycle paused.
+*   **`timestamp_end`**: ISO 8601 UTC. Exact moment the cycle resumed.
+    *   *Logic*: Duration is calculated as `timestamp_end` - `timestamp_start`. Do not store duration as a raw input; derive it to prevent rounding errors during aggregation.
+*   **`machine_id`**: String. Unique identifier for the specific X-200 unit.
+*   **`factory_zone_id`**: String. Logical grouping within the facility (e.g., `assembly-line-3`).
+
+#### 2. Stop Classification (Critical for Logic)
+*   **`stop_category`**: Enum. Defines the high-level nature of the stop.
+    *   Values: `planned_maintenance`, `unexpected_error`, `micro_stop`, `unknown`.
+    *   *Logic*: Firmware should initially flag based on duration thresholds (e.g., <5s = `micro_stop`, >30s = `unexpected_error`), but allow downstream logic to reclassify based on error codes.
+*   **`error_code`**: String or Null. Specific sensor or controller code if an error triggered the stop. Null for planned maintenance.
+*   **`is_user_initiated`**: Boolean. True if a human pressed a pause/stop button; False if automated.
+*   **`maintenance_task_id`**: String or Null. Links to a work order if `stop_category` is `planned_maintenance`. Null otherwise.
+
+#### 3. Operational Context
+*   **`cycle_count_total`**: Integer. The total number of cycles completed by this machine up to this event. Useful for correlating stops with wear-and-tear patterns.
+*   **`product_sku`**: String. The specific item being assembled when the stop occurred. Certain SKUs may cause higher friction leading to micro-stops.
+*   **`operator_id`**: String or Null. ID of the human operator logged into the station, if applicable.
+*   **`firmware_version`**: String. Critical for Elena to isolate whether specific logging versions correlate with increased micro-stop frequency (potential lag issues).
+
+#### 4. Sensor State Snapshot
+*   **`temperature_motor`**: Float (°C). Motor temperature at the moment of the stop.
+*   **`vibration_level`**: Float (Hz). Average vibration in the 5 seconds preceding the stop. High vibration prior to a micro-stop suggests mechanical binding.
+*   **`power_draw_avg`**: Float (Amps). Average power consumption during the stop duration.
+
+### Logical Grouping for Analysis
+
+To address the engineering hypothesis regarding micro-stops, structure your analysis views as follows:
+
+1.  **The "Accumulation" View**: Filter where `stop_category` = `micro_stop`. Group by `machine_id` and `hour`. Sum the derived duration. This reveals if thousands of sub-5-second events equal significant downtime blocks.
+2.  **The "Intervention" View**: Filter where `stop_category` = `unexpected_error` AND derived duration > 30s. Compare frequency against `vibration_level` to predict jams before they become 30-second events.
+3.  **The "Noise" Check**: Filter where `is_user_initiated` = True. Exclude these from efficiency metrics, as they represent human workflow, not machine failure.
+
+This schema separates the *cause* (error code, user action) from the *symptom* (duration, sensor state), allowing you to retroactively adjust the definition of a "jam" without changing the firmware logging structure.
+
+Ensure the firmware writes these fields as a single atomic JSON object per event to prevent partial logs during high-frequency micro-stops.

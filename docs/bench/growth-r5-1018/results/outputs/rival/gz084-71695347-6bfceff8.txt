@@ -1,0 +1,49 @@
+# Video Intro Engagement Tracking Specification
+
+**Project:** AmourConnect Video Intro Analysis
+**Date:** February 14th Launch
+**Stakeholders:** Mobile Engineering (Lyon), Chief Product Officer
+**Privacy Constraint:** Zero PII exposed to profile owners; aggregate analysis only.
+
+## 1. Core Hypothesis & Decision Context
+We assume profiles with video intros receive 50% more matches. To validate if video *quality* drives this, we must prove users are actually watching the content rather than skipping it. If completion rates are low, making uploads mandatory (planned for Q3) may degrade user experience without driving matches.
+
+## 2. Required Event Schema
+The mobile engineering squad must implement the following four distinct events within the video player component. All events must include a `profile_id` (the owner of the video) and a `viewer_session_id` (anonymous), but must **never** transmit the `viewer_user_id` to the profile owner's dashboard or public logs.
+
+| Event Name | Trigger Condition | Critical Properties | Business Logic |
+| :--- | :--- | :--- | : |
+| `video_loaded` | Video player initializes and metadata is fetched; visible in viewport. | `profile_id`, `video_duration`, `connection_type` | Establishes the denominator: how many users had the *opportunity* to watch. |
+| `video_play_started` | User taps play OR auto-play begins (if applicable). | `profile_id`, `start_position_ms` | Distinguishes intentional plays from accidental loads. |
+| `video_engaged_3s` | Continuous playback reaches 3,000ms. | `profile_id`, `buffer_count` | **Primary Quality Gate.** Filters out accidental taps and immediate skips. Validates the "attention" threshold. |
+| `video_completed` | Playback reaches 95% of total duration or user watches the final frame. | `profile_id`, `total_watch_time_ms`, `completion_rate` | Indicates high intent. Used to correlate with "Swipe Right" actions. |
+
+## 3. Implementation Rules for Engineering
+
+### Privacy & Anonymity
+*   **Aggregation Only:** Data must be stored such that a profile owner can see "60% of viewers watched my video," but never "User X watched my video."
+*   **No Identity Leakage:** Ensure `viewer_user_id` is stripped before any data is written to logs accessible by the matching algorithm or profile analytics dashboard.
+
+### Technical Edge Cases
+*   **Backgrounding:** If the app moves to the background, pause the timer. Do not count background time toward the `video_engaged_3s` threshold.
+*   **Re-watching:** If a user watches the same video multiple times in one session, fire `video_play_started` for each attempt, but deduplicate `video_completed` per session for aggregate reporting unless distinct re-watches are analytically valuable (recommend counting unique completions per session).
+*   **Skimming:** If a user scrubs forward past the 3-second mark without actually playing those seconds, do **not** fire `video_engaged_3s`. The event requires actual playback time.
+
+## 4. Analysis Plan for Product Team
+
+Once data flows (starting Feb 14), we will compute three specific metrics to answer the CPO's Q3 decision:
+
+1.  **Engagement Rate:** `(video_engaged_3s count) / (video_loaded count)`
+    *   *Goal:* >40%. If lower, users are skipping; video quality or placement is the issue.
+2.  **Completion Rate:** `(video_completed count) / (video_engaged_3s count)`
+    *   *Goal:* >25%. Indicates content is compelling enough to finish.
+3.  **Watch-to-Match Correlation:** Compare swipe-right rates for profiles where the viewer hit `video_completed` vs. those who only hit `video_loaded`.
+    *   *Validation:* If the "Completed" group swipes right significantly more than the "Loaded Only" group, the hypothesis that "video quality drives matches" is validated.
+
+## 5. Next Steps
+1.  **Engineering:** Implement events above by Feb 13th. Validate via debug logs that no PII is attached.
+2.  **Analytics:** Verify event fire rates against total active users on Feb 15th.
+3.  **Review:** Initial engagement report due March 1st to inform Q3 roadmap.
+
+*Note: Ensure the video player does not auto-play with sound on iOS due to OS restrictions; this may affect `video_play_started` triggers.*
+*Recommendation: Add a `video_muted_start` property if auto-play is implemented silently.*

@@ -1,0 +1,33 @@
+### Deduplication Logic and Validation Plan for UrbanGo MAU
+
+**1. Identification Logic: The "Same-Session, Same-Action" Rule**
+To distinguish duplicates from legitimate multi-service usage, do not filter solely on `device_id` and `timestamp`. Legitimate usage (ride then food) involves distinct event types or significant time gaps. Duplicates from legacy SDKs typically fire identical events within milliseconds.
+
+Apply this filter to isolate candidates for removal:
+*   **Group By:** `device_id`, `event_name` ('trip_started'), and `session_id` (if available).
+*   **Time Window:** Flag records where the time delta between consecutive events is **< 2 seconds**.
+*   **Property Match:** Ensure all other event properties (e.g., `geo_hash`, `app_version`) are identical.
+*   **Action:** Keep the record with the earliest timestamp; mark others as `is_duplicate = true`.
+
+*Why this protects legitimate usage:* A user finishing a ride and ordering food will trigger a `trip_started` and a `food_order_started` (different names) or, if they take two rides, the events will be separated by minutes/hours (failing the < 2s window).
+
+**2. Execution Strategy: The Shadow Table Approach**
+Do not delete or update rows in the production `events_raw` table. This risks breaking real-time dashboards if the job fails or locks tables.
+*   **Step A:** Create a new table `events_cleaned_v1`.
+*   **Step B:** Run an `INSERT INTO ... SELECT` query that pulls all data from `events_raw` excluding rows marked as duplicates by the logic above.
+*   **Step C:** Point the Board's MAU report and historical analytics queries to `events_cleaned_v1`.
+*   **Step D:** Keep real-time ops dashboards pointing to `events_raw` until the root cause (legacy SDK) is fully deprecated, ensuring no data loss for live monitoring.
+
+**3. Validation Steps Before Cutover**
+Run these three checks on a sample dataset before generating the full clean table:
+*   **The "Legitimate User" Spot Check:** Query 50 known high-frequency users who use both rides and food. Verify their sequence of events remains intact in `events_cleaned_v1`. If a food order following a ride is missing, the logic is too aggressive.
+*   **The Volume Reconciliation:** Calculate the total count of `trip_started` events in the source vs. the clean table. The reduction should align closely with your observed 18% inflation estimate. If the drop is 40% or 2%, investigate immediately.
+*   **The MAU Sanity Test:** Compute MAU for the last 30 days on both tables. The clean table should show a lower total count but a **higher** retention rate (since fake repeat visits are removed). If retention drops, you are deleting real users.
+
+**4. Immediate Next Steps**
+1.  Execute the identification query on last week's data only and share the "before/after" MAU numbers with the data lead.
+2.  Schedule the `events_cleaned_v1` build for tonight to ensure readiness for next week's board meeting.
+3.  Task engineering with a hard deadline to remove the legacy SDK from the client build to stop the bleed at the source.
+
+*Note: This logic assumes the duplicate events are near-identical fires from the same SDK instance; if the duplication stems from server-side retry loops with varying IDs, the time-window logic must be widened to 5–10 seconds.*
+*Ensure all PII handling in the new table adheres to existing privacy compliance rules.*

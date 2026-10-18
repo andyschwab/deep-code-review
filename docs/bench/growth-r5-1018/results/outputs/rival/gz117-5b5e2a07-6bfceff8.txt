@@ -1,0 +1,46 @@
+### Essential Event Tracking Plan for MedConnect Consultation Flow
+
+To diagnose whether drop-offs stem from connection anxiety or cost friction, you must move beyond simple page views. You need to track specific user actions and system states between "Doctor Selected" and "Call Joined."
+
+#### 1. Critical Events to Capture
+Implement these specific events with the listed properties. Do not rely on automatic page views for these steps.
+
+| Event Name | Trigger Point | Essential Properties | Diagnostic Purpose |
+| :--- | :--- | :--- | : |
+| `summary_viewed` | User lands on the cost/summary screen. | `displayed_cost`, `doctor_id`, `wait_time_estimate` | Confirms if the user actually sees the price barrier. |
+| `cost_detail_expanded` | User clicks "What's included" or insurance details. | `section_viewed` | **High Signal:** Indicates cost anxiety. If users click this then drop, the price or coverage is the blocker. |
+| `connection_check_started` | System begins testing bandwidth before the call. | `network_type` (WiFi/4G), `device_model` | Identifies if users abandon during the technical prep phase. |
+| `connection_check_completed` | Test finishes (pass or fail). | `result` (pass/fail/warning), `download_speed`, `latency_ms` | Distinguishes between actual technical failure vs. user impatience. |
+| `join_call_clicked` | User presses the final "Join" button. | `time_on_summary_page` (seconds) | The primary conversion action. |
+| `call_abandoned_pre_join` | User closes the tab/app after `summary_viewed` but before `join_call_clicked`. | `last_active_step`, `time_elapsed` | The specific failure event you are trying to reduce. |
+
+#### 2. Analysis Strategy: The Funnel & Sequence
+Do not just look at total conversion rates. Analyze the **sequence** and **time spent** to isolate the root cause.
+
+**Step A: Construct the Micro-Funnel**
+Calculate the conversion rate between each sequential step:
+1.  `summary_viewed` → `cost_detail_expanded`
+2.  `summary_viewed` → `connection_check_started`
+3.  `connection_check_completed` (Pass) → `join_call_clicked`
+
+**Step B: Diagnose via Drop-off Location**
+*   **Hypothesis: Cost Anxiety.**
+    *   *Signal:* High drop-off between `summary_viewed` and `connection_check_started`.
+    *   *Confirmation:* A significant portion of drop-offs occur *after* `cost_detail_expanded` is triggered.
+    *   *Action:* If users expand details and leave, the cost explanation is insufficient or the price is too high.
+
+*   **Hypothesis: Connection/Technical Friction.**
+    *   *Signal:* High drop-off during `connection_check_started` or immediately after `connection_check_completed` (even if passed).
+    *   *Confirmation:* Correlate `call_abandoned_pre_join` with `network_type`. If 4G users drop off 2x more than WiFi users during the check, stability is the issue.
+    *   *Action:* If users drop after a "Warning" result, the warning message is too scary. If they drop during the test, the test takes too long (optimize the 4-minute window).
+
+**Step C: Time-to-Event Analysis**
+Calculate the median time between `summary_viewed` and `join_call_clicked`.
+*   If the median time is increasing while drop-offs rise, users are hesitating (likely cost/confusion).
+*   If users drop instantly ( < 5 seconds) after the summary loads, it may be a UI error or shock.
+*   If users drop exactly when the connection test starts, the test interface is the friction point.
+
+#### 3. Implementation Note
+Ensure `user_id` and `session_id` are attached to every event to reconstruct individual journeys. Without this, you cannot correlate a specific user's network type with their decision to abandon.
+
+*Recommendation: Prioritize instrumenting `cost_detail_expanded` and `connection_check_completed` first, as these provide the highest fidelity data to distinguish between your two primary hypotheses.*

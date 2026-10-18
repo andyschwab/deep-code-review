@@ -1,0 +1,72 @@
+# CodeClimb Student Risk & Engagement Tracking Specification
+
+**Objective:** Reduce first-four-week dropout (currently 25%) by identifying at-risk students via IDE telemetry before they churn.
+**Target Implementation:** February 1 Cohort Start
+**Stakeholders:** Curriculum Team, Data Engineering
+
+## 1. Core Hypothesis
+Completion of hands-on coding challenges drives retention. "Struggle" (excessive friction) and lack of "Flow" (disengagement) are the primary predictors of churn, distinct from simple video views or quiz scores.
+
+## 2. Required Data Events (IDE Telemetry)
+
+Engineering must instrument the IDE to emit the following events to our analytics pipeline (e.g., Segment/GA4/Mixpanel) with the specified properties.
+
+### A. Challenge Interaction Events
+*Track specific engagement with core curriculum drivers.*
+
+| Event Name | Trigger | Required Properties |
+| :--- | :--- | :--- |
+| `challenge_started` | Student opens a new challenge file. | `challenge_id`, `module_id`, `difficulty_level` |
+| `code_compiled` | Student hits "Run" or "Compile". | `challenge_id`, `attempt_number`, `time_since_start_sec` |
+| `challenge_completed` | All test cases pass. | `challenge_id`, `total_attempts`, `duration_sec` |
+| `challenge_abandoned` | Student closes challenge without completion after >5 mins activity. | `challenge_id`, `last_action`, `duration_sec` |
+
+### B. "Struggle" Indicators (Risk Signals)
+*Quantify friction. High frequency indicates confusion or blockers.*
+
+| Event Name | Trigger | Required Properties |
+| :--- | :--- | :--- |
+| `compile_error` | Code fails to compile/run. | `challenge_id`, `error_type` (syntax, logic, timeout), `line_number` |
+| `help_docs_viewed` | Student opens integrated documentation/search. | `search_query`, `doc_id`, `challenge_id` |
+| `solution_hint_requested` | Student clicks "Show Hint" or "View Solution". | `challenge_id`, `hint_level` (1, 2, or full solution) |
+| `code_paste_detected` | Large block of code pasted (potential copy-paste without understanding). | `challenge_id`, `lines_pasted`, `source_unknown` (boolean) |
+
+### C. "Flow State" Indicators (Engagement Signals)
+*Quantify deep work. Absence indicates disengagement.*
+
+| Event Name | Trigger | Required Properties |
+| :--- | :--- | :--- |
+| `keystroke_burst` | >200 keystrokes within 60 seconds without pause >10s. | `challenge_id`, `duration_sec` |
+| `debug_session_active` | Breakpoint set and step-through debugging initiated. | `challenge_id`, `breakpoints_count` |
+| `refactor_event` | Code modified significantly after successful compilation. | `challenge_id`, `lines_changed` |
+
+## 3. Derived Metrics & Alert Logic
+
+The data team must compute these metrics in real-time (or near real-time) to trigger curriculum interventions.
+
+### Risk Score Components (Weighted)
+1.  **Error Loop:** >3 `compile_error` events within 10 minutes on the same `challenge_id`.
+2.  **Hint Dependency:** `solution_hint_requested` occurring before the first successful `code_compiled`.
+3.  **Stagnation:** `challenge_started` with no `code_compiled` or `challenge_completed` after 20 minutes of session time.
+4.  **Copy-Paste Reliance:** >2 `code_paste_detected` events in a single session without intervening `keystroke_burst`.
+
+### Engagement Score Components
+1.  **Flow Ratio:** Time spent in `keystroke_burst` or `debug_session_active` divided by total session time. Target >40%.
+2.  **Iterative Depth:** Average `attempt_number` per `challenge_completed`. (Moderate retries indicate effort; zero retries may indicate guessing or copying).
+
+## 4. Implementation Requirements
+
+*   **Privacy:** Do not record actual code content, only metadata (line counts, error types, timestamps). No PII in event properties.
+*   **Latency:** Events must be available in the dashboard within 5 minutes of occurrence to allow for timely intervention.
+*   **User Identification:** All events must include `student_id` and `cohort_id`.
+*   **Backfill:** Historical data migration is not required; start fresh for Feb 1 cohort.
+
+## 5. Actionable Outputs for Curriculum Team
+
+The dashboard must display:
+1.  **At-Risk List:** Students triggering 2+ Risk Score components in a 24-hour window.
+2.  **Stuck Challenges:** `challenge_id`s with the highest aggregate `compile_error` rates (indicates unclear instructions).
+3.  **Flow Distribution:** % of students achieving "Flow State" metrics per module.
+
+---
+*Note: Validate error_type categorization with senior instructors to ensure "logic" vs "syntax" errors are distinguished correctly. Ensure the "paste" detection threshold is calibrated to avoid flagging legitimate boilerplate usage.*

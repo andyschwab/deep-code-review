@@ -1,0 +1,38 @@
+# StreamHub Live Streaming Tracking Plan
+
+## Recommended Primary Metric
+Track **`chat_window_toggled`** (open/close) and **`comment_sent`** as your core engagement events. Your hypothesis specifically targets users who "send at least one comment," making `comment_sent` the definitive trigger for your 48-hour retention cohort. However, capturing `chat_window_toggled` is critical for secondary analysis to determine if opening the chat (without commenting) correlates with retention, which may inform moderator staffing needs for "lurkers" vs. active participants.
+
+**Do not prioritize total watch time or peak concurrent viewers** for this specific hypothesis. While valuable for infrastructure scaling, they are lagging indicators of consumption, not predictors of the *active participation* loop you are testing.
+
+## Essential Events to Implement
+
+Capture these four events with the specified properties to validate your hypothesis without storing message content:
+
+| Event Name | Trigger | Essential Properties | Purpose |
+| :--- | :--- | :--- | :--- |
+| **`live_session_started`** | User enters a live stream URL/player. | `stream_id`, `broadcaster_id`, `entry_timestamp` | Defines the session start for duration calculations. |
+| **`chat_window_toggled`** | User clicks the chat icon to open or close the overlay. | `stream_id`, `state` (open/closed), `timestamp` | Measures intent to participate; differentiates passive viewers from potential engagers. |
+| **`comment_sent`** | User successfully submits a message. | `stream_id`, `message_length` (int), `timestamp` | **Primary Hypothesis Trigger.** Validates the "active participant" cohort. |
+| **`live_session_ended`** | User closes the player or navigates away. | `stream_id`, `exit_timestamp`, `total_duration_seconds` | Calculates session length and distinguishes drop-offs from natural endings. |
+
+## Data Strategy for Stakeholders
+
+**For Backend Infrastructure (Scalability):**
+Use `live_session_started` and `live_session_ended` to calculate concurrent users and bandwidth load. The `total_duration_seconds` derived from these events will help predict server load patterns. Do not use comment volume for scaling logic, as heavy viewers often comment little.
+
+**For Community Lead (Staffing):**
+Aggregate `chat_window_toggled` (state: open) and `comment_sent` per stream.
+*   **High Opens / Low Comments:** Indicates a need for moderators to prompt conversation or highlight top comments to encourage participation.
+*   **High Comments:** Indicates a need for robust spam filtering and active moderation presence.
+*   **Staffing Model:** Staff based on the count of unique users triggering `chat_window_toggled`, not just those who comment, as open chat windows represent the total addressable audience for moderation.
+
+## Validation Logic for Your Hypothesis
+
+To measure the 35% retention rate:
+1.  **Cohort A (Active):** Users who triggered `comment_sent` ≥ 1 during any session between July 10–July 17.
+2.  **Cohort B (Passive):** Users who triggered `live_session_started` but had zero `comment_sent` events.
+3.  **Measurement:** Calculate the percentage of users in Cohort A who trigger `live_session_started` again within 48 hours of their first comment. Compare this against Cohort B to isolate the lift provided by commenting.
+
+*Note: Ensure `message_length` is captured as an integer only; do not transmit or store the message string itself to maintain privacy constraints.*
+*Implementation should begin immediately to establish a baseline before the July 10th beta launch.*

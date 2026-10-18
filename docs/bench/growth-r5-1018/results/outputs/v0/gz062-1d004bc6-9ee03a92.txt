@@ -1,0 +1,31 @@
+### Event Schema: `machine_stop`
+
+To distinguish planned maintenance from unexpected errors and evaluate the impact of micro-stops, every stop event must capture the following context fields. This schema prioritizes logical grouping for firmware efficiency while enabling the specific analysis Elena requires.
+
+**1. Core Identity & Timing (Required for all events)**
+*   `event_id`: UUID (unique per event).
+*   `machine_id`: Static identifier for the specific X-200 unit.
+*   `timestamp_start`: High-resolution epoch time (ms) when motion ceased.
+*   `timestamp_end`: High-resolution epoch time (ms) when motion resumed.
+*   `duration_ms`: Calculated field (`end` - `start`). *Critical for filtering micro-stops (<5000ms) vs. jams (>30000ms).*
+
+**2. Classification Context (The "Why")**
+*   `stop_category`: Enum [`planned`, `unplanned`, `unknown`].
+    *   *Logic:* Set to `planned` only if triggered by a specific maintenance API call or operator button press with a valid work-order ID. All others default to `unplanned`.
+*   `trigger_source`: Enum [`operator_manual`, `scheduled_task`, `sensor_auto`, `external_system`].
+*   `error_code`: String (nullable). Populated only if `trigger_source` is `sensor_auto`. Use standard ISO/ISO-derived codes for jams; leave null for planned stops.
+
+**3. Operational State (The "Where" in the process)**
+*   `cycle_id`: The specific assembly cycle number during which the stop occurred. *Essential for correlating stops to specific product units.*
+*   `station_phase`: String (e.g., "arm_extension", "welding", "grip_release"). Identifies if micro-stops cluster in specific mechanical phases.
+*   `product_sku`: The model being assembled. Rules out product-specific geometric causes.
+
+**4. Accumulation Marker (For the micro-stop hypothesis)**
+*   `cluster_id`: Integer (nullable).
+    *   *Logic:* Firmware should increment this ID if a new stop occurs within $T$ seconds (e.g., 60s) of the previous `timestamp_end` on the same `machine_id`. This allows you to query "chains" of micro-stops that individually look negligible but collectively halt production.
+
+**Implementation Note for Elena:**
+To prevent logging lag, `cluster_id` can be computed statefully in the firmware buffer before transmission, rather than post-processed. Ensure `timestamp` precision is consistent across the distributed sensor network to avoid skew in `duration_ms` calculations.
+
+**Next Step:**
+Validate if the current sensor interrupt handler can append the `cluster_id` and `station_phase` without exceeding the real-time deadline; if not, drop `cluster_id` from the firmware and compute it in the ingestion stream using a sliding window.

@@ -1,0 +1,41 @@
+### Growth Measurement Plan: EduNaija Offline Homework Feature
+
+**North Star Metric**
+**Weekly Active Completers**: The count of unique students who successfully submit at least one assignment per week.
+*Why:* Downloads are a vanity metric (80% in pilot) that do not correlate with learning outcomes. Completion (40% in pilot) is the only action delivering value. Tracking "completers" rather than "completed assignments" accounts for your shared-device constraint, measuring reach rather than raw volume.
+
+**Funnel Diagnosis (Bottom-Up)**
+Do not optimize acquisition or downloads until the leak between "Download" and "Submit" is understood. Your pilot data shows a 50% drop-off here.
+1.  **Retention (Core):** % of students who complete an assignment in Week N given they completed one in Week N-1.
+2.  **Activation:** % of downloaders who submit their first assignment within 48 hours.
+3.  **Acquisition:** % of assigned students who successfully download content.
+
+**Event Taxonomy (Instrument Only What Answers a Question)**
+Capture these specific events to distinguish technical barriers from engagement issues. Every event must include `student_id` (pseudonymous), `device_id`, `school_id`, and `network_status` (online/offline/intermittent) at the time of action.
+
+| Event Name | Question It Answers | Key Properties |
+| :--- | :--- | :--- |
+| `content_download_started` | Did the user attempt to get content? | `content_id`, `file_size_mb`, `initiated_network_status` |
+| `content_download_completed` | **Technical Barrier:** Did connectivity prevent access? | `duration_seconds`, `retry_count`, `final_network_status` |
+| `assignment_opened` | **Engagement:** Did they open the work after downloading? | `time_since_download`, `device_battery_level` |
+| `assignment_submitted` | **Value:** Did learning occur? | `time_spent_minutes`, `submission_network_status`, `is_late` |
+| `sync_conflict_resolved` | **Friction:** Did offline changes fail to upload later? | `conflict_type`, `resolution_time` |
+
+**Measurement Strategy for Shared Devices**
+Since students access the app only once a week on shared devices, do not use "Daily Active Users."
+*   **Cohort Definition:** Group students by `school_id` and `grade_level`.
+*   **Metric Calculation:** Measure success as **% of Cohort Completing** per week, not total submissions. If 10 students share a device and all submit, that is 10 completions, not 1 device session.
+*   **Attribution:** Ensure `student_id` is persistent locally on the device even when offline, so submissions sync correctly to the right user profile upon reconnection.
+
+**Experiment & Rollout Readiness (Before March 20th)**
+*   **Baseline:** Your current conversion from Download → Submit is 50% (400/800).
+*   **Guardrail Metric:** **Sync Failure Rate**. If this rises above 5% during rollout, pause immediately. A "win" in completion is invalid if data is being lost due to connectivity bugs.
+*   **Decision Rule:** If `content_download_completed` is high but `assignment_opened` is low, the barrier is **engagement** (content relevance/UI). If `download_started` is high but `download_completed` is low, the barrier is **technical** (file size/network logic).
+
+**This Week's Steps**
+1.  **Implement the 5 events above** with the specified properties; verify `student_id` persists correctly across offline/online transitions in a staging environment.
+2.  **Build one dashboard view** for administrators showing "Weekly Active Completers" by school, ignoring download counts entirely to prevent vanity reporting.
+3.  **Run a sanity check** on the pilot data: recalculate the drop-off rate specifically for users with `retry_count` > 2 to quantify the connectivity tax.
+
+*Note: All benchmark comparisons must be made against your own pilot baseline (40% completion); no external edtech retention rates are applied here as they do not account for your specific offline constraints.*
+*Ensure PII handling for `student_id` aligns with local data privacy regulations before full rollout.*

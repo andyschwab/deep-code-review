@@ -1,0 +1,29 @@
+**To:** Raj Patel, Head of Data
+**From:** Growth Analytics
+**Subject:** Beta Event Taxonomy & North Star Definition (Acme Retail UK Voice Skill)
+
+**1. North Star Metric**
+**Weekly Active Reorders:** The count of unique users who successfully complete a voice-ordered replenishment of a household staple within a 7-day window.
+*Why:* This isolates real value (convenience-driven retention) from vanity metrics like total skill enables or one-off experiments. Raw "activations" are rejected as they do not prove habit formation.
+
+**2. Prioritized Event Taxonomy (MVP Stage)**
+Instrument only these events to answer specific validation questions. Do not log raw audio; log structured intent outcomes to satisfy GDPR/storage constraints.
+
+| Event Name | Question Answered | Required Properties (Pseudonymous ID only) |
+| :--- | :--- | :--- |
+| `session_start` | Did the user return? | `user_id` (stable, pseudonymous), `device_type`, `location_city` |
+| `intent_detected` | Did we understand the request? | `intent_category` (e.g., `reorder_staple`, `complex_search`), `confidence_score` |
+| `order_success` | Did the core value loop close? | `order_value`, `item_category`, `is_repeat_purchase` |
+| `fallback_triggered` | Where does the experience break? | `failure_reason` (e.g., `no_match`, `payment_declined`), `original_query_complexity` |
+
+**3. Critical Implementation Constraints**
+*   **Identifier Seam:** You must generate a stable, pseudonymous `user_id` at first launch to track retention cohorts across sessions. This is the only exception to standard low-cardinality logging rules; without it, retention is `UNVERIFIED`.
+*   **Privacy/GDPR:** Do not store raw audio transcripts in analytics pipelines. Map audio to the `intent_category` locally on-device or in a transient processing layer, then discard the audio. Only the structured event properties listed above enter long-term storage.
+*   **Hypothesis Validation:** To test your assumption about "complex searches," rely on the `intent_detected` event. If `complex_search` volume is <5% of total intents by Week 2, deprioritize building complex catalog filters.
+
+**4. This-Week Steps**
+1.  **Define Schema:** Finalize the JSON schema for the four events above, ensuring `user_id` is hashed before ingestion.
+2.  **Baseline Query:** Draft the SQL/analysis query for "Weekly Active Reorders" now to verify the pipeline can support it before June 1st.
+3.  **Guardrail:** Set an alert if `fallback_triggered` rate exceeds 20% for `reorder_staple` intents, indicating a broken core loop.
+
+*Note: No industry benchmarks for voice commerce retention are asserted here; success is defined strictly by improvement against your own Week 1 baseline. Any metric lacking the instrumentation above is considered `UNVERIFIED`.*

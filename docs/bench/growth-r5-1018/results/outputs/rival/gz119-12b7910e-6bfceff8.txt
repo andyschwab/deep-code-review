@@ -1,0 +1,53 @@
+# PennyWise Portugal Onboarding: Technical Tracking Specification
+
+**Objective:** Instrument the bank-linking flow to identify exact dropout points, validate security friction hypotheses, and enable reliable A/B testing of UI variations.
+
+**Tools:** Google Analytics 4 (GA4) via Google Tag Manager (GTM) or direct gtag.js.
+
+## 1. Core Event Strategy
+Do not rely on pageviews alone. Implement explicit event tracking for every interaction within the flow. Use the `object_action` naming convention (lowercase, underscores).
+
+### Essential Events to Implement
+
+| Event Name | Trigger Condition | Required Properties |
+| :--- | :--- | :--- |
+| `onboarding_started` | User lands on the first step of the new flow. | `flow_version` (e.g., "beta", "prod"), `user_id` (hashed) |
+| `bank_list_viewed` | The list of available banks renders successfully. | `load_time_ms`, `bank_count` |
+| `bank_selected` | User clicks a specific bank logo/name. | `bank_name`, `bank_id`, `position_in_list` |
+| `security_info_clicked` | User clicks any "security," "encryption," or "why we need this" link/icon. | `location` (e.g., "header", "footer", "tooltip"), `element_text` |
+| `auth_redirect_initiated` | The app successfully redirects the user to the bank's login portal. | `bank_name`, `time_on_step_ms` |
+| `auth_redirect_failed` | The redirect fails or the user returns from the bank without completing linking. | `bank_name`, `error_code` (if available), `failure_stage` |
+| `bank_linking_completed` | The user returns from the bank and the connection is verified. | `bank_name`, `total_flow_duration_ms` |
+| `onboarding_abandoned` | **Critical:** User closes the tab, hits back, or idles >2 mins on a step. | `current_step`, `last_action`, `time_on_step_ms` |
+
+## 2. Critical Data Layers & Properties
+To run valid experiments later, every event must include these consistent parameters:
+
+*   **`experiment_id`**: String. Even if no test is running yet, pass `control` or a unique ID for the current build. This future-proofs the data for A/B analysis.
+*   **`step_number`**: Integer. Explicitly number the steps (1: Select Bank, 2: Confirm, 3: Auth).
+*   **`device_type`**: String. Mobile vs. Desktop (friction often differs by device).
+*   **`error_message`**: String. If an API call fails, capture the exact error string returned to the user.
+
+## 3. Implementation Logic for Dropout Analysis
+The current 60% abandonment at "bank selection" is too vague. You must distinguish between:
+1.  **Decision Paralysis:** Did they view the list (`bank_list_viewed`) but never click a bank?
+2.  **Trust Friction:** Did they click a bank, then click `security_info_clicked`, then leave?
+3.  **Technical Failure:** Did they click a bank, trigger `auth_redirect_initiated`, but never complete?
+
+**Specific Instruction for Devs:**
+Attach an `onbeforeunload` or visibility change listener to the onboarding container. If the user leaves the domain while `onboarding_started` is true and `bank_linking_completed` is false, fire `onboarding_abandoned` immediately with the `current_step` state.
+
+## 4. Validation Checklist (Pre-Launch)
+Before releasing to Portugal traffic:
+*   [ ] **DebugView Verification:** Confirm `bank_selected` fires *before* the redirect occurs.
+*   [ ] **Property Check:** Ensure `bank_name` is populated dynamically and not "undefined."
+*   [ ] **No PII:** Verify that no actual user credentials, passwords, or full account numbers are sent in event properties. Send only IDs and names.
+*   [ ] **Latency Check:** Ensure tracking calls are asynchronous and do not block the bank redirect.
+
+## 5. Experiment Readiness
+To support your upcoming UI tests (e.g., adding trust badges, changing bank logo sizes):
+*   Wrap UI variations in a configuration object that injects the `experiment_id` and `variant_name` into the global data layer before the flow starts.
+*   Do not create separate events for variants (e.g., do not make `bank_selected_new_design`). Keep the event name identical; use properties to differentiate. This allows direct comparison in GA4.
+
+**Note:** Ensure your consent management platform (CMP) is configured to fire these events only after "Analytics" consent is granted in Portugal (GDPR).
+**Note:** Set up a GA4 "Exploration" funnel report immediately upon data collection to visualize the drop-off between `bank_list_viewed` and `bank_selected`.

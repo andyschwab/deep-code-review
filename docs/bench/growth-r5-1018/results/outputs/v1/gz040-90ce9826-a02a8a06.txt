@@ -1,0 +1,45 @@
+### Event Taxonomy Harmonization Plan for SkyMiles Global
+
+**Objective:** Unify 40+ regional variations of core events into a single global schema to ensure accurate tier status calculation and reporting for 2.5 million members prior to the October 1st launch.
+
+#### 1. Critical Event Categories for Immediate Unification
+To preserve tier status integrity, you must map and standardize these three categories first. Any other events are secondary and can be harmonized post-launch.
+
+*   **Qualifying Activity (The "Earn" Event):**
+    *   *Current State:* 40+ names (e.g., `flight_booked`, `ticket_issued`, `reservation_confirmed`, `vol_issued`).
+    *   *Target Schema:* `loyalty_flight_qualify`.
+    *   *Required Properties:* `member_id` (stable), `booking_date`, `travel_date`, `fare_class`, `distance_flown`, `base_fare_amount`, `region_code`.
+    *   *Reasoning:* Tier status depends on the *completion* or *booking* of qualifying fares. Without a single source of truth, members will be misclassified, leading to immediate customer service crises and revenue leakage in status benefits.
+
+*   **Non-Qualifying Activity (The "Exclude" Event):**
+    *   *Current State:* Inconsistent flags for award tickets, partner flights, or employee travel.
+    *   *Target Schema:* `loyalty_flight_exclude`.
+    *   *Required Properties:* `exclusion_reason` (e.g., award_booked, partner_operated), `original_event_name`.
+    *   *Reasoning:* Accurate tier calculation requires explicitly filtering out non-qualifying flights. If these are mixed with qualifying events due to naming confusion, status thresholds will be artificially inflated.
+
+*   **Status Checkpoint (The "Calculation" Event):**
+    *   *Current State:* Ad-hoc or missing triggers for re-evaluating tier status.
+    *   *Target Schema:* `loyalty_status_recalculate`.
+    *   *Required Properties:* `member_id`, `previous_tier`, `new_tier`, `calculation_trigger` (e.g., flight_complete, year_end).
+    *   *Reasoning:* You need an auditable trail showing exactly when and why a member's status changed. This is the only way to debug disputes after migration.
+
+#### 2. Data Reconciliation Strategy (Historical to Future)
+Do not attempt to force historical data into the new schema without a translation layer.
+*   **Create a Mapping Table:** Build a lookup table mapping all 40 legacy event names to the three target events above. Include a `confidence_score` for each mapping.
+*   **Backfill with Provenance:** When migrating historical data, append a property `legacy_event_name` to the new unified event. This preserves the granularity you fear losing while allowing unified reporting.
+*   **Validation Sample:** Randomly sample 1,000 members across regions. Compare their calculated tier status in the legacy system vs. the new unified stream. Any discrepancy >0% indicates a mapping error.
+
+#### 3. Risks of Delaying Harmonization Until After Launch
+If you delay this work until after October 1st, you face three specific, high-severity risks:
+
+1.  **Incorrect Tier Status Assignment:** Members will be placed in wrong tiers immediately upon launch. Correcting this retroactively requires complex data patches and manual customer service interventions, destroying trust in the rebrand.
+2.  **Broken Cohort Analysis:** You will be unable to compare pre-launch vs. post-launch behavior accurately. Any "growth" or "decline" metrics reported to the CMO will be `UNVERIFIED` because the underlying event definitions shift mid-stream.
+3.  **Technical Debt Accumulation:** Every day the system runs with 40+ event names, downstream dashboards and automation rules will hardcode these legacy names. Untangling this later will require rewriting dozens of dependent systems, not just the data pipeline.
+
+**This Week's Step:**
+1.  Extract a distinct list of the 40 event names and their event counts from the last 12 months.
+2.  Draft the mapping table for the top 5 most frequent names and validate the logic against one region's legacy tier calculations.
+3.  Present the mapping logic and the validation discrepancy rate to the engineering lead to confirm feasibility before the full backfill.
+
+*Note: Ensure the `member_id` used for stitching is pseudonymous and compliant with privacy regulations; route PII handling to your privacy compliance protocol.*
+*Do not fabricate a "standard" retention rate or benchmark for loyalty programs; measure success against SkyMiles' own pre-migration baseline.*

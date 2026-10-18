@@ -1,0 +1,44 @@
+### Event Taxonomy & Analysis Plan: Time Slot Selection Friction
+
+**Audience:** Product Design Team, Local Operations Head
+**Goal:** Distinguish between supply shortage (no cleaners) and UI friction (confusing interface) to decide between recruiting or redesigning before Diwali.
+
+#### 1. Core Events to Instrument
+Instrument only these events to answer specific questions. Do not track generic clicks.
+
+| Event Name | Properties to Capture | Question Answered |
+| :--- | :--- | :--- |
+| `time_slot_viewed` | `date_selected`, `preferred_window_start`, `preferred_window_end`, `location_pincode` | Did the user reach the calendar with a specific intent? |
+| `availability_query_result` | `slots_returned_count`, `is_zero_supply`, `query_latency_ms` | **Crucial:** Did the system actually return zero cleaners for the requested window? |
+| `slot_interaction` | `action_type` (select, refresh, switch_date, expand_window), `attempt_number` | Are users trying to find a slot (refresh/switch) or giving up (exit)? |
+| `funnel_exit` | `exit_source` (time_slot_screen), `time_on_screen_seconds`, `last_action_seen` | Did they leave immediately (supply shock) or after struggling (UI confusion)? |
+| `payment_initiated` | `slot_id`, `time_from_view_to_payment` | Successful conversion baseline. |
+
+#### 2. Reading Rules & Decision Matrix
+Analyze the correlation between `availability_query_result` and `slot_interaction` for the 3,000 exits.
+
+**Scenario A: Supply Shortage (Recruit Cleaners)**
+*   **Signal:** High volume of `availability_query_result` where `slots_returned_count` = 0 OR `is_zero_supply` = true.
+*   **Behavior:** Users trigger `slot_interaction` with `action_type` = `switch_date` or `expand_window` repeatedly, then `funnel_exit`.
+*   **Diagnosis:** Users want to book but cannot find *any* valid slot. The UI is working; the inventory is empty.
+*   **Action:** Operations Head to prioritize recruiter drive in high-demand pincodes immediately.
+
+**Scenario B: UI Friction (Redesign Interface)**
+*   **Signal:** `availability_query_result` shows `slots_returned_count` > 0 (slots exist), but `funnel_exit` is high.
+*   **Behavior:** Users trigger `slot_interaction` with `action_type` = `refresh` (indicating confusion or belief data is stale) or `time_on_screen_seconds` is very low (<3s) despite slots being available.
+*   **Diagnosis:** Users cannot see, understand, or trust the available slots.
+*   **Action:** Product Design to A/B test a simplified calendar view or "nearest available" auto-suggest feature.
+
+**Scenario C: Performance/Trust Issue**
+*   **Signal:** High `query_latency_ms` (>2s) correlating with `funnel_exit`.
+*   **Diagnosis:** The screen loads too slowly, causing abandonment before interaction.
+*   **Action:** Engineering optimization (not recruitment or redesign).
+
+#### 3. This-Week Steps
+1.  **Query Existing Logs:** Run an aggregation on last week's data grouping `time_slot_viewed` by `location_pincode` and counting `slots_returned_count`. If >60% of exits have `slots_returned_count` = 0, the issue is supply.
+2.  **Implement Gap Tracking:** If `availability_query_result` is not currently logged, deploy this single event immediately. It is the only way to distinguish "no cleaners" from "broken UI."
+3.  **Decision Deadline:** By Wednesday, present the % of exits caused by zero supply vs. positive supply.
+    *   If **Supply < 40%** of exits: Pause recruitment; start UI redesign sprint for Diwali.
+    *   If **Supply > 60%** of exits: Halt design changes; Operations to launch targeted cleaner onboarding in top 3 failing pincodes.
+
+*Note: Ensure `location_pincode` is pseudonymized before sharing with external vendors; route PII handling to privacy compliance protocols. Do not estimate conversion rates; use the raw counts from your analytics platform to calculate the drop-off percentage.*

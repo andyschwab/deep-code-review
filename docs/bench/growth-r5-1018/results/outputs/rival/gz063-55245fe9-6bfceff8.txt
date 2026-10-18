@@ -1,0 +1,40 @@
+### Valid Conversion Event Definition for DniproWork
+
+**Primary Conversion Event:** `contract_booking_confirmed`
+
+**Trigger Point:** The exact moment the user successfully submits the final reduced-field form **AND** the system generates a confirmed booking ID.
+
+**Why this definition:**
+- **Legal Validity:** Counting only the successful submission ensures the user has actively completed the required action (submitting the form), which typically includes the mandatory checkbox or click-wrap agreement for Terms of Service (ToS). This creates a defensible audit trail that the user took affirmative action to agree, rather than just clicking a button or reading passively.
+- **Business Value:** A booking is only valuable to DniproWork when it is confirmed. Initial clicks or form starts do not guarantee revenue or platform usage.
+- **Attribution Clarity:** This event is distinct and unambiguous, preventing double-counting or inflating metrics with non-committal actions.
+
+**Specific Handling Rules:**
+
+1.  **ToS Agreement Verification:**
+    The `contract_booking_confirmed` event must only fire if the backend validates that the "I agree to Terms" checkbox was checked during that specific session's submission. Do not track the *reading* of the ToS as a conversion; track the *affirmative agreement* tied to the submission. If legal requires proof of exposure, log a separate `tos_viewed` event for analytics, but exclude it from conversion counting.
+
+2.  **Abandonment and Return Within 1 Hour:**
+    - **Scenario:** User sees price, abandons, returns within 60 minutes, and completes the booking.
+    - **Rule:** Count this as **one (1)** conversion attributed to the **original session source**.
+    - **Implementation:** Use a session-based deduplication window. If the same `user_id` or device ID completes a `contract_booking_confirmed` event within 1 hour of an initial `checkout_started` event, attribute the conversion to the original entry point and do not count it as a new acquisition. This prevents inflating conversion rates due to temporary hesitations while accurately reflecting the checkout flow's effectiveness in recovering potential drop-offs.
+
+3.  **What NOT to Count as Conversion:**
+    - `cta_clicked`: Too early; no commitment.
+    - `form_started`: High abandonment rate; not a business outcome.
+    - `tos_viewed`: Passive action; does not constitute legal agreement.
+    - `first_message_sent`: This is a *post-conversion* engagement metric, not the conversion itself.
+
+**Event Properties to Log:**
+For every `contract_booking_confirmed` event, your engineering team must tag:
+- `user_id` (hashed/anonymized if required by privacy laws)
+- `session_id`
+- `booking_value` (contract price)
+- `form_version` (e.g., "3-field-redesign" vs. "6-field-legacy")
+- `tos_agreed_timestamp` (critical for legal audit)
+- `time_to_complete_seconds` (to measure friction)
+
+This definition ensures your A/B test measures actual business growth while maintaining legal defensibility regarding user agreements.
+
+*Note: Ensure your legal counsel reviews the specific wording of the click-wrap agreement tied to the submit button to confirm it meets Ukrainian and EU digital contract standards.*
+*Implementation requires backend validation of the ToS checkbox state before firing the conversion tag to prevent client-side manipulation.*

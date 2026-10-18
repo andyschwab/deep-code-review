@@ -1,0 +1,85 @@
+# GoShare New Market Launch: Early Growth Measurement Framework
+
+## Executive Summary
+This framework tracks the critical 48-hour conversion window across Denver, Portland, and Seattle to identify whether churn stems from verification delays or loss of interest post-browsing. Data will support a go/no-go marketing spend decision by June 15th.
+
+## Core Funnel Events & Properties
+
+Track these four sequential events with strict property consistency across all three cities:
+
+| Event Name | Required Properties | Trigger Point |
+|------------|---------------------|---------------|
+| `app_installed` | `city`, `install_timestamp`, `device_type`, `utm_source` | App first open |
+| `identity_docs_uploaded` | `city`, `upload_timestamp`, `document_type`, `user_id` | User submits ID/license |
+| `identity_verified` | `city`, `verification_timestamp`, `verification_status`, `time_to_verify_minutes`, `user_id` | System approves/rejects docs |
+| `first_vehicle_unlocked` | `city`, `unlock_timestamp`, `vehicle_id`, `time_to_first_unlock_hours`, `user_id` | User unlocks first car |
+
+## Critical Drop-Off Metrics
+
+Calculate these rates separately for each city (Denver, Portland, Seattle) using only users whose 48-hour observation window has closed:
+
+### 1. Verification Completion Rate
+**Formula:** Users with `identity_docs_uploaded` ÷ Users with `app_installed`
+**Benchmark:** Compare against 60% original market baseline
+**Decision Threshold:** <40% indicates upload friction or awareness gap
+
+### 2. Verification Speed Impact
+**Formula:** Median `time_to_verify_minutes` for users who completed `first_vehicle_unlocked` vs. those who churned
+**Analysis:** Segment users by verification time buckets (0-15min, 15-60min, 1-24hrs, 24+hrs)
+**Hypothesis Test:** If conversion drops sharply after 60 minutes, delays cause churn
+
+### 3. Browse-to-Book Conversion
+**Formula:** Users with `first_vehicle_unlocked` ÷ Users with `identity_verified`
+**Segmentation:** Separate users who viewed vehicle map vs. those who didn't (add `vehicle_map_viewed` event if not currently tracked)
+**Insight:** Low conversion post-verification indicates pricing, availability, or interest issues—not approval delays
+
+### 4. 48-Hour Conversion Rate
+**Formula:** Users with `first_vehicle_unlocked` within 48hrs of `app_installed` ÷ Total `app_installed` (for closed cohorts only)
+**Reporting:** Daily cohort tracking by city launch date
+**Success Metric:** Target 30-45% in new markets (adjusted from 60% original market)
+
+## Implementation Requirements
+
+**Data Layer Structure:**
+```
+user_id: [unique identifier]
+city: [denver | portland | seattle]
+install_timestamp: [ISO 8601]
+verification_status: [pending | approved | rejected]
+time_to_verify_minutes: [calculated field]
+time_to_first_unlock_hours: [calculated field]
+cohort_48hr_complete: [true/false based on window closure]
+```
+
+**Reporting Cadence:**
+- **Daily:** Raw event counts and completion rates by city
+- **Weekly:** Cohort analysis with closed 48-hour windows only
+- **June 14th:** Final recommendation report for June 15th decision
+
+## Decision Framework for June 15th
+
+**GREEN LIGHT (Continue Spend):**
+- 48-hour conversion rate ≥35% in at least 2 cities
+- Verification delays <60 minutes median for converters
+- Browse-to-book rate >50% post-verification
+
+**YELLOW LIGHT (Optimize Before Scaling):**
+- 48-hour conversion 25-34% with clear bottleneck identified
+- Verification delays >60 minutes causing measurable churn
+- Actionable fix identified (e.g., expedite verification, improve map UX)
+
+**RED LIGHT (Pause & Reassess):**
+- 48-hour conversion <25% across all cities
+- No clear bottleneck; users drop off randomly throughout funnel
+- Verification speed shows no correlation with conversion
+
+## Critical Data Quality Rules
+
+1. **Match observation windows:** Never divide full-period installs by partial-period conversions. Only calculate rates for cohorts where the full 48 hours have elapsed.
+2. **City-specific analysis:** Report each city's metrics separately. Do not aggregate across Denver, Portland, and Seattle.
+3. **Exclude pending verifications:** Users still in the verification process within their 48-hour window are "pending," not failed. Exclude from conversion rate denominators.
+4. **Track rejection reasons:** Capture `verification_rejection_reason` property to distinguish system errors from user document issues.
+
+This framework isolates whether the bottleneck is operational (verification delays) or behavioral (loss of interest), enabling targeted interventions before scaling marketing spend.
+
+*Note: Add `vehicle_map_viewed` event immediately if not currently tracked—it's essential for distinguishing browse-to-book drop-offs. Ensure all timestamps use UTC to avoid city timezone calculation errors.*

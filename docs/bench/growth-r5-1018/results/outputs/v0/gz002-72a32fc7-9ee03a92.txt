@@ -1,0 +1,68 @@
+# Event Tracking Requirements: CargoFlow Dashboard Redesign
+**Target Implementation Date:** November 15th
+**Audience:** Engineering Team (Hamburg)
+
+## 1. Core Principle
+Do not instrument "everything." Track only interactions that answer specific questions about value delivery. Ignore mouse hovers; they create noise without indicating intent. Focus on **distinct clicks** and **time-spent thresholds** that signal a logistics manager has consumed critical information.
+
+## 2. Event Taxonomy & Properties
+Every event must include these standard properties to enable segmentation by company size and client type:
+*   `user_id` (Pseudonymous, stable across sessions)
+*   `company_id`
+*   `company_size_segment` (Derived from account metadata: e.g., "SMB", "Enterprise")
+*   `shipment_id`
+*   `dashboard_view_id` (Session-level identifier)
+
+### A. Primary Value Events (The "North Star" Inputs)
+*These events confirm the user is getting real value (knowing the shipment status).*
+
+**Event Name:** `shipment_status_card_expanded`
+*   **Question Answered:** Which specific data points (ETA, Weight, Location) drive user engagement?
+*   **Trigger:** User clicks to expand a shipment detail card.
+*   **Required Properties:**
+    *   `expanded_field_type` (Enum: "eta", "cargo_weight", "driver_location", "all")
+    *   `time_since_last_update_minutes` (Integer)
+    *   `shipment_status_at_click` (Enum: "in_transit", "delayed", "delivered")
+
+**Event Name:** `eta_detail_viewed`
+*   **Question Answered:** Do users care more about the estimated arrival than other details?
+*   **Trigger:** User clicks specifically on the ETA element OR keeps the ETA section in view for >3 seconds.
+*   **Required Properties:**
+    *   `eta_accuracy_category` (Enum: "on_time", "delayed_1h", "delayed_4h+")
+    *   `is_real_time_update` (Boolean)
+
+### B. Secondary Action Events
+*These events indicate operational response to the data.*
+
+**Event Name:** `driver_contact_initiated`
+*   **Question Answered:** Does visibility lead to action?
+*   **Trigger:** User clicks "Call Driver" or "Message Driver" from the dashboard.
+*   **Required Properties:**
+    *   `shipment_delay_minutes` (Integer)
+    *   `previous_contact_count_24h` (Integer)
+
+**Event Name:** `status_export_shared`
+*   **Question Answered:** Is the data being used for external reporting?
+*   **Trigger:** User clicks "Export PDF" or "Share Link".
+*   **Required Properties:**
+    *   `export_format` (Enum: "pdf", "csv", "link")
+    *   `recipient_count` (Integer, if applicable)
+
+## 3. Implementation Constraints
+*   **No Hover Tracking:** Do not fire events on mouse hover. It inflates volume without proving value.
+*   **Sampling:** If `shipment_status_card_expanded` exceeds 10,000 events/day per client, sample at 10% for non-enterprise segments, but log 100% for `company_size_segment` = "Enterprise".
+*   **Latency:** Events must be batched and sent within 5 seconds of interaction to avoid blocking the UI.
+
+## 4. Analysis Plan (Post-Implementation)
+Once data flows, we will answer the assumption check:
+1.  Compare frequency of `expanded_field_type` = "eta" vs. "cargo_weight" vs. "driver_location".
+2.  Correlate `eta_detail_viewed` with `driver_contact_initiated` to see if ETA visibility drives operational changes.
+3.  Segment all counts by `company_size_segment` to verify if Enterprise clients behave differently than SMBs.
+
+## 5. This-Week Steps
+1.  **Engineering:** Implement the three events above with the specified properties by Nov 15th; reject any request to add hover listeners.
+2.  **Analytics:** Verify `user_id` stability across sessions for returning logistics managers before launch.
+3.  **Growth:** Define the "Enterprise" threshold in the metadata pipeline to ensure `company_size_segment` populates correctly on day one.
+
+*Note: We are measuring product behavior, not system health. Do not confuse these events with server logs or error traces.*
+*Baseline values for "good" engagement are currently UNVERIFIED; we will establish these from CargoFlow's own data post-launch.*

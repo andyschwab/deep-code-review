@@ -1,0 +1,46 @@
+### Tracking Plan: Distinguishing Technical Friction from Content Disinterest
+
+To determine whether the 40% drop in completion rates is caused by infrastructure (buffering) or product-market fit (content), you must track specific behavioral signals that separate *inability to watch* from *unwillingness to watch*. Implement the following event schema immediately:
+
+#### 1. Technical Friction Signals (The "Can't Watch" Metrics)
+These events isolate network performance and player stability. If these metrics correlate strongly with drop-offs, the issue is technical.
+
+| Event Name | Critical Properties | Diagnostic Value |
+| :--- | :--- | :--- |
+| `video_buffer_started` | `duration_ms`, `connection_type` (4G/WiFi), `resolution` | High frequency or long durations indicate network bottlenecks. |
+| `video_quality_changed` | `from_resolution`, `to_resolution`, `reason` (auto/manual) | Frequent automatic downgrades suggest unstable bandwidth. |
+| `playback_error` | `error_code`, `timestamp`, `device_model` | Distinguishes hard crashes from soft buffering. |
+| `rebuffer_ratio_calculated` | `total_buffer_time` / `total_watch_time` | **Key Metric:** A ratio >2% typically causes abandonment. |
+
+#### 2. Content Disinterest Signals (The "Won't Watch" Metrics)
+These events track intentional user behavior when the player is functioning correctly. If users leave without buffering, the content is the issue.
+
+| Event Name | Critical Properties | Diagnostic Value |
+| :--- | :--- | :--- |
+| `video_seek_forward` | `from_timestamp`, `to_timestamp`, `skip_duration` | Large forward skips indicate boredom or pacing issues. |
+| `video_paused_long` | `pause_duration`, `timestamp` | Pauses >2 mins often precede abandonment; check if they resume. |
+| `exit_before_completion` | `completion_percentage`, `last_event_type` | Crucial: Did the last event be `buffer_started` or `normal_playback`? |
+| `content_rating_submitted` | `rating_value`, `feedback_text` | Direct qualitative signal of dissatisfaction. |
+
+### Data Analysis & Decision Framework
+
+To make your Friday recommendation, segment your Polish cohort into two distinct groups based on the `exit_before_completion` event's preceding context.
+
+**Scenario A: The Technical Friction Hypothesis is True**
+*   **Data Pattern:** Users who drop off show a high `rebuffer_ratio` (>2%) or multiple `video_buffer_started` events immediately before exiting. Drop-off rates are significantly higher for users on mobile data vs. WiFi, or specific rural ISP segments.
+*   **Interpretation:** Users want to watch but cannot due to connection limits.
+*   **Recommendation:** **Invest in Low-Bandwidth Mode.** Prioritize engineering resources to build an adaptive bitrate ladder optimized for <2Mbps connections and enable offline downloads. Do not alter the content library yet.
+
+**Scenario B: The Content Disinterest Hypothesis is True**
+*   **Data Pattern:** Users exit with low `rebuffer_ratio` (<0.5%). The `exit_before_completion` event is preceded by `video_seek_forward` (skipping intros/boring parts) or `video_paused_long` without resumption. Drop-off rates are consistent across connection types (WiFi and 4G look the same).
+*   **Interpretation:** The stream works fine, but the content does not resonate with the Polish audience (cultural mismatch, pacing, or relevance).
+*   **Recommendation:** **Change the Content Library.** Halt low-bandwidth engineering efforts. Instead, audit the first episode's localization, dubbing quality, and cultural relevance. Acquire local content that matches regional viewing habits.
+
+**Scenario C: Mixed Signals**
+*   **Data Pattern:** Rural users show technical friction; urban users show content disinterest.
+*   **Recommendation:** **Hybrid Approach.** Implement a lightweight "Data Saver" toggle immediately for rural retention, while initiating a content review committee for the broader library.
+
+### Implementation Note
+Ensure your analytics tool distinguishes between "automatic" quality changes (system-driven) and "manual" changes (user-driven), as this distinction clarifies whether the user is fighting the player or optimizing their own experience.
+
+*Deliverable prepared for CTO and Regional Expansion Team review.*

@@ -1,0 +1,37 @@
+### Analysis Design: Net Margin Impact of Loyalty Pastry Reward
+
+**Objective:** Isolate the causal effect of the "free pastry after 5 visits" reward on total basket size and net margin, distinguishing between genuine frequency lifts and cannibalization of paid add-ons.
+
+**1. Cohort Definition (The Comparison)**
+*   **Test Group:** The 4,000 enrolled members who have completed ≥5 visits since September 1st (triggering the reward).
+*   **Control Group:** A synthetic control of non-members matched by location and historical visit frequency (pre-September), OR enrolled members who have not yet reached 5 visits (if the reward is strictly visit-count triggered). *Note: Do not compare against all non-members, as enrollment bias skews results.*
+
+**2. Required Data Slices (Transaction Level)**
+Extract the following fields for both groups for the period September 1–Present:
+*   `transaction_id`, `user_id` (masked), `location_id`, `timestamp`.
+*   `is_member`: Boolean.
+*   `visit_count_cumulative`: Integer (to identify the exact transaction where the threshold was met).
+*   `gross_basket_value`: Total CLP before discounts.
+*   `paid_addon_revenue`: Revenue specifically from paid pastries/add-ons (exclude the free item).
+*   `discount_cost`: The COGS (Cost of Goods Sold) value of the free pastry given (not the retail price).
+*   `net_margin_contribution`: `(gross_basket_value - paid_addon_revenue) - (COGS_of_all_items + discount_cost)`.
+
+**3. The Three Critical Metrics to Compute**
+Do not report top-line revenue. Report these three derived metrics per user per month:
+*   **Metric A (Frequency Lift):** Average visits per user/month.
+    *   *Question:* Did visits actually rise by the assumed 1.5x, or is this vanity?
+*   **Metric B (Cannibalization Rate):** Average `paid_addon_revenue` per transaction for visits 6+ (post-reward) vs. visits 1–4.
+    *   *Question:* Are users stopping the 300 CLP add-on purchase because they expect a free one?
+*   **Metric C (Net Margin Delta):** `(Metric A × Net Margin per Visit_Post) - (Baseline Visits × Net Margin per Visit_Pre)`.
+    *   *Question:* Does the increased frequency cover the cost of the free pastry and lost add-on sales?
+
+**4. Reading Rules for the CFO**
+*   **The Break-Even Threshold:** Calculate the minimum increase in frequency required to offset the loss of the 300 CLP add-on. If the free pastry COGS is 150 CLP, the user must generate enough *additional* visits to cover that 150 CLP loss per reward cycle.
+*   **The "Peeking" Warning:** Do not stop the analysis early if Week 1 looks good. Loyalty behavior stabilizes over 30–45 days. Compare September full-month cohorts against October to date.
+*   **Segmentation:** Slice results by `location_id`. If the lift is driven only by 5 high-traffic stores, a national rollout may fail in lower-traffic zones.
+
+**This Week's Step:**
+Run the query for **Metric B (Cannibalization)** immediately on the 4,000 members. If `paid_addon_revenue` drops by more than 150 CLP per rewarded visit, the program is currently destroying margin regardless of frequency gains. Present this single figure to the CFO on Tuesday to decide whether to pause the national rollout or adjust the reward threshold.
+
+*Note: All baseline comparisons must use CaféAndes' own pre-September data; no external industry benchmarks for coffee retention are applied.*
+*Ensure user IDs are pseudonymized before sharing with finance to comply with privacy standards.*

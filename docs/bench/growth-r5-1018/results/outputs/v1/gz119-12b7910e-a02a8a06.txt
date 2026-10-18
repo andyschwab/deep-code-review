@@ -1,0 +1,35 @@
+# Technical Specification: Onboarding Flow Instrumentation for Portugal Launch
+
+**Objective:** Diagnose the 60% dropout at the bank selection screen and enable rigorous A/B testing of UI variations to improve activation (defined as linking a bank account).
+
+## 1. Core Metric Definition
+*   **North Star Input (Activation):** `onboarding_bank_linked` (Boolean). True only when a user successfully completes the linking flow.
+*   **Primary Funnel Metric:** Conversion rate from `onboarding_started` to `onboarding_bank_linked`.
+*   **Guardrail Metric:** `onboarding_error_rate` (Percentage of sessions triggering a technical error event). Ensure UI changes do not increase breakage.
+
+## 2. Event Taxonomy
+Instrument the following events. Do not track generic "clicks"; track only events that answer a specific diagnostic question. All events must include a stable, pseudonymous `user_id` to enable cohort retention analysis.
+
+| Event Name | Trigger Condition | Required Properties | Diagnostic Question Answered |
+| :--- | :--- | :--- | : |
+| `onboarding_step_viewed` | User lands on any onboarding screen. | `step_name` (e.g., "bank_selection"), `device_type`, `os_version` | Is the drop-off uniform across devices or specific to one OS? |
+| `onboarding_step_abandoned` | User closes app or navigates back *from* a step without completing it. | `step_name`, `time_spent_seconds`, `last_visible_element` | Does time spent correlate with abandonment? (High time + drop = confusion/fear). |
+| `bank_selection_interaction` | User clicks a bank logo or search bar. | `bank_name` (if selected), `interaction_type` (click vs search) | Are users trying to search for banks not listed? |
+| `security_modal_viewed` | User clicks "Is this safe?" or similar help link. | `modal_id` | Does viewing security info reduce subsequent abandonment? |
+| `onboarding_error_triggered` | API failure or validation error occurs. | `error_code`, `step_name`, `bank_provider` | Is the 60% drop due to technical failures with specific Portuguese banks? |
+| `onboarding_completed` | Success callback received from banking provider. | `time_to_complete_seconds`, `bank_provider` | What is the baseline activation rate per bank provider? |
+
+## 3. Experiment Readiness Requirements
+To run reliable experiments on UI variations (e.g., adding trust badges, simplifying the list), the implementation must support:
+
+*   **Pre-commitment:** Experiments must define the sample size ($N$) and duration *before* launch based on the current baseline (1,000 users beta). Do not stop early because $p < 0.05$.
+*   **Assignment Logging:** Every user must be assigned a variant ID (`variant_A`, `variant_B`) logged server-side upon entry to the flow. This ID must attach to all subsequent events.
+*   **Sequential Testing Protocol:** If continuous monitoring is required, implement an always-valid p-value (e.g., mSPRT) stopping rule. Fixed-horizon tests read only once at the end.
+*   **Variance Reduction:** Capture pre-period activation status if users have prior sessions to apply CUPED-style adjustments, increasing power without more traffic.
+
+## 4. Immediate Next Steps (This Week)
+1.  **Implement `onboarding_step_abandoned` with `last_visible_element`** by tomorrow's coding start. This specifically isolates whether users leave before selecting a bank or during the redirect.
+2.  **Verify `user_id` stability** across app restarts to ensure the "3x likelihood" metric can be recalculated accurately for the Portugal cohort.
+3.  **Draft the first experiment design:** Variant A (Current) vs. Variant B (Added "Secure Connection" badge). Pre-calculate the Minimum Detectable Effect (MDE) based on the current 40% completion rate.
+
+*Note: Do not estimate "good" conversion rates; compare all results strictly against your own 40% baseline. If data is missing for `last_visible_element`, the root cause analysis remains `UNVERIFIED`.*

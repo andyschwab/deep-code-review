@@ -1,0 +1,36 @@
+### Measurement Framework: Business Registration Portal Pilot
+
+**1. North Star Metric: "Time-to-Valid-Submission"**
+Reject "completion time" alone, as it ignores data quality. The single metric that rises only when real value is delivered is **Time-to-Valid-Submission**: the elapsed time from session start to a submission that passes all automated validation checks without requiring manual clerk intervention or user correction.
+*   **Input Metrics:** Identity verification duration, document upload success rate (first attempt), and form field error count per session.
+
+**2. Funnel Diagnosis (Retention/Completion First)**
+Do not pour traffic into the portal until the 60% drop-off at document upload is resolved. Diagnose bottom-up:
+*   **The Leak:** 60% drop-off at upload.
+*   **The Question:** Is this technical failure or user confusion?
+*   **Actionable Measurement:** Instrument two distinct events at the upload stage:
+    *   `upload_error_technical`: Triggered only by system HTTP 4xx/5xx responses or timeout exceptions.
+    *   `upload_abandon_confusion`: Triggered when a user views the help tooltip >2 times or navigates away after seeing the file requirement list without attempting an upload.
+*   **Interpretation:** If `upload_error_technical` is high, fix the infrastructure. If `upload_abandon_confusion` is high, rewrite the guidance or simplify accepted formats. Do not measure acquisition (marketing visits) until this leak is plugged.
+
+**3. Event Taxonomy & Segmentation**
+Instrument only events that answer specific funding questions for the Ministry. Every event must include a `company_type_code` property (e.g., OÜ, FIE) derived from the user's selection *before* the drop-off point.
+*   **Event:** `submission_validation_result`
+    *   **Properties:** `company_type_code`, `industry_sector`, `validation_fail_reason` (e.g., "illegible_scan", "wrong_format").
+    *   **Question Answered:** "Do specific industries struggle more with data quality?"
+*   **Event:** `support_ticket_generated`
+    *   **Properties:** `session_id`, `stage_of_failure`.
+    *   **Question Answered:** "Does simplifying identity verification reduce support load?"
+
+**4. Success Criteria for Quarterly Review**
+To justify continued funding, compare the pilot baseline against the post-change trend using the user's own data. Do not use external benchmarks.
+*   **Primary Success:** Reduction in median "Time-to-Valid-Submission" from 3 days to <4 hours for the `OÜ` cohort.
+*   **Guardrail Metric:** `manual_review_rate` (percentage of submissions requiring human clerk intervention). If speed increases but manual review rates spike, the "speed" is an illusion shifting cost to staff.
+*   **Data Quality Metric:** `rejection_rate_post_submission`. A valid submission must not be rejected by a human later.
+
+**5. This-Week Steps**
+1.  **Instrument the Split:** Deploy the two distinct upload events (`upload_error_technical` vs. `upload_abandon_confusion`) by Friday to diagnose the 60% drop-off cause.
+2.  **Define the Cohort Query:** Run a query grouping `submission_validation_result` by `company_type_code` for the last 14 days; if any sector shows a >20% higher failure rate than the median, flag for immediate UX review.
+3.  **Set the Tripwire:** If `manual_review_rate` exceeds 15% after the identity simplification launch, pause the rollout regardless of speed gains, as this indicates invalid data is flowing through.
+
+*Note: All metrics above are `UNVERIFIED` until the specific event properties are implemented in your analytics pipeline. No benchmark values are asserted; success is defined strictly by improvement against your January 15 baseline.*

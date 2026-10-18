@@ -1,0 +1,44 @@
+### Churn Driver Segmentation Framework for MusicRow Premium
+
+**Objective:** Isolate whether the April 10th shift to bi-weekly releases drives churn, or if factors like audio quality, host changes, or specific show dependency are the primary culprits.
+
+**1. Define the North Star & Guardrails**
+*   **North Star:** Monthly Retention of "Core Action" (listening to ≥1 episode within 30 days of release).
+*   **Guardrail:** Average listening duration per session (to detect quality/host issues).
+*   **Baseline:** Compare post-April 10 cohorts strictly against your own pre-April 10 historical trend. Do not use the external "4% industry benchmark" as a decision threshold; your internal trend is the only valid comparator.
+
+**2. Event Taxonomy (Instrument Only What Answers a Question)**
+Ensure your analytics platform captures these specific events with the listed properties. Do not instrument generic "page views."
+*   `subscription_cancelled`: Properties: `user_id`, `cancel_date`, `tenure_months`, `primary_show_listened`, `total_episodes_last_30d`, `last_release_date`.
+*   `episode_played`: Properties: `user_id`, `show_name`, `host_name`, `audio_bitrate` (proxy for quality), `completion_rate`.
+*   `content_released`: Properties: `show_name`, `scheduled_frequency` (weekly/bi-weekly).
+
+**3. Segmentation Strategy (The Cuts)**
+Run these four specific queries to isolate the driver. Each cut dictates a different action:
+
+*   **Cut A: Frequency Sensitivity (Power Users vs. Casual)**
+    *   *Segment:* Churned users with >10 episodes/month (Power) vs. <3 episodes/month (Casual) in the 60 days prior to cancel.
+    *   *Reading Rule:* If churn spiked *only* in the Power User segment post-April 10, frequency is the culprit. If churn rose equally across both, frequency is likely not the primary driver.
+    *   *Decision:* If Power Users are leaving → Revert to weekly schedule. If uniform → Do not revert; investigate other factors.
+
+*   **Cut B: Show-Specific Leakage**
+    *   *Segment:* Churn rate grouped by `primary_show_listened`.
+    *   *Reading Rule:* If one specific show accounts for >40% of the churn increase, the issue is content-specific (host change or quality), not network-wide frequency.
+    *   *Decision:* If concentrated → Invest in production fixes for that show, not network-wide marketing or schedule changes.
+
+*   **Cut C: The "Gap" Analysis**
+    *   *Segment:* Time between `last_release_date` and `cancel_date` for users who listened to the first bi-weekly episode vs. those who didn't.
+    *   *Reading Rule:* If users who *did* consume the bi-weekly content still churned at a higher rate than the baseline, the content itself (quality/host) is failing, not the schedule.
+    *   *Decision:* If high consumption + high churn → Audit audio quality and host performance immediately.
+
+*   **Cut D: Tenure Cohorts**
+    *   *Segment:* New subscribers (joined <3 months ago) vs. Legacy subscribers.
+    *   *Reading Rule:* New users have no habit formation; they are most sensitive to frequency changes. Legacy users are sensitive to content quality shifts.
+    *   *Decision:* If New Users churn spikes → Frequency/Onboarding issue. If Legacy spikes → Content/Host issue.
+
+**4. This-Week Steps**
+1.  **Query Run:** Execute Cut A and Cut B using data from April 10 to present. Compare against the Jan 1–April 9 baseline.
+2.  **Verification:** Confirm `audio_bitrate` and `host_name` properties are populated on `episode_played` events for the top 3 churning shows. If missing, mark findings as `UNVERIFIED` for those dimensions.
+3.  **Decision Trigger:** By month-end, if Power User churn > Baseline + 2%, recommend reverting to weekly. If churn is isolated to one show, recommend production audit over schedule change.
+
+*Note: All metrics must be derived from your internal analytics; no external benchmarks will be used to validate success. If data for "audio quality" is missing, that specific hypothesis remains untested.*

@@ -1,0 +1,54 @@
+# SecureWallet Onboarding Drop-Off Analysis Plan
+
+## Objective
+Isolate whether abandonment at **Seed Phrase Creation (60% drop)** and **Identity Verification (20% drop)** is driven by confusion, fear, or technical failure, enabling targeted fixes that balance security and completion.
+
+## Phase 1: Event Log Segmentation (Quantitative)
+*Goal: Distinguish between "gave up" (behavioral) and "couldn't proceed" (technical).*
+
+**1. Technical Failure Detection**
+Filter logs for sessions ending in error states or infinite loops.
+- **Query:** Count sessions where `step_started` occurs but `step_completed` does not, followed immediately by `app_crash`, `api_timeout`, or `retry_count > 3`.
+- **Segment:** Break down by OS version, device model, and network type (WiFi vs. Cellular).
+- **Hypothesis:** If >15% of drop-offs correlate with specific devices or errors, this is a bug, not a UX issue.
+
+**2. Time-to-Abandon Analysis**
+Measure duration between `step_view` and `session_end`.
+- **Short Duration (<15s):** Indicates immediate rejection or fear (e.g., user sees "write this down" and quits).
+- **Long Duration (>3 mins for Seed, >5 mins for ID):** Indicates friction/confusion (user is trying but failing to understand or complete the task).
+- **Action:** Compare average time-on-step for completers vs. abandoners.
+
+**3. Retry Patterns**
+- **Seed Phrase:** Track `phrase_regeneration_count`. High regeneration suggests users don't trust the process or find the writing step tedious.
+- **ID Verification:** Track `document_upload_retry`. Multiple retries suggest poor camera guidance or strict rejection criteria.
+
+## Phase 2: Session Recording Audit (Qualitative)
+*Goal: Observe the "why" behind the numbers. Sample 50 recordings per drop-off point (25 short duration, 25 long duration).*
+
+**1. Seed Phrase Step (The "Fear" Check)**
+- **Look for:** Hesitation before clicking "Reveal," users switching apps to take photos (policy violation risk), or reading the warning text aloud (confusion).
+- **Signal:** If users repeatedly toggle visibility or exit immediately after seeing the phrase, the security warning language is triggering anxiety, not confidence.
+
+**2. Identity Verification (The "Friction" Check)**
+- **Look for:** Camera permission denials, document positioning struggles, or lighting issues.
+- **Signal:** If users abandon after a "Document Rejected" message without attempting a re-upload, the error message is unclear or the threshold feels impossible.
+
+## Phase 3: Synthesis & Recommendation Matrix
+*Goal: Present findings to Security Engineering and Compliance with clear trade-offs.*
+
+Create a table mapping root causes to solutions:
+
+| Root Cause | Evidence Source | Proposed Fix | Security Impact |
+| :--- | :--- | :--- | :|
+| **Technical Bug** | Error logs on Android 12 | Patch API timeout logic | None |
+| **Fear/Anxiety** | Short time-on-step + exit after warning | Reframe warning: "This protects *you*" vs. "Don't lose this" | None (Language only) |
+| **Confusion** | Long time-on-step + rage clicks | Add progressive tooltip or video demo | Low (Adds UI layer) |
+| **Strict Compliance** | High reject rate on first upload | Relax initial image quality check; verify server-side | Medium (Requires compliance sign-off) |
+
+## Immediate Next Steps
+1. Run the SQL queries for technical errors and time-segments today.
+2. Schedule a 1-hour review of 20 session recordings with one engineer and one compliance officer to align on what "safe friction" looks like.
+3. Draft A/B test hypotheses for the top non-technical cause identified.
+
+*Note: Do not implement UI changes until technical bugs are ruled out; fixing a broken button yields higher ROI than rewriting copy.*
+*Ensure all session recording analysis complies with your data privacy policy regarding PII masking.*

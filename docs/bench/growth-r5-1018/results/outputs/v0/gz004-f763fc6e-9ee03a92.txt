@@ -1,0 +1,78 @@
+# Stablecoin Swap Event Specification
+
+**Objective:** Measure conversion from initiation to completion, isolate abandonment points (specifically pre-network confirmation), and track error rates.
+**Volume Expectation:** ~300 events/day (Month 1).
+**Governance:** Every event answers a named question. No PII included.
+
+## 1. Event Taxonomy
+
+### `swap_initiated`
+*   **Question Answered:** How many users attempt a swap, and what are the initial conditions (fees, assets)?
+*   **Trigger:** User clicks "Confirm Swap" on the review screen.
+*   **Properties:**
+    *   `user_id` (pseudonymous, stable across sessions)
+    *   `session_id`
+    *   `from_asset` (string, e.g., "USDC")
+    *   `to_asset` (string, e.g., "USDT")
+    *   `amount_requested` (decimal)
+    *   `gas_fee_estimate` (decimal, in native chain token) — *Include here to correlate initial friction with abandonment.*
+    *   `exchange_rate_quote` (decimal)
+    *   `quote_timestamp` (ISO 8601)
+
+### `swap_gas_fee_viewed`
+*   **Question Answered:** Do users abandon the flow specifically after seeing the gas fee estimate?
+*   **Trigger:** The UI successfully renders the gas fee estimate to the user (prior to `swap_initiated`).
+*   **Properties:**
+    *   `user_id`
+    *   `session_id`
+    *   `gas_fee_estimate` (decimal)
+    *   `load_latency_ms` (integer) — *Detects if slow fee fetching causes drop-off.*
+
+### `swap_broadcast_attempted`
+*   **Question Answered:** Did the transaction successfully leave our backend/node provider?
+*   **Trigger:** Backend successfully signs and broadcasts the transaction to the network.
+*   **Properties:**
+    *   `user_id`
+    *   `session_id`
+    *   `transaction_hash` (string)
+    *   `time_to_broadcast_ms` (integer) — *Measures backend processing delay.*
+
+### `swap_confirmed`
+*   **Question Answered:** Did the user successfully complete the swap? (North Star input)
+*   **Trigger:** Network returns a success receipt with required confirmations.
+*   **Properties:**
+    *   `user_id`
+    *   `session_id`
+    *   `transaction_hash`
+    *   `final_gas_fee_paid` (decimal) — *Compare against estimate for accuracy.*
+    *   `confirmation_time_seconds` (integer)
+    *   `amount_received` (decimal)
+
+### `swap_failed`
+*   **Question Answered:** Why did the swap fail? (Debugging primary source)
+*   **Trigger:** Any error state from initiation to confirmation (timeout, rejection, insufficient funds, node error).
+*   **Properties:**
+    *   `user_id`
+    *   `session_id`
+    *   `failure_stage` (enum: `quote_expired`, `user_rejected`, `broadcast_failed`, `network_reverted`, `timeout`)
+    *   `error_code` (string, internal mapping)
+    *   `error_message` (string, sanitized, no PII)
+    *   `attempted_gas_fee` (decimal)
+
+## 2. Implementation Rules for Developers
+
+1.  **Gas Fee Placement:** Record `gas_fee_estimate` on `swap_initiated`. Use `swap_gas_fee_viewed` only if the design allows users to see fees *before* the "Confirm" button exists. If the fee appears only on the review modal, `swap_initiated` suffices. Do not duplicate; if unsure, log both but mark `swap_gas_fee_viewed` as deprecated if unused after 2 weeks.
+2.  **Identifier Seam:** Use a stable, pseudonymous `user_id`. Do not use email or wallet address directly as the primary key in analytics storage.
+3.  **Data Types:** All currency values must be transmitted as strings or high-precision decimals to prevent floating-point errors in analysis.
+4.  **No "Just in Case" Fields:** Do not add properties without a specific question they answer. Additional currency support in Q1 requires no schema change if enums are used for assets.
+
+## 3. Success Metrics & Debugging Logic
+
+*   **Conversion Rate:** `count(swap_confirmed) / count(swap_initiated)`
+*   **Abandonment Diagnosis:**
+    *   High drop-off between `swap_gas_fee_viewed` and `swap_initiated` → Fee shock or UI clarity issue.
+    *   High `failure_stage` = `broadcast_failed` → Backend/Node provider instability.
+    *   High `failure_stage` = `network_reverted` → Slippage tolerance too low or gas estimation inaccurate.
+*   **This-Week Step:** Instrument `swap_failed` with the `failure_stage` enum immediately. Run a query on Day 3 grouping by `failure_stage` to validate the assumption that "network confirmation" is the primary failure point. If >20% of errors are `quote_expired`, reduce quote validity time or optimize frontend latency.
+
+*Note: Baselines for "good" conversion rates are UNVERIFIED until launch; compare only against your own Week 1 performance. Ensure `error_message` is scrubbed of wallet addresses before logging.*

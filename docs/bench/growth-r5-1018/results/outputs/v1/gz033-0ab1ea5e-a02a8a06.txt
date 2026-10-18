@@ -1,0 +1,59 @@
+### Instrumentation Plan for Fraud Model Impact (PayGuard)
+
+**Objective:** Measure the net economic impact of the new ML model by balancing fraud loss against manual review costs and friction-induced volume loss.
+
+**Core North Star:** *Net Verified Value* = (Total Successful Transaction Volume × Margin) − (Confirmed Fraud Loss) − (Cost of Manual Reviews).
+*Reject vanity metrics like "Total Transactions Flagged" which rise even if the business loses money.*
+
+#### 1. Event Taxonomy: Instrument Only What Answers a Question
+Do not log every internal score. Log only these three events with the specified properties to answer specific business questions.
+
+**Event A: `transaction_decision`**
+*Question:* Did the model allow value to flow, and what was the risk context?
+*Trigger:* Every transaction attempt.
+*Properties:*
+- `transaction_id` (stable ID for cohorting)
+- `timestamp`
+- `amount` & `currency`
+- `is_high_value` (boolean, based on your threshold)
+- `model_score` (0–100, for later threshold tuning)
+- `decision`: `allowed` | `blocked_auto` | `sent_to_review`
+- `user_segment`: (e.g., "new_merchant", "legacy_enterprise")
+
+**Event B: `review_outcome`**
+*Question:* What is the true cost of our manual team, and how accurate was the "sent_to_review" decision?
+*Trigger:* When a human analyst closes a ticket.
+*Properties:*
+- `transaction_id` (joins to Event A)
+- `review_duration_seconds` (calculates labor cost)
+- `final_verdict`: `fraud_confirmed` | `false_positive` | `true_positive_allowed`
+- `action_taken`: `refunded` | `completed_late` | `blocked_final`
+
+**Event C: `friction_drop_off`**
+*Question:* Are we losing legitimate volume due to added friction (your 15% assumption)?
+*Trigger:* User abandons flow after a delay or extra step.
+*Properties:*
+- `transaction_id`
+- `stage_failed`: `review_wait_timeout` | `user_abandoned_challenge`
+- `time_in_review_queue_seconds`
+
+#### 2. Critical Data Fields for Cost Evaluation
+To present to the Risk Compliance Officer, you must join these events to calculate:
+1.  **Fraud Cost:** Sum of `amount` where `final_verdict` = `fraud_confirmed`.
+2.  **Review Cost:** Count of `review_outcome` events × Average Cost Per Minute × `review_duration_seconds`.
+3.  **Friction Cost:** Sum of `amount` for `friction_drop_off` events (legitimate money lost).
+
+*Note on Identity:* Ensure `transaction_id` is stable across sessions to track users through the review queue, but keep it pseudonymous. Route any PII handling to your privacy compliance protocol.
+
+#### 3. Analysis Method: Retention & Baseline First
+Do not compare your results to industry benchmarks. Compare March 1st+ data against your own February baseline.
+- **Baseline:** Current 200 flags/day @ 5% false positive rate.
+- **Hypothesis Check:** If `friction_drop_off` rises significantly without a matching drop in `fraud_confirmed`, the 15% volume gain assumption is failing.
+- **Funnel Order:** Analyze **Retention** of legitimate high-value users first. If they abandon due to review delays, acquisition of new merchants is wasted spend.
+
+#### 4. This Week's Steps (Due Before Tuesday)
+1.  **Define the "Cost Per Review" Constant:** Calculate your exact labor cost per minute today. Without this number, the `review_outcome` event cannot be translated to dollars.
+2.  **Implement the Schema:** Deploy the three events above. Do not add more. If a field does not map to Fraud Cost, Review Cost, or Friction Cost, exclude it.
+3.  **Draft the Baseline Query:** Write the SQL/Query that sums February's *Net Verified Value* using current logs. This is the only valid benchmark for your Tuesday presentation.
+
+*The model cannot verify your current traffic volume or labor costs; these inputs must come from your internal finance and ops data to render the final dollar figures.*

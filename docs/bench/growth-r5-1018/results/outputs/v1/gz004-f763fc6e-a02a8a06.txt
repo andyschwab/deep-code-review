@@ -1,0 +1,62 @@
+# Stablecoin Swap Event Specification
+
+**Objective:** Measure conversion from initiation to completion, identify abandonment points pre-network confirmation, and track error contexts.
+**Volume Expectation:** ~300 events/day (Month 1).
+**Identifier Requirement:** All events must include `user_id` (pseudonymous) to enable cohort retention analysis.
+
+## 1. Event Taxonomy
+
+### `swap_initiated`
+*Fires when the user clicks "Confirm Swap" on the review screen.*
+- **Purpose:** Defines the funnel entry; captures state before network interaction.
+- **Properties:**
+  - `from_currency`: (string) e.g., "USDC"
+  - `to_currency`: (string) e.g., "USDT"
+  - `amount_requested`: (number)
+  - `gas_fee_estimate`: (number) **Include here.** Do not create a separate view event for this; it is a property of the transaction intent at the moment of commitment.
+  - `exchange_rate_snapshot`: (number)
+  - `device_os`: (string)
+  - `app_version`: (string)
+
+### `swap_broadcast_attempted`
+*Fires when the signed transaction is successfully sent to the blockchain node.*
+- **Purpose:** Distinguishes between UI/Validation failures and Network failures. If this event is missing after `swap_initiated`, the drop-off occurred locally (e.g., insufficient balance validation, user cancelled, API timeout).
+- **Properties:**
+  - `from_currency`, `to_currency`, `amount_requested` (mirror initiation for validation)
+  - `network_latency_ms`: (number) Time taken to sign and broadcast.
+  - `node_endpoint_id`: (string) Identifier for the RPC node used (helps isolate provider issues).
+
+### `swap_confirmed`
+*Fires when the transaction receives the required number of block confirmations.*
+- **Purpose:** The primary success metric (North Star input).
+- **Properties:**
+  - `transaction_hash`: (string)
+  - `actual_gas_paid`: (number)
+  - `confirmation_time_seconds`: (number)
+  - `final_amount_received`: (number)
+
+### `swap_failed`
+*Fires on any terminal error state.*
+- **Purpose:** Debugging specific failure modes.
+- **Properties:**
+  - `error_code`: (string) Standardized code (e.g., `INSUFFICIENT_GAS`, `SLIPPAGE_EXCEEDED`, `NETWORK_TIMEOUT`, `USER_REJECTED`).
+  - `failure_stage`: (string) Enum: `VALIDATION`, `BROADCAST`, `CONFIRMATION`.
+  - `error_message_raw`: (string) Sanitized error string from provider.
+  - `retry_count`: (number) If the user attempted this swap multiple times in the session.
+
+## 2. Reading Rules & Decisions
+
+| Metric | Formula / Logic | Action Trigger |
+| :--- | :--- | :--- |
+| **Initiation-to-Broadcast Drop** | Count(`swap_initiated`) - Count(`swap_broadcast_attempted`) | If >5%: Investigate local validation logic or gas estimation UI friction. |
+| **Broadcast-to-Confirm Failure** | Count(`swap_failed` where stage=`CONFIRMATION`) / Count(`swap_broadcast_attempted`) | If >2%: Rotate RPC node provider or adjust gas price buffers. |
+| **Success Rate** | Count(`swap_confirmed`) / Count(`swap_initiated`) | Baseline for A/B tests on fee estimation accuracy. |
+
+## 3. Implementation Constraints for Q1 Scale
+- **No PII:** Do not log wallet addresses in plain text; hash them or use the internal `user_id`.
+- **Schema Rigidity:** Adding new currencies requires no schema change; `from_currency` and `to_currency` are dynamic strings.
+- **Gas Fee Decision:** Gas estimates are recorded on `swap_initiated`. Comparing `gas_fee_estimate` (initiation) vs `actual_gas_paid` (confirmation) directly answers whether our estimation logic is causing abandonment due to sticker shock or failure.
+
+**Next Step:** Backend to implement these four events with the specified properties by next Friday. QA must verify that every `swap_initiated` without a `swap_confirmed` has a corresponding `swap_failed` or explains the gap via missing `swap_broadcast_attempted`.
+
+*Note: Retention analysis requires linking these events to the user's weekly active status, not just transaction volume. Ensure the `user_id` persists across app reinstalls.*
