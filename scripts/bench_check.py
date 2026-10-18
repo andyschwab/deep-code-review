@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bench-integrity gate for docs/bench/<dir> (stdlib only).
 
-Usage: bench_check.py [--changed [BASE]] [--allow FILE] [--max-overlap F] DIR...
+Usage: bench_check.py [--changed [BASE]] [--against REF] [--allow FILE] [--max-overlap F] DIR...
 
 Fails (exit 1, one line per problem) when a bench dir:
   a. has a scenario file (scenarios*.json, tickets*.json, or the file a PREREGISTERED*.md
@@ -33,6 +33,11 @@ Old benches lack ledgers, so only dirs named on the command line are checked; --
 names the docs/bench dirs absent from BASE (default origin/main), so CI gates only new
 benches; a missing BASE is an error.
 
+The disjointness corpus (rules a, d) is every other docs/bench dir in the working tree plus
+every dir at --against REF (default origin/main when it exists) that the tree lacks, so a
+bench that landed on REF after the branch point is still compared. A missing REF is an
+error only when --against names it. REF dirs are read with git archive, no checkout.
+
 Trust limits (this catches accidents, not a lane forging records): hashes are compared as
 strings, so a frozen line rewritten to a hash that some later ledger event also contains
 passes, and committed file bytes are not re-hashed against SHA256-frozen.txt. A single
@@ -40,7 +45,7 @@ scenario file with no tune/held file name, "split" field or tune/held id is trea
 unsplit, so no tune/held check runs on it. Edits to a bench dir that already exists on
 BASE are not gated.
 """
-import argparse, hashlib, json, re, subprocess, sys
+import argparse, hashlib, io, json, re, subprocess, sys, tarfile, tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -208,6 +213,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("dirs", nargs="*")
     ap.add_argument("--changed", nargs="?", const="origin/main")
+    ap.add_argument("--against")
     ap.add_argument("--allow")
     ap.add_argument("--max-overlap", type=float, default=0.2)
     a = ap.parse_args(argv)
@@ -218,10 +224,19 @@ def main(argv=None):
             sys.exit(f"bench_check: --changed base {a.changed} not found (fetch it)")
         dirs += [d for d in sorted(root.iterdir()) if d.is_dir()
                  and not git("ls-tree", a.changed, f"docs/bench/{d.name}/").stdout.strip()]
+    ref = a.against or ("origin/main" if not git("rev-parse", "--verify", "-q", "origin/main").returncode else None)
+    if a.against and git("rev-parse", "--verify", "-q", a.against).returncode:
+        sys.exit(f"bench_check: --against ref {a.against} not found (fetch it)")
     errs = []
-    for d in dirs:
-        others = [x for x in sorted(root.iterdir()) if x.is_dir() and x.resolve() != d.resolve()]
-        errs += check(d, others, a.allow, a.max_overlap)
+    with tempfile.TemporaryDirectory() as tmp:
+        if ref:  # benches that landed on REF after the branch point
+            tar = subprocess.run(["git", "-C", str(REPO), "archive", ref, "docs/bench"], capture_output=True)
+            if not tar.returncode:
+                tarfile.open(fileobj=io.BytesIO(tar.stdout)).extractall(tmp)
+        extra = [x for x in sorted((Path(tmp) / "docs/bench").glob("*")) if x.is_dir() and not (root / x.name).exists()]
+        for d in dirs:
+            others = [x for x in sorted(root.iterdir()) if x.is_dir() and x.resolve() != d.resolve()] + extra
+            errs += check(d, others, a.allow, a.max_overlap)
     print("\n".join(errs) or f"bench_check: {len(dirs)} dir(s) clean")
     return 1 if errs else 0
 
