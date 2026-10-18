@@ -1,0 +1,35 @@
+### Sanitized Reproduction Strategy & PR Disclosure Draft
+
+**Strategy: Abstract the Configuration, Not the Behavior**
+Do not attempt to sanitize your proprietary config file. Instead, write a **synthetic unit test** within the AcmeFlow test suite that programmatically constructs the deadlock state using only public APIs.
+
+1.  **Identify the Primitive:** Isolate the specific public method calls or state transitions in the `QueueManager` that cause the lock (e.g., "Thread A holds Lock X and waits for Resource Y, while Thread B holds Y and waits for X").
+2.  **Construct the Scenario:** Write a JUnit test that manually instantiates the `QueueManager`, creates two mock threads, and forces them into this specific state *without* needing the broker, network, or real message bursts. Use `CountDownLatch` or `CyclicBarrier` to deterministically trigger the race condition.
+3.  **The Proof:** The test should fail (hang or timeout) on the `main` branch and pass on your fix branch. This satisfies the "reproducible test case" requirement using only code, zero config files.
+
+**Draft PR Description Section (Test Plan)**
+
+```markdown
+## Reproduction & Test Plan
+
+**Issue:** Deadlock in `QueueManager` under high-concurrency contention.
+
+**Reproduction Strategy:**
+Due to the proprietary nature of the triggering broker configuration (Northwind Logistics internal infrastructure), I cannot share the exact production config file. However, I have isolated the root cause to a specific race condition in the public `QueueManager` API.
+
+I have added a deterministic unit test: `QueueManagerTest#testConcurrentAcquireReleaseDeadlock`.
+
+- **Mechanism:** This test uses `CountDownLatch` to force two threads into the exact lock-ordering violation observed in production, bypassing the need for external broker settings or network topology.
+- **Verification:**
+  - On `main`: The test hangs indefinitely (or fails via timeout), reproducing the deadlock.
+  - On this branch: The test passes, confirming the fix resolves the contention.
+- **Run Command:** `mvn test -Dtest=QueueManagerTest#testConcurrentAcquireReleaseDeadlock`
+
+This approach validates the fix without exposing confidential infrastructure details while adhering to the project's requirement for a reproducible case.
+```
+
+**Draft Comment for Maintainer Discussion (if asked)**
+
+> "Hi @maintainer, regarding the reproduction steps: The original trigger relies on confidential internal broker settings that I am legally unable to disclose. To respect the project's need for a reproducible case without leaking sensitive data, I've engineered a synthetic unit test (`testConcurrentAcquireReleaseDeadlock`) that programmatically forces the same thread-state collision using only public APIs. It fails on `main` and passes with this patch, providing a deterministic proof of the bug and the fix without requiring any external configuration files."
+
+**Critical Reminder:** Ensure your new test file imports only public classes from the AcmeFlow jar/source. Do not import or reference any internal Northwind utility classes, even if they are in the same package structure in your local fork.

@@ -1,0 +1,35 @@
+### Synthetic Log Generation Strategy
+
+To report the daylight saving time (DST) parsing bug without exposing Stark Industries' operational cadence, you must replace real timestamps with **structurally equivalent synthetic data**. The maintainers require a log file that triggers the same parser failure mode, not your specific volume or timing patterns.
+
+**Required Level of Detail**
+Maintainers need only three elements to accept the report:
+1.  **Log Schema:** The exact format string (e.g., `YYYY-MM-DD HH:MM:SS TZ`) and field order.
+2.  **Transition Context:** Entries immediately before, during, and after the DST shift (e.g., the "repeated" hour in autumn or the "skipped" hour in spring).
+3.  **Failure Trigger:** The specific timestamp value that causes the parser to crash, misorder, or drop entries.
+
+Operational metrics like job frequency, batch sizes, or realistic intervals between entries are irrelevant to the code defect and must be removed.
+
+**Method for Generating Synthetic Data**
+Create a script to generate a fake log file using the following rules:
+
+*   **Static Date Selection:** Pick a generic year (e.g., 2023) and the specific date of the DST transition relevant to your timezone (e.g., November 5th for US Eastern). Do not use the actual date your incident occurred.
+*   **Artificial Cadence:** Replace your real processing intervals with a fixed, dummy interval (e.g., exactly one entry every 60 seconds). This completely obscures your true batch frequency while maintaining a valid sequence for the parser to process.
+*   **Placeholder Payloads:** Replace all message content with static strings like `INFO: Synthetic heartbeat` or `DEBUG: Dummy payload`. Ensure no error messages from your production environment leak internal logic.
+*   **Targeted Anomaly Injection:** Manually construct the critical lines around the transition.
+    *   *Fall Back:* Include two entries with the same local time (e.g., `01:30:00` appearing twice) but explicitly mark them with distinct UTC offsets if your format allows, or simply repeat the local timestamp to mimic the ambiguity.
+    *   *Spring Forward:* Skip the non-existent hour entirely or insert a timestamp that falls in the gap (e.g., `02:30:00` when clocks jump from 02:00 to 03:00) to see if the parser rejects it or hallucinates a value.
+
+**Example Synthetic Snippet**
+```text
+2023-11-05 01:55:00 EDT INFO: Synthetic heartbeat
+2023-11-05 01:56:00 EDT INFO: Synthetic heartbeat
+2023-11-05 01:30:00 EST INFO: Synthetic heartbeat  <-- Ambiguous repeat (Fall back)
+2023-11-05 01:31:00 EST INFO: Synthetic heartbeat
+2023-11-05 03:00:00 EST INFO: Synthetic heartbeat  <-- Gap skipped
+```
+
+By submitting this fabricated file, you provide a reproducible test case that isolates the DST logic error while mathematically guaranteeing zero leakage of Stark Industries' schedule or capacity.
+
+*Note: Ensure your final patch or issue description explicitly states that the provided logs are synthetic and generated solely for reproduction purposes.*
+*Do not attempt to "noise" the real data; total replacement is the only safe approach.*

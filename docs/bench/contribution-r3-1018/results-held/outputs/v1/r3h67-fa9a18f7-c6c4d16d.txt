@@ -1,0 +1,32 @@
+**Proposed Build Approach: Decoupled Dependency Resolution**
+
+To satisfy the requirement for a public build process while protecting internal infrastructure, you must decouple the *definition* of dependencies from their *resolution*. Do not hardcode URLs or paths to private repositories in the build scripts (e.g., `CMakeLists.txt`, `Makefile`, or `configure.ac`). Instead, rely on standard system package managers or allow the build system to accept dependencies as pre-existing inputs.
+
+**1. Adopt System Package Manager Integration**
+Modify the build configuration to detect and link against libraries installed via standard public package managers (e.g., `apt`, `yum`, `brew`, `vcpkg`, or `conan`).
+*   **Action:** Replace direct URL fetches with `find_package()` (CMake) or `pkg-config` checks.
+*   **User Experience:** Public users install the required development headers using their OS package manager (e.g., `sudo apt install libscience-dev`). Your build script simply verifies presence and links.
+*   **Benefit:** This removes all references to your internal artifact repository. The specific binary versions your company uses internally become an implementation detail of your internal CI, not the upstream source.
+
+**2. Implement "Bring Your Own Dependency" (BYOD) Mode**
+If the specific versions required are not yet available in public repositories, structure the build to assume the dependencies are already present in a standard system path or a user-specified prefix.
+*   **Action:** Add a standard CMake variable or environment variable hook, such as `-DSCIENCE_LIB_ROOT=/usr/local` or `export SCIENCE_LIB_PREFIX`.
+*   **Documentation:** In the `README` or `INSTALL` guide, state: "This binding requires [Library Name] version X.Y. Please install it via your package manager or build it from source and specify the path using `SCIENCE_LIB_ROOT`."
+*   **Security:** This approach places the burden of sourcing the binary on the user without exposing your internal storage mechanism. Your contribution provides the *glue code* to link against a compliant library, not the library itself.
+
+**3. Provide a Reproducible Example with Public Sources**
+To ensure the contribution is testable by maintainers without accessing your private repo:
+*   Create a minimal reproduction script that downloads the *publicly available* version of the dependency (or a compatible mock if the API is stable) from a public mirror (e.g., GitHub releases, official project site).
+*   Configure your CI (in the PR) to use this public source.
+*   **Internal Note:** Your internal CI can override this behavior via environment variables to point to your private, authenticated repository. This override logic should exist in your internal fork or CI configuration, *not* in the upstream pull request.
+
+**Summary of Changes for the PR:**
+*   **Remove:** All hardcoded URLs, IP addresses, or hostnames related to "Acme Corp" or internal artifacts.
+*   **Remove:** Any logic that attempts to authenticate or fetch from private networks.
+*   **Add:** Logic to detect system-installed libraries or accept a user-defined prefix.
+*   **Add:** Documentation instructing users on how to satisfy dependencies using public tools.
+
+This approach ensures the build is reproducible by anyone with internet access to public mirrors, adhering strictly to the project's rules while keeping your corporate infrastructure invisible.
+
+*Note: Ensure no internal version numbers or codenames that could uniquely identify your private build environment leak into error messages or logs.*
+*Before submitting, run a text search on your patch for "acme", "corp", and your internal domain to verify complete sanitization.*

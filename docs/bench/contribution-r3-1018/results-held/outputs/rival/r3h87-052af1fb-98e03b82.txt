@@ -1,0 +1,25 @@
+Do not submit this PR yet. Proposing specific backoff multipliers based on "theoretical models" while explicitly withholding the real data that justified them will likely get your contribution rejected. Maintainers view arbitrary magic numbers as technical debt, and claiming you have data you cannot share signals that the parameters are overfitted to a private environment rather than robust for the general community.
+
+Instead of drafting a justification for fixed values, re-scope your contribution to one of these two maintainable approaches:
+
+**Option A: Make the Strategy Configurable (Recommended)**
+Refactor the retry mechanism to accept the backoff parameters (initial interval, multiplier, max delay) as configuration options or functional arguments.
+*   **Rationale:** This allows Hooli Corp (and other users with unique latency profiles) to tune the values in their deployment without modifying source code.
+*   **Default Values:** Set the defaults to widely accepted industry standards (e.g., initial delay of 100ms–1s, multiplier of 2.0, max delay of 30s–60s) citing general best practices (like AWS SDK or gRPC defaults) rather than your private metrics.
+*   **PR Argument:** "This PR introduces a configurable retry mechanism. Default values follow standard industry conventions for general-purpose HTTP clients. Users with specific latency requirements can override these via the new configuration struct."
+
+**Option B: Implement Adaptive Backoff**
+If the library supports it, implement an adaptive algorithm that adjusts backoff based on observed failure rates at runtime rather than static multipliers.
+*   **Rationale:** This removes the need to justify static numbers entirely, as the system self-tunes based on actual network conditions.
+*   **PR Argument:** "Replaces static backoff with an adaptive strategy to handle diverse network conditions without requiring manual tuning for specific infrastructures."
+
+**Why the "Theoretical Model" Approach Fails**
+If you submit a PR with hard-coded values justified only by "theory," a maintainer will ask: "Why 2.0 and not 1.5? Why 5s max and not 10s?" If your answer is "our private data says so, but we can't show you," the maintainer cannot verify if these values hurt other users. They will likely request you remove the specific numbers entirely or revert to the existing simple behavior.
+
+**Action Plan**
+1.  **Refactor:** Change the code to expose `RetryConfig` (or equivalent) allowing callers to set `BaseDelay`, `Multiplier`, and `MaxDelay`.
+2.  **Defaults:** Set defaults to conservative, standard values found in major Go libraries (e.g., `k8s.io/client-go` or `net/http` patterns).
+3.  **Documentation:** In the PR description, state: "Parameters are now configurable. Defaults align with common industry patterns to ensure safety for general users. High-latency environments can tune these values via the public API."
+4.  **Internal Use:** Hooli Corp then sets the optimized values in your private deployment configuration, keeping the sensitive metrics out of the public repo entirely.
+
+This approach solves your problem (using optimal values internally) while satisfying the maintainer's need for a flexible, justifiable public API.

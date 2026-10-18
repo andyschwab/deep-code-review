@@ -1,0 +1,52 @@
+### Stop Checks Before Proceeding
+1.  **Employer IP/Legal Approval:** You must confirm with Globex legal that describing a "high-latency race condition" does not reveal proprietary architecture or capacity planning data.
+2.  **Contributor Agreement:** Ensure you are authorized to submit code on behalf of Globex if required by the project's CLA.
+3.  **Security Channel:** If this race condition allows data corruption or loss of consistency, verify if the project requires reporting via a private security channel rather than a public PR.
+
+### Generalized Explanation for Maintainers
+**Problem:** The current lock implementation assumes network latency remains below a threshold where message reordering cannot occur during the lease renewal window. We identified a race condition triggered specifically when inter-node latency exceeds 200ms, causing stale locks to be erroneously considered valid.
+
+**Why This Matters:** While typical intra-datacenter latency is low, cloud infrastructure frequently experiences transient spikes due to hypervisor contention, network congestion, or cross-zone failovers. A distributed lock library must guarantee safety under these degraded conditions, not just optimal ones. Without coverage for high-latency scenarios, the library risks silent data corruption in real-world production environments experiencing network jitter.
+
+### Proposed Generic Test Strategy (No Private Configs)
+Do not attach your internal configuration files. Instead, propose a **synthetic latency injection test** using standard tools available in most CI environments or local development setups.
+
+**Draft Proposal Text:**
+> "We propose adding a new integration test target that utilizes `tc` (Linux Traffic Control) or a userspace network shim (like `toxiproxy` if the project uses Go, or a custom Rust mock transport) to artificially inject 200ms+ latency and jitter between test nodes.
+>
+> 1.  **Mock Transport Layer:** Refactor the test harness to accept a configurable transport wrapper that delays packet delivery by a randomized amount (e.g., 200ms–500ms).
+> 2.  **CI Integration:** Run this specific test suite on a standard runner; no special hardware is required as the latency is simulated in software.
+> 3.  **Reproducibility:** The test will use deterministic seeds for latency jitter to ensure failures are reproducible without relying on specific physical topology."
+
+### Commit Message Draft
+```text
+test: add high-latency race condition coverage for distributed locks
+
+Adds a new integration test scenario that simulates network latency
+spikes exceeding 200ms between nodes. This covers a race condition
+where lock lease renewals may overlap incorrectly under degraded
+network conditions.
+
+The implementation uses a synthetic delay wrapper in the test
+transport layer, avoiding the need for physical cluster setups or
+external network dependencies.
+
+Fixes potential consistency issues during transient cloud network jitter.
+```
+
+### PR Body Section: Test Environment Requirements
+> **Testing Notes:**
+> This fix includes a new test case that verifies lock safety under high latency. The test injects artificial delays (200ms+) into the communication channel between mock nodes.
+> *   **Local Execution:** Runs automatically with `cargo test --features latency-simulation`.
+> *   **CI Requirements:** Requires no special infrastructure; the latency is simulated in-userspace.
+> *   **Validation:** The test fails on the previous version (demonstrating the race) and passes with this fix.
+
+### Direct Answer to Your Concern
+You do not need to describe your specific us-west-2 topology. Simply state that "transient latency spikes >200ms" are the trigger condition. Maintain only care about the *behavioral boundary* (the 200ms threshold), not the geographic or topological source of that latency. Replace your internal IPs with `node_a` and `node_b` in any diagrams, and use randomized, synthetic values for any timing logs you paste.
+
+### Fallback If Maintainers Are Silent
+If there is no response after two weeks, post a polite follow-up asking if they would prefer the latency simulation to be implemented as a separate crate or if they have a preferred mocking framework for network conditions. If they remain unresponsive or reject the need for high-latency testing, document the finding internally at Globex and maintain a private patch, as the upstream project may not prioritize edge-case safety.
+
+---
+*Note: Ensure you run the project's privacy gate script on your final diff to catch any accidental leakage of internal hostnames before opening the PR.*
+*Do not sign the commit with a corporate email if the project policy requires personal attribution; use a noreply or personal address.*

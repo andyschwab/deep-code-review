@@ -1,0 +1,79 @@
+### Stop Checks
+Before proceeding, you must clear the following:
+1.  **Employer IP Approval:** Confirm Initech's legal policy allows contributing internal pipeline patterns upstream.
+2.  **Secret Rotation:** If any real API keys or connection strings were ever committed to your local git history, rotate them immediately. A simple rewrite does not remove them from history; you may need to squash or rebase carefully.
+3.  **Project Policy:** Verify the library's `CONTRIBUTING.md` allows synthetic data examples for streaming tests.
+
+### Generalized Solution: Synthetic Data Factories
+Do not use placeholders like `YOUR_DB_URL` which break automated tests. Instead, structure your examples to use **in-memory synthetic data generators** or **local ephemeral fixtures** that mimic the streaming interface without touching external networks. This satisfies the "runnable as-is" requirement while ensuring zero leakage risk.
+
+**Pattern:**
+1.  **Interface Abstraction:** Define the streaming source as an abstract class or protocol.
+2.  **Production Implementation:** (Your private code) Connects to Initech DB.
+3.  **Documentation Implementation:** (The PR code) Yields synthetic records from a local list or generator.
+
+### Draft Code Structure (`examples/streaming_pattern.py`)
+
+```python
+import json
+from typing import Iterator, Dict, Any
+
+# 1. Define the interface expected by the library
+class StreamSource:
+    def iter_records(self) -> Iterator[Dict[str, Any]]:
+        raise NotImplementedError
+
+# 2. Documentation Example: Synthetic Local Source
+# This runs instantly, requires no env vars, and leaks nothing.
+class DemoStreamSource(StreamSource):
+    def __init__(self):
+        # Synthetic data mimicking real schema
+        self._data = [
+            {"id": 1, "event": "click", "ts": "2023-01-01T12:00:00Z"},
+            {"id": 2, "event": "view", "ts": "2023-01-01T12:01:00Z"},
+        ]
+
+    def iter_records(self) -> Iterator[Dict[str, Any]]:
+        for record in self._data:
+            yield record
+
+# 3. Usage Pattern shown in docs
+def process_stream(source: StreamSource):
+    for record in source.iter_records():
+        # Library processing logic
+        print(f"Processing {record['event']}")
+
+if __name__ == "__main__":
+    # Users can run this immediately to see the pattern
+    source = DemoStreamSource()
+    process_stream(source)
+```
+
+*Note: In your private work, you would subclass `StreamSource` to connect to the real Initech DB, but that file is never committed.*
+
+### Draft Pull Request Description
+
+**Title:** docs: Add runnable streaming examples using synthetic data fixtures
+
+**Problem:**
+Current documentation examples for streaming data are outdated and rely on external configuration, causing automated documentation tests to fail or requiring complex user setup.
+
+**Change:**
+Refactored documentation examples to use local, synthetic data generators that implement the library's streaming interface.
+- Added `DemoStreamSource` class yielding deterministic, synthetic records.
+- Updated examples to demonstrate the full processing pipeline without external dependencies.
+- Ensures 100% runnability in CI without environment variables or network access.
+
+**Testing:**
+- Verified examples run successfully in isolation (`python examples/streaming_pattern.py`).
+- Confirmed output matches expected processing logic.
+- No external connections are attempted during execution.
+
+**Risk:**
+Low. Changes are limited to documentation and example files. No core logic modified.
+
+### Direct Answer to Your Uncertainty
+You do not need real endpoints to prove the pattern works. By creating a local class that yields fake data matching your real schema, you satisfy the maintainers' requirement for "runnable code" while guaranteeing that no private URL or key exists in the text to be leaked. The user reads the *pattern* of usage, not the specific infrastructure config.
+
+### Fallback
+If maintainers reject synthetic data and insist on integration tests against real services, propose adding a `SKIP_INTEGRATION` flag to the test suite defaulting to `True`, with the real connection tests running only in a secure, maintainer-controlled CI environment using their own secrets.

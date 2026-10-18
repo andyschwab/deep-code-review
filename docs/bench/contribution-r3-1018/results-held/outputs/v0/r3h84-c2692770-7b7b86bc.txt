@@ -1,0 +1,38 @@
+### Synthetic Log Generation Strategy
+
+To report the daylight saving time (DST) parsing bug without leaking Stark Industries' operational cadence, you must replace real timestamps with **synthetic, structurally identical data** that triggers the same edge case. Maintainers require only the **log format schema** and the **specific temporal anomaly**, not your actual volume or schedule.
+
+**Method to Generate Synthetic Data:**
+
+1.  **Preserve Structure, Randomize Volume:** Keep the exact log line format (e.g., `YYYY-MM-DD HH:MM:SS [LEVEL] message`) but generate timestamps using a script that inserts the DST transition explicitly. Do not use your real job frequency. Instead, create a minimal sequence: one entry before the transition, one during the "repeated" hour (the core of the bug), and one after.
+2.  **Shift the Timeline:** Move the event to a generic date in the past or future where the DST rules match your region, or simply use a standard test date (e.g., the second Sunday in March for US transitions). The specific calendar date is irrelevant; the **offset change** is the trigger.
+3.  **Sanitize Content:** Replace all message content with generic placeholders like `BatchJob_X` or `Process_Start`. Ensure no internal job names, server hostnames, or path structures remain.
+4.  **Verification:** Run your synthetic file through the analyzer. If it fails exactly as your production logs did, the data is sufficient.
+
+**Example Synthetic Snippet (US DST Spring Forward):**
+```text
+2023-03-12 01:59:59 [INFO] Processing batch unit A
+2023-03-12 03:00:00 [INFO] Processing batch unit B
+# Note: 02:00:00 to 02:59:59 skipped due to DST jump
+```
+*Or for Fall Back (the likely parsing ambiguity):*
+```text
+2023-11-05 01:30:00 [INFO] Processing batch unit A (DST active)
+2023-11-05 01:30:00 [INFO] Processing batch unit B (Standard time)
+# Same wall-clock time, different UTC offset – this triggers the parse error
+```
+
+**Required Detail for Acceptance:**
+Maintainers need to see:
+*   The exact timestamp string format causing the crash/misinterpretation.
+*   The timezone context (e.g., "America/New_York").
+*   The specific error output or incorrect calculation result.
+*   Confirmation that the issue reproduces consistently with the synthetic input.
+
+They do **not** need to know how many jobs you run, your peak hours, or your specific business logic. A minimal reproducible example (3–5 lines) is often preferred over large log dumps.
+
+**Final Step:** Before submitting, run a privacy check on your synthetic file to ensure no accidental patterns (like regular intervals matching your real shifts) remain. If the intervals in your synthetic data are random or fixed to a simple "before/during/after" pattern, the operational cadence is successfully obscured.
+
+---
+*Note: Always verify that your synthetic timestamps actually exist in the target timezone to avoid confusion.*
+*If the project has a specific issue template, paste the synthetic snippet into the "Reproduction Steps" section.*

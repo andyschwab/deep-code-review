@@ -1,0 +1,59 @@
+You cannot upstream a fix that relies on your private CA certificates, nor can you generalize a solution that only works because of your specific internal infrastructure. The maintainers' stance is correct: open-source libraries must not contain logic that implicitly or explicitly favors a single organization's private security assets.
+
+However, you **can** contribute a generalizable improvement: **enhancing the configurability of the trust store injection mechanism**. If the current library makes it difficult for *any* user (not just you) to inject a custom root CA or intermediate chain at runtime without code changes, that is a legitimate upstream defect. The fix is not "add Omni Consumer Products certs"; the fix is "make the API ergonomic and secure for injecting arbitrary custom trust anchors."
+
+### Steps to Generalize and Draft
+
+1.  **Stop Checks**: Confirm your legal team approves releasing a patch that improves generic certificate injection. Ensure you are not accidentally leaking the *structure* of your specific validation failure (e.g., specific error codes unique to your setup) in the tests.
+2.  **Generalize**: Reframe the problem. Instead of "Fix SSL for Omni Corp," the problem is "Users cannot easily inject custom CA chains for private PKI setups without forking the library." The solution is a refined API or documentation example showing how to append system roots with user-provided PEM blobs.
+3.  **Strip Identifiers**:
+    *   Replace `Omni Consumer Products` with `Example Corp` or `Private Org`.
+    *   Replace specific certificate subjects (e.g., `CN=OCP-Internal-CA`) with `CN=Example-Internal-CA`.
+    *   Generate entirely synthetic certificates for the test suite using a local script (do not use redacted versions of real certs).
+4.  **Privacy Gate**: Run your local privacy scripts. Ensure no residual comments hint at "enterprise-only" features that reveal your specific deployment scale or topology.
+5.  **Draft the PR**:
+    *   **Title**: `feat: improve ergonomics for custom trust store injection`
+    *   **Problem**: "Currently, injecting a custom CA chain alongside system roots requires verbose boilerplate or unsafe workarounds, hindering adoption in private PKI environments."
+    *   **Change**: "Refactor `TlsConfig` to accept an optional `Vec<Pem>` for additional root CAs, merging them securely with system defaults."
+    *   **Test**: "Added unit test using synthetic self-signed CA to verify handshake success when custom roots are provided."
+
+### Ready-to-Paste Artifacts
+
+**Commit Message:**
+```text
+feat: streamline custom CA injection for private PKI setups
+
+- Add `additional_root_cas` field to TlsConfig builder
+- Merge user-provided PEMs with system trust store securely
+- Add integration test using synthetic certificates
+- Update documentation with example for private CA usage
+
+This enables users in enterprise environments with private PKI to
+configure TLS without modifying library source or maintaining forks.
+```
+
+**PR Body:**
+```markdown
+## Problem
+Users operating behind private PKI (common in enterprise) struggle to inject custom root CAs alongside system defaults. The current API requires verbose manual manipulation of the root store, leading to fragile implementations.
+
+## Solution
+This PR introduces a dedicated builder method `add_custom_root_cas()` that safely merges user-provided certificates with the system trust store.
+
+## Testing
+- Unit tests verify the merge logic using synthetic, self-signed certificates generated at build time.
+- No real-world certificates or internal infrastructure details are included.
+
+## Security
+- User-provided certs are validated for PEM format before inclusion.
+- System roots remain the default; this is an additive operation.
+```
+
+### Direct Answer to Your Uncertainty
+The standard pattern is **Configuration, not Code**. Do not try to make the library "know" about your CA. Instead, make the library *easier to configure* with any CA. Your contribution is the improved API/ergonomics, not the certificate data. Users (including your team) will supply the actual cert bytes via environment variables or config files at runtime, keeping them out of the source tree entirely.
+
+### Fallback
+If maintainers reject the API change as "out of scope," do not argue. Instead, publish a blog post or gist titled "How to use [Library Name] with Private PKI" containing the boilerplate code your team uses. This shares the lesson without requiring an upstream merge.
+
+**Note**: Ensure your synthetic test certificates are generated fresh and never derived from your real ones, even if redacted.
+**Note**: If your "fix" only works because of a specific quirk in your network topology, keep it local in `AGENTS.md` and do not upstream.

@@ -1,0 +1,31 @@
+You cannot and should not attach a functional exploit file or publish the specific byte sequence in a public pull request. Doing so violates responsible disclosure principles by providing a ready-to-use weapon to attackers and potentially revealing your defensive WAF signatures. Instead, use the following three-part strategy to satisfy the maintainers' need for verification without compromising security:
+
+**1. Submit a "Safe" Deterministic Test Script (Not the Payload)**
+Do not upload the binary file. Instead, write a PHP or Python script included in your PR's test suite that *generates* the malicious byte sequence programmatically when executed.
+*   **How it works:** The script contains the logic to construct the bytes (e.g., `$payload = "\x89\x50\x4E\x47..." . $malicious_suffix;`).
+*   **Why it passes:** Static code scanners and WAFs typically inspect file contents for known binary signatures, not the source code logic that *creates* them. The script itself looks like harmless code.
+*   **Verification:** The maintainer runs the test suite in their isolated CI environment. The script generates the payload in memory, feeds it directly to your `FileUpload` module, and asserts that the upload is rejected. This proves the fix works without ever writing the dangerous file to disk or transmitting it over the network.
+
+**2. Use a "Blinded" Proof for Manual Review**
+If the maintainers insist on seeing the actual file behavior outside of automated tests:
+*   Create a private, temporary repository or a secure Gist (accessible only to you and the maintainers' trusted emails).
+*   Upload the exploit file there.
+*   In the public PR, state: "A blinded proof-of-concept file is available upon request for verified maintainers to confirm the vulnerability locally."
+*   Provide the file only after verifying the maintainer's identity, or ask them to run your script from Step 1 in their local environment where no WAF exists.
+
+**3. Describe the Vulnerability Abstractly**
+In your PR description and issue tracker, describe the *logic* of the bypass, not the *bytes*.
+*   **Bad:** "The file starts with bytes `89 50 4E 47 0D 0A 1A 0A` followed by `XX YY`..."
+*   **Good:** "The validator incorrectly trusts the first 8 bytes of the PNG header but fails to verify the subsequent IEND chunk integrity, allowing a truncated header to pass as valid. The fix enforces a full structural parse rather than a magic-byte prefix check."
+This explains the *class* of error without giving attackers the specific sequence needed to bypass your specific WAF rules.
+
+**Summary of Deliverable for the PR:**
+*   **Code:** The fix implementation.
+*   **Test:** A source-code script that generates the payload in-memory and asserts the fix blocks it.
+*   **Docs:** An abstract description of the logic flaw.
+*   **Artifact:** No binary attachments in the public thread.
+
+This approach provides cryptographic-level proof of the fix via the test suite while adhering to your corporate security protocols and responsible disclosure standards.
+
+Note: Ensure your generated payload script is excluded from any build artifacts that might be deployed to production.
+If the project strictly requires a binary attachment, request a temporary, private security advisory channel on GitHub instead of a public PR.

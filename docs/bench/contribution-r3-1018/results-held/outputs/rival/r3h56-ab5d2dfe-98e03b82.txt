@@ -1,0 +1,42 @@
+### Synthetic Test Artifact Generation Strategy
+
+To satisfy the maintainer's requirement for a reproducible test case without violating Wayne Enterprises' data privacy policies, you must generate a **synthetic binary file** that mimics the byte-level structure of the problematic encoding without containing real PII. Since anonymizing existing data risks altering the specific byte sequences causing the crash, you should construct the file programmatically.
+
+**Step 1: Identify the Failing Byte Sequence**
+Analyze one of the real corrupted files in a hex editor to isolate the specific byte ranges responsible for the decoding error. Look for:
+*   Specific multi-byte sequences unique to this rare character set.
+*   Edge cases like incomplete character sequences at buffer boundaries.
+*   Specific control characters or invalid code points that trigger the corruption.
+
+**Step 2: Construct a Dummy Generator Script**
+Write a small C++ or Python script to generate a new file from scratch. Do not copy-paste real data. Instead:
+*   **Header/Structure:** Replicate the file format headers exactly as they appear in the real files.
+*   **Payload:** Fill the content area with dummy text (e.g., "Lorem Ipsum" or repeated "Test User" strings) encoded *into* the problematic character set using a lookup table.
+*   **Trigger Injection:** Manually insert the specific failing byte sequences identified in Step 1 into the dummy payload at the same relative offsets where they appear in the real crash files.
+*   **Verification:** Run your generator to ensure the output file size and checksum match the *structural* expectations of the real files, even if the content is nonsense.
+
+This approach guarantees the byte-level trigger exists for the maintainer to verify the fix, while the content remains 100% synthetic and legally safe to share.
+
+---
+
+### Pull Request Explanation Template
+
+Include the following section in your PR description under **Test Plan** or **Data Privacy Note**:
+
+```markdown
+## Test Artifact & Data Privacy Note
+
+**Reproduction File:** `test_rare_encoding_crash.dat` (included in `/test/fixtures`)
+
+**Generation Method:**
+This file was synthetically generated to reproduce the specific byte-level decoding error without containing any real-world data.
+1. The file structure mimics the [Specific Format] header and block alignment.
+2. The payload consists entirely of dummy strings encoded into the [Name of Rare Character Set].
+3. The specific byte sequence `[Hex Sequence]` at offset `[0x...]` was manually injected to trigger the original corruption bug.
+
+**Privacy Constraint:**
+Real-world files exhibiting this bug contain protected PII belonging to Wayne Enterprises clients. Legal compliance strictly prohibits sharing these original files, and standard anonymization techniques risk altering the critical byte structures required to reproduce the crash. This synthetic artifact preserves the exact encoding quirks necessary for verification while ensuring zero exposure of sensitive user data.
+```
+
+**Note:** Ensure the generated file is small (under 1KB if possible) to keep the PR diff clean.
+**Note:** If the character set requires a specific BOM (Byte Order Mark), ensure your generator includes it exactly as the real files do.

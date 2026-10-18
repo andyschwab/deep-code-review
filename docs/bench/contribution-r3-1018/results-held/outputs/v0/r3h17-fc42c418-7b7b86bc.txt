@@ -1,0 +1,71 @@
+You cannot and should not share the real dataset, even partially. The maintainers' request for "actual production data" is a misunderstanding of how open-source verification works; they need a **reproducible minimal example**, not a realistic dataset. Your goal is to isolate the *temporal pattern* that triggers the bug, not the *semantic content* (names, departments) of the data.
+
+Here is the step-by-step solution to generate a synthetic dataset that proves your fix without leaking private information:
+
+### 1. Isolate the Triggering Pattern
+Identify the exact conditions in your real data that cause the failure. Likely, it involves:
+- A shift starting just before a DST transition (e.g., 1:30 AM) and ending after it.
+- A shift spanning the "fall back" hour (appearing twice) or the "spring forward" gap (non-existent time).
+- Specific timezone objects (e.g., `pytz` vs. `zoneinfo`) used incorrectly during conversion.
+
+Write these conditions down as logical rules, ignoring the specific dates or employee IDs.
+
+### 2. Generate Synthetic Data Using a Script
+Create a small Python script to generate a CSV or JSON file with fake data that strictly adheres to the logical rules identified above. Use entirely fabricated values.
+
+**Example Script (`generate_test_data.py`):**
+```python
+import pandas as pd
+from datetime import datetime
+import pytz
+
+# Define the specific DST transition that triggers the bug (e.g., US/Eastern, Nov 5, 2023)
+tz = pytz.timezone('US/Eastern')
+transition_date = datetime(2023, 11, 5, 1, 30, 0) # 1:30 AM, just before fall back
+
+# Create synthetic records with fake IDs and departments
+data = [
+    {
+        "employee_id": "EMP_001",
+        "department": "DEPT_X",
+        "shift_start": "2023-11-05T01:30:00",
+        "shift_end": "2023-11-05T03:30:00", # Spans the repeated hour
+        "timezone": "US/Eastern"
+    },
+    {
+        "employee_id": "EMP_002",
+        "department": "DEPT_Y",
+        "shift_start": "2023-03-12T01:30:00",
+        "shift_end": "2023-03-12T03:30:00", # Spans the spring forward gap
+        "timezone": "US/Eastern"
+    }
+]
+
+df = pd.DataFrame(data)
+df.to_csv("synthetic_dst_edge_cases.csv", index=False)
+print("Synthetic data generated. No real PII included.")
+```
+
+### 3. Verify the Bug and Fix Locally
+Run your existing test suite against this new `synthetic_dst_edge_cases.csv`.
+- Confirm the test **fails** on the original library version.
+- Confirm the test **passes** with your fix applied.
+This "fails before, passes after" proof is the gold standard for open-source contributions. It demonstrates robustness without needing real-world volume or complexity.
+
+### 4. Draft the Contribution
+When you submit your Pull Request:
+- **Commit Message:** `fix: handle DST transition edge cases in timestamp conversion`
+- **PR Body:**
+  - **Problem:** Shifts overlapping incorrectly during DST transitions due to naive timestamp conversion.
+  - **Solution:** Adjusted logic to explicitly handle ambiguous/non-existent times using `zoneinfo`/`pytz` fold attributes.
+  - **Testing:** Added `test_dst_transitions.py` using synthetic data covering both "fall back" and "spring forward" scenarios. Tests fail on `main` and pass with this fix.
+  - **Data Policy:** Explicitly state: "Test data is synthetically generated to reproduce the temporal edge case; no real employee or organizational data was used."
+
+### Direct Answer to Your Uncertainty
+There is no standard tool required because the "realism" the maintainers asked for is a misconception. They need **deterministic reproduction**, not statistical fidelity. A dataset with two fake rows that triggers the crash is infinitely more valuable than a million real rows that require legal review.
+
+### Fallback
+If maintainers still insist on real data after you provide the synthetic repro, politely decline and suggest they reproduce the issue locally using your provided script. If they remain unresponsive, your contribution is still valid; the synthetic test case serves as permanent documentation of the bug for future users.
+
+**Note:** Never attempt to "anonymize" the real dataset by stripping names; structural patterns in shift times can still re-identify individuals (mosaic effect). Synthetic generation is the only safe path.
+**Note:** Ensure your synthetic dates use recent or future years to avoid confusion with historical logs.
