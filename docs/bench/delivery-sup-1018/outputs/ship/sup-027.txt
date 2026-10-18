@@ -1,0 +1,49 @@
+### Delivery Plan: Co-pay Processor Migration
+
+**Objective:** Migrate payment vendor with zero transaction loss or duplication, draining the legacy queue and redirecting new traffic without restarting application servers.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Schema & Adapter Implementation):** Builder implements irreversible schema changes and the new vendor adapter.
+    *   *Constraint:* Must run first. Schema changes are irreversible; code must handle both old and new states during the drain.
+    *   *Parallelism:* Can run parallel to Lane B only if Lane B reads from a pinned schema snapshot. Otherwise, serialize after Lane A commit.
+*   **Lane B (Drain Logic & Dual-Write Verification):** Builder implements the queue draining logic and a dual-write verification mode (logging expected vs. actual counts without sending to the new vendor yet).
+    *   *Dependency:* Requires Lane A's adapter interface to be ready for dry-runs.
+*   **Lane C (Independent QA & Reconciliation Script):** QA engineer writes a standalone script to compare legacy queue depth against new provider ingestion logs.
+    *   *Independence:* Must not share code with Lane A or B. Uses only public APIs and database read-replicas.
+*   **Lane D (Security & Key Rotation Audit):** Security reviewer validates encryption key handling during the 24-hour rotation window within the new adapter.
+
+**Serialization Rule:** Lane A (Schema) → Lane B (Logic) → Lane C/D (Verification). No parallel writes to the `billing-core` payment module to prevent merge conflicts on critical state logic.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define "Zero Loss" mathematically: `Legacy_Queue_Start + New_Inflow = Legacy_Drained + New_Vendor_Accepted`.
+*   **G3 Design (ADR):** Document the irreversible schema migration path and the rollback strategy (which is limited to code revert, not schema undo).
+*   **G4 Implement:**
+    *   Base SHA: Pin to current `main` head before schema changes.
+    *   Tests: Unit tests for the drain logic must mock the 24-hour key rotation explicitly.
+*   **G5 Verify (Staging):**
+    *   Run on the exact G4 SHA.
+    *   Execute the drain simulation on `staging`. Acknowledge missing edge-case flags; supplement with manual log inspection of sanitized data.
+    *   **Flake Handling:** If `transaction-monitor` fails on Friday, inspect logs. If logs confirm success, mark as `PASS`; otherwise, `BLOCK`.
+    *   **Cost Gate:** Limit full CI runs to 2 per lane. Use incremental builds for intermediate checks to avoid the 45-minute penalty.
+*   **G6 Review:**
+    *   **Reviewer 1 (Code):** Senior Engineer (not the Builder). Focus on state consistency and key rotation logic.
+    *   **Reviewer 2 (Financial Logic):** Finance Lead (or delegate). Validates the reconciliation math and dual-write logs.
+    *   **Reviewer 3 (Security):** AppSec. Validates key rotation and PII handling.
+
+#### 3. Landing & Human Gates
+*   **Integration (G7):** Merge Lanes A, B, C, D into a release candidate branch. Run one final full CI pipeline (45 mins) on this exact merged SHA.
+*   **Human Gate 1 (Pre-Deploy):**
+    *   **Approver:** Engineering Director + CFO.
+    *   **Input:** G6 receipts, reconciliation script output from Staging, and the specific "Zero Loss" mathematical proof.
+    *   **Action:** Approval to deploy the binary to Production (cold start allowed for the binary, but *no app server restart* during the cutover window).
+*   **Execution Window (G8):**
+    1.  Deploy binary (if requires restart, do this *before* the cutover window starts).
+    2.  Enable "Dual-Write/Verify" mode.
+    3.  **Human Gate 2 (The Flip):** Finance Lead confirms legacy queue is empty via dashboard. Only then is the toggle flipped to redirect new traffic.
+    4.  Execute Lane C's reconciliation script against Production read-replicas.
+*   **Rollback:**
+    *   If reconciliation counts mismatch: Immediately revert the toggle to Legacy.
+    *   Since schema changes are irreversible, the rollback plan involves running the new adapter in "Legacy Compatibility Mode" if the new vendor fails, ensuring no data is lost while a fix is engineered.
+*   **Close (G10):** Ticket closes only after Finance Lead signs off on the final Production count reconciliation. No automated closing.
+
+**Risk Mitigation:** The 45-minute CI cost dictates that no changes are made after G6 approval except for critical hotfixes, which require re-running the full gate. The 24-hour key rotation is tested by simulating time-skew in the unit tests; live testing is restricted to the staging window alignment.

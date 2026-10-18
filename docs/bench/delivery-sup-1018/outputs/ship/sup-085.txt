@@ -1,0 +1,55 @@
+**Delivery Plan: Billing Proration Revert & Data Preservation**
+
+**Strategy:** Isolate the logic revert from data ingestion. Execute in two serialized phases to prevent race conditions on the `global-metering-stream` while preserving the 3-hour usage window.
+
+**Lane 1: Logic Revert (Builder)**
+*   **Work:** Revert the specific proration calculation commit to the previous stable SHA. Do not touch data ingestion paths.
+*   **Constraint:** Must run in a dedicated worktree; no other writers active.
+*   **Parallelism:** Can run immediately.
+
+**Lane 2: Data Extraction & Replay Prep (Data Engineer)**
+*   **Work:** Script the extraction of raw metering events from the last 3 hours (since deployment). Validate checksum integrity. Prepare a replay job that targets the *reverted* logic.
+*   **Constraint:** Must not write to `global-metering-stream` until Lane 3 is ready.
+*   **Parallelism:** Runs parallel to Lane 1.
+
+**Gate G4 (Implementation Verification)**
+*   **Check:** Unit tests for proration math only (skip full 45m suite to save credits/time, provided unit coverage is 100% for this module).
+*   **Revision:** Exact SHA of the revert commit.
+*   **Reviewer:** Senior Backend Engineer (independent of Builder). Security spot-check on data handling scripts.
+
+**Gate G5 (Local Stack Verification)**
+*   **Check:** Run the extracted 3-hour data subset against the reverted logic in a local or isolated container. Verify no race conditions on file lock.
+*   **Condition:** "Green" requires successful ingestion of the test subset without data loss or corruption.
+*   **Note:** Staging cannot be used due to volume constraints; verification must be local or via a specialized high-volume sandbox if available.
+
+**Lane 3: Serialization & Deployment (Release Engineer)**
+*   **Work:** Coordinate the stop-start sequence.
+    1.  Pause the live metering writer (acquire lock).
+    2.  Deploy Lane 1 (Revert) to Aurora-2 cluster.
+    3.  Execute Lane 2's replay script to ingest the 3-hour backlog.
+    4.  Resume live metering.
+*   **Serialization:** Strictly serialized. No parallel execution with Lane 1 or 2's write phase.
+
+**Gate G6 (Independent Review)**
+*   **Reviewers:**
+    *   **Lead Architect:** Validates the revert scope and isolation.
+    *   **Finance Director:** Validates the data preservation strategy and replay logic.
+*   **Input:** Exact SHA from Lane 1 + Data integrity report from Lane 2.
+*   **Verdict:** Both must explicitly approve. No auto-merge.
+
+**Gate G8 (Human Approval & Release)**
+*   **Decision:** Lead Architect and Finance Director must authorize the production deployment window.
+*   **Action:** Manual trigger of the deployment pipeline.
+*   **Rollback Plan:** If ingestion fails, restore the 02:00 UTC database snapshot (noting this loses post-02:00 data, requiring manual reconciliation) and halt the replay. This is the irreversible fallback.
+
+**Landing & Merge**
+*   **Merge Strategy:** Direct merge to the release branch upon G6 approval. No merge train due to urgency.
+*   **Post-Deploy (G9):** Finance to sample 5 affected enterprise accounts immediately to verify corrected charges. Monitor error logs for file-lock races.
+*   **Communication:** Notify Finance once G9 sampling passes.
+
+**Risks & Mitigations**
+*   **Race Condition:** Mitigated by pausing the live writer during replay.
+*   **Data Loss:** Mitigated by extracting raw events before any database operation.
+*   **CI Cost/Time:** Mitigated by scoping tests to the specific module and data path, skipping unrelated integration suites.
+
+**Immediate Next Step:** Await confirmation from Lead Architect and Finance Director to proceed with the defined window.

@@ -1,0 +1,39 @@
+### Delivery Plan: Rollback-Sensitive Checkout Release
+
+**1. Lanes & Parallelism**
+*   **Lane A (Configuration - Serialized First):** Update `global-rates.json` in the `payments-core` monorepo to define the 0.1% error threshold and 5-minute window logic.
+    *   *Constraint:* Must complete first. Due to the 10-minute cache on this file, this lane requires a mandatory 15-minute stabilization buffer before Lane B begins to ensure the new guardrails are active in the environment.
+*   **Lane B (Pipeline Execution):** Trigger the 'GoldGate' CI pipeline for the new checkout build.
+    *   *Constraint:* Cannot start until Lane A's buffer expires. Estimated duration: 45 minutes.
+*   **Lane C (Observability Prep):** Draft the monitoring query and rollback script artifacts.
+    *   *Parallel:* Can run immediately alongside Lane A.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Deploy):** Verify `global-rates.json` propagation.
+    *   *Check:* Confirm environment reflects the new threshold values before merging the config change.
+*   **Gate 2 (Canary Launch):** Deploy to North American zone only (Blue-Green swap via OpsBot).
+    *   *Revision:* The specific commit hash resulting from the successful GoldGate run in Lane B.
+    *   *Check:* Automated health check must pass immediately upon swap.
+*   **Gate 3 (The Vigil):** Two-hour observation window.
+    *   *Logic:* Monitor consecutive 5-minute windows. If error rate > 0.1% in any single window, the automatic revert trigger fires.
+    *   *Human Constraint:* While the revert *triggers* automatically, OpsBot will pause execution pending Senior Lead Jane Smith's approval to finalize the rollback. The system must alert Jane immediately upon threshold breach.
+
+**3. Review Strategy**
+*   **Config Review:** Independent review of `global-rates.json` by a Transaction Integrity team member *other* than the author. Focus: Syntax and threshold logic accuracy.
+*   **Script Review:** The monitoring query and rollback script must be reviewed by a Site Reliability Engineer (SRE) not involved in the code changes.
+    *   *Deliverable:* The requested confirmation report containing the exact query string and script path must be generated and signed off by this reviewer before Gate 2.
+*   **Code Review:** Standard peer review for the checkout changes, ensuring no regression in payment logic.
+
+**4. Landing & Merge Strategy**
+*   **Phase 1 (Canary):** Merge config (Lane A). Wait 15 mins. Deploy build to North America (Lane B).
+*   **Phase 2 (Validation):** If 2 hours pass with 0 critical failures and error rate < 0.1%, proceed to global rollout.
+*   **Phase 3 (Global Rollout):** Expand Blue-Green swap to all regions.
+*   **Rollback Protocol:**
+    *   *Trigger:* Automated detection of >0.1% error rate.
+    *   *Action:* OpsBot initiates revert to previous stable version.
+    *   *Human Decision:* Jane Smith must approve the finalization of the rollback within the OpsBot interface. If she does not respond within 5 minutes of the alert, the system holds the partial rollback state (traffic split) rather than forcing a full reversion, to prevent flaky network blips from causing churn, unless a secondary "Critical Failure" flag is raised.
+*   **Failure Cost Mitigation:** Due to financial penalties for failed deployments, the "Dry Run" mode of GoldGate must be executed once against the staging environment using the production config snapshot to validate the pipeline integrity before the actual Lane B execution.
+
+**Summary of Critical Path:**
+Config Update → 15m Cache Wait → GoldGate Pipeline (45m) → NA Canary Deploy → 2h Watch → Global Rollout.
+Total minimum time to full rollout: ~3 hours 15 minutes. Marketing launch is safe provided the canary remains stable.

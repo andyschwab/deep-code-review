@@ -1,0 +1,40 @@
+### Delivery Plan: Helios Data Retention Enforcement
+
+#### 1. Lanes and Parallelism
+Work is split into three lanes to maximize parallelism while respecting serialization constraints.
+
+*   **Lane A (Logic Implementation):** Develop the new filtering logic for the cleanup job. This includes the 365-day age check and the explicit exclusion for items flagged as `client-config`. This lane runs independently of Lane B.
+*   **Lane B (Observability & Logging):** Implement the structured logging required to prove retention compliance. This involves adding log entries for every processed item, explicitly stating `PURGED` (with ID and age) or `KEPT` (with ID and reason: `client-config` or `age < 365`). This can be developed in parallel with Lane A but must be integrated before the final review.
+*   **Lane C (Environment & Coordination):** Secure the editing window for `global-rules.json`. Since this file is locked during business hours, this lane operates asynchronously to schedule the edit during off-hours. This lane also coordinates with Jane Smith for the final deployment approval.
+
+**Serialization Point:** Lanes A and B must merge into a single integration branch before Lane C's configuration change is applied. The code change (A+B) must be frozen before the configuration rule (C) is updated to point to the new logic version.
+
+#### 2. Gates and Checks
+All checks run on the specific commit hash resulting from the merge of Lanes A and B, prior to any configuration change.
+
+*   **Gate 1: Unit Verification (Local/Dev):** Verify the filtering logic against a synthetic dataset containing both eligible telemetry and mock `client-config` entries. Success criteria: 100% accuracy in distinguishing purgeable vs. protected items.
+*   **Gate 2: The "Legacy" Integration Check:** Because the `legacy-integration` check is flaky and prone to timeouts, it will be triggered manually on the specific revision only after Gate 1 passes. If it times out, the log output from the test run will be inspected manually rather than failing the build automatically, provided the unit tests pass.
+*   **Gate 3: Dry-Run Execution (SecureZone Staging):** Before touching production cold storage, the job runs in the `SecureZone` against a read-only snapshot of production data. This run generates the audit logs but performs no deletions.
+    *   *Check:* Audit logs must show zero `client-config` items marked for purging.
+    *   *Check:* Total estimated purge volume must match historical baselines (within 5% variance).
+
+#### 3. Review Strategy
+Reviews are structured to ensure independence between code authors and approvers.
+
+*   **Code Review:** Performed by a senior engineer from the Data Governance team *other than* the implementer. This reviewer focuses strictly on the logic correctness of the `client-config` exclusion and the completeness of the logging. They must verify that no active config paths are reachable by the delete function.
+*   **Audit Log Review:** Performed by the Compliance Officer (or delegate). They review the output of the Gate 3 Dry-Run to confirm the logs meet the auditor's evidence requirements.
+*   **Configuration Review:** The change to `global-rules.json` is reviewed by the Platform Lead to ensure the syntax is correct and the pointer to the new job version is accurate.
+
+#### 4. Landing and Rollback
+*   **Deployment Window:** Scheduled for off-hours to allow editing of `global-rules.json` without contention.
+*   **Approval:** Deployment to production requires explicit written approval from **Jane Smith**. No automated deployment will proceed without her sign-off.
+*   **Merge Strategy:**
+    1.  Merge code (Lanes A+B) to `main`.
+    2.  Deploy binary to `SecureZone`.
+    3.  Update `global-rules.json` to activate the new retention policy.
+    4.  Trigger the weekly job manually for the first run to ensure immediate validation.
+*   **Rollback Plan:**
+    *   *Code/Config Rollback:* If the job fails or logs show incorrect deletions, immediately revert `global-rules.json` to the previous commit. This stops the new logic from executing in the next cycle.
+    *   *Data Recovery:* **Critical Constraint:** Once data is purged from cold storage, it is **irreversible**. There is no technical rollback for deleted data. Therefore, the "Rollback" is purely preventative (stopping further deletion) and procedural (incident response for any lost data). The Dry-Run (Gate 3) is the only safety net against data loss.
+
+This plan prioritizes the irreversible nature of the data deletion by enforcing a rigorous dry-run gate and separating the logic verification from the configuration activation.

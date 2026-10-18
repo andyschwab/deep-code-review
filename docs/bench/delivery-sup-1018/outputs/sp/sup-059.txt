@@ -1,0 +1,46 @@
+### Delivery Plan: Payment Timeout Logic Fix
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Logic Implementation):** Engineer modifies `core-transactions/payment-service` timeout handlers.
+    *   *Constraint:* Must reuse existing `retry-count` metadata; no schema changes.
+    *   *Strategy:* Implement idempotency checks using `retry-count` to suppress secondary charges if a delayed bank confirmation arrives after the initial timeout.
+*   **Lane B (Test Harness Prep):** QA Engineer prepares the "slow-response" test scripts in the staging environment.
+    *   *Parallel:* Can run immediately while Lane A codes.
+*   **Serialization Point:** Lane A cannot merge until Lane B confirms the staging environment is ready to accept the specific slow-response simulation.
+
+**2. Gates & Checks**
+*   **Gate 1: Local Verification (Pre-Commit):**
+    *   *Revision:* Feature branch head.
+    *   *Action:* Run targeted `fast-check` suite only. Full suite is prohibited to save CI credits.
+    *   *Pass Criteria:* Zero regressions in `fast-check`.
+*   **Gate 2: Staging Integration (Pre-Approval):**
+    *   *Revision:* Deployed to Staging.
+    *   *Action:* Execute "slow-response" scripts.
+    *   *Critical Check:* Manual log verification is **mandatory**. The automated `bank-simulation` test must be ignored due to known flakiness; engineers must visually confirm in logs that no duplicate transaction IDs are generated during delayed responses.
+    *   *Pass Criteria:* Logs show single charge despite delayed bank confirmation; `retry-count` increments correctly without triggering new payment requests.
+
+**3. Review Process**
+*   **Code Review:** Performed by a Senior Engineer from the Ledger Team (peer to author).
+    *   *Focus:* Verify logic prevents double-charges when `retry-count` > 0 and response is delayed. Ensure no schema modifications were attempted.
+    *   *Independence:* Reviewer must not be the author.
+*   **QA Sign-off:** Performed by QA Engineer who ran the staging scripts.
+    *   *Deliverable:* Screenshot or log excerpt confirming manual verification passed where automated tests might fail.
+
+**4. Landing Strategy**
+*   **Merge Window:** Tuesday Maintenance Window only.
+*   **Approval Authority:** Explicit written approval required from **Jane Smith**. No merge occurs without this specific authorization.
+*   **Deployment Sequence:**
+    1.  Merge to main branch.
+    2.  Trigger deployment pipeline during Tuesday window.
+    3.  Jane Smith approves promotion to Production.
+*   **Rollback Plan:**
+    *   *Trigger:* If post-deploy monitoring shows any duplicate charges or spike in failed transactions within 1 hour of launch.
+    *   *Action:* Immediate revert of the merge commit.
+    *   *Fallback:* Since schema is immutable, no database migration rollback is needed; code revert restores previous timeout behavior instantly.
+
+**5. Human Decisions Required**
+*   **Jane Smith:** Must explicitly approve the production deploy.
+*   **QA Engineer:** Must manually validate logs (cannot rely on automated `bank-simulation` results).
+*   **On-Call Lead:** Must authorize the rollback if anomalies appear in the first hour.
+
+This plan prioritizes safety over speed, acknowledging the high cost of errors (15% dispute spike) and the constraints of the legacy schema and flaky test suite.

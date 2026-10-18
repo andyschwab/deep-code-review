@@ -1,0 +1,61 @@
+# Delivery Plan: Privacy Compliance Data Retention
+
+## Lanes & Parallelism
+
+**Lane A: Logic Implementation (Serialized)**
+*   **Owner:** Backend Engineer
+*   **Work:** Modify the nightly batch module to filter records. Logic must exclude `transaction_id` presence before applying the 18-month timestamp check.
+*   **Constraint:** Must be done before Lane B can validate effectively.
+
+**Lane B: Test Data Seeding (Parallel Start)**
+*   **Owner:** QA Engineer
+*   **Work:** Manually seed the staging environment with synthetic multi-year records. Create two datasets: (1) Old session metadata without transaction IDs (purge candidates), and (2) Old visit logs with transaction IDs (audit protect candidates).
+*   **Dependency:** Can start immediately, independent of code changes.
+
+**Lane C: Compliance Documentation (Parallel Start)**
+*   **Owner:** Data Governance Officer
+*   **Work:** Draft the validation checklist confirming that "transaction ID presence" satisfies the legal requirement for audit trail preservation.
+
+## Gates & Checks
+
+**Gate 1: Code Review (Pre-Staging)**
+*   **Revision:** Feature branch head.
+*   **Reviewer:** Senior Backend Engineer (Independent of implementer).
+*   **Check:** Verify logic ensures `IF transaction_id IS NOT NULL THEN SKIP DELETE` executes before time-based evaluation. Confirm no direct `DELETE` statements exist without this guard.
+
+**Gate 2: Staging Dry-Run (Cost-Controlled)**
+*   **Revision:** Merged to staging branch.
+*   **Executor:** QA Engineer.
+*   **Check:** Run the batch job **once** against the seeded staging data.
+    *   *Pass Criteria:* Dataset 1 is purged; Dataset 2 remains 100% intact.
+    *   *Budget Guard:* If the job fails or behaves unexpectedly, terminate immediately to save compute credits. Do not re-run without a code fix and peer review.
+
+**Gate 3: Audit Simulation**
+*   **Revision:** Post-dry-run staging state.
+*   **Reviewer:** Data Governance Officer.
+*   **Check:** Query the remaining data to confirm audit trails are queryable and intact. Sign off on "Zero Data Loss" certification.
+
+## Review Process
+
+*   **Technical Review:** Conducted by Senior Backend Engineer focusing on SQL safety and logic flow.
+*   **Compliance Review:** Conducted by Data Governance Officer focusing on the outcome of the staging dry-run.
+*   **Independence:** The implementer cannot approve their own code or certify the staging results. The Security Lead does not review code but holds the final deployment key.
+
+## Landing Strategy
+
+**1. Merge Protocol**
+*   Code merges to `main` only after Gate 1 and Gate 2 pass.
+*   Merge requires approval from the Senior Backend Engineer.
+
+**2. Deployment Authorization (Human Decision Required)**
+*   **Approvers:** Security Lead AND Data Governance Officer.
+*   **Trigger:** Presentation of the "Zero Data Loss" certification from Gate 3 and the single successful dry-run log.
+*   **Action:** Dual-approval unlock in production CI/CD pipeline.
+
+**3. Rollback Plan**
+*   **Trigger:** Any anomaly detected in production logs within the first 24 hours post-deployment, or failure of the first production run.
+*   **Action:** Revert the `main` branch to the previous stable tag.
+*   **Data Recovery:** Since the audit log is append-only and immutable, no data recovery is needed for false positives (nothing was deleted). If false negatives occur (data not purged), a hotfix patch is scheduled; this is a compliance delay, not a data loss event.
+
+**4. Post-Landing Verification**
+*   Monitor the first three nightly production runs. Verify row counts match expectations based on the 18-month window excluding transaction-bearing rows.

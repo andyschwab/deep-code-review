@@ -1,0 +1,58 @@
+# Delivery Plan: Legacy Stay Point Backfill with Tax Cap Enforcement
+
+## Lanes and Parallelism
+
+**Lane A: Data Extraction & Analysis (Sequential)**
+1.  Extract the 12,000 affected member accounts and their current point balances from the read-only cluster.
+2.  Calculate the raw backfill amount for each account based on the 2022–2023 error logic.
+3.  Apply the tax cap logic locally: if `(current_taxable_value + raw_backfill) > threshold`, cap the award at `(threshold - current_taxable_value)`.
+4.  Flag accounts where the capped award is non-zero but the raw backfill was higher (i.e., members within 500 units of the limit) for manual compliance review.
+5.  Generate the dry-run report listing: Member ID, Raw Backfill, Capped Award, Flag Status, and Projected Annual Taxable Value.
+
+**Lane B: Job Implementation (Parallel to Lane A)**
+1.  Develop the backfill script within the 'LedgerCore' monolith context.
+2.  Implement the tax cap logic using the *existing* shared library's threshold constant (read-only access, no modification).
+3.  Build the "Dry-Run Mode" flag that executes the calculation and logging without writing to the database.
+4.  Build the "Write Mode" that performs the immutable audit log entry and point credit.
+5.  Optimize queries to run in small batches (e.g., 100 records) with sleep intervals to prevent billing team timeout during any necessary local integration tests.
+
+**Lane C: Compliance & Approval (Dependent on Lane A & B)**
+1.  Submit the dry-run report to the Compliance Team for the flagged accounts.
+2.  Submit the final capped calculations and implementation plan to the Chief Financial Officer (CFO) for written production approval.
+
+## Gates and Checks
+
+**Gate 1: Local Validation (Pre-CI)**
+*   **Revision:** Feature branch head.
+*   **Check:** Run the script in Dry-Run Mode against a local snapshot or read-only replica. Verify zero impact on the billing cluster. Confirm the output matches the Lane A analysis exactly.
+*   **Pass Criteria:** 100% match between independent analysis (Lane A) and script output (Lane B). No timeout errors observed in local simulation.
+
+**Gate 2: CI Pipeline Execution**
+*   **Revision:** Same as Gate 1 (no new commits allowed before this).
+*   **Check:** Trigger the limited daily CI pipeline. Run unit tests for the calculation logic and the tax cap boundary conditions (specifically testing the 500-unit buffer zone).
+*   **Pass Criteria:** All tests pass. No modification detected in the shared tax threshold library.
+
+**Gate 3: CFO & Compliance Sign-off**
+*   **Check:** Written approval from CFO confirming the dry-run numbers are acceptable. Confirmation from Compliance that flagged accounts are noted for manual follow-up.
+*   **Pass Criteria:** Explicit written authorization attached to the deployment ticket.
+
+## Review Process
+
+*   **Code Review:** Performed by a Senior Backend Engineer independent of the implementer. Focus: Verification that the shared library is untouched, batch sizing prevents DB lock contention, and the immutability of the audit log is respected.
+*   **Logic Review:** Performed by a Data Analyst (independent of Lane A). Compare a random sample of 50 calculations from the Lane A spreadsheet against the Lane B script output to ensure formula consistency.
+*   **Security/Compliance Review:** Verification that the "Flag for Manual Review" list is correctly generated and securely stored for the compliance team.
+
+## Landing Strategy
+
+**Deployment Window:** Off-peak hours (e.g., 02:00 UTC) to minimize risk to the billing cluster, even with batching.
+
+**Execution Steps:**
+1.  Deploy the verified build to the staging environment (if available) or prepare the production deployment package.
+2.  **Human Decision Point:** The Deployment Lead must physically verify the CFO's written approval and the Compliance sign-off before initiating the write command.
+3.  Execute the script in **Write Mode** with strict batch limits and monitoring.
+4.  Monitor the immutable audit log to confirm entries are being created.
+5.  Generate a post-execution reconciliation report comparing the intended capped awards vs. the actual credited points.
+
+**Rollback Plan:**
+*   **Constraint:** The audit log is immutable; points cannot be "uncrafted" via a reverse transaction.
+*   **Mitigation:** If an error is detected mid-batch, immediately halt the script. The "rollback" is a corrective forward-patch: calculate the delta for affected users and run a secondary adjustment job to credit or debit (if system allows negative adjustments) the difference. If negative adjustments are impossible, the Finance team must be notified to handle the over-credit as a liability adjustment. This necessitates the strict Gate 3 sign-off.

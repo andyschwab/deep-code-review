@@ -1,0 +1,49 @@
+### Delivery Plan: Prepaid Balance Check (Zero-Impact)
+
+**Strategy:** Isolate the prepaid path behind an early-exit flag to guarantee postpaid latency remains unchanged. Implement asynchronous fetching with a strict timeout and fallback to cached/null values.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Core Logic - Serial):** Implement the `is_prepaid` flag check in `CoreGate`. If false (postpaid), return immediately without invoking new services. If true, trigger the async balance fetch.
+    *   *Constraint:* Must edit `auth-config.yaml`. This lane holds the exclusive lock on this file.
+    *   *Worktree:* Dedicated isolated worktree `wt-prepaid-core`.
+*   **Lane B (Service Integration - Parallel):** Develop the async balance fetcher module, including timeout handling (e.g., 200ms) and fallback logic (cached/null).
+    *   *Constraint:* No direct DB access; must use read-only replicas.
+    *   *Worktree:* Dedicated isolated worktree `wt-balance-service`.
+*   **Lane C (Test Harness - Parallel):** Create unit tests specifically for the timeout/fallback scenario and the postpaid "fast-path" to prove zero latency impact.
+    *   *Worktree:* Shared read-only checkout or separate `wt-tests`.
+
+**Serialization Point:** Lane A and Lane B must merge into a single integration branch before final verification, as Lane A depends on Lane B's interface. Edits to `auth-config.yaml` are strictly serialized; no other changes to this file are permitted during this window.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define the exact timeout value and the specific "null" response object structure. Pin base SHA before starting.
+*   **G4 Implementation:**
+    *   Lane A commits logic + config change.
+    *   Lane B commits service module.
+    *   *Requirement:* Code must explicitly show the early return for postpaid users before any network call.
+*   **G5 Verification (Exact Revision):**
+    *   **Local Stack:** Bring up `CoreGate` locally against a read-only replica mock.
+    *   **Latency Guard:** Run the `LatencyGuard` check locally. If it flakily fails due to jitter >10ms, capture the trace but do not block; mark as `UNVERIFIED` locally until CI re-trigger.
+    *   **Functional:** Verify postpaid login time equals baseline (within 2ms variance). Verify prepaid login succeeds even when balance service is simulated as dead.
+*   **G6 Review:**
+    *   **Security:** Independent review of the async timeout logic to ensure no hanging threads or resource leaks.
+    *   **QA:** Jane Smith (Identity Team) must review the `auth-config.yaml` change specifically.
+    *   **Deep Code Review:** Run `FULL` scope on the merged integration SHA.
+
+#### 3. Review & Independence
+*   **Builder:** Implements Lane A and B logic. Cannot approve their own merge.
+*   **Independent QA:** Verifies the "zero impact" claim using the test harness from Lane C. Must sign off on the latency metrics.
+*   **Security:** Reviews the fallback mechanism to ensure "null" balance doesn't bypass authorization rules elsewhere.
+*   **Constraint:** Jane Smith's approval is mandatory for the merge. Her review counts only if she explicitly approves the final integration SHA.
+
+#### 4. Landing & Rollback
+*   **Integration:** Merge Lane A and B into a temporary integration branch. Run the `Full-Regression` suite (55 mins) on this exact SHA.
+    *   *Optimization:* If CI credits are a concern, request a targeted run first (Auth + Latency suites), but full regression is required for final merge.
+*   **Human Gate:**
+    *   **Decision:** Jane Smith must approve the merge to the integration branch.
+    *   **Trigger:** Once `Full-Regression` is green and `LatencyGuard` passes (or is manually re-triggered and passed by a lead), present the merge request to Jane.
+*   **Deploy:**
+    *   Merge to main triggers deployment.
+    *   **Rollback Plan:** If postpaid latency spikes >5ms in production, immediately revert the merge commit. The feature flag logic allows disabling the prepaid path via config rollback if the code revert is slow, but a full git revert is the primary recovery method.
+*   **Post-Deploy:** Monitor `LatencyGuard` in production. If flaky behavior persists, escalate to infrastructure team; do not patch code to workaround infrastructure jitter unless proven to be a code defect.
+
+**Risk Mitigation:** The `auth-config.yaml` collision risk is mitigated by the single-writer worktree rule. The flaky `LatencyGuard` is managed by requiring a manual lead re-trigger only if the initial failure correlates with known jitter windows, documented in the merge receipt.

@@ -1,0 +1,58 @@
+# Delivery Plan: AquaSight Dashboard Upgrade with Audit Preservation
+
+## Lanes & Parallelism
+
+**Lane A: Data Integrity Verification (Serialized First)**
+*   **Owner:** Senior Backend Engineer + Legal Compliance Officer
+*   **Work:** Extract a cryptographic hash manifest of all historical compliance reports (2019–present) from the current production database. Run this against the write-once-read-many archival bucket to establish a pre-upgrade baseline.
+*   **Constraint:** Must complete before any code touches the aggregation logic.
+
+**Lane B: Interface Refactoring (Parallel to Lane C)**
+*   **Owner:** Frontend Team
+*   **Work:** Rebuild the visualization layer for load times and clarity. This lane touches *only* static assets and UI components. It must not import or modify any data aggregation modules.
+*   **Constraint:** Strictly prohibited from altering database queries or report generation logic.
+
+**Lane C: Aggregation Logic Isolation (Parallel to Lane B)**
+*   **Owner:** Senior Backend Engineer
+*   **Work:** Refactor the legacy reporting engine to improve performance *without* changing mathematical outcomes. Implement a "shadow mode" where the new logic runs alongside the old, comparing results byte-for-byte.
+*   **Constraint:** No database schema changes. Any deviation >0.00% triggers an immediate build failure.
+
+## Gates & Checks
+
+**Gate 1: Baseline Lock (Revision: `main@pre-upgrade`)**
+*   **Check:** Lane A's hash manifest is signed by the Legal Officer and stored in the repository as a protected artifact.
+*   **Pass Criteria:** 100% match between production data and archival bucket checksums.
+
+**Gate 2: Shadow Mode Verification (Revision: `feature/shadow-mode`)**
+*   **Check:** Automated dual-run of old vs. new aggregation logic on a full historical dataset dump.
+*   **Pass Criteria:** Zero diffs. The known flaky timestamp check must be manually overridden by the Lead Engineer for this specific run, with a written justification attached to the merge request.
+
+**Gate 3: Legal Sign-off (Revision: `release/candidate`)**
+*   **Check:** Legal Team reviews the Shadow Mode report and verifies that archived PDF links remain intact and unmodified.
+*   **Pass Criteria:** Written approval from the Chief Legal Officer. No automation can bypass this.
+
+## Review Strategy
+
+*   **Code Review:** Independent Senior Engineer (not from Lane B or C) reviews all changes. Focus strictly on the isolation boundary between UI and Data layers.
+*   **Logic Review:** The Lead Engineer must personally verify the aggregation refactoring, specifically checking for floating-point precision drift.
+*   **Compliance Review:** The Legal Officer reviews the "before/after" hash manifests, not the code. They verify the *outcome*, not the implementation.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge Lane B (UI) to `main` behind a feature flag.
+2.  Merge Lane C (Logic) to `main` behind a separate flag.
+3.  **Dual Approval Trigger:** The internal gateway requires both Lead Engineer and Chief Legal Officer to approve the final toggle flip.
+
+**Go/No-Go Decision:**
+*   **Go:** Only after Gate 3 is signed.
+*   **No-Go:** Any hash mismatch, any missing PDF link, or lack of Legal signature.
+
+**Rollback Plan:**
+*   **Immediate:** Revert the feature flags to "off." Since the database schema is frozen and the archive is WORM, no data migration rollback is possible or needed; the system simply reverts to serving the legacy UI and logic paths already present in `main`.
+*   **Post-Incident:** If a hash mismatch is discovered *after* launch, immediately disable public access and revert to the previous container image. The WORM nature of the archive ensures the original data remains safe for re-verification.
+
+**Human Decisions Required:**
+1.  Lead Engineer overriding the flaky timestamp check during Gate 2.
+2.  Chief Legal Officer signing the baseline manifest and final release.
+3.  Dual approval at the gateway for production deployment.

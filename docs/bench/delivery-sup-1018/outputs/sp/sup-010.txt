@@ -1,0 +1,65 @@
+# Delivery Plan: Custom Metric Builder with Historical Guardrails
+
+## Lanes and Parallelism
+
+**Lane A: Compliance & Configuration (Serialized First)**
+*   **Owner:** Compliance Officer + DevOps Lead
+*   **Work:** Draft the "Historical Data Immutability" assertion document required for sign-off. Update shared rate-limiting configuration to route pre-Q3 timestamps to the legacy engine.
+*   **Constraint:** This lane must complete before Lane B begins. The configuration change requires a manual global cache purge immediately after commit.
+
+**Lane B: Isolation Implementation (Parallel to A's documentation, blocked by A's config)**
+*   **Owner:** Senior Backend Engineer
+*   **Work:** Implement the timestamp router in `CoreMetrics`. Logic: `if timestamp < Q3_Start` → `LegacyAggregationEngine`; `else` → `CustomMetricBuilder`.
+*   **Constraint:** Zero modifications to the `HistoricalArchive` database schema or data. Code must explicitly exclude write access to the `HistoricalArchive` partition for any timestamp prior to Q3.
+
+**Lane C: Targeted Verification (Parallel to B)**
+*   **Owner:** QA Automation
+*   **Work:** Prepare the regression suite. Explicitly configure the pipeline to ignore failures in `LegacyDataValidator` unless accompanied by a stack trace indicating data corruption (filter false positives).
+
+## Gates and Checks
+
+**Gate 1: The Compliance Gate (Pre-Merge)**
+*   **Trigger:** Lane A documentation signed by the Compliance Officer.
+*   **Check:** Engineering Lead verifies the signed document is attached to the Pull Request (PR). No merge allowed without this artifact.
+
+**Gate 2: The Immutable Data Check (CI Pipeline)**
+*   **Revision:** Runs on the exact merge commit candidate.
+*   **Action:** Execute the 55-minute CI regression suite.
+*   **Success Criteria:**
+    1.  All tests pass (excluding known `LegacyDataValidator` flakiness).
+    2.  **Critical:** A specific integration test verifies that a write attempt to `HistoricalArchive` with a pre-Q3 timestamp returns a `403 Forbidden` or equivalent hard failure at the application layer.
+*   **Cost Control:** Due to the $40 cost and 55-minute duration, a local dry-run of the timestamp logic is mandatory before pushing to CI to prevent retry costs.
+
+**Gate 3: The Cache Purge Verification (Post-Deploy Staging)**
+*   **Action:** Verify the manual cache purge was executed in the staging environment.
+*   **Check:** Confirm rate-limiting rules reflect the new configuration before production promotion.
+
+## Review Strategy
+
+**Independent Code Review:**
+*   **Reviewer:** Staff Engineer from a different domain (e.g., Infrastructure, not Billing/Analytics).
+*   **Focus:** Specifically audit the timestamp routing logic and the absence of any SQL `UPDATE` or `DELETE` statements targeting pre-Q3 data.
+*   **Constraint:** The reviewer must not be the author of Lane B's code and must verify the `LegacyDataValidator` exclusion logic in the CI config.
+
+**Compliance Review:**
+*   **Reviewer:** Compliance Officer.
+*   **Focus:** Verify the deployed behavior matches the signed assertion document regarding SLA data integrity.
+
+## Landing and Rollback
+
+**Merge Strategy:**
+*   **Method:** Squash Merge to `main` only after Gate 1 and Gate 2 are green.
+*   **Human Decision:** The Engineering Lead must manually trigger the production deployment pipeline after visually confirming the Compliance Officer's signature and the CI green status.
+
+**Deployment Execution:**
+1.  Deploy to a single shard (Canary) containing non-critical enterprise data.
+2.  Verify no writes occur to `HistoricalArchive` for old timestamps.
+3.  If stable after 30 minutes, proceed to full shard rollout.
+4.  Execute manual global cache purge immediately upon config propagation.
+
+**Rollback Protocol:**
+*   **Trigger:** Any confirmed write to `HistoricalArchive` for pre-Q3 data or legal challenge regarding data integrity.
+*   **Action:**
+    1.  Immediately revert the deployment to the previous stable tag.
+    2.  **Irreversibility Note:** Since writes to `HistoricalArchive` are irreversible, rollback prevents *future* corruption but cannot undo committed bad data. If bad data is detected, the protocol shifts to "Incident Response" for legal mitigation rather than simple technical rollback.
+*   **Fallback:** The legacy engine remains untouched; reverting the router configuration instantly forces all traffic back to the proven legacy path.

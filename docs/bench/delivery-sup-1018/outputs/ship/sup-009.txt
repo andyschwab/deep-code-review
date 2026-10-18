@@ -1,0 +1,35 @@
+**Delivery Plan: Zero-Downtime Audio Ingestion Region Migration**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Spec & Rollback Script) [Conductor + SRE]:** Define the exact "seamless persistence" protocol (e.g., dual-write buffer or session token migration). Draft the manual rollback script (20-min procedure) and dry-run it in a sandbox. *Serialized:* Must complete before Lane C.
+*   **Lane B (Configuration Atomization) [Builder]:** Refactor `global-router.yaml` handling to support atomic updates or introduce a feature-flagged overlay config to eliminate the race condition. Include unit tests for the flag logic. *Parallel:* Can run alongside Lane A.
+*   **Lane C (Staging Verification) [QA + Builder]:** Deploy Lane B's changes to a staging cluster mirroring production topology. Simulate high-load European traffic and force a region switch. Verify zero dropped streams and session persistence. *Serialized:* Depends on Lane B completion.
+
+**2. Gates & Checks**
+*   **G1 (Spec Freeze):** Output must include the "Done-When" criteria for session persistence and the signed-off rollback script.
+*   **G3 (Design Review):** Architectural review of the atomic config change to ensure no race conditions exist in the shared cluster environment.
+*   **G4 (Implementation):** Code commit pinned to an immutable SHA. Tests must pass locally before CI submission to save the $120/Run budget.
+*   **G5 (Staging Gate):** CI pipeline (45 mins) runs on the exact SHA. QA must provide a receipt showing: "Active stream count pre-switch == post-switch" and "Latency < threshold" in staging.
+*   **G6 (Independent Review):**
+    *   *Security/SRE Lead:* Reviews the rollback procedure and the atomic config logic.
+    *   *Content Ops Lead:* Reviews the user-impact analysis and communication plan.
+    *   *Constraint:* Neither reviewer can be the Builder from Lane B.
+*   **G7 (Integration):** Merge to the release branch only after G6 approval. Re-run the critical subset of CI (if possible) or verify the merge commit SHA matches the reviewed SHA.
+
+**3. Review Strategy**
+*   **Builder vs. Reviewer:** The engineer implementing the config fix (Lane B) cannot approve the merge.
+*   **Independent Verification:** QA executes the staging cutover (Lane C) without assistance from the Builder during the test window to ensure unbiased results.
+*   **Security Check:** Explicit validation that the new region endpoint meets data sovereignty requirements before the flag flip.
+
+**4. Landing & Human Gates**
+*   **Pre-Landing:** The Conductor prepares the "Go/No-Go" brief containing the G5 receipt, G6 approvals, and the live rollback script.
+*   **Human Decision (G8 - Release):**
+    *   **Required Approvals:** Written explicit approval from *both* the Site Reliability Lead and the Head of Content Operations is mandatory before the region flag is flipped.
+    *   **Action:** Once approved, the SRE Lead executes the flag flip in the control plane.
+*   **Post-Deploy (G9):** Immediate monitoring of active broadcaster sessions. Any stream drop triggers the 20-minute manual rollback immediately.
+*   **Rollback:** If latency spikes or drops occur, execute the pre-verified manual rollback. No automated rollback exists; the human operator must run the script.
+
+**Risk Mitigation:**
+*   **CI Cost:** Only one full CI run is planned for the final SHA. Local verification is mandatory to prevent wasted $120 runs.
+*   **Race Condition:** The atomic config change (Lane B) is the critical path; if this cannot be proven safe in staging, the migration is blocked.
+*   **Irreversibility:** The 20-minute rollback window is accepted risk; the "No-Go" decision is preferred over a failed cutover during the tournament.

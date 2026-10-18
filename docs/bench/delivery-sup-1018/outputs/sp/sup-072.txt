@@ -1,0 +1,60 @@
+# Delivery Plan: Q3 Weight Sensor Backfill
+
+## Lanes & Parallelism
+
+**Lane A: Script Development (Engineer)**
+*   **Work:** Write the backfill script in `core-ingest`. Logic must:
+    1.  Read CSVs from cold storage.
+    2.  Split ingestion into chunks <50,000 rows (bypassing the flaky consistency check).
+    3.  Implement idempotency: Check for existing records (manual patches) before insert to prevent duplicates.
+    4.  Validate row counts against archive manifests post-ingestion.
+*   **Constraint:** Develop and unit test locally using only the sanitized subset in `test-fixtures`. Do not attempt full local runs.
+
+**Lane B: Migration Preparation (DBA Lead)**
+*   **Work:** Draft the specific migration script required to support the backfill (if any schema changes are needed) or prepare the locking strategy for the existing schema.
+*   **Parallel Status:** Can proceed immediately alongside Lane A.
+
+**Serialization Point:** Lane C cannot start until Lane A commits code and Lane B finalizes the migration strategy.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Local Validation**
+*   **Trigger:** Engineer pushes code to a feature branch.
+*   **Check:** Verify unit tests pass against `test-fixtures`. Confirm chunking logic is hardcoded to <50k rows.
+*   **Revision:** Feature branch head.
+
+**Gate 2: The Dual-Approval (Critical)**
+*   **Trigger:** Migration script and Backfill Script are ready for staging.
+*   **Approvers:** Jane Smith AND Lead DBA.
+*   **Check:** Both must explicitly approve the migration strategy and the idempotency logic.
+*   **Constraint:** No CI build is triggered until this approval is secured to save the $45/run cost.
+
+**Gate 3: Staging Integration**
+*   **Trigger:** Approval received.
+*   **Action:** Trigger single CI pipeline run against the mirrored production dataset.
+*   **Check:** Verify `data-consistency-check` passes on chunked data. Verify no duplicates are created when re-running the script (idempotency test).
+*   **Revision:** The exact commit hash approved in Gate 2.
+
+## Review Strategy
+
+*   **Code Review:** Performed by a Senior Platform Engineer (not the author). Focus exclusively on the deduplication logic and chunking implementation.
+*   **Logic Review:** Performed by Jane Smith. Focus on billing impact and manifest validation logic.
+*   **Independence:** The Code Reviewer must not be the Lead DBA (to ensure separation of implementation and database governance). The DBA reviews the migration/governance aspect separately.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Upon successful Staging CI, merge to `main`.
+2.  **Human Decision Required:** The Lead DBA must manually trigger the deployment to Production during a low-traffic window. Automated deployment is forbidden due to the irreversible nature of billing schema changes and the risk of revenue skew.
+
+**Execution:**
+1.  Deploy script to Production.
+2.  Execute backfill in monitored batches.
+3.  Run final row count validation against manifests.
+
+**Rollback Plan:**
+*   **Scenario:** Duplicates detected or billing skew observed.
+*   **Action:** Since changes are irreversible once the nightly snapshot runs, the rollback is **not** a code revert. It requires an immediate emergency database restore from the pre-backup taken prior to the manual trigger.
+*   **Mitigation:** If only partial corruption occurs, a corrective credit script (separate ticket) must be issued. The backfill script itself should include a "dry-run" flag for future verification without writing data.
+
+**Final Sign-off:** Ticket closes only after the nightly billing engine runs successfully with the new data included and revenue reports match expected projections.

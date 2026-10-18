@@ -1,0 +1,32 @@
+### Delivery Plan: Offline Mode with Conflict-Free Sync
+
+#### 1. Work Lanes & Parallelism
+Work is divided into three lanes. Lanes A and B run in parallel; Lane C waits for both.
+
+*   **Lane A (Mobile Logic):** Implement local storage wrappers, queueing mechanisms for offline actions, and the sync trigger logic. This includes handling the "latest timestamp wins" conflict resolution for profiles and the deduplication logic for quiz attempts.
+*   **Lane B (Shared Validation & Schema):** Update the shared data validation library to support the new offline schema fields and append-only constraints. This must be done in lockstep with Lane A's data models to prevent drift.
+*   **Lane C (Integration & Simulation):** Develop the low-bandwidth simulation scripts to inject latency spikes missing from staging. This lane integrates the outputs of A and B once they are code-complete.
+
+#### 2. Gates, Checks, and Revisions
+All work branches from revision `main-stable-2023-10`. No work proceeds past a gate without passing the specific check defined.
+
+*   **Gate 1 (Schema Consistency):** Before merging Lane A or B to the integration branch, a static analysis check must verify that the mobile local storage definitions match the updated shared validation library signatures. Failure here blocks integration.
+*   **Gate 2 (Cost-Controlled CI):** The full regression suite runs only on the integrated branch (`offline-sync-integration`). Due to the $45/run cost and twice-daily limit, this gate opens only at 06:00 and 18:00 UTC. If the build fails, the branch is frozen until the next window; hotfixes must be validated via unit tests only before re-queuing.
+*   **Gate 3 (Flakiness Filter):** Sync checks run in the enhanced simulation environment (Lane C output). Any failure labeled "timeout" or "latency" requires three consecutive successful runs to pass, mitigating the known staging flakiness.
+
+#### 3. Review Process
+Reviews are strictly independent to ensure data integrity.
+
+*   **Code Review (Lane A & B):** The Lead Mobile Engineer reviews Lane A. The Web Portal Lead reviews Lane B (since they own the shared library). Cross-review is mandatory: the Web Lead must approve the mobile storage logic, and the Mobile Lead must approve the shared library changes.
+*   **Data Integrity Audit:** Before any merge to staging, the Data Governance Officer reviews the conflict resolution logic specifically for the append-only progress table. They must verify in writing that no code path attempts a direct deletion of audit records.
+*   **Final Sign-off:** Production deployment requires dual approval. The Lead Mobile Engineer confirms functional stability; the Data Governance Officer confirms audit compliance. Neither can approve alone.
+
+#### 4. Landing Strategy
+*   **Merge to Staging:** Once Gates 1–3 pass and reviews are complete, merge to `staging`. Monitor for 24 hours using the enhanced latency simulation.
+*   **Production Deployment:** Deploy to 5% of users initially (canary). Monitor sync success rates and duplicate entry logs. If duplicate rates exceed 0.1%, trigger an automatic rollback.
+*   **Human Decision Points:**
+    *   If the CI build fails due to flaky tests rather than logic errors, a human must decide whether to burn the second daily build slot on a re-run or defer to the next day.
+    *   If a conflict scenario is found where "latest timestamp" causes data loss (e.g., race conditions within the same millisecond), the Data Governance Officer must define the tie-breaking rule before proceeding.
+*   **Rollback Plan:** If corruption is detected, revert the mobile app version immediately via the app store rollback mechanism. Server-side, since the progress table is append-only, no deletion is possible; instead, deploy a patch that marks corrupted entries as "invalid" via a status flag, preserving the audit trail while ignoring them in user views.
+
+This plan prioritizes data integrity by enforcing strict schema checks, independent cross-disciplinary reviews, and a cautious, monitored rollout with a non-destructive rollback strategy.

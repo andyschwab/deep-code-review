@@ -1,0 +1,66 @@
+**Delivery Plan: Insurance Verification Hardening**
+
+**Scope & Constraints**
+Update `CarrierConnector` to replace hard-fail on transient errors with exponential backoff.
+*Critical Constraints:* Shared library (Billing/Intake); 15s DB replication lag; immutable audit log; unstable sandbox after 6 PM EST.
+*Appetite:* One focused sprint; zero false denials allowed.
+
+**Lanes & Parallelism**
+*Conductor:* Orchestrates serialization points and stakeholder sync.
+*Builder (Lane A):* Implements retry logic in a dedicated worktree.
+*QA (Lane B):* Validates state consistency under load (serialized after A's unit pass).
+*Security/Compliance (Lane C):* Audits log immutability and data integrity (parallel to B).
+
+**Serialization Strategy**
+1.  **Design First:** Builder drafts the retry state machine. Must prove it handles the 15s DB lag without writing duplicate "pending" states.
+2.  **Code Then Test:** Builder commits code. QA cannot start functional tests until Builder proves unit tests pass locally (mandatory to save $45/run).
+3.  **Audit Lock:** Security verifies that no retry attempt writes to the permanent audit log until a final state (Success/Failure) is reached.
+
+**Gates & Checks**
+
+*   **G0/G1 (Spec & Design):**
+    *   *Input:* Ticket requirements.
+    *   *Check:* Explicit definition of "transient" vs. "definitive negative."
+    *   *Output:* Design doc confirming retry logic does not violate audit immutability.
+    *   *Review:* Conductor + Idea Critic (attack the "guarantee" claim).
+
+*   **G2 (Plan):**
+    *   *Check:* Token budget set for Lane A/B/C.
+    *   *Output:* Acyclic graph. Lane B waits for Lane A's local green.
+
+*   **G3 (Design):**
+    *   *Check:* ADR detailing how the 15s DB lag is handled during rapid retries (e.g., idempotency keys).
+    *   *Approval:* Jane Smith (Billing) and Bob Jones (Intake) must sign off on the design before code is written.
+
+*   **G4 (Implement):**
+    *   *Action:* Builder codes in isolated worktree.
+    *   *Requirement:* Unit tests included in commit.
+    *   *Local Gate:* Builder runs full local stack. **No push until local regression passes.**
+
+*   **G5 (Verify):**
+    *   *Action:* QA spins up test environment. Simulates network glitches and DB lag.
+    *   *Critical Check:* Verify no "ineligible" status is logged unless max retries exhausted. Verify no duplicate audit entries during retry loops.
+    *   *Timing:* Must complete before 6 PM EST to utilize stable sandbox if integration testing is needed.
+
+*   **G6 (Review):**
+    *   *Reviewers:* Independent Senior Engineer (not Builder) + Jane Smith + Bob Jones.
+    *   *Focus:* Logic correctness, race conditions with DB lag, and audit log safety.
+    *   *Rule:* Builder never reviews own code.
+
+*   **G7 (Integrate):**
+    *   *Action:* Merge to integration branch. Run one final CI regression ($45 cost incurred here only).
+    *   *Condition:* All gates green at exact merge SHA.
+
+*   **G8 (Release - Human Gate):**
+    *   *Decision:* Owner approves deployment window.
+    *   *Constraint:* Deployment must occur before 6 PM EST.
+    *   *Rollback Plan:* Immediate revert of `CarrierConnector` library version. Since audit logs are immutable, rollback prevents *future* false denials; it cannot fix already logged errors (requires manual DB ticket as per facts).
+
+**Risk Mitigation**
+*   **False Denial:** Prevented by G5 rigorous glitch simulation.
+*   **DB Inconsistency:** Addressed in G3 design via idempotency checks against the 15s lag.
+*   **Cost Overrun:** Mitigated by mandatory local validation before any CI trigger.
+*   **Deployment Risk:** Hard stop on evening deploys; automated gate prevents merge after 5 PM EST.
+
+**Handback**
+Receipt includes: Exact SHA, G5 test logs proving no false denials under simulated lag, signed approval from both Team Leads, and confirmed rollback script.

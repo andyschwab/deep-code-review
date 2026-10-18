@@ -1,0 +1,48 @@
+### Delivery Plan: NorthWind to AzureFlow Migration
+
+**Objective:** Migrate ingestion to AzureFlow while maintaining playback continuity for clients holding NorthWind cached segments, ensuring zero breakage for mobile apps released in the last six months.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Header Normalization - Builder):** Implement logic in `Pipeline-Alpha` to normalize incoming headers and map legacy NorthWind signature formats to AzureFlow equivalents.
+    *   *Constraint:* Must not modify `asset-manifest.json` during business hours (09:00–17:00).
+*   **Lane B (Fallback Logic - Builder):** Develop the graceful fetch mechanism. If a stale segment request hits, intercept and retrieve the equivalent asset from AzureFlow without forcing a buffer clear.
+    *   *Constraint:* Must support mobile app versions from the last six months (no breaking API changes).
+*   **Lane C (Test Harness - QA):** Build a custom latency-spike simulator. The existing staging mock fails to replicate real-world latency; this lane creates a sidecar service to inject delays and verify fallback timing.
+    *   *Parallel:* Runs alongside A and B.
+*   **Lane D (Integration & Geo-Redundancy - QA):** Execute the full suite excluding the known flaky `geo-redundancy` check. If that specific check fails on a weekend, it triggers a manual re-run verification rather than blocking the lane.
+
+**Serialization:** Lanes A and B merge into a single integration branch only after both pass unit tests locally. Lane C validates the merged result. Lane D runs last on the exact integration SHA.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Freeze the mapping logic for NorthWind signatures to AzureFlow keys. Define "graceful fetch" as <200ms added latency.
+*   **G2 Plan:** Confirm `asset-manifest.json` write-lock avoidance strategy. Set token budget for CI runs ($12/run limit; max 4 runs allowed before manual review).
+*   **G3 Design:** ADR detailing the header normalization schema and fallback state machine.
+*   **G4 Implement:** Code committed to isolated worktrees.
+    *   *Check:* Local build green.
+    *   *Check:* Unit tests covering legacy signature parsing.
+*   **G5 Verify (Exact SHA):**
+    *   Run CI on the integration SHA.
+    *   **Critical:** Execute Lane C's latency simulation against the staged build.
+    *   **Flake Handling:** If `geo-redundancy` fails, verify manually via logs; do not auto-retry more than once.
+    *   **Evidence:** Video playback receipt showing seamless transition from stale cache to new fetch.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Engineer (independent of Builder).
+    *   **Scope:** Full diff + QA receipts.
+    *   **Focus:** Mobile backward compatibility and manifest lock safety.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:** Merge to `main` only after G6 approval. Due to the 45-minute CI cost, no merge train; single atomic merge.
+*   **Human Gate (Deployment):**
+    *   **Approver:** Senior Engineer only.
+    *   **Trigger:** DNS update window (next Tuesday).
+    *   **Decision Point:** The DNS switch is irreversible for 24 hours. Approval requires signed confirmation that G5 latency tests passed under simulated spikes.
+*   **Rollback Plan:**
+    *   Since DNS propagation is irreversible, "rollback" means reverting the `Pipeline-Alpha` logic to re-point internally to NorthWind *if* contracts remain active, or enabling a kill-switch in the fallback logic to fail fast rather than hang.
+    *   **Pre-condition:** Rollback script dry-run completed in G5.
+
+#### 4. Risk Mitigation
+*   **CI Cost:** Strict cap of 4 runs. Any failure after 2 attempts requires a "Stop & Reframe" review before retrying.
+*   **Manifest Lock:** All writes to `asset-manifest.json` scheduled for off-hours or handled via a temporary staging manifest that swaps atomically.
+*   **Staging Deficiency:** Reliance on Lane C's custom simulator is mandatory; standard staging pass is insufficient for go/no-go.
+
+**Next Step:** Await owner confirmation on the specific Tuesday maintenance window to finalize the G2 time-box.

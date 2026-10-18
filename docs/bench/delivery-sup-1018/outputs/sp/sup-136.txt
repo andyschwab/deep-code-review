@@ -1,0 +1,33 @@
+### Delivery Plan: Unified Immutable GPS Audit
+
+**1. Work Lanes & Parallelization**
+*   **Lane A (Schema & Immutability - Serialized First):** The Database Engineer defines the new unified schema with append-only constraints. This must complete before any code changes. Once the schema is locked in production, the Backend Developer implements the ingestion service with strict "write-once" logic.
+*   **Lane B (Data Migration & Validation - Parallel to Lane A Code):** The Data Engineer writes the one-time migration script to merge legacy dispatch logs and mobile tracker data. This runs against a production read-replica to avoid locking live tables.
+*   **Lane C (Dashboard Integration - Parallel):** The Frontend Developer updates the quarterly review dashboard to consume the new unified endpoint, using mocked data until Lane A is deployed.
+
+*Constraint:* Lane A's database migration must be deployed and verified before Lane B's migration script runs on live data. Lane C can merge independently but requires a feature flag until Lane A is live.
+
+**2. Gates & Checks**
+*   **Gate 1 (Schema Review):** Before applying the schema, the Security Lead and Operations Manager must manually approve the migration SQL via a dual-approval pull request. This ensures retention locks are correctly configured.
+*   **Gate 2 (Targeted Testing):** Due to CI costs and timeout risks, the test suite is split. Unit tests for the ingestion logic run on every commit. The full 45-minute integration suite runs *only* on the release candidate branch, scheduled during off-peak hours.
+*   **Gate 3 (Billing Safety):** Before merging changes to the shared configuration file, a dry-run diff must be reviewed by the Billing Team lead to ensure no invoice generation parameters are altered.
+*   **Gate 4 (Staging Limitation Acknowledgement):** Since staging lacks geospatial indexing, the Operations Lead must sign off on a "Manual Geospatial Verification" checklist after deployment to production, acknowledging that staging false negatives were ignored.
+
+**3. Review Process**
+*   **Code Review:** The Backend Developer's ingestion code is reviewed by a Senior Engineer from a different squad (e.g., Platform) to ensure impartiality regarding the "immutable" requirement.
+*   **Security Audit:** The Security Lead specifically reviews the database constraint definitions and the rollback script, independent of the feature implementation.
+*   **Data Integrity Check:** The Operations Lead reviews a sample output of the merged data (conflict flags included) in a isolated production sandbox before giving the go-ahead for the full migration.
+
+**4. Landing & Rollback**
+*   **Deployment Strategy:**
+    1.  Deploy database schema (append-only locks).
+    2.  Deploy ingestion service (writing to new table, dual-writing to old if necessary for safety).
+    3.  Run migration script (backfill historical data).
+    4.  Switch dashboard to new endpoint.
+*   **Human Decisions Required:**
+    *   Approval of the specific time window for the schema change (downtime risk).
+    *   Sign-off on the list of "conflicting timestamps" flagged for manual review before the quarterly deadline.
+*   **Rollback Plan:**
+    *   *If ingestion fails:* Revert the service deployment immediately. The database schema remains (as it is irreversible), but the service stops writing to it. Traffic reverts to the legacy dispatch board.
+    *   *If data corruption occurs:* The migration script generates a checksum before running. If validation fails, the script aborts. Since the audit log is immutable, "rollback" means deploying a correction service that writes valid records forward; deleted/altered records are impossible by design. The legacy systems remain the source of truth until the new pipeline is proven stable for 48 hours.
+    *   *Billing Config Issue:* If invoice generation breaks, revert the shared configuration file to the previous commit and redeploy the billing service immediately.

@@ -1,0 +1,60 @@
+**Delivery Plan: Legacy URL Preservation for Acme Horizon Launch**
+
+**Objective:** Deploy redesigned navigation while guaranteeing 100% resolution of legacy deep links without redirects or broken tracking.
+
+### 1. Lanes & Serialization
+
+*   **Lane A: Mapping & Contract (Product Analyst + Architect)**
+    *   **Task:** Audit marketing assets to enumerate all active legacy URL patterns. Define the mapping logic (Legacy Path → New View ID) without altering the database schema yet.
+    *   **Output:** A static mapping manifest and a "Legacy Bridge" interface contract.
+    *   **Parallelism:** Can run immediately.
+*   **Lane B: Router Implementation (Builder)**
+    *   **Task:** Implement the routing interceptor in the `legacy-bridge` module. It must parse incoming legacy paths, resolve them to new views internally, and render the correct component *without* changing the browser URL (no HTTP 3xx redirects).
+    *   **Constraint:** Isolated worktree; changes restricted strictly to routing logic to avoid side effects in other micro-frontends.
+    *   **Dependency:** Waits for Lane A's contract.
+*   **Lane C: Sandbox Validation Environment (DevOps)**
+    *   **Task:** Spin up an isolated pre-prod sandbox injected with real ad-tracking parameters (mimicking production), as staging is insufficient.
+    *   **Dependency:** Independent, but must be ready before Lane D.
+*   **Lane D: Targeted Verification (QA)**
+    *   **Task:** Execute a focused suite against the sandbox using the exact legacy URLs from Lane A. Verify content renders correctly and tracking pixels fire with original parameters.
+    *   **Dependency:** Waits for Lane B (code) and Lane C (env).
+
+**Serialization:** A → B → D. C runs in parallel to A/B.
+
+### 2. Gates & Checks
+
+*   **G1 Spec (Now):** Freeze the list of legacy URLs. Define "Success" as: Legacy URL loads new view, URL bar remains unchanged, tracking params persist.
+*   **G3 Design Review:** Architect verifies the `legacy-bridge` change does not ripple to the three other micro-frontends.
+*   **G4 Implementation:** Builder commits code with unit tests for the mapping logic.
+    *   *Check:* Local lint and type-check only. Do not trigger the full $45/55m CI suite yet.
+*   **G5 Verification (Sandbox):**
+    *   *Revision:* Exact SHA from G4 deployed to Sandbox (Lane C).
+    *   *Check:* Automated script hits top 50 legacy URLs; manual spot-check of long-tail URLs.
+    *   *Criterion:* "Green" only if content matches and tracking headers are intact.
+*   **G6 Independent Review:**
+    *   *Reviewer:* Senior Engineer (not the Builder).
+    *   *Scope:* Diff review of `legacy-bridge` + Sandbox test receipts.
+    *   *Security:* Verify no open redirect vulnerabilities are introduced.
+
+### 3. Review Strategy
+
+*   **Code Review:** Independent Senior Engineer reviews the routing logic. They must confirm the "no redirect" requirement is met via internal resolution, not HTTP status codes.
+*   **QA Sign-off:** QA Lead verifies the Sandbox receipts. They explicitly sign off on the "tracking parameter persistence" requirement.
+*   **Conflict Check:** Verify no other teams are merging into `legacy-bridge` during this window.
+
+### 4. Landing & Rollback
+
+*   **Integration:** Merge to the release candidate branch only after G6 passes.
+*   **Human Gate (G8):**
+    *   **Approver:** Jane Smith + Change Advisory Board.
+    *   **Input:** Present Sandbox verification receipts and the rollback plan.
+    *   **Decision:** Authorize the feature flag flip and database migration.
+*   **Deployment:**
+    1.  Deploy code to Production (behind feature flag, OFF).
+    2.  Execute irreversible database migration (timed precisely).
+    3.  Flip feature flag to ON for 5% traffic, then 100%.
+*   **Rollback Plan:**
+    *   Since the DB migration is irreversible, code rollback alone is insufficient.
+    *   **Procedure:** If failure occurs post-migration, immediately revert the feature flag to OFF. The system must support rendering the *new* code in "legacy mode" using the new schema. If this dual-support is not implemented, the rollback requires a full database restore (high risk), which must be explicitly acknowledged by Jane Smith before approval.
+
+**Cost Control:** Full CI regression suite runs exactly once: after Sandbox verification (G5) and before Human Gate (G8).

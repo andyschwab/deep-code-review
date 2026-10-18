@@ -1,0 +1,55 @@
+### Delivery Plan: Offline Browsing & Cart Sync
+
+**Objective:** Enable seamless offline browsing and robust cart synchronization for field sales, ensuring zero data loss and no UI disruption during connectivity drops.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Frontend Caching & UI):** Implement Service Worker strategies to cache product pages instantly. Update UI to suppress loading spinners/errors when offline.
+    *   *Constraint:* Must coordinate with Lane C on the shared config file.
+    *   *Parallel:* Yes, runs alongside Lane B.
+*   **Lane B (Sync Logic):** Develop the offline-first cart queue and reconciliation logic to prevent duplicates upon reconnection.
+    *   *Constraint:* Requires schema validation from Lane C.
+    *   *Parallel:* Yes, runs alongside Lane A.
+*   **Lane C (Schema & Config):** Define necessary schema changes for the `cart-sync-engine` and manage the shared config file version bump.
+    *   *Serial Dependency:* Must complete before Lane A and B finalize integration tests.
+    *   *Human Gate:* Requires manual approval from Jane Smith (Owner) for schema changes.
+*   **Lane D (Verification):** Execute functional, regression, and network-throttling tests.
+    *   *Constraint:* Must use a custom network simulation script, not the flaky staging mock.
+    *   *Serial Dependency:* Waits for Lanes A, B, and C to produce a unified build.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Freeze acceptance criteria: "Zero spinners offline," "No duplicate cart items," "Auto-sync on reconnect." Pin base SHA.
+*   **G2 (Plan):** Map dependencies. Explicitly budget token usage for CI due to expensive containers.
+*   **G3 (Design):** ADR for the sync conflict resolution strategy. Jane Smith signs off on schema diffs.
+*   **G4 (Implement):**
+    *   Lanes A & B commit to isolated worktrees.
+    *   Lane C commits config/schema changes.
+    *   *Check:* Local lint and type-check only; defer full CI.
+*   **G5 (Verify):**
+    *   **Environment:** Spin up a local stack with a custom packet-loss simulator (bypassing flaky staging mocks).
+    *   **Action:** Run end-to-end journeys: Go offline → Add items → Reconnect → Verify server state.
+    *   **Evidence:** Video capture of the "no spinner" behavior and database logs showing zero duplicates.
+    *   **Revision:** Test against the exact integrated SHA from G7 prep.
+*   **G6 (Review):**
+    *   **Code:** Independent review by a senior engineer not involved in Lanes A/B.
+    *   **Security:** Verify local storage encryption and sync payload integrity.
+    *   **QA:** Jane Smith validates the schema impact on the legacy engine.
+
+#### 3. Integration & Landing
+*   **G7 (Integrate):**
+    *   Merge Lanes A, B, and C into a temporary integration branch.
+    *   Trigger **one** full CI suite (45 mins) on this exact SHA.
+    *   Verify the shared config change does not break the three other micro-frontends.
+*   **G8 (Release - Human Decision):**
+    *   **Approver:** Product Owner + Jane Smith.
+    *   **Timing:** Deploy outside business hours (irreversible constraint).
+    *   **Action:** Coordinated deployment of the config version and client build.
+*   **G9 (Production Verify):**
+    *   Monitor sync error rates and cart abandonment metrics immediately post-deploy.
+    *   **Rollback:** If duplicate rates > 0% or sync failures spike, revert the config version and client build immediately. Since production deploys are irreversible during business hours, this must happen before the next business day starts if issues arise.
+
+#### 4. Risk Mitigation
+*   **CI Cost:** Avoid redundant builds by running local checks first; trigger full CI only once on the final integrated SHA.
+*   **False Positives:** Lane D must write a custom network failure script; do not rely on the existing staging mock.
+*   **Collision:** The shared config file is a single-writer resource. Lane C owns the edit; Lanes A/B must read the new version, not edit it.
+
+**Next Step:** Await confirmation of the base SHA and Jane Smith's availability for the G3 schema review.

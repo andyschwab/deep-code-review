@@ -1,0 +1,54 @@
+**Delivery Plan: Helios Solar Farm Connector**
+
+**Scope & Constraints**
+Insert the Helios source handler into `core-sync` before the final validation step. The existing three-step grid synchronization sequence (wind/hydro) must remain byte-for-byte identical. Silent retries on timeout are required; no audit logs for these retries.
+**Hard Constraints:** CI budget $675 (15 min cap); ignore Tuesday latency flake if "maintenance window" present; deployment requires physical Shift Lead presence (no rollback during business hours).
+
+**Lanes & Serialization**
+
+1.  **Lane A: Specification & Baseline Lock (Conductor + Product Analyst)**
+    *   **Action:** Define the exact insertion point in the handshake sequence. Extract the current SHA of `core-sync` and generate a cryptographic hash of the three-step sequence to prove zero modification later.
+    *   **Output:** A testable spec with the "unchanged sequence" hash as a pass/fail criterion.
+    *   **Parallelism:** Runs first; blocks all other lanes.
+
+2.  **Lane B: Implementation (Builder)**
+    *   **Worktree:** Isolated worktree based on the SHA from Lane A.
+    *   **Action:** Implement the Helios handler with silent retry logic. Ensure no changes to the wind/hydro timing logic.
+    *   **Constraint:** Code must compile and pass local static analysis before CI submission to save simulator minutes.
+    *   **Parallelism:** Runs after Lane A.
+
+3.  **Lane C: Independent Verification (QA)**
+    *   **Action:** Verify the "unchanged sequence" hash matches the baseline exactly. Simulate timeout scenarios to confirm silent retries (no audit logs).
+    *   **Constraint:** Must run on the exact revision produced by Lane B.
+    *   **Parallelism:** Runs concurrently with Lane D, after Lane B commits.
+
+4.  **Lane D: Security & Compliance Review (Security + Marcus Thorne)**
+    *   **Action:** Marcus Thorne (Senior Reliability Engineer) reviews the diff. Security verifies that silent retries do not mask genuine faults or create observability blind spots beyond the agreed scope.
+    *   **Constraint:** Mandatory human approval before merge.
+    *   **Parallelism:** Runs concurrently with Lane C.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Spec approved only if it includes the baseline hash mechanism.
+*   **G4 (Implement):** Builder commits only after local static checks pass.
+*   **G5 (Verify):** CI pipeline runs on the exact commit SHA.
+    *   *Check 1:* Sequence hash match (Fail if any bit differs).
+    *   *Check 2:* Functional test of Helios handshake.
+    *   *Check 3:* Latency monitor (Ignore failure if logs contain "maintenance window" and day is Tuesday).
+    *   *Budget Guard:* Pipeline must complete under 14 minutes to allow a retry buffer before the 15-minute hard kill.
+*   **G6 (Review):** Marcus Thorne approves the diff. Security signs off on the logging behavior.
+*   **G7 (Integrate):** Merge to the integration branch. Re-run the sequence hash check on the merge commit.
+
+**Landing & Rollback**
+
+*   **Merge Strategy:** Fast-forward merge to the release branch only after G6 approval.
+*   **Human Gate:** The Shift Lead must be physically present at the data center to swipe the key-card for deployment. This action triggers the production update.
+*   **Timing:** Deployment must be scheduled outside the 02:00–03:00 UTC backup window to avoid config lock conflicts.
+*   **Rollback:**
+    *   *Pre-Deployment:* Simple branch revert.
+    *   *Post-Deployment:* Irreversible during business hours due to physical key-card dependency. If the deployment fails post-swipe, the system enters a manual recovery state requiring off-hours physical intervention. A "dark launch" (config disabled but code present) is recommended to mitigate this risk, allowing a config-only rollback if the connector behaves unexpectedly.
+
+**Risk Mitigation**
+*   **CI Timeout:** If the simulator hangs, the job kills at 15 minutes with no data. The Builder must dry-run the test harness locally to estimate duration.
+*   **Flaky Test:** The QA lane explicitly parses logs for the Tuesday maintenance string to prevent false negatives.
+*   **Timing Drift:** The hash check acts as a hard gate; any millisecond shift in the existing sequence causes an immediate build failure.

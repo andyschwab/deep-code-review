@@ -1,0 +1,55 @@
+### Delivery Plan: Legacy Discount API Sunset
+
+#### 1. Lanes and Parallelism
+Work is split into three lanes to maximize parallel execution while respecting serialization constraints.
+
+*   **Lane A (Internal Migration - Platform Team):** Refactor all internal services to consume the v2 discount API immediately. This lane runs in parallel with Lane B but must complete before the final cutover gate.
+*   **Lane B (Compatibility Shim - Gateway Team):** Develop the routing layer in the Partner Gateway. This includes parsing specific partner headers, routing to v2, and transforming responses to the legacy v1 JSON structure. This lane includes implementing strict rate limiting for these specific routes.
+*   **Lane C (Governance & Config - Integration Lead):** Draft changes to `partner-mapping.json`. This work is serialized; it cannot be committed until the Integration Lead signs off on the specific routing rules defined in Lane B.
+
+#### 2. Gates and Checks
+All checks run on a dedicated release candidate branch (`rc/sunset-legacy`) derived from the latest `main` revision at kickoff.
+
+*   **Gate 1: Schema Integrity Check (Pre-Merge to RC):**
+    *   *What:* Static analysis verifying no modifications to the read-only billing library or old API schema.
+    *   *Where:* CI Pipeline Stage 1.
+    *   *Constraint:* Failure here is a hard block; invoice generation cannot be compromised.
+*   **Gate 2: Contract Verification (Post-Shim Build):**
+    *   *What:* Replay recorded partner traffic against the shim to verify exact JSON structure and error code matching (especially brittle retry codes).
+    *   *Where:* Isolated staging environment using last night's sanitized data (post-02:00 UTC).
+    *   *Timing:* Avoid running full latency suites on Thursdays to bypass known flaky failures. Schedule critical validation runs Fri–Wed.
+*   **Gate 3: Rate Limit Stress Test:**
+    *   *What:* Load test specifically targeting the legacy shim routes to ensure abuse is throttled without affecting v2 traffic.
+    *   *Where:* Performance staging cluster.
+
+#### 3. Review Process
+Reviews are strictly independent to prevent conflict of interest and ensure security compliance.
+
+*   **Code Review (Shim & Internal Migration):**
+    *   *Reviewer:* Senior Engineer from the Billing Team (independent of Platform and Gateway teams).
+    *   *Focus:* Correctness of JSON transformation, error code fidelity, and v2 integration points.
+*   **Configuration Review (`partner-mapping.json`):**
+    *   *Reviewer:* Integration Lead (mandatory sign-off).
+    *   *Focus:* Accuracy of partner routing rules and rate limit thresholds.
+*   **Security & Production Readiness:**
+    *   *Reviewers:* Platform Owner AND Security Officer (both required).
+    *   *Focus:* Rate limiting efficacy, surface area exposure, and rollback mechanics.
+
+#### 4. Landing and Rollback
+The merge strategy prioritizes safety given the high cost of CI ($12/run) and long duration (45 mins).
+
+*   **Phased Merge:**
+    1.  Merge Lane A (Internal Migration) to `main`. Deploy to production immediately to zero out internal v1 usage.
+    2.  Merge Lane B + C (Shim + Config) to `main` behind a feature flag disabled by default.
+*   **Activation:**
+    *   Enable the feature flag for the three specific retail partners only.
+    *   Monitor error rates and latency for 48 hours.
+*   **Human Decision Point:**
+    *   Final removal of the v1 endpoint code is deferred until January (after partner migration). This requires a explicit Go/No-Go meeting with the Platform Owner once partner confirmation is received.
+*   **Rollback Plan:**
+    *   *Scenario:* Shim causes latency spikes or incorrect JSON.
+    *   *Action:* Instant feature flag toggle to disable the shim. Since the old v1 infrastructure remains untouched until January, traffic will fail over to the existing legacy path (if still active) or return a controlled 503 while the flag is off.
+    *   *Scenario:* Internal migration breaks billing.
+    *   *Action:* Revert Lane A commit immediately. The shim deployment is independent and unaffected.
+
+This plan isolates risk, respects the immutable billing constraints, and manages the expensive CI cycle by batching validation runs outside the Thursday window.

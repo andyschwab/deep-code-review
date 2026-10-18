@@ -1,0 +1,37 @@
+### Delivery Plan: Latency Compensation Refactor
+
+**Objective:** Implement new latency logic for pending transactions while guaranteeing bit-for-bit identity for historical logs.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Isolation):** Define the exact interface boundary between "pending" and "resolved" states. Identify the specific commit SHA where the archival serialization module was last touched to establish a "do not touch" baseline. *Serialized:* Must complete before Lane B starts.
+*   **Lane B (Implementation):** Develop the new calculation path in a dedicated worktree. Logic must explicitly branch on transaction status: `if resolved: use_legacy_path(); else: use_new_path()`. No changes to `state-schema` or archival modules.
+*   **Lane C (Test Data Prep):** Extract a representative subset of the last three months of combat logs. Sanitize any PII if required by policy. Prepare the replay harness to run locally or on a cheap dev cluster before full CI.
+
+*Parallel Execution:* Lanes B and C can run simultaneously once Lane A defines the boundary.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Review):** Verify the branching logic design ensures zero code path intersection for resolved transactions.
+*   **G4 (Local Verification):** Run the replay suite from Lane C against Lane B's build on the developer's machine. **Constraint:** Zero diffs allowed in resolved state files. If any diff occurs, fail immediately.
+*   **G5 (CI Verification):** Trigger the full regression suite on the exact commit SHA from Lane B.
+    *   *Flake Mitigation:* Monitor system load. If load >80% during the `historical-hash-validator` check, abort and manually re-trigger immediately. Do not accept a "pass" if load spikes were detected during the hash check.
+    *   *Cost Control:* Ensure the replay suite runs only once per valid push to avoid burning credits on failed iterations.
+*   **G6 (Independent Review):**
+    *   *Code Review:* A senior engineer (not the implementer) reviews the branching logic and confirms no imports/changes to the archival module.
+    *   *Audit Review:* A compliance representative verifies the replay logs showing 0% deviation in historical hashes.
+
+#### 3. Landing Strategy
+*   **Integration:** Merge Lane B into the integration branch only after G5 passes green on the exact SHA and G6 approvals are recorded.
+*   **Human Decisions (G8):**
+    *   Dual approval required from Lead Architect and Compliance Officer via the secure gateway before production deployment.
+    *   Explicit confirmation that the `state-schema` file remains untouched in the final diff.
+*   **Rollback Plan:**
+    *   Since the change is conditional (pending vs. resolved), a rollback involves reverting the commit.
+    *   *Pre-condition:* Verify that reverting does not invalidate pending transactions currently in-flight. If in-flight transactions exist, the rollback must be coordinated with a maintenance window or feature flag toggle (if available).
+    *   *Failure Mode:* If historical hashes diverge in production (detected by monitoring), immediately revert and halt all pending transaction processing until the discrepancy is resolved.
+
+#### 4. Risk Mitigation
+*   **Flaky Check:** The `historical-hash-validator` is the single point of failure. The QA lane must capture system load metrics during the run. A "pass" without load metrics is invalid.
+*   **Schema Lock:** Automated pre-commit hooks must be verified to block any accidental modification to `state-schema`.
+*   **Hardware Discrepancy:** Acknowledge that staging lacks hardware acceleration. The replay suite must include a specific assertion that the logic is deterministic regardless of underlying hardware timing, relying solely on input data and algorithmic state.
+
+**Final Output Contract:** A merge request containing the new logic, a signed receipt from the replay suite showing 0 diffs on historical data, and explicit approval records from both required approvers.

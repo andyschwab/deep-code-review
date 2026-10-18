@@ -1,0 +1,35 @@
+### Delivery Plan: Rural Zoning Map Optimization
+
+**Lanes & Parallelism**
+*   **Lane A (Data Strategy):** Define the tiling grid and payload schema for "viewport-only" vs. "detail-on-demand." This must happen first to unblocked Lane B.
+*   **Lane B (Frontend Logic):** Refactor the map initialization hook to accept the new schema. Implement the progressive loader and viewport observer.
+*   **Lane C (Infrastructure):** Audit current static asset usage to calculate the remaining headroom before the strict size limit.
+*   **Parallel Execution:** Lanes B and C run simultaneously once Lane A defines the schema. Lane A is serialized; B and C cannot start without its output.
+
+**Gates & Checks**
+*   **Gate 1 (Schema Freeze):** Before coding begins, the Tech Lead must sign off on the payload schema to ensure it supports both urban and rural use cases without breaking existing urban features.
+*   **Gate 2 (Size Check):** Before any commit targeting the main branch, Lane C must verify the new asset bundle size against the remaining bucket headroom. If the bundle exceeds the limit, the build fails locally before pushing.
+*   **Gate 3 (Flaky Test Isolation):** The geographic data validation suite (45 mins) runs only on the final Release Candidate revision. To avoid false negatives from the legacy coordinate library, parallel test execution is disabled for this specific suite; it must run in single-threaded mode on the CI agent.
+*   **Revision Control:** All checks run on the specific commit hash of the Release Candidate. No checks run on feature branches to save cloud credits, except for local unit tests.
+
+**Review Process**
+*   **Code Review:** A Senior Engineer from the *Urban Planning* team (independent of the Rural outreach implementers) reviews the logic changes. They verify that the progressive loading does not degrade performance for urban users with high-bandwidth connections.
+*   **Logic Audit:** The Tech Lead reviews the tiling strategy (Lane A output) to ensure data integrity.
+*   **Independence:** The reviewer must not be the author of the loading logic. The infrastructure audit (Lane C) is self-verifying via automated size scripts but requires a sign-off from the DevOps lead if headroom is below 10%.
+
+**Landing Strategy**
+*   **Merge Window:** Merges to production are permitted Monday through Thursday only, due to the Senior Logistics Lead's unavailability on Fridays.
+*   **Deployment Approval:** The Senior Logistics Lead must manually approve the deployment ticket. This step requires a scheduled sync during their available hours.
+*   **Rollback Plan:** If the map fails to load within 2 seconds on 3G simulations post-deploy:
+    1.  Immediately revert the production branch to the previous stable tag.
+    2.  Disable the new loading module via feature flag (if available) or revert the config map.
+    3.  Do not attempt hotfixes on Friday; wait for Monday unless the Infrastructure team can manually unlock the asset bucket.
+*   **Human Decision Points:**
+    *   Approval of the final payload schema (Lane A).
+    *   Final deployment authorization (Senior Logistics Lead).
+    *   Manual intervention if the asset bucket lockout is triggered.
+
+**Critical Constraints**
+*   Do not run the full 45-minute validation suite until the final Release Candidate is ready.
+*   Do not exceed the static asset bucket size; monitor this locally before every push.
+*   Ensure the legacy coordinate library tests run sequentially to prevent false build failures.

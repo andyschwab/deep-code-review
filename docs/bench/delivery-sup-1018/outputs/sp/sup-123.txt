@@ -1,0 +1,36 @@
+### Delivery Plan: Global Cache Migration with Emergency Override
+
+#### 1. Work Lanes & Parallelization
+*   **Lane A (Infrastructure & Config):** Modify the shared production/staging configuration to introduce the new edge cache rules. This lane is **serialized** before any code deployment to ensure syntax validity across both environments.
+*   **Lane B (Frontend Logic):** Implement the "Emergency Flag" logic in the admin panel and the frontend fetch layer. This allows the fundraising team to tag content. This runs **in parallel** with Lane A once the config schema is defined.
+*   **Lane C (Cache Purge Script):** Rewrite the purge script to target global nodes instead of just North America. This runs **in parallel** with Lane B but must wait for Lane A's config definition to know which API endpoints to hit.
+*   **Lane D (Offline Fallback):** Audit and lock down existing offline fallback logic. This runs **in parallel** with all lanes but must be verified before final merge.
+
+#### 2. Gates & Checks
+*   **Gate 1 (Config Syntax Check):** Runs on the exact revision of the shared config file *before* any deployment. Must pass a dry-run validation against both staging and production schemas. Failure here blocks all lanes.
+*   **Gate 2 (CI Cost/Time Limit):** All builds must complete under 12 minutes. If the build approaches the 10-minute mark, non-critical tests are skipped automatically to prevent termination.
+*   **Gate 3 (Geo-Routing Stability):** Automated geo-routing tests are **disabled** if executed on a Tuesday night. If a build occurs during this window, a manual verification gate is triggered for the next available window.
+*   **Gate 4 (Propagation Test):** A specific integration test verifying that "Emergency Flagged" content updates globally in under 10 seconds. Standard assets are tested for aggressive caching headers.
+
+#### 3. Review Process
+*   **Independent Reviewer 1 (Lead Architect):** Reviews Lane A (Config) and Lane C (Purge Script). Must verify no irreversible database writes are introduced and that the purge script covers all global regions.
+*   **Independent Reviewer 2 (Compliance Officer):** Reviews Lane B (Admin Panel) and the overall data flow. Must confirm that the "Emergency Override" does not bypass necessary compliance logging, even if it bypasses the cache.
+*   **Cross-Check:** Both reviewers must sign off on the "Offline Fallback" audit (Lane D) to ensure no regression for offline users.
+
+#### 4. Landing Strategy
+*   **Merge Window:** Deployment occurs only outside of Tuesday night maintenance windows to avoid geo-routing flakiness.
+*   **Phased Rollout:**
+    1.  Deploy config changes (Lane A) to Staging only. Verify syntax and cache behavior.
+    2.  Deploy application code (Lanes B, C, D) to Staging. Run the 10-second propagation test.
+    3.  Once Staging is green, deploy to Production with the "Emergency Override" feature flag **disabled** by default.
+    4.  Enable the feature flag for 5% of traffic. Monitor latency and cache hit rates.
+    5.  Full rollout to 100% traffic.
+*   **Human Decision Points:**
+    *   Final approval to enable the feature flag in Production requires explicit sign-off from both the Lead Architect and Compliance Officer.
+    *   Any direct database write attempt triggers a hard stop and requires a separate audit ticket.
+*   **Rollback Plan:**
+    *   **Config Rollback:** Revert the shared config file to the previous known good revision. This immediately restores standard caching behavior for both staging and production.
+    *   **Code Rollback:** If the emergency override causes issues, disable the feature flag instantly. If the code itself breaks the build, revert the commit and redeploy the previous stable artifact.
+    *   **Cache Flush:** If stale emergency content persists, execute the new global purge script (Lane C) manually as an emergency measure.
+
+This plan ensures urgent delivery while respecting cost constraints, irreversible operation risks, and the critical need for sub-10-second emergency updates.

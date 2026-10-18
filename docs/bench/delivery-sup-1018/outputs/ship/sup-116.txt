@@ -1,0 +1,58 @@
+**Delivery Plan: Apex Cluster Blue-Green Swap**
+
+**Strategy**
+Execute a zero-downtime blue-green deployment with automated rollback triggers. Due to the 45-minute CI constraint and irreversible hardware decommissioning, verification is shifted left to staging, with production changes limited to configuration switches and traffic routing.
+
+**Lanes & Parallelism**
+
+*   **Lane A: Staging Validation (Builder)**
+    *   **Work:** Deploy Apex to staging; simulate peak load using synthetic video generation. Validate ingest stream handover and latency metrics.
+    *   **Constraint:** Must run first. Only one full build permitted per day; this lane consumes the daily slot.
+    *   **Output:** Verified staging SHA, performance baseline, and confirmed rollback timing (<30s).
+*   **Lane B: Configuration & Compatibility (Builder)**
+    *   **Work:** Update `cluster_weights.json` ensuring backward compatibility for all three dependent services. Draft the production rollback script (automated reversion logic).
+    *   **Parallelism:** Can run parallel to Lane A's setup, but must complete before Lane A's final integration test.
+*   **Lane C: Independent QA (QA Engineer)**
+    *   **Work:** Execute functional tests on the staging deployment from Lane A. Specifically target the audio sync module.
+    *   **Trigger:** Blocks on Lane A's staging readiness.
+    *   **Special Handling:** If the known flaky audio sync check fails, halt and request manual re-run approval from Jane Smith immediately. Do not proceed to production without her sign-off.
+*   **Lane D: Security & Architecture Review (Security/Architect)**
+    *   **Work:** Review the rollback mechanism, health probe definitions, and the irreversibility risk of hardware repurposing.
+    *   **Parallelism:** Can review code/config while Lane A runs, but final approval blocks on Lane C's green status.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Define exact health probe thresholds for "stability." Confirm the 30-second rollback window is technically feasible in the draft script.
+*   **G3 (Design):** Architectural review of the traffic shift logic. Ensure `cluster_weights.json` changes do not break legacy consumers during the transition.
+*   **G5 (Verify - Staging):**
+    *   **Revision:** Exact SHA from Lane A (Staging).
+    *   **Check:** Full integration suite (synthetic video).
+    *   **Condition:** Zero frame drops, seamless ingest handover. Audio sync must pass (or have Jane Smith's manual override).
+*   **G6 (Review):** Independent review by Security and Architecture Board. Builder cannot self-approve.
+*   **G8 (Release - Production):**
+    *   **Revision:** Exact SHA verified in G5.
+    *   **Human Gate:** Dual sign-off required from Shift Lead and Architecture Board.
+    *   **Pre-condition:** Confirmation that the legacy hardware has *not* yet been repurposed.
+
+**Landing & Rollback**
+
+*   **Merge Strategy:**
+    1.  Merge approved lanes to the integration branch only after G6 passes.
+    2.  Trigger the single daily production build.
+    3.  **Human Decision:** Shift Lead and Architecture Board authorize the traffic shift command.
+*   **Execution:**
+    1.  Deploy new config to production (blue-green idle).
+    2.  Enable health probes.
+    3.  Shift traffic incrementally (canary) then fully once probes confirm stability.
+*   **Rollback:**
+    *   **Trigger:** Any anomaly in monitoring dashboard or health probe failure.
+    *   **Action:** Automated script reverts traffic to Legacy Cluster within 30 seconds.
+    *   **Constraint:** If rollback occurs, **stop**. Do not retry until the root cause is identified. The legacy hardware is being repurposed immediately after successful cutover; a failed cutover after decommissioning starts is catastrophic.
+*   **Post-Event:**
+    *   Once stable for a defined window (e.g., 24 hours covering a minor event), decommission legacy nodes.
+    *   Retrospective (G10) to capture lessons on the audio sync flake and CI duration.
+
+**Risks & Mitigations**
+*   **CI Bottleneck:** If Lane A fails, the entire timeline slips by 24 hours. Mitigation: Rigorous local/pre-commit checks before triggering the full suite.
+*   **Irreversibility:** Hardware repurposing creates a hard deadline. Mitigation: Verify rollback success in staging under load before touching production.
+*   **Flaky Test:** Audio sync failure could block launch. Mitigation: Engage Jane Smith early during the staging phase, not at the final gate.

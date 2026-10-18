@@ -1,0 +1,43 @@
+### Delivery Plan: Scale Guild Invite Capacity
+
+**Objective:** Increase pending invite cap from 50 to 200 with zero downtime and session continuity.
+**Constraint:** Irreversible DB migration; 45-min flaky CI; Deploy gate: Jane Smith.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data & Config - Serialized First):**
+    *   **Work:** Draft irreversible DB migration script; update `InviteManager` config schema.
+    *   **Constraint:** Must run alone. Shares cached config with friend-request processor; risk of collision.
+    *   **Logic:** Implement "session pinning." Existing sessions read the cap from their start-context; new sessions read the new global cap (200).
+*   **Lane B (Logic Implementation - Parallel to A after schema draft):**
+    *   **Work:** Modify `InviteManager` to enforce the dynamic cap logic. Add unit tests specifically for the "mid-flow" edge case.
+    *   **Isolation:** Dedicated worktree. No shared state writes until integration.
+*   **Lane C (CI Stabilization - Parallel):**
+    *   **Work:** Create a targeted test suite skipping heavy DB seeding where safe, or mocking the seed state. Address `concurrent-invite-check` flakiness by adding a retry mechanism or stabilizing the test harness (not just ignoring failures).
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Define "session continuity" explicitly. Acceptance: A user starting at limit 50 can finish at 50; a user starting post-deploy sees 200.
+*   **G3 Design Review (Independent):** Senior Architect (not Lane A/B writer) reviews the irreversible migration path and the "session pinning" logic. **Hard Gate:** Must prove rollback plan involves *data restoration only*, not code revert, since schema is irreversible.
+*   **G4 Implementation:** Code complete in isolated worktrees.
+*   **G5 Verification (Exact Revision):**
+    *   Run Lane C's stabilized test suite.
+    *   **Manual SRE Gate:** Due to known flakiness, SRE must manually verify `concurrent-invite-check` on a staging environment mirroring production load. Automated green is insufficient.
+    *   **Zero-Downtime Proof:** Dry-run migration on a read-replica to confirm no lock contention on active tables.
+*   **G6 Security/Privacy:** Verify increased cap doesn't enable spam vectors (e.g., rate limiting per second remains strict even if total pending increases).
+
+#### 3. Review Strategy
+*   **Code Review:** `deep-code-review` FULL scan on the exact merge SHA.
+*   **Independent QA:** QA Engineer (not Builder) verifies the "mid-flow" scenario using headed-browser evidence or API simulation of a long-lived session overlapping the deploy time.
+*   **Security:** AppSec reviews the spam potential of 4x invite volume.
+
+#### 4. Landing & Human Gates
+*   **Integration:** Merge Lane A, B, and C into a temporary integration branch. Run full 45-min CI once. If `concurrent-invite-check` flakes, SRE retries manually (max 2 attempts); if it fails twice, halt and refactor test.
+*   **Human Approval (G8):**
+    *   **Approver:** Lead Engineer Jane Smith.
+    *   **Package:** Present the migration script, the "session pinning" logic proof, and the SRE sign-off on the flaky test.
+    *   **Timing:** Must be approved before Tuesday 08:00 UTC to allow buffer before 09:00 UTC marketing launch.
+*   **Deployment:**
+    *   Deploy during a low-traffic window prior to Tuesday if possible, or exactly at 08:30 UTC.
+    *   **Rollback Plan:** Since migration is irreversible, "rollback" means reverting code to hide the new cap (reverting to logic that enforces 50) while leaving the schema wide. Full data restore is the only true revert, reserved for catastrophic data corruption.
+*   **Post-Deploy (G9):** Monitor invite acceptance rates and error logs for `InviteManager` immediately upon 09:00 UTC traffic spike.
+
+**Risk Note:** The irreversible migration is the single point of no return. The "session pinning" logic is the only safeguard for user experience during the transition.

@@ -1,0 +1,71 @@
+### Delivery Plan: Zero-Downtime Hardening
+
+**Objective:** Implement seamless session state handover for active emergency calls during infrastructure failure, ensuring zero dropped seconds.
+
+#### 1. Work Lanes & Parallelism
+
+*   **Lane A: State Replication Logic (VoiceOps Team)**
+    *   **Task:** Develop a read-only listener for the locked 'call-state' ledger that mirrors active session data to a local, in-memory high-availability cache on edge nodes.
+    *   **Constraint:** No modifications to the 'call-state' ledger schema or write paths.
+    *   **Parallelism:** Can run immediately alongside Lane B.
+
+*   **Lane B: Failover Orchestrator (Infrastructure Team)**
+    *   **Task:** Build the heartbeat monitor and switchover trigger. It must detect primary failure and redirect traffic to the local cache (from Lane A) without restarting the routing engine.
+    *   **Constraint:** Must bypass the flaky nightly data sync job for health checks; use direct TCP handshakes instead.
+    *   **Parallelism:** Starts after Lane A defines the cache interface signature.
+
+*   **Lane C: Simulation Environment (QA Team)**
+    *   **Task:** Construct a scaled-down emulation of the three geographic zones capable of injecting primary node crashes.
+    *   **Parallelism:** Runs concurrently with A and B. Must be ready before integration.
+
+*   **Serialization Point:** Integration of Lane A and Lane B code into Lane C's environment. No code touches production until Simulation passes.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Design Sign-off (Pre-Code)**
+    *   **Check:** Architectural review confirming no write-access to the 'call-state' ledger and no reliance on the nightly sync job.
+    *   **Revision:** `main` branch design document commit.
+    *   **Approver:** Director of Safety (waiver not needed if read-only).
+
+*   **Gate 2: Static Analysis & Unit Test (Pre-Integration)**
+    *   **Check:** Automated linting and unit tests for Lane A and B.
+    *   **Revision:** Feature branch head.
+    *   **Runner:** Local CI (fast feedback), skipping physical hardware emulation.
+
+*   **Gate 3: The "Zero-Drop" Simulation (Hard Gate)**
+    *   **Check:** Simulated heavy load (40k events/day scaled) with forced primary crash. Metric: 0 dropped seconds for active calls.
+    *   **Revision:** Release candidate tag `rc-1`.
+    *   **Runner:** Physical hardware emulation pipeline (55 mins, $200 cost). **Only one attempt allowed.** If failed, return to Lane A/B.
+
+#### 3. Review Process
+
+*   **Code Review:**
+    *   **Who:** Senior Engineer from a non-VoiceOps team (e.g., Billing or Analytics) to ensure fresh eyes.
+    *   **Independence:** Reviewer must have no commit access to the feature branch.
+    *   **Focus:** Verify read-only adherence to the ledger and correctness of the local cache invalidation logic.
+
+*   **Safety Audit:**
+    *   **Who:** External Auditor (mandatory).
+    *   **Timing:** After Simulation Gate passes, before production deployment.
+    *   **Deliverable:** Signed attestation that the failover mechanism preserves session state under load.
+
+#### 4. Landing Strategy
+
+*   **Deployment Method:** Canary Release to one geographic zone (lowest volume) during non-peak hours.
+*   **Human Decision Points:**
+    1.  **Shift Lead Approval:** Required to initiate the canary deployment.
+    2.  **External Auditor Sign-off:** Required before expanding beyond the canary zone.
+    3.  **Director of Safety:** Must be on standby during the initial canary rollout to authorize an emergency abort.
+
+*   **Merge Criteria:**
+    *   Simulation shows 100% session retention.
+    *   Code review approved.
+    *   Auditor sign-off received.
+
+*   **Rollback Protocol:**
+    *   **Trigger:** Any single dropped second detected in the canary zone or Shift Lead discretion.
+    *   **Action:** Immediate traffic reversion to the primary routing table.
+    *   **Constraint:** Since pushing routing tables is irreversible without a reboot (which drops non-emergency lines), the rollback relies on DNS/Traffic Manager redirection, not pushing a new routing table. The system must support instant traffic weight adjustment without rebooting edge nodes.
+    *   **Post-Mortem:** If rollback occurs, the feature branch is frozen. A full root-cause analysis is required before any retry.
+
+**Success Metric:** The system is considered hardened only when the canary runs for 48 hours under normal load and one scheduled maintenance window with zero active call drops.

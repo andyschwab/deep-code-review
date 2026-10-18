@@ -1,0 +1,48 @@
+### Delivery Plan: Archived Bills Storage Migration
+
+**Strategy:** Zero-data-loss migration with legal hold integrity as the primary constraint. Due to the 45-minute CI penalty and non-pausable script, we will execute a "Shadow Verify" lane before any data movement.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Legal & Scope Definition) – [Serialized, First]**
+    *   **Actor:** Product Analyst + Human Legal Liaison.
+    *   **Work:** Coordinate with Legal to extract the definitive list of active litigation cases. Map these cases to specific file IDs/ranges. Define the exact "legal hold" flagging mechanism in the new provider that satisfies compliance without altering the shared config schema.
+    *   **Output:** `legal_hold_manifest.json` (signed off by Legal).
+*   **Lane B (Migration Engine & Dry-Run) – [Parallel to A after initial scope]**
+    *   **Actor:** Builder.
+    *   **Work:** Develop the migration script with built-in checksum verification (SHA-256) per file. Implement a "Dry-Run Mode" that simulates the transfer logic against a 1GB sample subset within the 'Vault' environment, verifying egress rules to the new vendor IP. **Crucial:** Ensure the script reads the shared config read-only; it must never write to the `legal_hold_flag` schema directly but instead apply flags via the new provider's API based on the manifest.
+    *   **Output:** Migration binary + Dry-Run Receipt.
+*   **Lane C (Independent Verification Harness) – [Parallel to B]**
+    *   **Actor:** QA (Independent).
+    *   **Work:** Build a standalone validation tool that compares source checksums against destination checksums post-migration. Create a specific test case verifying that files marked in `legal_hold_manifest.json` are immutable in the new system and correctly flagged.
+    *   **Output:** Validation tool + Test cases.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Requires signed `legal_hold_manifest.json`. No code merges without this.
+*   **G3 (Design Review):** Security must verify the 'Vault' egress rules allow only the new vendor IP. Architect must confirm the shared config file remains untouched.
+*   **G4 (Implementation):** Code freeze on migration script. Must include "abort on first checksum mismatch" logic.
+*   **G5 (Shadow Verify):** Run Dry-Run Mode on the 1GB sample inside 'Vault'.
+    *   **Check:** CI pipeline runs on this exact sample commit. Success = 100% checksum match + Legal flags preserved in sandbox.
+    *   **Revision:** Exact SHA of the dry-run success.
+*   **G6 (Independent Audit):** QA runs the Validation Harness against the Dry-Run results. Security performs a tabletop review of the rollback procedure (manual DB intervention steps).
+
+#### 3. Review
+*   **Code Review:** Senior Backend Engineer (independent of Builder) reviews the migration logic.
+*   **Security Review:** AppSec verifies the egress configuration and the immutability of the legal hold flags.
+*   **Compliance Review:** Legal Officer reviews the mapping logic between the manifest and the new provider's flags.
+*   **Constraint:** The Builder cannot approve their own code. The QA validator must be written by someone other than the Migration Engine author.
+
+#### 4. Landing & Human Decisions
+*   **Pre-Landing:** The final migration commit must pass the full 45-minute CI pipeline on the exact production SHA.
+*   **Human Gate (G8 Release):**
+    *   **Approvers:** Head of Engineering AND Chief Legal Officer (Dual Approval required).
+    *   **Decision Point:** Review the Dry-Run Receipt and the Validation Report. Confirm the `legal_hold_manifest` is final.
+*   **Execution:**
+    1.  Deploy migration script to 'Vault'.
+    2.  Execute script (non-pausable).
+    3.  Run Validation Harness immediately post-execution.
+*   **Rollback:**
+    *   **Condition:** Any checksum mismatch or missing legal flag detected in G9.
+    *   **Action:** Manual database intervention to revert pointers to the old provider. The new provider data is quarantined but not deleted until G10 sign-off.
+*   **Post-Landing (G9):** Generate the full validation report showing checksum matches for 100% of files and confirmation of legal flags. Deliver to Legal and Engineering leadership.
+
+**Risk Mitigation:** The 40TB dataset size prohibits re-runs. The "Dry-Run" on a representative sample is the only safe proxy for success before the irreversible full execution.

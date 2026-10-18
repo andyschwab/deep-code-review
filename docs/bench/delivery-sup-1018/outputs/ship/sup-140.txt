@@ -1,0 +1,45 @@
+### Delivery Plan: Urgent Waitlist Slot Refill
+
+**Objective:** Automate slot refills prioritizing clinical urgency tiers over arrival time, with full audit logging and sub-second trigger latency.
+
+#### 1. Lanes & Parallelism
+*Work is isolated in separate Git worktrees to prevent collision on the shared schema.*
+
+*   **Lane A (Logic & Schema - Serial):** Implement the urgency-tiered selection algorithm. Modify the waitlist query to sort by `urgency_level` DESC, then `joined_at` ASC. Add audit log entries for every selection decision (selected ID, urgency, timestamp, reason).
+    *   *Constraint:* Must run alone against the database schema to avoid migration conflicts with billing.
+*   **Lane B (Trigger & Integration - Parallel):** Build the cancellation event listener. Ensure it fires within seconds of a status change. Integrate with the notification sender, applying a fix for the known bulk-update race condition (idempotency keys per slot).
+*   **Lane C (Verification & Dry-Run - Parallel):** Develop the specialized dry-run mode. Since staging lacks real urgency data, this mode must simulate high-urgency cancellations against a production snapshot (sanitized) or synthetic data that strictly mimics the tier distribution.
+
+#### 2. Gates & Checks
+*Every gate runs on an exact, immutable SHA. No gate passes on "local green" alone.*
+
+*   **G1 Spec (Now):** Define acceptance criteria: "Level 1 patient selected over Level 3 regardless of wait time." Define audit log schema.
+*   **G3 Design (Pre-Code):** Architect the dry-run verification strategy. Explicitly document how the race condition fix prevents duplicate alerts.
+*   **G4 Implement:**
+    *   Lane A: Unit tests for sorting logic + audit log assertions.
+    *   Lane B: Integration tests for the event trigger + race condition regression test.
+    *   Lane C: Script to generate synthetic urgency data for the dry-run.
+*   **G5 Verify (Exact Revision):**
+    *   Run CI pipeline (45m). If flaky, quarantine the specific test; do not merge until stable.
+    *   Execute **Dry-Run Mode** on the exact build artifact. Verify: Level 1 selected before Level 3; audit logs present; no duplicate alerts.
+    *   *Hard Condition:* If the stack does not start in dry-run mode, the gate is UNVERIFIED.
+*   **G6 Review (Independent):**
+    *   **Security/Compliance Review:** Independent audit of the sorting logic and log completeness. Must confirm no Level 1 skip is possible.
+    *   **Code Review:** Senior engineer (not Lane A/B/C authors) reviews the race condition fix and database locking strategy.
+
+#### 3. Landing & Human Decisions
+*   **Integration (G7):** Merge Lanes A, B, and C into a single integration branch. Re-run the full 45-minute CI pipeline and the dry-run verification on this final merged SHA.
+*   **Human Gate (G8 - Deploy):**
+    *   **Approver:** Senior Lead David Chen.
+    *   **Timing:** Must be scheduled Monday–Thursday. **No Friday deploys.**
+    *   **Decision Package:** Present the dry-run evidence (logs showing correct tier selection) and the race condition test results.
+*   **Rollback Plan:**
+    *   Since reverting requires a 2-hour manual DB script, the deploy includes a "Kill Switch" feature flag.
+    *   If anomalies occur post-deploy, immediately disable the automation via the flag (instant rollback of behavior) while the manual DB script is prepared if data corruption is detected.
+
+#### 4. Risk Mitigation
+*   **CI Cost/Flakiness:** Run the full pipeline only on the final integration SHA and the release candidate. Use targeted test suites for intermediate lane checks to save credits, but never skip the full run before G8.
+*   **Data Integrity:** The audit log is the source of truth for compliance. Every automated decision must be traceable to a specific code version and input state.
+*   **Race Condition:** The fix in Lane B is critical; duplicate alerts constitute a failure. Verification must explicitly assert "zero duplicates" under load.
+
+**Next Step:** Draft the G1 Spec with the exact audit log fields and dry-run data requirements for owner sign-off.

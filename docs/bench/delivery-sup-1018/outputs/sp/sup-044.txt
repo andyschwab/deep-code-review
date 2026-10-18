@@ -1,0 +1,33 @@
+### Delivery Plan: Federal Audit Alignment
+
+**1. Lanes & Serialization**
+*   **Lane A (Governance - Serial Blocker):** Immediate request for written approval from the Lead Architect and Legal Director. No code changes occur until this artifact exists. This runs parallel to plan refinement but blocks the merge gate.
+*   **Lane B (Implementation):** One senior engineer updates `compliance-utils`.
+    *   *Task 1:* Replace hardcoded deprecated conversion factors with the new federal standards values.
+    *   *Task 2:* Refactor Scope 3 output logic to eliminate the 15% variance.
+    *   *Task 3:* Enforce the exact regulator schema on the output format.
+*   **Lane C (Verification):** A separate senior engineer (not the implementer) prepares the validation suite. Due to the 45-minute CI cost and flaky network checks, this lane focuses on local deterministic unit tests first, reserving full pipeline runs for final gating only.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Commit):** Local unit tests must pass confirming the 15% variance is resolved and the schema matches the spec exactly. No commit occurs without the Architect/Legal approval reference in the commit message.
+*   **Gate 2 (CI Pipeline):** Triggered only once on the approved revision.
+    *   *Check:* Full dataset regression.
+    *   *Contingency:* If the run fails due to "flaky network checks," the Verification Lane analyzes logs. If logic-related, fix immediately. If network-only, manual retry is authorized once. A second failure halts the process for infrastructure review.
+*   **Gate 3 (Audit Environment Dry-Run):** Before the midnight batch window, the Senior Release Manager deploys the build to the secure audit environment. A manual verification of the generated filing against the regulator's automated intake simulator is required.
+
+**3. Review Strategy**
+*   **Code Review:** Conducted by a principal engineer independent of the `compliance-utils` domain to ensure no side effects impact the three other internal teams using this library.
+*   **Compliance Review:** The Legal Director reviews the final output schema and the calculated variance reduction evidence before giving final merge authorization.
+*   **Independence:** The implementer cannot approve their own merge; the Release Manager cannot deploy without the Compliance Review sign-off.
+
+**4. Landing & Rollback**
+*   **Merge Condition:** Merges to the release branch only after Gate 1 (Approvals), Gate 2 (Clean CI), and Gate 3 (Audit Dry-Run) are satisfied.
+*   **Timing:** The merge must occur at least 90 minutes before the midnight irreversible batch trigger to allow for emergency rollback.
+*   **Human Decision:** The Senior Release Manager holds the final "Go/No-Go" decision based on the Audit Dry-Run results.
+*   **Rollback Protocol:** Since production deployments are irreversible post-midnight, if the filing is rejected by the regulator's intake after submission, the rollback is procedural, not technical:
+    1.  Halt any subsequent automated re-submissions.
+    2.  Revert the code to the previous stable tag immediately to prevent the next day's batch from using the faulty logic.
+    3.  Manually generate a corrected filing using the reverted logic (if the old logic was compliant with the *previous* year's rules) or a hot-fixed version if the new standards are mandatory for acceptance.
+    4.  Engage Legal to communicate the correction to the federal body.
+
+**Risk Mitigation:** The primary risk is the flaky CI pipeline consuming the time buffer. To mitigate, the Verification Lane will mock network dependencies for local integration tests to ensure logic stability before the expensive full run. The "irreversible" nature of the deployment dictates that the Audit Environment Dry-Run is the absolute critical path; if this fails, the merge is aborted regardless of code correctness to prevent a bad filing.

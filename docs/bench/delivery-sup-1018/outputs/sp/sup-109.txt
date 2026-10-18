@@ -1,0 +1,72 @@
+### Delivery Plan: Corporate Sponsorship Tier with Real-Time Validation
+
+#### 1. Lanes (Workstreams & Parallelism)
+
+**Lane A: Core Logic Implementation (Payments Squad)**
+*   **Owner:** Senior Backend Engineer
+*   **Scope:** Implement local eligibility logic within the checkout service (bypassing the frozen shared library). Integrate the synchronous registry call with a strict timeout handling mechanism.
+*   **Dependency:** None. Starts immediately.
+
+**Lane B: UI/UX State Management (Frontend Team)**
+*   **Owner:** Frontend Engineer
+*   **Scope:** Implement "Verifying..." loading state on the checkout button. Handle error modal rendering for "Verification Failed" and "Service Unavailable" scenarios.
+*   **Dependency:** Requires API contract definition from Lane A (Task 1 only). Runs in parallel after contract agreement.
+
+**Lane C: Infrastructure & Configuration (DevOps/SecOps)**
+*   **Owner:** DevOps Engineer
+*   **Scope:** Adjust gateway timeout thresholds specifically for the Corporate Tier endpoint to accommodate the 4.2s p99 latency without triggering global failures. Configure feature flag for the new tier.
+*   **Dependency:** None. Runs in parallel.
+
+**Serialization Point:** Lanes A and B must converge for integration testing once the API contract is stable. Lane C changes must be deployed to Green before final validation.
+
+#### 2. Gates and Checks
+
+**Gate 1: Code Freeze & Static Analysis (Revision: `feat/corp-tier-branch`)**
+*   **Trigger:** Pull Request creation.
+*   **Check:** Static analysis must pass. No calls to the frozen shared validation library detected.
+*   **Cost Control:** CI run limited to one attempt per PR update to manage $45/run cost.
+
+**Gate 2: Logic Verification (Revision: `feat/corp-tier-branch` merged to `staging`)**
+*   **Constraint:** Staging uses a mocked registry (always success).
+*   **Action:** Automated tests verify the *happy path* and UI state transitions only.
+*   **Limitation:** Negative status and timeout scenarios **cannot** be validated here.
+
+**Gate 3: Mandatory Manual Validation (Revision: Candidate Build for Green)**
+*   **Environment:** Green (Production-like).
+*   **Testers:** QA Lead + Compliance Lead.
+*   **Scenarios:**
+    1.  Valid Corporate Entity -> Success.
+    2.  Invalid Entity -> Immediate Block + Specific Error.
+    3.  Simulated Registry Timeout (via network throttling) -> Immediate Block + Timeout Error.
+    4.  Verify no fallback caching occurs.
+*   **Pass Criteria:** 100% success on blocking invalid/timed-out requests.
+
+#### 3. Review Process
+
+**Independent Code Review**
+*   **Reviewer 1:** Jane Smith (Payments Squad Lead). Focus: Code quality, error handling, and adherence to the "no frozen library" constraint.
+*   **Reviewer 2:** Compliance Lead. Focus: Verification that *no* transaction proceeds without a positive registry response. Must explicitly sign off on the timeout blocking logic.
+*   **Constraint:** Reviewers must be distinct from the implementers in Lane A.
+
+**Security & Audit Review**
+*   **Reviewer:** Security Engineer.
+*   **Focus:** Ensure no PII is logged during the registry failure states and that the local implementation does not introduce injection vulnerabilities.
+
+#### 4. Landing Strategy
+
+**Merge Protocol**
+*   **Target Branch:** `main` (deploying to Green).
+*   **Condition:** All Gates passed + Manual Sign-off from Green environment.
+*   **Feature Flag:** The "Corporate Sponsorship" tier remains hidden behind a feature flag until the marketing launch time next Tuesday.
+
+**Human Decisions Required**
+1.  **Timeout Threshold Value:** DevOps and Backend must agree on the exact millisecond threshold (e.g., 5.0s vs 6.0s) to balance user experience vs. registry p99 latency.
+2.  **Error Copy:** Final wording of the error message displayed to the user during a block requires Marketing/Compliance approval.
+
+**Rollback Plan**
+*   **Trigger:** Any critical failure in Green post-launch (e.g., legitimate customers blocked erroneously, system instability).
+*   **Action:** Immediate toggle of the "Corporate Sponsorship" feature flag to `OFF`.
+*   **Fallback:** No code rollback required initially; disabling the tier stops the traffic flow to the new logic. If the logic affects core checkout stability, revert the merge to the previous stable commit.
+
+**Timeline Constraint**
+All work, including the mandatory Green environment manual testing, must conclude by Monday EOD to ensure stability before the Tuesday marketing campaign launch.

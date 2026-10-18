@@ -1,0 +1,61 @@
+# Delivery Plan: Legacy Binary Adapter Deprecation
+
+## Lanes & Parallelism
+
+**Lane A: Translation Layer Implementation (Automation Team)**
+*   **Work:** Develop the transparent translation module within the existing gateway codebase. This module must intercept legacy binary packets, translate status codes to the new format, and inject heartbeats if missing.
+*   **Constraint:** Must not modify the shared C library. The translation logic must sit *above* the parser layer to avoid breaking the three dependent services.
+*   **Parallelism:** Can run immediately alongside Lane B.
+
+**Lane B: Staging Environment Simulation (Data Team + Ops)**
+*   **Work:** Stand up a high-fidelity simulation of the twelve legacy robotic arms in the staging environment. This includes scripting the exact binary packet streams and heartbeat intervals observed in production.
+*   **Constraint:** Must mirror production network latency and packet loss characteristics to validate the "flawless fallback" requirement.
+*   **Parallelism:** Runs parallel to Lane A. Required before Integration Gate.
+
+**Lane C: Database Migration Prep (DBA)**
+*   **Work:** Prepare the irreversible schema migration scripts for the new status format.
+*   **Constraint:** Scripts must be idempotent up to the point of execution but cannot be rolled back once applied to live.
+*   **Serialization:** Must wait for Lane A's code review approval before final validation.
+
+## Gates & Checks
+
+**Gate 1: Code Review & Safety Audit (Pre-Staging)**
+*   **Reviewer:** Senior Engineer Jane Smith (Independent of implementers).
+*   **Check:** Verify the translation layer does not touch the shared C library. Confirm the fallback mechanism logic handles missing heartbeats without dropping packets.
+*   **Revision:** Latest commit on the `feature/legacy-translation` branch.
+*   **Outcome:** If passed, Lane A merges to `staging-candidate`. If failed, return to Lane A.
+
+**Gate 2: Emulated Cutover Test (Staging)**
+*   **Executor:** CI Pipeline (Triggered manually by Jane Smith).
+*   **Check:** Deploy `staging-candidate` to Staging. Run the Lane B simulation. Force-fail the translation layer to verify the fallback engages without stopping the "production line" (simulated). Monitor for zero dropped heartbeats over a 4-hour window.
+*   **Revision:** `staging-candidate` build artifact.
+*   **Cost Control:** Limit retries to two to save credits; if flaky network checks fail twice, manual inspection is required before third attempt.
+*   **Outcome:** Pass requires 100% heartbeat continuity.
+
+**Gate 3: Migration Dry-Run (Pre-Production)**
+*   **Executor:** DBA on a cloned production snapshot.
+*   **Check:** Apply Lane C scripts. Verify data integrity. Confirm rollback is impossible (document this risk explicitly).
+*   **Revision:** Matched to the `staging-candidate` version that passed Gate 2.
+
+## Review Strategy
+
+*   **Code Review:** Jane Smith performs a solitary, deep-dive review of the translation logic. No pair programming; independence is required to catch assumptions about the legacy protocol.
+*   **Operational Review:** John Doe (Ops Lead) reviews the fallback runbook and the simulation results from Gate 2. He must sign off on the "zero touch" claim based on simulation data, not code inspection.
+*   **Independence:** Jane approves the code; John approves the operational safety. Neither can approve both.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  **Tuesday 02:00 UTC:** Jane Smith merges `staging-candidate` to `main` and tags `v2.1-legacy-bridge`.
+2.  **Tuesday 02:30 UTC:** John Doe and Jane Smith provide dual sign-off in the deployment ticket.
+3.  **Tuesday 03:00 UTC:** Automated pipeline deploys to Production.
+4.  **Tuesday 03:15 UTC:** DBA applies the irreversible schema migration.
+
+**Human Decisions Required:**
+*   **Go/No-Go:** Jane and John must explicitly confirm Gate 2 success before the Tuesday window opens.
+*   **Abort Trigger:** If any of the twelve arms miss a heartbeat within 5 minutes of cutover, the deployment halts immediately.
+
+**Rollback Plan:**
+*   **Code:** Revert the gateway deployment to the previous tag (`v2.0`). This restores the old adapter but requires the database schema to remain compatible with the old format.
+*   **Data:** Since the schema change is irreversible, a rollback of the *code* must include a compatibility shim to read the new schema format using the old adapter logic, or the database must be restored from a pre-Tuesday backup (data loss risk: up to 24 hours).
+*   **Decision:** If rollback is triggered, John Doe decides whether to restore the DB backup (losing recent data) or patch the old adapter to read the new schema (higher risk, preserves data).

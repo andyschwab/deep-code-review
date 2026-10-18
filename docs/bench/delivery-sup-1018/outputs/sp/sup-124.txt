@@ -1,0 +1,34 @@
+### Delivery Plan: Internal DNS HA Migration
+
+**1. Lanes & Parallelism**
+*   **Lane A (Configuration - Serialized):** Platform Reliability engineers modify `global-resolver.conf` in the staging branch. This lane is strictly serialized due to the 30-minute irreversible lock on the staging environment. No other changes to this file can occur simultaneously.
+*   **Lane B (Validation - Parallelizable):** While Lane A is in the "locked/waiting" state, the CI pipeline executes topology validation. Due to the 45-minute runtime and $120 cost, this runs only on candidate commits.
+*   **Lane C (Observability - Parallel):** Monitoring dashboards for the payments service are prepared and baselined independently of code changes.
+
+**2. Gates & Checks**
+*   **Gate 1 (Pre-Commit):** Two senior network engineers must approve the `global-resolver.conf` diff. No CI runs without both signatures.
+*   **Gate 2 (CI Pipeline):** Runs on the exact revision approved in Gate 1.
+    *   *Check:* Topology validation (45 mins).
+    *   *Flake Handling:* If the `dns-propagation` stage fails, the system automatically re-runs it exactly twice. If it fails a third time, the build blocks for manual inspection.
+*   **Gate 3 (Staging Lock):** Confirmation that the staging environment lock has expired before attempting any production cutover steps.
+*   **Gate 4 (Pre-Cutover):** Verification that cached records have propagated in the staging cluster. This is a manual check against the staging logs; no automated test covers this specific propagation timing.
+
+**3. Review Strategy**
+*   **Code Review:** Conducted by the two senior network engineers (independent of the author). They focus on failover logic and region consistency.
+*   **Process Review:** The Change Board reviews the deployment ticket on Tuesday. They verify that Gate 1 and Gate 2 passed and that the Tuesday window is open.
+*   **Independence:** The engineers approving the code cannot be the same individuals triggering the production cutover. The Change Board acts as the final independent gate.
+
+**4. Landing & Cutover**
+*   **Timing:** Deployment occurs only on Tuesdays during the approved change window.
+*   **Method:**
+    1.  Apply configuration to the new HA cluster via the bastion host (no direct DB access).
+    2.  Shift traffic incrementally. The infrastructure must absorb instability; application retry policies remain untouched.
+    3.  **Automatic Failover Test:** Simulate node loss to verify <2 second failover time.
+*   **Human Decision Point:** If the error rate on the payments dashboard spikes above the baseline threshold within the first 15 minutes, a human must decide to roll back immediately.
+*   **Rollback:** Revert `global-resolver.conf` to the previous stable revision. This re-triggers the 30-minute staging lock but restores single-node behavior immediately upon propagation.
+*   **Success Criteria:** The deployment is declared successful only after the payments service error rate dashboard shows no degradation for one continuous hour post-deployment. If this hour is not clean, the rollout is considered incomplete, and mitigation steps resume.
+
+**Constraints Summary:**
+*   **Cost Control:** Minimize CI runs by ensuring local syntax checks pass before pushing.
+*   **Access:** All production actions originate strictly from the bastion host.
+*   **Data Integrity:** No direct database modifications are permitted at any stage.

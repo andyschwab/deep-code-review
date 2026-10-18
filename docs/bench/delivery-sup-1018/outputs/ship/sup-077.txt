@@ -1,0 +1,43 @@
+### Delivery Plan: Backfill Offline Meter Intervals
+
+**Objective:** Ingest recovered CSVs for North Region into `settlement-core` with zero duplicates, validated against existing time-series, before Friday's monthly close.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data Forensics & Spec):** Analyze recovered CSVs against the production snapshot (read-only) to define exact overlap rules and time-boundaries.
+    *   *Constraint:* Must complete before Lane B coding begins to prevent logic rework.
+    *   *Output:* Testable spec with explicit "halt conditions" for overlaps.
+*   **Lane B (Ingestion Logic):** Implement the ingestion script in a dedicated worktree.
+    *   *Logic:* Read CSV → Check Queue → Halt/Alert on overlap → Commit to Queue.
+    *   *Constraint:* No direct DB writes; uses validated ingestion queue only.
+*   **Lane C (Dry-Run Harness):** Build a localized replay tool using a subset of the 2TB snapshot to verify logic without triggering the full $450 CI cost initially.
+
+**Serialization:** Lane A → Lane B. Lane C runs parallel to A but merges only after B is ready.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Owner + Senior Accountant approve the "halt on overlap" logic and acceptance criteria.
+*   **G4 (Implementation):** Code committed to isolated worktree. Unit tests included for overlap detection.
+*   **G5 (Verification - Local):** Run Lane C harness. Verify zero duplicates in output and correct "halt" behavior on simulated overlaps.
+    *   *Revision:* Exact SHA of Lane B + Harness.
+*   **G6 (Independent Review):**
+    *   *Reviewer 1:* Senior Engineer (unconnected to `settlement-core` implementation) reviews code safety and queue integration.
+    *   *Reviewer 2:* Finance Representative (Jane Smith) validates the "halt" logic matches billing risk tolerance.
+*   **G7 (Costly Integration):** Trigger full CI replay (2TB snapshot).
+    *   *Mitigation:* If network timeout occurs (15% risk), manual retry authorized immediately; do not alter code unless error is logic-based.
+    *   *Success Criteria:* Ledger matches expected revenue; zero duplicates; zero overwrites.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lane B. Cannot approve their own merge.
+*   **QA:** Verifies G5 local results and monitors G7 CI logs for data integrity.
+*   **Security/Compliance:** Confirms no direct DB writes and that read-only config buckets are respected.
+*   **Final Sign-off:** Jane Smith + Senior Accountant must explicitly approve the G7 receipt before merging.
+
+#### 4. Landing & Rollback
+*   **Merge Window:** Must merge and pass G7 by Thursday 18:00 UTC to allow buffer before Friday close.
+*   **Human Gate:** Merge to `main` requires explicit approval from Jane Smith. No auto-merge.
+*   **Deployment:** Automated upon merge, but strictly monitored.
+*   **Rollback Plan:**
+    *   Since the final table is immutable after 02:00 UTC, if the job runs *after* this cutoff, it must be held in the queue.
+    *   If duplicates are detected post-merge (failure of G7), the pipeline must be paused immediately. The specific batch ID will be flagged for manual exclusion in the ledger; no automated "delete" exists for immutable rows.
+    *   **Contingency:** If the script fails to halt on overlap, the Finance team will manually reconcile the specific North Region lines before invoice generation.
+
+**Risk Note:** The 15% CI flake rate threatens the Friday deadline. If two consecutive CI runs fail due to network issues, the Conductor will escalate to request a dedicated runner or snapshot subset to bypass the timeout, rather than retrying blindly.

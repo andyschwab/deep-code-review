@@ -1,0 +1,47 @@
+### Delivery Plan: Urgent Waitlist Slot Refill Automation
+
+#### 1. Work Lanes & Parallelization
+*   **Lane A (Core Logic - Serialized):** Develop the urgency-tier sorting algorithm and slot-matching engine. This must be completed before Lane B can integrate.
+    *   *Constraint:* Must strictly enforce Level 1 > Level 2 > Level 3 logic, ignoring join-time for higher tiers.
+*   **Lane B (Audit & Logging - Parallel to A):** Implement the immutable audit log schema and write events for every decision (slot ID, candidate ID, urgency tier, timestamp, reason for selection/rejection).
+*   **Lane C (Trigger Mechanism - Parallel to A):** Build the cancellation event listener to trigger the refill process within seconds.
+*   **Lane D (Safety & Dry-Run - Serialized after A/B/C):** Implement the "dry-run" mode that simulates the logic against production data snapshots without sending notifications or booking slots. This is critical due to the lack of real urgency data in staging.
+
+#### 2. Gates & Checks
+*   **Gate 1: Unit Test Suite (Local/Pre-Commit):**
+    *   *Revision:* Feature branch head.
+    *   *Check:* Must cover all urgency tier permutations and the specific race condition scenario in the notification sender.
+    *   *Constraint:* Tests must be deterministic; flaky tests are forbidden due to the 45-minute CI cost.
+*   **Gate 2: Dry-Run Verification (Staging):**
+    *   *Revision:* Release candidate tagged `rc-1`.
+    *   *Check:* Execute against a production data snapshot in dry-run mode. Verify logs show correct tier prioritization over join-time.
+    *   *Owner:* QA Engineer + Product Owner (to validate clinical logic).
+*   **Gate 3: CI Pipeline (Automated):**
+    *   *Revision:* Same `rc-1`.
+    *   *Check:* Full suite pass. If failed, immediate halt; no partial merges allowed due to shared database schema with billing.
+*   **Gate 4: Senior Lead Approval (Manual):**
+    *   *Constraint:* Must occur Monday–Thursday. David Chen must personally approve the production deploy. No Friday deploys.
+
+#### 3. Review Strategy
+*   **Code Review:**
+    *   *Reviewer:* Senior Backend Engineer (not the author, not David Chen).
+    *   *Focus:* Concurrency handling in the notification sender (to prevent duplicate alerts), strictness of the urgency comparator, and audit log completeness.
+    *   *Independence:* Reviewer must not have contributed to Lane A or C.
+*   **Logic Audit:**
+    *   *Reviewer:* Compliance Officer or Clinical Lead.
+    *   *Focus:* Review the dry-run logs to certify that no Level 1 patient was bypassed for a Level 3. This is a non-code sign-off required before Gate 4.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    *   Merge to `main` only after Gates 1–3 pass and the Logic Audit is signed off.
+    *   Deploy to production immediately after merge *if* it is Monday–Thursday and David Chen is available. If Friday, hold the deployment until Monday.
+*   **Human Decision Points:**
+    *   David Chen's explicit approval for the production deploy command.
+    *   Compliance sign-off on the dry-run audit logs.
+*   **Rollback Plan:**
+    *   *Trigger:* Any report of incorrect tier prioritization or duplicate notifications post-deploy.
+    *   *Action:* Immediate feature flag toggle to disable automation (reverting to manual process).
+    *   *Data Remediation:* If incorrect bookings occurred, execute the manual database validation script (2-hour process) to undo changes. This script must be pre-tested in the dry-run environment before launch day.
+    *   *Communication:* Alert clinical staff immediately to resume manual calling until the fix is deployed.
+
+This plan prioritizes clinical safety and auditability over speed of delivery, acknowledging the high cost of errors and the constraints of the deployment window.

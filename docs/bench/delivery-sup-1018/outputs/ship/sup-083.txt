@@ -1,0 +1,49 @@
+**Delivery Plan: Identity Verification Sync (Tri-Council)**
+
+**Strategy:** Single-lane execution with serialized human gates. No parallel deployment lanes due to the strict "simultaneous sign-off" constraint and shared configuration risk.
+
+### 1. Lanes & Work Graph
+*   **Lane A (Implementation):** *Builder* updates validation logic and `council-thresholds.json` in an isolated worktree.
+    *   **Constraint:** Must include a dry-run script for the config file to prevent audit log mismatches.
+    *   **Parallelism:** None. This is the critical path.
+*   **Lane B (Security Pre-Flight):** *Security Lead* (Human) reviews biometric handler changes locally before CI to pre-empt false positives.
+    *   **Serialization:** Must complete before Lane A commits to avoid CI cost penalties (400 credits/run).
+*   **Lane C (Staging Verification):** *QA* deploys to staging using the exact revision from Lane A.
+    *   **Task:** Prepare the "Tri-Council Session" environment where Mayor, Clerk, and Chair can simultaneously access and verify.
+
+### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Define exact acceptance criteria for document validation. Pin base SHA.
+*   **G2 (Budget & Plan):** Explicitly cap CI runs. One retry allowed; second failure requires human triage to avoid credit burn.
+*   **G4 (Implement):** Builder commits code + config.
+    *   **Check:** Local dry-run of `council-thresholds.json` modification.
+*   **G5 (Verify - Staging):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Action:** Deploy to staging. Run compliance audit (55 mins).
+    *   **Critical Event:** **Simultaneous Tri-Council Walkthrough.** All three officials must verify the staging environment in a synchronized session. If any official is absent or delays, the gate remains red; no staggered approval.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Systems Administrator (independent of Builder).
+    *   **Input:** G5 receipts + Three distinct digital signatures on the change request form.
+    *   **Security Override:** Security Lead provides written override for biometric false positives if flagged.
+
+### 3. Review & Independence
+*   **Code Review:** Performed by a peer from the Digital Governance Team *not* involved in Lane A.
+*   **Security Review:** Independent validation by Security Lead (Blue team stance).
+*   **Compliance Review:** Automated audit log check (CI) + Manual sign-off by City Clerk during the G5 session.
+*   **Independence Rule:** The Builder cannot trigger the production deploy or collect the official signatures.
+
+### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Merge Lane A to `main` only after G6 is fully green (Signatures + Security Override).
+    2.  **Human Gate:** Senior Systems Administrator manually triggers production deploy upon receiving the merged commit SHA and the signed change request.
+*   **Rollback Plan (Tested in G5):**
+    *   **Trigger:** Any failure in production verification or mid-process lockout.
+    *   **Action:** Immediate revert to the previous stable SHA.
+    *   **Verification:** Confirm resident permit renewals are unblocked within 15 minutes of revert.
+    *   **Documentation:** Rollback procedure must be executed successfully in the staging environment during G5 to prove viability.
+
+**Risks & Mitigations:**
+*   **Config Corruption:** Mitigated by local dry-run before commit.
+*   **CI Cost:** Mitigated by pre-CI security review to prevent false positive loops.
+*   **Scheduling Blocker:** The "simultaneous" requirement is the primary bottleneck. The Conductor must schedule the G5 session before code freeze to ensure official availability.
+
+**Next Step:** Confirm availability windows for the Mayor, City Clerk, and Council Chair to lock the G5 verification slot.

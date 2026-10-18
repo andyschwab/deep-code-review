@@ -1,0 +1,62 @@
+# Delivery Plan: Passport Expiry Logic with Refugee Exceptions
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic & Validation (Backend Engineer)**
+*   **Work:** Implement the 6-month expiry check within `CheckinService`. Integrate the refugee exemption bypass logic. Ensure distinct error messages are generated for standard expiry vs. missing refugee certificates.
+*   **Parallel Constraint:** Can proceed immediately. Must serialize with Lane C only at the integration testing phase.
+
+**Lane B: Configuration & Compliance (Legal + Backend Lead)**
+*   **Work:** Update the shared configuration file to register the new "Refugee Special Travel Document" type.
+*   **Constraint:** Requires dual review (Legal + Backend) before merging. This is a hard gate; code relying on this config must not deploy until this lane clears.
+
+**Lane C: Resilience & Integration (SRE/Backend Engineer)**
+*   **Work:** Implement circuit-breaker logic for the external government webhook to handle transient timeouts and respect the 50 req/min rate limit. Ensure the legacy booking API handles the new exception objects without timing out.
+*   **Parallel Constraint:** Can proceed in parallel with Lane A. Must complete before the full integration suite runs.
+
+## Gates & Checks
+
+**Gate 1: Local Verification (Pre-Push)**
+*   **Trigger:** Before any push to the remote repository.
+*   **Action:** Developer must run the specific subset of integration tests related to document validation locally.
+*   **Criterion:** Zero flaky tests. Any test failure blocks the push to preserve CI credits.
+
+**Gate 2: Configuration Sign-off**
+*   **Trigger:** Merge request for the shared configuration file.
+*   **Action:** Explicit approval from both Legal and Backend teams.
+*   **Criterion:** No code depending on the new document type merges until this config is live in the staging environment.
+
+**Gate 3: Staging Validation**
+*   **Trigger:** Deployment to Staging environment.
+*   **Action:** Run the full 45-minute integration suite against the staging instance.
+*   **Criterion:** 100% pass rate. Specific verification that the legacy API does not timeout during refugee exception flows.
+
+## Review Process
+
+**Independent Code Review**
+*   **Reviewer:** Senior Backend Engineer (not the author of Lane A or C).
+*   **Scope:** Logic correctness, error message clarity, and circuit-breaker implementation.
+*   **Independence:** Reviewer must not be involved in the configuration change (Lane B) to ensure separation of duties.
+
+**Compliance Review**
+*   **Reviewer:** Compliance Lead.
+*   **Scope:** Verification that the logic strictly adheres to the "6-month" rule and that refugee exemptions are applied only with valid certificates.
+*   **Timing:** Post-code review, pre-merge.
+
+## Landing Strategy
+
+**Merge Window**
+*   **Target:** Tuesday deployment cycle.
+*   **Condition:** All gates passed, Compliance Lead sign-off received, and configuration changes propagated to Production.
+
+**Human Decision Points**
+*   **Go/No-Go:** The Compliance Lead holds the final manual sign-off key. If the staging integration suite shows *any* false positives grounding eligible travelers, the deployment is aborted.
+*   **Rollback Trigger:** If monitoring detects an increase in false positives or legacy API timeouts post-deployment.
+
+**Rollback Plan**
+*   **Mechanism:** Immediate reversion of the `CheckinService` to the previous Tuesday's build.
+*   **Config Reversion:** If the issue stems from the configuration file, Legal and Backend leads must authorize an emergency revert of the document type registry.
+*   **Communication:** Notify Operations and Customer Support immediately upon rollback initiation to manage passenger expectations.
+
+**Post-Landing**
+*   Monitor the government webhook dashboard specifically for rate-limit violations during the first peak travel period following deployment.

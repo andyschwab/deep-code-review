@@ -1,0 +1,56 @@
+### Delivery Plan: Q3 Motor Failure Validation
+
+**Objective:** Generate an offline comparison report validating the predictive failure model against Q3 (July–September) logs. The model must demonstrate a false positive rate <5% before any production configuration changes are considered. No production config modifications will occur in this work item.
+
+#### 1. Lanes & Serialization
+Work is split into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is strictly serialized after both complete.
+
+*   **Lane 1: Data Extraction & Sanitization (Builder)**
+    *   **Task:** Develop a read-only script to extract Q3 incident logs from the secure compliance bucket via the nightly batch job interface. Sanitize data for local analysis without modifying source logs.
+    *   **Constraint:** Read-only access; no writes to the compliance bucket.
+    *   **Output:** A localized, sanitized Q3 dataset and a data-access receipt.
+
+*   **Lane 2: Model Execution Harness (Builder)**
+    *   **Task:** Create a standalone harness to run the `motor-analytics` prediction logic against arbitrary datasets (bypassing the standard CI simulation). This harness must accept the sanitized Q3 data as input.
+    *   **Constraint:** Must not trigger the full 45-minute CI pipeline during development.
+    *   **Output:** Executable harness and raw prediction output for Q3 data.
+
+*   **Lane 3: Statistical Analysis & Reporting (QA Lead)**
+    *   **Task:** Ingest outputs from Lanes 1 and 2. Calculate false positive rates by comparing predictions against actual logged incidents. Generate the final comparison report highlighting discrepancies.
+    *   **Dependency:** Requires completed artifacts from Lanes 1 and 2.
+    *   **Output:** Final validation report (PDF/Markdown) with explicit pass/fail status against the <5% threshold.
+
+#### 2. Gates & Checks
+All checks run on the exact revision of the integration branch before merging.
+
+*   **G2 (Plan Approval):** Conductor validates that Lane 3 is independent of Lane 1/2 authors. Budget cap set for CI runs (max 2/day).
+*   **G4 (Implementation):**
+    *   Lane 1 & 2 code committed to isolated worktrees.
+    *   Static analysis passes on new scripts.
+*   **G5 (Verification):**
+    *   **Local Check:** Harness runs against a small synthetic subset to verify logic flow (acknowledged as unreliable for noise, valid for logic).
+    *   **Full Run:** One authorized nightly batch execution against full Q3 data.
+    *   **Metric Gate:** Automated check fails the lane if calculated false positive rate ≥5%.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer reviews Lane 1 & 2 logic for data handling safety.
+    *   **Result Audit:** An independent Data Scientist (not the Builder) verifies the statistical methodology in Lane 3.
+    *   **Artifact Check:** Confirmation that the final report is attached to the PR.
+
+#### 3. Review Strategy
+*   **Implementation Review:** Performed by a Senior Backend Engineer independent of the Builder. Focus: Data integrity and read-only enforcement.
+*   **Validation Review:** Performed by a Data Scientist independent of the QA Lead. Focus: Statistical correctness of the false positive calculation.
+*   **Security/Compliance:** Automated scan to ensure no PII or credentials are leaked in the generated report.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:** Squash merge to `main` upon G6 approval.
+*   **Human Gate (Marcus Thorne):**
+    *   **Trigger:** PR ready for merge.
+    *   **Requirement:** Marcus must verify the attached validation report shows <5% false positives.
+    *   **Decision:**
+        *   *Pass:* Merge allowed. Production activation remains a separate, future ticket.
+        *   *Fail:* Merge blocked. Ticket reopens for model tuning.
+*   **Rollback:** Not applicable for code changes as no production config is modified. If the batch job hangs or corrupts local scratch space, the job is killed and scratch data deleted.
+
+**Risk Mitigation:**
+*   **CI Cost:** The full data run is limited to one attempt per 24 hours. Development relies on the lightweight harness.
+*   **Data Safety:** Lane 1 operates in a strictly read-only context; any write attempt to the compliance bucket will cause an immediate hard failure.

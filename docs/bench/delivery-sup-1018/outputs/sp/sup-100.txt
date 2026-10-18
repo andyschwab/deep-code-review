@@ -1,0 +1,35 @@
+### Delivery Plan: Driver Certification Schema Migration
+
+**1. Lanes & Parallelism**
+*   **Lane A (Database Engineering):** Develops the dual-write migration script. This lane runs independently but must serialize before the cutover. The script must write to both Legacy and Atlas schemas simultaneously during the transition.
+*   **Lane B (Service Logic):** Updates the `fleet-core` certification service to read from Atlas with a fallback to Legacy. This work modifies application code only; it does not touch the `common-utils` library to avoid finance approval bottlenecks.
+*   **Lane C (Validation & Audit):** Prepares verification scripts for historical audit log linkage. This runs in parallel with Lane B but depends on Lane A's migration script being available in the `perf-cluster`.
+
+**Serialization Point:** Lane A and Lane B must converge for integration testing. Lane C cannot finalize until Lane A's script is executed against the `perf-cluster` data.
+
+**2. Gates & Checks**
+*   **Gate 1 (Code Freeze):** All code for Lanes A and B must be merged to a release candidate branch (`rc/migration-tue`) by Monday 18:00 UTC. No changes allowed after this point without Senior Lead Marcus Thorne's explicit written waiver.
+*   **Gate 2 (Performance Validation):** Between Tuesday 02:00 and 05:00 UTC, deploy `rc/migration-tue` to the `perf-cluster`. Execute load testing simulating peak route assignment.
+    *   *Pass Criteria:* Route assignment latency < 200ms at 99th percentile; 100% of historical audit logs resolve correctly against new schema IDs.
+    *   *Fail Criteria:* Any latency spike > 200ms or orphaned audit records triggers an immediate abort of the cutover.
+*   **Gate 3 (Pre-Cutover Snapshot):** At 06:00 UTC Tuesday (maintenance window start), take a full database snapshot. This is the hard rollback point.
+
+**3. Review Strategy**
+*   **Independent Code Review:** Lane A (DB Script) and Lane B (Service Logic) must be reviewed by engineers who did not write the code. Specifically, the DB script requires review by a DBA not involved in the migration logic design.
+*   **Audit Verification Review:** The audit linkage report generated in Lane C must be signed off by a Compliance Officer, independent of the engineering team, confirming data integrity before the final switch.
+*   **Final Go/No-Go:** Senior Lead Marcus Thorne reviews the Gate 2 performance report and Gate 3 snapshot confirmation. Only Marcus can authorize the production deploy.
+
+**4. Landing & Cutover**
+*   **Execution Window:** Tuesday 06:00 – 10:00 UTC.
+*   **Step 1:** Deploy Lane B service updates in "Legacy-Read-Only" mode to ensure stability.
+*   **Step 2:** Execute Lane A migration script to enable dual-writes. Monitor replication lag.
+*   **Step 3:** Switch service configuration to "Atlas-Read-Primary" with "Legacy-Read-Fallback."
+*   **Step 4:** Real-time monitoring of route assignment latency.
+    *   *Trigger:* If latency exceeds 200ms for more than 60 seconds, automatically revert configuration to "Legacy-Read-Only."
+*   **Rollback Protocol:** If the `legacy_flag` column has not yet been dropped, revert the service config. If the column is already dropped (post-cutover confirmation), restoration relies solely on the Gate 3 database snapshot. This is a high-risk state; the snapshot restore is the only recovery path.
+*   **Completion:** Once 24 hours pass with zero latency spikes and confirmed audit integrity, the `legacy_flag` column drop is scheduled for the next maintenance window. The ticket is marked complete only after the audit sign-off is filed.
+
+**Human Decision Points:**
+1.  Marcus Thorne's approval to deploy to production.
+2.  Compliance Officer's sign-off on audit log integrity.
+3.  Decision to proceed with the irreversible `legacy_flag` column drop after the 24-hour observation period.

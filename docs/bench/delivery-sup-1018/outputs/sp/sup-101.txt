@@ -1,0 +1,66 @@
+# Delivery Plan: Real-Time Co-Editing for Lesson Plans
+
+## Lanes & Parallelism
+
+**Lane A: Core Collaboration Engine (Curriculum Team)**
+*   **Work:** Implement WebSocket presence indicators, live cursors, and section-level locking logic within the `neptune` cluster.
+*   **Constraint:** Must not modify the shared `schema-validation` script yet.
+*   **Parallelism:** Runs concurrently with Lane B.
+
+**Lane B: Conflict Resolution & UX (Frontend Squad)**
+*   **Work:** Develop client-side merge logic, specific error messaging (replacing generic errors), and UI components for presence indicators.
+*   **Parallelism:** Runs concurrently with Lane A using mocked socket responses.
+
+**Lane C: Infrastructure & Migration (DevOps)**
+*   **Work:** Prepare the immutable database migration scripts and configure the CI pipeline to retry flaky network checks specifically for socket tests.
+*   **Serialization:** Must wait for Lane A’s interface definition to finalize migration schemas.
+
+## Gates & Checks
+
+**Gate 1: Interface Freeze (Day 3)**
+*   **Check:** Lane A and Lane B agree on the WebSocket payload structure and locking API signatures.
+*   **Revision:** Checked against commit `feat/co-edit-interface-freeze`.
+*   **Stop Condition:** No code proceeds to integration until signatures are locked to prevent rework.
+
+**Gate 2: Shared Script Coordination (Day 5)**
+*   **Check:** Modification of `schema-validation` requires a synchronized commit across all three microservices (Lesson, Billing, and the third service).
+*   **Execution:** A single atomic pull request touching all three repos’ dependencies, verified by a manual dry-run in staging.
+*   **Revision:** Checked against release candidate `rc/co-edit-shared-deps`.
+
+**Gate 3: Data Integrity Scan (Pre-Deploy)**
+*   **Check:** Mandatory 45-minute scan triggered on the staging cluster.
+*   **Cost Control:** Run exactly once per release candidate to avoid unnecessary $200 charges.
+*   **Revision:** Must pass on the exact commit hash intended for production.
+
+## Review Strategy
+
+**Independent Technical Review:**
+*   **Reviewer:** Senior Engineer from the Billing Team (isolated from Curriculum Team).
+*   **Focus:** Specifically audit changes to `schema-validation` to ensure billing integrity is unaffected.
+*   **Timing:** Post-Gate 2, before any deployment approval.
+
+**Logic & Safety Review:**
+*   **Reviewer:** Jane Smith (Approver).
+*   **Focus:** Verify conflict resolution logic ensures no data loss and that audit logs cannot be triggered incorrectly during testing.
+*   **Timing:** Post-Gate 3, prior to the deployment window.
+
+## Landing & Rollback
+
+**Deployment Window:**
+*   **Time:** 2:00 AM – 4:00 AM EST (strictly enforced due to immutable production DB constraints).
+*   **Process:**
+    1.  Deploy Lane A and B artifacts to `neptune`.
+    2.  Execute database migration scripts (Lane C).
+    3.  Enable feature flag for 5% of users initially.
+
+**Human Decision Points:**
+*   **Go/No-Go:** Jane Smith must explicitly approve the deployment ticket after reviewing the Integrity Scan results and the Independent Technical Review sign-off.
+*   **Migration Cutover:** DevOps Lead must manually confirm the migration script completion before enabling write access to new co-edit features.
+
+**Rollback Protocol:**
+*   **Trigger:** Any report of data loss, billing service disruption, or failed integrity scan post-deploy.
+*   **Action:** Immediate revert of the `neptune` cluster deployment to the previous stable commit.
+*   **Limitation:** Database migrations are irreversible; if data schema changes cause issues, the system must fallback to read-only mode for co-editing features while a fix is engineered. Audit logs cannot be undone, so any erroneous entries must be flagged and ignored by downstream consumers until patched.
+
+**Post-Launch:**
+*   Monitor socket connection stability closely due to known CI flakiness; if real-world failure rates exceed 1%, trigger an automatic disablement of the real-time features while retaining standard save functionality.

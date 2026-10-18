@@ -1,0 +1,47 @@
+**Delivery Plan: Legacy Tax Module Deprecation**
+
+**Strategy:** Invisible isolation and archival. Zero recalculation. Strict serialization around data access.
+
+**Lanes & Serialization**
+1.  **Lane A (Traffic Control - Builder):** Implement a hard firewall at the API gateway and internal service mesh to reject any *new* write requests to the legacy tax module.
+    *   *Constraint:* Must not touch `calc_v1` columns.
+    *   *Parallelism:* Can run concurrently with Lane B (code logic) but must merge first to stop bleeding.
+2.  **Lane B (Data Archival - Builder):** Create a read-only snapshot job that extracts the 14,000 pending transactions into the `HistoricalArchives` service format without invoking calculation logic.
+    *   *Constraint:* Read-only access; no schema modifications.
+    *   *Dependency:* Must wait for Lane A to ensure no new transactions enter the pending set during extraction.
+3.  **Lane C (Verification - QA):** Audit the extracted dataset against the legacy "approved notice" values.
+    *   *Constraint:* Cannot run in staging (missing keys). Must execute in a production-read-only fork or via a dry-run script against the live DB (read-only transaction).
+    *   *Dependency:* Requires output from Lane B.
+
+**Gates & Checks**
+*   **G1 Spec (Conductor):** Define the exact byte-for-byte acceptance criteria: `Legacy_Payout_Amount == Archived_Payout_Amount` for all 14k rows. Explicitly list `calc_v1` columns as forbidden targets.
+*   **G3 Design (Security/Architect):** Review the extraction logic to prove no calculation functions are called. Verify the firewall rules block all write verbs (POST/PUT) to legacy endpoints while allowing read for archival.
+*   **G4 Implementation:**
+    *   Lane A commits firewall rules.
+    *   Lane B commits archival script.
+    *   *Base SHA:* Pin to current production HEAD.
+*   **G5 Verification (Critical):**
+    *   **Environment:** Production Read-Only (Staging is invalid).
+    *   **Check:** Run Lane C's audit script. Compare checksums of payout columns.
+    *   **Flake Handling:** If `nightly-ledger-sync` fails on a Friday, manually verify it is the known flake before proceeding; do not retry automatically.
+    *   **Success Criteria:** 0 discrepancies. 100% of 14k rows matched.
+*   **G6 Review:**
+    *   **Reviewer 1 (Independent Security):** Validates no `calc_v1` mutations and no write paths remain open.
+    *   **Reviewer 2 (Compliance Engineer):** Validates the audit receipt matches the regulatory requirement for immutability.
+    *   **Constraint:** Neither reviewer can be the Builder from Lane A or B.
+
+**Landing & Human Gates**
+*   **Merge Strategy:** Serialized Train.
+    1.  Merge Lane A (Firewall). Deploy to production immediately to freeze state.
+    2.  Merge Lane B (Archival). Trigger manual run.
+    3.  Merge Lane C (Audit Script) for permanent record.
+*   **Human Approvals (Required):**
+    *   **Deploy Lane A:** Requires dual sign-off (Jane Smith + Auditor General).
+    *   **Execute Archival Job:** Requires Jane Smith's approval to run the script against production data.
+    *   **Final Sign-off:** Auditor General must sign the G5 verification receipt confirming zero discrepancies before the legacy module is marked "Deprecated" in documentation.
+*   **Rollback Plan:**
+    *   If Lane A causes legitimate traffic failure (false positive): Revert the firewall commit immediately.
+    *   If Lane B shows discrepancies: Halt. Do not archive. Investigate data drift. Legacy module remains active.
+*   **Post-Merge:** Monitor `HistoricalArchives` read-access for legal team for 24 hours.
+
+**Cost Control:** Limit CI runs to 3 (Plan, Pre-merge, Post-merge verification). No retries on known Friday flakes without human triage. Total estimated CI cost: $135.

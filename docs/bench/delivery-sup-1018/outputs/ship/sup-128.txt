@@ -1,0 +1,77 @@
+**Delivery Plan: Reefer Protocol Upgrade (Zero-Downtime Handover)**
+
+**Objective:** Deploy dual-stack telemetry supporting seamless handover from Legacy to New Protocol without data gaps for three active Atlantic shipments.
+
+**Constraints & Risks:**
+- **Hard Gate:** Zero data loss; 5-minute gap = cargo quarantine.
+- **Cost:** CI runs $200/45m; minimize re-runs.
+- **Flake:** Network latency check false-fails 15% (requires Jane Smith approval for bypass).
+- **Irreversibility:** No remote rollback once at sea; physical visit required if failed.
+- **Deadline:** Ready before Tuesday fleet batch.
+
+---
+
+### 1. Lanes & Parallelism
+
+**Lane A: Dual-Stack Implementation (Builder)**
+- **Work:** Modify edge agent to run Legacy and New protocols simultaneously. Implement "Listen-Ahead" mode: New protocol ingests data but does not alert until handshake confirmed.
+- **Parallelism:** Can run concurrently with Lane B.
+- **Serialization:** Must complete before Lane C (Integration).
+
+**Lane B: Handover Logic & Fallback Simulation (QA/Simulation)**
+- **Work:** Build a software-only simulation of the satellite link and cooling unit. Script failure scenarios: mid-handshake drop, latency spikes, key rotation during switch.
+- **Parallelism:** Runs parallel to Lane A.
+- **Serialization:** Must validate logic before Lane C triggers expensive hardware-in-the-loop (HIL) CI.
+
+**Lane C: Hardware-in-the-Loop Verification (Independent QA)**
+- **Work:** Execute the exact revision from Lane A/B against physical cooling units.
+- **Trigger:** Only after Lane B proves fallback logic in simulation.
+- **Serialization:** Final gate before human review.
+
+---
+
+### 2. Gates & Checks
+
+**G1 Spec (Conductor + Product Analyst)**
+- **Output:** Testable spec defining "Handover Complete" (e.g., 3 consecutive successful New Protocol ACKs while Legacy stream remains open).
+- **Constraint:** Explicitly define the "Abort" condition where the system reverts to Legacy-only without interrupting the stream.
+
+**G3 Design (Architect + Security)**
+- **Review:** Verify encryption key handling during dual-stack mode. Ensure read-only vault access logic works within maintenance windows or via cached credentials if allowed.
+- **Decision:** Define the exact bypass procedure for the flaky latency check with Jane Smith.
+
+**G4 Implement (Builder)**
+- **Output:** Patch with unit tests.
+- **Check:** Static analysis on concurrency logic (race conditions between protocols).
+
+**G5 Verify (QA)**
+- **Step 1 (Simulation):** Run Lane B scripts. If flaky latency check fails, invoke pre-approved bypass with Jane Smith's standing authorization (if documented) or immediate page.
+- **Step 2 (HIL CI):** Run `ci-gates.sh` on the **exact SHA** from Step 1.
+    - *Optimization:* Only run HIL if Simulation passes 100%.
+    - *Evidence:* Logs showing continuous temperature stream during forced handshake failure.
+
+**G6 Review (Independent Security + Lead Architect)**
+- **Reviewer:** Must be independent of Builder.
+- **Focus:** Irreversibility risk. Verify that the "Abort" path is physically impossible to trigger accidentally but guaranteed if the New Protocol fails.
+
+---
+
+### 3. Landing & Human Decisions
+
+**Merge Strategy:**
+- **Train:** Merge to `release-candidate` branch first. Do not merge to `main` until Tuesday batch is confirmed ready.
+- **Human Gate (G8):** **Jane Smith** must approve the final deployment manifest. **Operations Lead** must confirm the three Atlantic shipments are in a "stable telemetry window" (no current packet loss) before flipping the switch.
+
+**Rollback Plan:**
+- **Pre-Deployment:** Since remote rollback is impossible, the deployment script includes a "Kill Switch" that disables the New Protocol module entirely, forcing the agent to revert to Legacy-only code path instantly if handshake fails *during* the port window.
+- **At Sea:** If failure occurs post-departure, the system must auto-fallback to Legacy. If both fail, data is buffered locally (SD card) for download upon port return; no remote fix possible.
+
+**Timeline:**
+- **Today:** Lanes A & B start. Simulation env ready.
+- **Tomorrow AM:** Simulation complete. G5 Step 1 pass.
+- **Tomorrow PM:** Trigger expensive HIL CI (G5 Step 2).
+- **Day 3:** Review (G6) and Jane Smith's bypass approval if needed.
+- **Day 4 (Monday):** Final dry run on non-critical vessel.
+- **Tuesday:** Deploy to fleet batch upon human go-ahead.
+
+**Immediate Action:** Request Jane Smith's explicit written authorization for the latency check bypass now to avoid blocking G5 tomorrow.

@@ -1,0 +1,69 @@
+# Delivery Plan: Strict DRM Validation for Premium Tier
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Serialized)**
+*   **Owner:** Core Playback Engineer
+*   **Work:** Implement asynchronous DRM validation hooks within the buffer-fill phase. Logic must strictly enforce premium tier checks without blocking the main thread.
+*   **Dependency:** None. Starts immediately.
+
+**Lane B: Test Infrastructure (Parallel to A)**
+*   **Owner:** QA Automation
+*   **Work:** Stabilize the `device-matrix` library for legacy simulators. Develop a robust mock token service for staging to prevent premature expiration during long runs.
+*   **Dependency:** None. Runs parallel to Lane A.
+
+**Lane C: Security & Compliance (Parallel to A/B)**
+*   **Owner:** Compliance Unit
+*   **Work:** Define exact cryptographic signatures required for "strict" validation. Pre-approve the logical approach to ensure it meets regulatory standards before code review.
+*   **Dependency:** None.
+
+**Integration Lane (Serialized after A, B, C)**
+*   **Work:** Merge Lane A code with Lane B's stable test harness. Execute validation against the full device matrix.
+
+## Gates & Checks
+
+**Gate 1: Design Sign-off (Revision: `main` head)**
+*   **Check:** Architecture review confirming asynchronous execution during buffer fill.
+*   **Criteria:** Proof that Time-to-First-Frame (TTFF) logic is decoupled from the rendering thread.
+*   **Approver:** Jordan Lee (Core Playback Lead).
+
+**Gate 2: Latency Benchmark (Revision: Feature Branch Head)**
+*   **Check:** Automated performance suite on GPU-enabled CI nodes.
+*   **Criteria:** TTFF increase must be < 50ms compared to `main`. Any regression fails the build immediately to save credits.
+*   **Constraint:** Limit runs to 3 iterations max; use cached baseline data for comparison if possible.
+
+**Gate 3: Device Matrix Validation (Revision: Same as Gate 2)**
+*   **Check:** Full matrix run using stabilized `device-matrix` library.
+*   **Criteria:** Zero false negatives on legacy hardware. Premium access denied on invalid tokens; granted on valid.
+*   **Note:** Failures on legacy simulators must be manually triaged to distinguish flakiness from logic errors.
+
+**Gate 4: Security Sign-off (Revision: Release Candidate)**
+*   **Check:** Manual audit of the implementation against Compliance requirements.
+*   **Approver:** Compliance Unit Representative.
+
+## Review Process
+
+*   **Code Review:** Two Senior Engineers from Core Playback team. They must verify the async implementation and ensure no blocking calls exist in the critical path.
+*   **Independence:** Reviewers cannot be the author (Lane A) and must not have authored the `device-matrix` fixes (Lane B) to ensure unbiased validation of the integration.
+*   **Security Review:** Separate from code review; conducted solely by Compliance.
+
+## Landing Strategy
+
+**Merge Protocol:**
+1.  **Rebase:** Feature branch rebased on latest `main`.
+2.  **Final Verification:** One final latency check on the rebased branch.
+3.  **Approval:** Requires +2 from Senior Engineers and explicit "Approved" from Compliance.
+4.  **Merge:** Squash merge to `main`.
+
+**Human Decisions Required:**
+*   **Go/No-Go on Legacy Flakiness:** If the device matrix shows intermittent failures on legacy devices despite Lane B's fixes, Jordan Lee must decide whether to delay launch or accept risk with a feature flag.
+*   **Rollback Trigger:** If post-deployment churn alerts spike or TTFF monitors exceed the 50ms threshold.
+
+**Rollback Plan:**
+*   **Action:** Immediate revert of the merge commit.
+*   **Cost:** Triggers a full cache purge (20-minute downtime for warm-up).
+*   **Communication:** Notify Customer Support immediately to expect increased tickets regarding access issues (reverting to permissive mode).
+
+**Post-Landing:**
+*   Monitor TTFF metrics and churn alerts closely for 2 hours.
+*   Keep strict DRM behind a feature flag initially, enabling gradually by region to limit blast radius if cache purge is needed.

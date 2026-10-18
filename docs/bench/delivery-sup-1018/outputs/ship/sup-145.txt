@@ -1,0 +1,44 @@
+**Delivery Plan: Geo-Replication with Sovereignty Guards**
+
+**Objective:** Enable cross-region replication while strictly filtering 'EuroZone' and 'ApexBank' data. Zero leakage is the non-negotiable constraint.
+
+### 1. Lanes & Serialization
+*   **Lane A (Logic Implementation):** Modify `sync-engine` to inject sovereignty filters before transmission.
+    *   *Constraint:* Must read `/config/global` contracts. If during business hours, wait; do not force-lock.
+    *   *Output:* Patch with unit tests for filter logic.
+*   **Lane B (Test Harness Isolation):** Create a localized test suite that mocks the `latency-simulator` to eliminate the known flaky failure.
+    *   *Parallel:* Can run alongside Lane A.
+    *   *Output:* Stable test runner script.
+*   **Lane C (Leakage Verification):** Independent data-probe script. It injects synthetic 'EuroZone'/'ApexBank' packets and asserts they never hit the egress buffer.
+    *   *Serialization:* Must wait for Lane A's patch.
+*   **Lane D (Failover Simulation):** Run disaster recovery drills for *eligible* clients only.
+    *   *Serialization:* Must wait for Lane A's patch.
+
+**Execution Order:** Lanes A and B start immediately. Once A commits, C and D run in parallel against the exact revision from A.
+
+### 2. Gates & Checks
+*   **G1 Spec (Now):** Define "Zero Leakage" as a hard fail condition. Any byte detected in egress for restricted contracts blocks the pipeline.
+*   **G4 Implement:** Lane A commits to a dedicated worktree. Base SHA recorded.
+*   **G5 Verify (Critical):**
+    *   Run Lane C (Leakage) and Lane D (Failover) on the **exact SHA** from G4.
+    *   *CI Constraint:* Limit retries to **one**. If the `latency-simulator` fails, trigger the bypass protocol (see Human Gates) rather than re-running the 55-minute/400-credit job.
+    *   *Success Criteria:* Lane C reports 0 bytes leaked; Lane D confirms failover success.
+*   **G6 Review:**
+    *   **Security Review:** Independent of Lane A. Focus strictly on the filter logic and the "irreversible" flag handling.
+    *   **Code Review:** Independent of Lane A. Focus on edge cases in contract matching.
+
+### 3. Human Gates & Decisions
+*   **Flake Bypass:** If `latency-simulator` false-fails, request explicit approval from **Lead Architect Jane Smith** to bypass. Do not auto-retry.
+*   **Deployment Approval:** Production deploy requires dual sign-off from **Security** and **Operations**.
+    *   *Briefing:* Present the "Zero Leakage" receipt from Lane C and the rollback plan.
+*   **Rollback Authority:** Since enabling flags is irreversible without a 4-hour cluster rollback, the **Operations** lead must explicitly confirm the rollback window is scheduled before approving the merge.
+
+### 4. Landing & Rollback
+*   **Merge Strategy:** Merge to a staging branch first. Run one final integrated check (G7) on the merged SHA.
+*   **Production Deploy:** Only after dual sign-off.
+*   **Rollback Plan:**
+    *   *Trigger:* Any leakage detected post-deploy or failover failure.
+    *   *Action:* Immediate cluster rollback (4-hour duration).
+    *   *Preparation:* Operations must pre-stage the rollback scripts and confirm resource availability before the initial deploy.
+
+**Risk Mitigation:** The high cost of CI (400 credits) and long duration (55 mins) dictates that we do not guess. Lane B's mock ensures we don't burn budget on flaky infrastructure. The "Zero Leakage" gate is binary: pass or block. No "high confidence" overrides allowed for sovereignty data.

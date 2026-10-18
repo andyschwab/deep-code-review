@@ -1,0 +1,24 @@
+### Delivery Plan: Payment Gateway Stabilization
+
+**Lanes & Parallelism**
+*   **Lane A (Risk Logic):** Engineer A modifies `fraud-rules.json` to tighten scoring thresholds for known bad actors and adjusts the risk scoring function in the payment service. This work is isolated to logic changes and does not require database schema updates.
+*   **Lane B (Validation Harness):** Engineer B extracts last month's load test data and constructs a replay harness. This harness simulates the 40x traffic spike using the historical dataset to measure latency and false positive rates locally, bypassing the flaky staging network checks.
+*   **Serialization Point:** Lane A cannot finalize until Lane B provides the baseline metrics from the replay harness. Once baseline is established, Lane A iterates on thresholds, feeding candidates to Lane B for rapid local validation.
+
+**Gates & Checks**
+*   **Gate 1 (Local Safety):** Before any commit, the replay harness must confirm that legitimate donor latency remains under 400ms and that no raw card data is passed to the legacy audit logger. This runs on the feature branch head.
+*   **Gate 2 (CI Optimization):** The CI pipeline will trigger only the unit tests and the specific integration suite for the payment module. Full regression suites are skipped to avoid the 25-minute timeout and unnecessary cost. This gate runs on the pre-merge revision.
+*   **Gate 3 (Load Verification):** A targeted load test using the replay harness runs against the staging environment *only after* Gate 2 passes. To mitigate flaky network false negatives, this test requires three consecutive successful runs.
+
+**Review Process**
+*   **Code Review:** An independent Senior Engineer from the Platform team (not Trust & Safety) reviews the logic changes in Lane A. They focus strictly on the algorithmic efficiency and ensuring no PII leakage in logs.
+*   **Data Review:** The Trust & Safety Lead reviews the replay harness results from Lane B, specifically verifying that the false positive rate on legitimate donors is zero and that the fraud capture rate meets the new aggressive targets.
+*   **Independence:** The Code Reviewer does not see the load test results during their initial pass to prevent bias; the Data Reviewer does not approve the code logic, only the outcome metrics.
+
+**Landing Strategy**
+*   **Merge Protocol:** The feature branch merges to `main` only after both reviews are approved and Gate 3 passes.
+*   **Deployment:** Deployment to `production-us-east` requires dual approval from Jane Smith and the On-Call Lead. Due to the 10-minute global cache TTL for `fraud-rules.json`, the deployment window must include a 15-minute observation period post-release before declaring success.
+*   **Human Decision:** If the observation period shows latency spikes >400ms, the On-Call Lead must manually trigger the rollback procedure immediately. No automated rollback is configured for this specific config change.
+*   **Rollback:** Revert the merge commit and force a cache purge of `fraud-rules.json` to restore previous thresholds instantly.
+
+**Timeline Constraint:** All validation must complete by Monday EOD to allow Tuesday go-live. If Gate 3 fails twice by Monday noon, the plan defaults to deploying only the logging safeguards (Lane A subset) and delaying the aggressive scoring to a subsequent patch.

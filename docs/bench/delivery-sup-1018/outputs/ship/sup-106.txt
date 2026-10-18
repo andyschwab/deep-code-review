@@ -1,0 +1,54 @@
+### Delivery Plan: Dynamic Pricing with Post-Booking Lock
+
+**Objective:** Implement real-time dynamic pricing for arrivals <48h while locking confirmed booking prices and auditing discrepancies. Effective next Monday.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Pricing Engine - Builder):** Implement the demand-based rate calculator in `core-reservations`.
+    *   *Constraint:* Must read from `audit-events` schema, not `bookings`.
+    *   *Parallel:* Runs independently of Lane B.
+*   **Lane B (Price Lock & Audit - Builder):** Modify the booking confirmation flow.
+    *   *Logic:* Snapshot public rate + final charged amount to `audit-events` at transaction commit. Ensure UI renders from this snapshot, not live rates.
+    *   *Parallel:* Runs independently of Lane A.
+*   **Lane C (Integration & Regression - QA):** Execute full suite on the merged candidate.
+    *   *Serialization:* Must wait for Lanes A & B to pass individual unit tests and merge to the integration branch.
+    *   *Special Handling:* Manually verify the flaky payment gateway test; do not auto-retry without inspection.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Define acceptance criteria: "Refreshed confirmation page shows identical price regardless of public rate drop." Pin base SHA.
+*   **G2 Plan (Now):** Confirm `audit-events` schema capacity. Set lane budget: $90 max (2 CI runs).
+*   **G3 Design (Pre-Code):** ADR confirming immutable `bookings` table compliance. Interface contract: `get_locked_price(booking_id)`.
+*   **G4 Implement (Lanes A & B):**
+    *   Unit tests included in commit.
+    *   Base SHA: Immutable reference from G1.
+*   **G5 Verify (Lane C):**
+    *   **Exact Revision:** The merged SHA of A+B.
+    *   **Stack:** Local stack up required.
+    *   **Checks:** Build, lint, type check.
+    *   **Regression:** Full suite (55 mins).
+    *   **UI Evidence:** Headed browser test navigating to confirmation -> simulating rate drop -> refreshing page -> asserting price stability.
+    *   **Flake Mitigation:** Manual validation of payment gateway timeout scenario before marking green.
+*   **G6 Review:**
+    *   **Security Architect:** Independent review of pricing logic and audit trail integrity.
+    *   **Senior Engineer:** Independent code review (not the Builder).
+    *   **Rubric:** Blocker/Critical findings halt progress; High requires Revenue Ops lead acceptance.
+
+#### 3. Landing & Human Decisions
+*   **G7 Integrate:** Merge A+B to `main` (or release branch) only after G6 approval. Re-run affected CI gates on the final merge SHA.
+*   **G8 Release (Human Gate):**
+    *   **Required Approvals:** Explicit sign-off from **Revenue Operations Lead** AND **Security Architect**.
+    *   **Action:** Deploy to `us-east-1`.
+    *   **Timing:** Must complete before next Monday.
+*   **G9 Production Verify:**
+    *   Monitor first 10 live bookings. Verify `audit-events` entries match charged amounts.
+    *   Check SLOs for pricing calculation latency.
+*   **Rollback:**
+    *   If price lock fails or audit trail breaks: Immediate revert to previous SHA.
+    *   Rollback procedure proven in G8.
+
+#### 4. Risk & Constraints
+*   **Cost Control:** CI is $45/run. Zero tolerance for "try and see" commits. Local verification mandatory before push.
+*   **Compliance:** No schema changes to `bookings`. All new fields go to `audit-events`.
+*   **Flake Management:** The payment gateway timeout is a known manual step; automation must not mask this.
+*   **Scope Boundary:** Logic applies to *new* bookings only. Existing bookings are untouched.
+
+**Immediate Next Step:** Conductor to draft G1 Spec and request Owner confirmation on "appetite" (time-box) for Monday launch.

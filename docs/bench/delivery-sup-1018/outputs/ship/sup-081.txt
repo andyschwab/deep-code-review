@@ -1,0 +1,48 @@
+**Delivery Plan: Flatbed Double-Booking Prevention**
+
+**Objective:** Enforce immediate, global hard-lock on specialized flatbed trailers during reservation to eliminate double-booking before Monday peak.
+
+### 1. Lanes & Parallelism
+*   **Lane A (Core Logic - Builder):** Implement atomic reservation lock in the assignment service. Must write to a dedicated worktree.
+    *   *Constraint:* Cannot edit shared config directly; must propose a patch.
+    *   *Parallel:* Yes.
+*   **Lane B (Config Strategy - Architect):** Resolve the shared configuration conflict. Create a migration script to convert the manually edited config file into a version-controlled, single-writer manifest or database-backed setting.
+    *   *Serialization:* Must complete before Lane A finalizes, as Lane A depends on the new locking mechanism source of truth.
+*   **Lane C (Independent QA):** Build a concurrency test suite simulating simultaneous requests from two regional hubs for the same trailer ID.
+    *   *Parallel:* Yes (starts once Lane A has a draft interface).
+*   **Lane D (Security & Safety):** Audit the locking mechanism for deadlocks and verify the "fail-closed" behavior (if lock service is down, assignment fails rather than allowing double-book).
+    *   *Parallel:* Yes.
+
+### 2. Gates & Checks
+*   **G1 (Spec):** Define "instant unavailability" as sub-50ms propagation. Explicitly exclude the flaky Friday network latency check from this release criteria; it remains ignored.
+*   **G3 (Design):** Approve the config migration strategy. **Hard Gate:** Operations Director must sign off on the config change procedure to prevent merge conflicts.
+*   **G4 (Implement):** Code freeze on Lane A. Unit tests must pass locally.
+*   **G5 (Verify):** Run integration tests on Staging.
+    *   *Constraint:* Accept the 4-minute overhead per suite run.
+    *   *Requirement:* Lane C's concurrency test must pass 100/100 times with zero double-books.
+    *   *Exact Revision:* Tests run against the specific SHA of Lane A + Lane B merged in a temporary integration branch.
+*   **G6 (Review):**
+    *   **Logic Review:** Senior Engineer (not the Builder) reviews Lane A.
+    *   **Config Review:** Lead Architect reviews Lane B.
+    *   **Safety Review:** Security role verifies Lane D findings.
+    *   *Rule:* Builder never reviews their own code.
+
+### 3. Landing & Human Decisions
+*   **Integration (G7):** Merge Lanes A and B into the release candidate branch. Re-run affected integration tests on the final merged SHA.
+*   **Human Approval (G8):**
+    *   **Required Sign-offs:** Lead Architect AND Operations Director.
+    *   **Decision Point:** Confirm the config migration path is safe for manual application if automation fails.
+*   **Deployment Strategy:**
+    *   Deploy to Staging first for final smoke test.
+    *   **Production Deploy:** Time-boxed for Sunday afternoon (pre-Monday surge).
+*   **Rollback Plan:**
+    *   *Critical Constraint:* Reverting requires a 45-minute DB restore and wipes post-snapshot transactions.
+    *   *Mitigation:* Use a feature flag to disable the new locking logic instantly without code revert if issues arise. If data corruption occurs, execute the DB restore immediately, accepting the data loss window as the lesser evil compared to operational chaos.
+    *   *Contingency:* Have the "manual reconciliation" script ready as a temporary stopgap if the automated lock fails, though the goal is to render it obsolete.
+
+### 4. Risk & Constraints
+*   **Flaky Check:** The Friday network latency failure is documented as known noise; do not let it block the pipeline, but ensure it doesn't mask real locking failures.
+*   **Config Conflicts:** The migration (Lane B) is the highest risk for merge conflicts. Serialize this work carefully.
+*   **Time Pressure:** Monday morning is the hard deadline. If G5 verification fails by Sunday noon, escalate immediately to the Operations Director for a "Go/No-Go" decision on delaying the fix versus running with known risks.
+
+**Next Step:** Initiate Lane A and Lane B immediately. Schedule G3 Design review within 4 hours.

@@ -1,0 +1,49 @@
+**Delivery Plan: Hybrid Boarding Pass v2 with Legacy Fallback**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Core Logic - Serial First):** Implement detection logic in `gateway-adapter`.
+    *   *Task:* Add airport code lookup against `legacy-airport-list.json`; inject conditional rendering for low-contrast QR assets.
+    *   *Constraint:* Must complete before Lane B to define the interface for testing.
+    *   *Owner:* Builder.
+*   **Lane B (Asset Integration - Parallel):** Integrate high-res and legacy assets.
+    *   *Task:* Commit new visual assets; ensure asset pipeline serves correct format based on Lane A's flag.
+    *   *Owner:* Builder (different worktree than Lane A).
+*   **Lane C (Config Coordination - Serialized):** Update `legacy-airport-list.json`.
+    *   *Task:* Sync with Check-in Kiosk team.
+    *   *Constraint:* **Serialized.** Requires a coordinated deployment window. Cannot merge until the joint window is confirmed by Ground Operations.
+*   **Lane D (Remote Toggle - Parallel):** Implement the dashboard kill-switch.
+    *   *Task:* Expose feature flag to toggle legacy mode globally; wire alert trigger for >2% failure rate.
+    *   *Owner:* Builder.
+
+**2. Gates & Checks**
+*   **G1 Spec:** Define exact list of regional airports (NorthSky, RusticAir, etc.) and the specific QR density thresholds. Pin base SHA.
+*   **G3 Design:** ADR confirming the fallback mechanism does not introduce latency >50ms.
+*   **G4 Implement:** Code committed to isolated worktrees. Unit tests added for logic paths (no hardware yet).
+*   **G5 Verify (Critical):**
+    *   *Revision:* Exact merged SHA of Lanes A, B, and D.
+    *   *Action:* Trigger hardware-in-the-loop simulation (3 physical models).
+    *   *Constraint:* Run **once** per significant logic change to avoid $45/22min waste. Do not run on staging for contrast verification (known flake); rely on the hardware sim or production canary.
+    *   *Evidence:* Pass/Fail receipt from the hardware sim; proof of toggle functionality in a dry-run environment.
+*   **G6 Review:**
+    *   *Independence:* Reviewer must not be the Builder.
+    *   *Approvers:* **Lead Architect** (Code/Security) AND **Director of Ground Operations** (Operational Risk). Both signatures required before G7.
+
+**3. Landing & Merge Strategy**
+*   **Integration (G7):**
+    *   Lanes A, B, and D merge to a staging branch first.
+    *   Lane C (`legacy-airport-list.json`) merges **only** during the coordinated window agreed upon with the Kiosk team.
+    *   Final integration SHA created only after Lane C lands.
+*   **Human Decisions (G8 Release):**
+    *   **Director of Ground Operations** must explicitly approve the production deploy, confirming the coordinated window and rollback readiness.
+    *   **Lead Architect** approves the final merge to `main`.
+*   **Rollback Plan:**
+    *   *Trigger:* Scan failure rate >2% or hardware sim regression.
+    *   *Action:* Flip the remote toggle (Lane D) to force 100% legacy mode immediately.
+    *   *Code Revert:* If toggle fails, revert the specific commit introducing the detection logic (Lane A) while preserving assets.
+
+**4. Risk Mitigation**
+*   **Cost Control:** Hardware simulations are gated behind a "ready" check (local unit tests pass) to prevent expensive re-runs on trivial fixes.
+*   **Version Skew:** The deployment of `legacy-airport-list.json` is strictly time-boxed and communicated to the Kiosk team lead prior to execution.
+*   **Flaky Tests:** Visual regression on staging is marked `UNVERIFIED` for contrast; reliance is placed solely on the physical hardware simulation results.
+
+**Next Step:** Confirm the coordinated deployment window with the Check-in Kiosk team to schedule Lane C.

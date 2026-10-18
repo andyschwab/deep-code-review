@@ -1,0 +1,36 @@
+**Delivery Plan: Premium Gift Wrap Tri-Partner Sync**
+
+**Lanes & Parallelism**
+*   **Lane A (Config & Contracts):** Update `partner-config.yaml` with new partner IDs and timeout thresholds (12s). *Serialized:* Must complete before Lane B. Requires written approval from Jane Smith and Security Lead before work starts.
+*   **Lane B (Core Logic):** Implement synchronous validation in `OrderService`. Logic: Call Partner 1, 2, 3 sequentially or in parallel (await all); if any fail/timeout, throw specific error, log Partner ID, abort transaction. No partial states allowed.
+*   **Lane C (Staging Hardening):** Replace mock responses in staging with deterministic fault-injection scripts to eliminate historical flakiness. Ensure timeouts trigger exactly at 12s. Runs parallel to Lane B but must finish before G5.
+
+**Gates & Checks**
+*   **G0/G1 (Spec):** Confirm "fail gracefully" message text and exact log format for Partner ID. Define "irreversible" state handling explicitly.
+*   **G2 (Plan):** Lock `partner-config.yaml` ownership. Set budget cap: Max 3 pipeline runs ($135) before mandatory review.
+*   **G3 (Design):** ADR confirming synchronous blocking behavior is acceptable for checkout latency budgets.
+*   **G4 (Implement):** Code + Unit Tests. Tests must cover: All 3 success, Partner 1 fail, Partner 2 timeout, Network partition.
+*   **G5 (Verify):** Run on exact revision SHA in Staging. **Critical:** Verify logs contain specific Partner ID on failure. Verify transaction does *not* enter "Validating" state on error. Pipeline must pass under 30 mins.
+*   **G6 (Review):** Independent review by Security Lead (logic + config) and a Senior Fulfillment Engineer (not the builder). Focus: Timeout handling and log integrity.
+*   **G7 (Integrate):** Merge to integration branch. Re-run full Galaxy pipeline on final SHA.
+
+**Human Gates & Decisions**
+*   **Pre-Work:** Written approval from Jane Smith + Security Lead for `partner-config.yaml` changes.
+*   **Pre-Deploy:** Owner approval to enable real synchronous calls in Production (irreversible for active orders).
+*   **Rollback Plan:** If production logs show unexpected "Validating" stuck states or high timeout rates post-launch, immediate feature flag flip (if available) or pipeline rollback to previous SHA. Database hotfix prepared for stuck orders.
+
+**Landing Strategy**
+*   **Merge Train:** Single PR containing Lanes B and C, dependent on Lane A's merged config.
+*   **Deployment:** Deploy to Production Monday EOD (before Tuesday marketing launch).
+*   **Monitoring:** Live dashboard for "Gift Wrap Validation Failures" grouped by Partner ID. Alert on >1% failure rate.
+
+**Risk Mitigation**
+*   **Flaky Tests:** Lane C's deterministic mocks prevent false negatives in CI.
+*   **Irreversible State:** Strict verification in G5 ensures no order enters "Validating" unless all 3 partners confirm.
+*   **Timeline:** Buffer built for config approval delays; if approval slips past Thursday, escalate immediately to owner for scope reduction (e.g., launch with 2 partners).
+
+**Output Contract**
+*   **Artifacts:** Updated `OrderService`, `partner-config.yaml`, injection scripts, ADR, test receipts.
+*   **Evidence:** Logs showing specific Partner ID on failure, staging run receipts with injected faults, security sign-off.
+*   **Cost:** Tracked per pipeline run; stop if >$135 without success.
+*   **Rollback:** Documented procedure for feature disable and DB hotfix.

@@ -1,0 +1,60 @@
+**Delivery Plan: Waste Route Optimizer v4.2**
+
+**Objective:** Deploy routing logic for dense urban zones before Saturday 04:00.
+**Critical Constraints:** 55m CI runtime (6/day cap), irreversible zone config lock, flaky geo-validation, zero-tolerance for mid-window failure.
+
+### 1. Lanes & Serialization
+
+Work is split into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is strictly serialized after both succeed.
+
+*   **Lane A: Logic & Simulation (Builder)**
+    *   **Work:** Implement alleyway access logic in a dedicated worktree. Run heavy simulation loads locally to pre-verify before CI.
+    *   **Parallelism:** Runs parallel to Lane B.
+    *   **Output:** Patch commit + local simulation receipt.
+*   **Lane B: Data & Fallback Verification (QA)**
+    *   **Work:** Compare staging data hash against production snapshot. Implement/verify the automatic fallback trigger (latency > 2s).
+    *   **Parallelism:** Runs parallel to Lane A.
+    *   **Output:** Data match receipt + fallback trigger test log.
+*   **Lane C: Integration & Flaky Gate Mitigation (Conductor/QA)**
+    *   **Work:** Merge A and B. Execute CI pipeline.
+    *   **Serialization:** Must wait for A and B.
+    *   **Special Handling:** If the geographic validation check fails, immediately re-trigger once. If it fails twice, halt and escalate (do not burn remaining daily build cap on loops).
+    *   **Output:** Green CI receipt at exact SHA.
+
+### 2. Gates & Checks
+
+*   **G1 Spec (Now):** Define "dense urban zone" logic and exact latency threshold (2.0s). Pin base SHA.
+*   **G4 Implement:** Builder commits logic; QA commits data validation script.
+*   **G5 Verify (Staging):**
+    *   **Revision:** Exact merge SHA from Lane C.
+    *   **Checks:**
+        1.  Full CI run (55m).
+        2.  **Data Integrity:** Hash match confirmed.
+        3.  **Fallback Drill:** Artificially inject 2.1s latency; verify instant rollback to v4.1 logic.
+        4.  **Flake Guard:** If geo-validation times out, manual re-trigger allowed once.
+*   **G6 Review:**
+    *   **Reviewer 1 (Independent):** Senior Dispatcher (verifies routing logic matches operational reality).
+    *   **Reviewer 2 (Independent):** City Compliance Officer (verifies regulatory adherence).
+    *   **Constraint:** Neither reviewer may be the Builder.
+
+### 3. Landing & Human Decisions
+
+*   **Merge Strategy:** Merge to `release-candidate` branch first. Once G5/G6 pass, merge to `main` via a single commit.
+*   **Human Gate (Go/No-Go):**
+    *   **Deadline:** Friday 23:59.
+    *   **Decision Maker:** Dispatch Lead (coordinating Senior Dispatcher + Compliance Officer).
+    *   **Input:** G5 receipts (Data match, Fallback drill success, Green CI).
+    *   **Action:** Explicit "GO" message required. No "GO" = No Deploy.
+*   **Deployment Window:** Saturday 00:00 – 03:00 (Buffer before 04:00 cutoff).
+*   **Rollback Plan:**
+    *   **Trigger:** Any latency spike >2s or missed collection report within first 30 mins of routes.
+    *   **Mechanism:** Automatic fallback (verified in G5) reverts logic instantly.
+    *   **Hard Stop:** If automatic fallback fails, manual reboot required (irreversible config lock). This is the worst-case scenario; the G5 fallback drill must prove this won't happen.
+
+### 4. Risk Mitigation
+
+*   **CI Cap:** Only one full integration run planned. Local simulations (Lane A) must be rigorous to avoid wasting the 6-build daily cap.
+*   **Config Lock:** No edits to zone mappings permitted after deployment start. All changes must be in the binary/logic layer, not the config file.
+*   **Flake Management:** The geo-validation check is marked "non-blocking after 2 failures" to prevent pipeline starvation, provided manual verification of the map data timeout cause is logged.
+
+**Status:** Ready to initiate Lane A and Lane B immediately upon approval of this plan.

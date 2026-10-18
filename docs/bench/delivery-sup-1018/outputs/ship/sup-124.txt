@@ -1,0 +1,65 @@
+**Delivery Plan: Internal DNS HA Migration**
+
+**Scope & Constraints**
+Target: `core-infra` repo.
+Goal: Migrate single-node resolver to HA cluster (<2s failover, zero dropped connections).
+Constraints: No app retry changes; Tue-only change board approval; 2 senior engineer approvals; $120/CI run; flaky `dns-propagation` check (retry 2x); `global-resolver.conf` locks staging for 30m; prod via bastion only; no direct DB mods.
+Success Metric: Payments service error rate stable for 1 hour post-cutover.
+
+**Lanes & Parallelism**
+
+*   **Lane 1: Architecture & Spec (Serial, Pre-requisite)**
+    *   **Actor:** Senior Network Engineer (Architect).
+    *   **Work:** Define HA topology, failover logic (<2s), and cache propagation strategy. Draft rollback procedure.
+    *   **Output:** ADR + Testable Spec (G1).
+    *   **Dependency:** None. Must complete before Lane 2.
+
+*   **Lane 2: Configuration Implementation (Serial, High-Risk)**
+    *   **Actor:** Platform Reliability Engineer (Builder).
+    *   **Work:** Draft `global-resolver.conf` changes for HA. *Crucial:* Do not commit to shared branch yet. Prepare local worktree.
+    *   **Constraint:** Editing `global-resolver.conf` triggers 30m staging lock. This lane must coordinate strictly with Lane 3 to avoid collision.
+    *   **Dependency:** Lane 1 Spec approved.
+
+*   **Lane 3: Simulation & Validation (Parallel to Lane 2 prep, Serial for execution)**
+    *   **Actor:** QA Engineer (Independent).
+    *   **Work:** Build traffic simulation suite matching peak load. Define "zero drop" verification criteria.
+    *   **Execution:** Run against Lane 2's proposed config in isolated staging (requires 30m lock window).
+    *   **Flake Handling:** If `dns-propagation` fails, auto-retry twice. If it fails a third time, block and investigate.
+    *   **Dependency:** Lane 2 config ready; Staging lock acquired.
+
+*   **Lane 4: Monitoring & Rollback Prep (Parallel)**
+    *   **Actor:** SRE / Ops.
+    *   **Work:** Configure payments service error rate dashboard snapshotting. Prepare bastion access scripts for immediate cutover and rollback.
+    *   **Dependency:** Lane 1 Spec.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Architect + Product Owner sign-off on failover time (<2s) and no app changes.
+*   **G3 (Design):** Review ADR for region impact (3 regions sharing config).
+*   **G4 (Implement):** Code review of `global-resolver.conf` by second Senior Network Engineer. *Check:* Verify no app retry logic touched.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA of the config commit.
+    *   **Action:** Deploy to staging (acquire 30m lock). Run traffic simulation.
+    *   **Pass Criteria:** Failover <2s observed; zero dropped connections in sim; cache propagation verified.
+    *   **CI Cost Control:** Only one full pipeline run ($120) permitted per attempt. Flaky check retry logic enforced locally before CI submission if possible, or within CI config.
+*   **G6 (Review):** Independent security/network review of the final SHA. No builder self-approval.
+*   **G8 (Release):**
+    *   **Human Gate:** Change Board sign-off (Tuesday only).
+    *   **Human Gate:** Two Senior Network Engineers approve production push.
+    *   **Action:** Cutover via bastion.
+
+**Landing Strategy**
+
+1.  **Merge:** Merge to integration branch only after G6 pass.
+2.  **Deployment Window:** Tuesday (Change Board).
+3.  **Cutover:** Execute via bastion. Monitor payments error rate dashboard in real-time.
+4.  **Verification Window:** Observe payments service error rate for 1 hour.
+    *   **Pass:** Error rate within baseline. Close ticket.
+    *   **Fail:** Error rate spikes > threshold. Immediate rollback to previous SHA (pre-tested in Lane 4).
+5.  **Rollback:** Automated script via bastion reverts `global-resolver.conf` to previous known-good SHA. No human debate during failure; execute pre-approved rollback.
+
+**Risk Mitigation**
+*   **Staging Lock:** Serialize Lane 2 and 3 strictly. No other work touches `global-resolver.conf` during the 30m window.
+*   **Cost:** Ensure Lane 3 simulation is robust locally to minimize expensive CI re-runs.
+*   **Flake:** Hardcode the "retry 2x" rule for `dns-propagation` in the CI gate definition; do not treat single failure as block.
+*   **Human Gate:** Prepare all artifacts Monday for Tuesday board. Do not start cutover without explicit board ticket reference.

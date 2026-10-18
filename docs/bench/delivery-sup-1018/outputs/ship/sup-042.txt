@@ -1,0 +1,48 @@
+### Delivery Plan: Legacy Room Service Deprecation
+
+**1. Lanes & Parallelism**
+*   **Lane A (Compatibility Adapter):** Implements the translation layer mapping v1 response structures to the new system, including custom dietary edge cases. Runs in an isolated worktree.
+*   **Lane B (Data Integrity & Latency Probe):** Designs a verification script to compare payload outputs and measure latency deltas between legacy and mapped responses. Runs in parallel with Lane A.
+*   **Lane C (Migration Script):** Prepares the irreversible database schema migration and the rollback procedure. Must be serialized after Lane A is code-complete but before G5.
+*   **Serialization Constraint:** Lane A and Lane B merge into a single integration branch for G5. Lane C executes only after G6 approval. The global config modification (required by the monolith) is a separate, serialized human-gated step post-G6.
+
+**2. Gates & Checks**
+*   **G0/G1 (Spec & Scope):** Define exact v1 JSON structures for the two hotel chains. Pin base SHA. Explicitly list dietary edge cases as acceptance criteria.
+*   **G2 (Plan & Budget):** Set token/cost caps for the regression suite. Define the "flaky network" failure threshold to prevent pipeline freezes.
+*   **G3 (Design):** ADR detailing the translation logic and the immutable nature of the global config during the transition.
+*   **G4 (Implement):** Lane A commits the adapter; Lane B commits the comparison harness. Tests included with code.
+*   **G5 (Verify):**
+    *   Run unit/integration tests on the exact merge SHA.
+    *   **Constraint:** Since staging lacks prod tokens, verification relies on the Lane B harness using recorded production traffic snapshots (not live calls).
+    *   Latency must not exceed the baseline defined in G1.
+    *   Zero data loss confirmed via byte-for-byte payload comparison for dietary requests.
+*   **G6 (Review):**
+    *   **Code Review:** Independent senior engineer (not Lane A/B author).
+    *   **Security/Arch Review:** Lead Architect must explicitly approve the global config touch in writing before the regression suite triggers.
+    *   **SRE Review:** On-call SRE validates the rollback plan and migration irreversibility risks.
+
+**3. Review Strategy**
+*   **Builder:** Lane A/B implementers.
+*   **Independent QA:** Lane B owner reviews Lane A's mapping logic; Lane A owner reviews Lane B's harness.
+*   **Architecture/Security:** Lead Architect reviews the global config impact.
+*   **Operations:** On-call SRE reviews the deployment and rollback procedure.
+*   **Rule:** No builder reviews their own code. The Lead Architect's approval is a hard gate before the 45-minute regression suite runs.
+
+**4. Landing & Human Decisions**
+*   **Merge Strategy:** Squash merge to the integration branch after G6. Run the 45-minute regression suite once on this final SHA.
+*   **Human Gates (Required):**
+    1.  **Lead Architect:** Written approval to modify the shared global config.
+    2.  **On-call SRE:** Authorization to execute the irreversible DB migration and flip the feature flag during business hours.
+    3.  **Product Owner:** Final go-ahead after reviewing the latency and data integrity receipts.
+*   **Deployment:**
+    *   Deploy behind a feature flag disabled by default.
+    *   Enable for the two specific hotel chain IDs only (canary).
+    *   Monitor latency and error rates for 24 hours.
+*   **Rollback:**
+    *   Immediate flag flip back to legacy endpoint if latency spikes or data mismatch occurs.
+    *   DB migration is irreversible; rollback relies entirely on the software flag reverting traffic to the old path (which must remain operational until next quarter).
+    *   If the global config causes instability, revert the config commit and redeploy the previous stable SHA.
+
+**5. Risk Mitigation**
+*   **Pipeline Freeze:** If network checks fail twice, the pipeline halts. The plan includes a manual override request to the SRE to bypass flaky checks for this specific run if logs confirm the failure is environmental, not code-related.
+*   **Staging Gap:** Verification is strictly snapshot-based; no claim of "end-to-end" in staging is made. Production canary is the true E2E test.

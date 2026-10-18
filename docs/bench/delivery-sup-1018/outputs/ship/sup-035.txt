@@ -1,0 +1,54 @@
+**Delivery Plan: Q4 Tax Rules Activation**
+
+**Scope & Constraints**
+*   **Target:** Invoices generated ≥ Oct 1. Historical data is read-only; modification is irreversible.
+*   **Risk:** High (Financial compliance, audit flags).
+*   **Constraint:** CI is expensive (45m); flaky currency check requires manual validation; LFO approval required for prod.
+
+**Work Lanes (Parallel Execution)**
+1.  **Lane A (Config Prep):** Isolate the immutable JSON tax file. Inject Q4 regional rates. Validate JSON schema locally. *Writer: Config Engineer.*
+2.  **Lane B (Logic Guard):** Implement the date-gate logic in the billing service. Ensure the predicate strictly rejects dates < Oct 1. Add a unit test asserting historical invoices return the *old* tax map. *Writer: Backend Engineer.*
+3.  **Lane C (Verification Script):** Build a standalone script to generate test transactions (pre-Oct 1 and post-Oct 1) against a seeded sandbox. It must output a diff report proving historical data is untouched. *Writer: QA Engineer.*
+
+**Serialization Points**
+*   Lane B cannot finalize until Lane A's JSON schema is confirmed valid (local check only, no CI).
+*   Lane C requires the binary from Lane B and the config from Lane A to run integration tests.
+
+**Gates & Checks**
+*   **G2 (Plan):** Confirm the date predicate logic and the specific JSON version hash.
+*   **G4 (Implement):** Commit Lane A (config) and Lane B (code) to a shared feature branch.
+*   **G5 (Verify - Local/Sandbox):**
+    *   Run Lane C against the sandbox.
+    *   **Critical Check:** Assert zero writes to pre-Oct 1 records.
+    *   **Flake Handling:** Run the full regression suite once. If the "currency conversion rounding" check fails, pause. A human must manually validate that specific case locally. Do not re-run the full 45m CI pipeline unless code changes.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (independent of Lane B) reviews the date-gate logic.
+    *   **Security/Compliance:** Finance Tech Lead verifies the JSON rates match the regulatory notice.
+    *   **Evidence:** Attach Lane C's "no historical mutation" report to the PR.
+
+**Landing Strategy**
+*   **Merge Train:** Serialize Lane A and Lane B into a single commit to ensure config/code atomicity.
+*   **CI Execution:** Trigger the 45m pipeline only once on the final merged SHA.
+    *   *Condition:* If the flaky currency check fails, halt merge. Perform manual validation. If valid, annotate the failure as a known flake and proceed; do not retry CI.
+*   **Human Gate (G8):**
+    *   **Approver:** Lead Financial Officer (LFO).
+    *   **Input:** PR link, Lane C verification report, manual validation note for the flaky check.
+    *   **Action:** LFO explicitly approves deployment to production.
+*   **Deployment:**
+    *   Deploy config (JSON) first. Verify version hash in logs.
+    *   Deploy service binary.
+    *   **Smoke Test:** Generate one live test invoice (Oct 1+ date) in production. Verify tax rate. Confirm no background jobs touched historical tables.
+
+**Rollback Plan**
+*   **Trigger:** Incorrect tax calculation on live test or any write to historical data detected.
+*   **Action:**
+    1.  Revert the service binary to the previous SHA immediately.
+    2.  Revert the JSON config to the previous version hash.
+    3.  Since historical writes are irreversible, if *any* past data was modified, halt and initiate the full database restore procedure (outside this plan's scope).
+*   **Communication:** Notify Finance immediately if rollback occurs.
+
+**Artifacts**
+*   PR containing code + config.
+*   `verification_report.json` (proving historical isolation).
+*   Manual sign-off note for the flaky currency check.
+*   LFO approval record.

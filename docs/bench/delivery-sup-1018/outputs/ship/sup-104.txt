@@ -1,0 +1,40 @@
+**Delivery Plan: Secure Remote Maintenance with Latency-Guarded E-Stop**
+
+**1. Lanes & Serialization**
+*   **Lane A (Spec & Architecture):** Define the encryption protocol and the explicit bypass mechanism for E-Stop signals. Must produce an Architecture Decision Record (ADR) proving the E-Stop path is physically or logically isolated from the encryption handshake queue. **Serialized:** Must complete before Lane B.
+*   **Lane B (Implementation):** Implement the encrypted tunnel in a dedicated worktree. Code must strictly separate the E-Stop interrupt vector from the standard command parser. No changes to `global-config.yaml` without a dry-run simulation.
+*   **Lane C (Simulation & Load Testing):** Build a high-load harness simulating network congestion. This lane runs on the expensive isolated hardware simulator. It must verify that under maximum load, E-Stop latency remains <50ms (ideally near-zero) while standard traffic is encrypted.
+*   **Lane D (Safety Board Review):** Independent review of the ADR and code diff, focusing solely on the failure mode where encryption hangs.
+
+**Parallelism:** Lanes C and D can prepare in parallel once Lane A is approved, but Lane B must finish before Lane C executes against the real binary. Lane C and D are independent; both must pass before integration.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** ADR approved by Jane Smith. Must explicitly name the "bypass" mechanism and define the "exact revision" for testing.
+*   **G2 (Plan):** Token budget set for Lane C (max 3 runs = $1,200 cap). If the third run flakes, the lane halts for manual triage, not automatic retry.
+*   **G4 (Implement):** Code committed with unit tests for the parser separation. No integration tests yet.
+*   **G5 (Verify):** **Critical Gate.** Lane C runs on the exact SHA from G4.
+    *   *Check 1:* Standard traffic is encrypted (compliance pass).
+    *   *Check 2:* E-Stop signal latency measured under load. **Hard Fail** if >50ms.
+    *   *Check 3:* `global-config.yaml` validation script runs locally to ensure no fleet-wide telemetry breakage.
+*   **G6 (Review):**
+    *   *Security:* Independent audit of the crypto implementation.
+    *   *Safety:* Jane Smith + Safety Board verify the G5 latency receipts. They do not review the builder's code directly; they review the test evidence and the ADR.
+
+**3. Review Strategy**
+*   **Builder:** Implements Lane B. Cannot approve their own work or the test results.
+*   **QA (Lane C Owner):** Owns the simulator runs. Must provide raw logs showing timestamps of E-Stop trigger vs. actuation.
+*   **Safety Board (Human):** The only entity authorized to sign off on the latency guarantee. They review the QA receipts, not the code.
+*   **Security:** Reviews the encryption standard compliance.
+
+**4. Landing & Human Decisions**
+*   **Integration:** Once G5 and G6 are green, a single integration commit is created.
+*   **Human Gate (G8):** **Jane Smith** must explicitly approve the merge. The merge triggers the deployment pipeline.
+    *   *Constraint:* Since deployments are irreversible, the merge is blocked until the Safety Board signs the "Latency Guarantee" form attached to the PR.
+*   **Rollback:** Impossible per ticket constraints ("irreversible"). Therefore, the G5 load test is the only safety net. If G5 shows *any* variance >45ms (buffer for measurement error), the merge is aborted.
+*   **Deployment:** Post-merge, a physical site verification is required for the first node before fleet-wide rollout (implied by "legacy radio protocol" constraints).
+
+**Risk Mitigation:**
+*   **Flaky CI:** The third test suite is known to flake. If Lane C fails on run 3 with a network error, we do not retry automatically. We inspect logs. If it's a network flake unrelated to latency, we authorize one manual re-run. If it fails again, we stop.
+*   **Config Blast Radius:** A pre-commit hook will block any PR modifying `global-config.yaml` unless accompanied by a generated "diff-impact" report showing zero changes to telemetry keys for the other 11 fleets.
+
+**Final Output:** A merged PR with attached G5 latency logs, signed ADR, and explicit approval from Jane Smith. No "trust me" assertions; only measured milliseconds.

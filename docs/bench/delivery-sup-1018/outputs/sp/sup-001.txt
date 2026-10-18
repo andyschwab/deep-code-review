@@ -1,0 +1,43 @@
+### Delivery Plan: Fraud Rule v4.2 Deployment
+
+**Objective:** Deploy velocity-check rule v4.2 to Apex gateway with verified zero false positives before the board review, ensuring no disruption to platinum-tier settlements.
+
+#### 1. Lanes and Parallelism
+
+*   **Lane A (Configuration & Isolation):** Extract the mutable configuration file from the `LedgerCore` monolith into a temporary, isolated staging branch. This decouples the rules engine from the billing scheduler to avoid the 30-second lock contention during testing.
+*   **Lane B (Data Preparation):** Snapshot the last 48 hours of production traffic logs. Sanitize sensitive merchant data for the test environment. This runs parallel to Lane A.
+*   **Lane C (Pipeline Optimization):** Queue the primary CI pipeline immediately to avoid the 50-minute business hour peak. Prepare a "dry-run" script that simulates the CI checks locally to catch syntax errors before consuming the 400-credit quota.
+
+**Serialization Point:** Lane A and Lane B must merge before any testing begins. The isolated config must be loaded with the 48-hour traffic snapshot.
+
+#### 2. Gates and Checks
+
+*   **Gate 1: Static Analysis (Local):** Run the local dry-run script on the isolated branch. **Constraint:** Do not trigger the full CI pipeline unless the local script passes.
+*   **Gate 2: Shadow Mode Validation:**
+    *   **Revision:** Deploy the merged branch to the staging environment with the `SHADOW_MODE=true` toggle active.
+    *   **Execution:** Replay the 48-hour traffic snapshot.
+    *   **Timing Constraint:** Avoid running the `Shadow-Validate` check on a Tuesday to prevent flaky failures due to data center latency. If today is Tuesday, delay this gate until Wednesday 00:01.
+    *   **Success Criteria:** The system must log zero blocks on platinum-tier merchant IDs. Any single false positive on a platinum account fails this gate immediately.
+*   **Gate 3: Zero False Positive Certification:** Generate a report comparing shadow-mode decisions against actual historical outcomes. The false-positive rate must be exactly 0.00%.
+
+#### 3. Review Process
+
+*   **Primary Reviewer:** Senior Backend Engineer (independent of the author). They must verify the isolation of the config file and the integrity of the traffic replay.
+*   **Secondary Reviewer (Risk):** Internal Risk Analyst. They must sign off on the "Zero False Positive" report, specifically confirming no platinum-tier settlements were flagged in the shadow logs.
+*   **Independence:** The Risk Analyst must not be the same person who prepared the traffic snapshot (Lane B).
+
+#### 4. Landing and Merge Strategy
+
+*   **Pre-Landing Window:** All gates must pass before 5:00 PM on the day prior to the board review. This ensures a buffer before the Chief Risk Officer (CRO) becomes unreachable at 6:00 PM.
+*   **Approval Gate:** The CRO must review the Risk Analyst's sign-off and the Shadow Mode report. **Hard Stop:** If the CRO is unavailable, deployment is paused. No bypasses.
+*   **Deployment:**
+    1.  Merge the isolated branch back to `main` (resolving any config lock conflicts).
+    2.  Trigger the full CI pipeline (accepting the cost and queue time).
+    3.  Deploy to Production with `SHADOW_MODE=true` initially.
+    4.  Once live stability is confirmed for 15 minutes, switch toggle to `SHADOW_MODE=false` (active enforcement).
+*   **Rollback Protocol:**
+    *   **Trigger:** Any detection of blocked platinum-tier transactions post-deployment.
+    *   **Action:** Execute full database rollback.
+    *   **Consequence Acknowledgement:** This will permanently wipe the last hour of audit logs. The Incident Commander must manually archive current logs to cold storage *before* initiating the rollback to preserve forensic data.
+
+**Human Decision Required:** The CRO's explicit approval to switch from Shadow to Active mode. No automation is permitted for this final toggle.

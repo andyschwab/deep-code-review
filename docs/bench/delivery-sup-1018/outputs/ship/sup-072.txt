@@ -1,0 +1,54 @@
+### Delivery Plan: Q3 Weight Sensor Backfill
+
+**Strategy:** Execute a read-only backfill script with chunked ingestion to bypass CI flakiness, validated against archive manifests before any database write. The work is split into three serialized phases: Preparation, Dry-Run Validation, and Gated Execution.
+
+#### 1. Lanes & Serialization
+
+*   **Lane A: Script Implementation (Builder)**
+    *   **Task:** Write the backfill script in `core-ingest`. It must read CSVs from cold storage paths, deduplicate against existing DB records (checking for last month's manual patches), and ingest in chunks of <50,000 rows.
+    *   **Constraint:** Use `test-fixtures` for local logic validation; do not attempt full integration tests locally.
+    *   **Output:** A standalone script and a migration wrapper.
+
+*   **Lane B: Manifest & Count Verification (QA)**
+    *   **Task:** Independently calculate expected row counts from the raw CSV archives and compare them against the "manual patch" logs from last month to establish the exact target net-new row count.
+    *   **Serialization:** Must complete before Lane C starts. Lane A uses these numbers for assertion logic.
+
+*   **Lane C: Staging Dry-Run (QA + Builder)**
+    *   **Task:** Execute the script against the staging database using the sanitized subset. Verify no duplicates are created and chunking logic holds.
+    *   **Serialization:** Depends on Lane A (code) and Lane B (expected counts).
+
+#### 2. Gates & Checks
+
+*   **G1 Spec (Conductor):** Define the deduplication key (likely `sensor_id` + `timestamp`) and the exact chunk size (45k rows recommended to stay under the 50k flake limit).
+*   **G4 Implement (Builder):** Code review of the script focusing on the "chunking" loop and the "exists" check prior to insert.
+    *   *Check:* Static analysis to ensure no hard-coded production credentials.
+*   **G5 Verify (QA):**
+    *   *Local:* Run against `test-fixtures`. Assert exit code 0.
+    *   *Staging:* Run the script. Query the DB to confirm row count matches Lane B's calculation exactly. Confirm no duplicate timestamps exist for any sensor.
+    *   *CI Trigger:* Only trigger the $45 CI job **once** after the staging dry-run succeeds, targeting the specific commit SHA from the dry-run.
+*   **G6 Review (Independent):**
+    *   *Reviewer 1:* Jane Smith (Platform Reliability).
+    *   *Reviewer 2:* Lead DBA.
+    *   *Scope:* Review the migration plan and the rollback script. They must both approve the *strategy*, not just the code.
+
+#### 3. Landing & Human Decisions
+
+*   **Merge Strategy:**
+    1.  Merge Lane A to the integration branch only after G6 approval.
+    2.  **Human Gate (Deployment):** The actual execution of the backfill script in Production is a **manual, human-led operation**. It is not part of the automated deploy pipeline.
+    3.  **Execution Window:** Run during a low-traffic window before the nightly billing snapshot.
+
+*   **Rollback Plan:**
+    *   Since schema changes are irreversible, the rollback is **data deletion only**.
+    *   Prepare a `rollback.sql` script that deletes records inserted with the specific `backfill_job_id` tag.
+    *   **Condition:** If post-run row counts do not match the manifest or if the billing engine reports anomalies immediately after the run, execute `rollback.sql` before the next billing cycle.
+
+*   **Final Verification (G9):**
+    *   After the manual run, re-run the row count validation against the production manifest.
+    *   Confirm the nightly billing engine processes the new data without generating duplicate line items.
+
+**Summary of Critical Constraints:**
+*   **Cost:** Limit CI runs to one final verification.
+*   **Stability:** Enforce <50k row chunks in code.
+*   **Safety:** Dual-approval (Jane + DBA) required before the script touches Production.
+*   **Integrity:** Row count match is the definition of "Done."

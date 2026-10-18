@@ -1,0 +1,69 @@
+# Delivery Plan: Legacy CSV Deprecation & Archive Fallback
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Data Integrity Team)**
+*   **Work:** Implement the date-checking middleware in `archive-gateway`. Logic: If `request.date` < (Today - 3 years), route to Cold Storage API; else, route to Standard CSV Generator.
+*   **Parallelism:** Can proceed immediately. Independent of Lane B.
+
+**Lane B: Contract Preservation (Automation Team)**
+*   **Work:** Create a "Shim Layer" ensuring HTTP headers, status codes, and column ordering for the Cold Storage response exactly match the legacy format. This prevents breaking existing automated scripts.
+*   **Parallelism:** Can proceed immediately, provided the Cold Storage API schema is documented.
+
+**Lane C: Validation Harness (QA)**
+*   **Work:** Build a localized test suite comparing Legacy vs. New outputs for overlapping dates. Since full CI takes 45 minutes, this lane must verify changes locally or on a dedicated "fast-path" branch before pushing.
+*   **Serialization:** Must wait for Lane A's initial interface definition to finalize test assertions.
+
+## Gates & Checks
+
+**Gate 1: Local Verification (Pre-Push)**
+*   **Revision:** Feature branch head.
+*   **Check:** Run the localized Validation Harness (Lane C) against the `archive-gateway` module.
+*   **Constraint:** No commit moves forward without passing this local suite. Full CI is too slow for iteration; rely on the fast-path suite for logic validation.
+
+**Gate 2: Staging Financial & Functional Audit**
+*   **Revision:** Release candidate tagged `rc-archive-fallback`.
+*   **Check:** Deploy to Staging. Execute a controlled batch of requests for dates >3 years.
+*   **Critical Check:** Verify Cold Storage invocation count matches request count exactly. Monitor for unexpected cost spikes.
+*   **Timing:** Avoid Tuesday deployments due to known nightly sync flakiness which could corrupt test data.
+
+**Gate 3: Compliance Dry-Run**
+*   **Revision:** Same `rc-archive-fallback`.
+*   **Check:** Simulate a 10-year trend audit using the fallback mechanism. Verify data continuity and format consistency.
+
+## Review Process
+
+**Independent Technical Review**
+*   **Reviewer:** Senior Engineer from a team *other* than Data Integrity (e.g., Platform Services).
+*   **Scope:** Code review of `archive-gateway` changes and the Shim Layer.
+*   **Focus:** Ensure no dual-path logic remains active for recent dates and that the fallback is strictly time-gated.
+
+**Independent Compliance Review**
+*   **Reviewer:** Compliance Officer.
+*   **Scope:** Review the Staging Dry-Run results (Gate 3).
+*   **Focus:** Confirm that historical records are accessible without manual intervention and format matches legacy specs exactly.
+
+*Note: The Lead Architect reviews the combined Technical and Compliance sign-offs, not the code directly.*
+
+## Landing Strategy
+
+**1. Feature Flag Deployment**
+*   Merge `rc-archive-fallback` to `main` behind a feature flag `legacy_csv_fallback` set to `OFF`.
+*   Deploy to Production 'Vault' environment. No traffic flows to the new logic yet.
+
+**2. Canary Activation**
+*   Enable flag for 1% of internal traffic only. Monitor logs for Cold Storage trigger accuracy.
+*   Gradually increase to 10%, then 50% over 48 hours, avoiding Tuesday night windows.
+
+**3. Full Cutover (Human Decision Required)**
+*   **Trigger:** Once 100% canary success is confirmed and Compliance Officer signs off on the Staging Dry-Run.
+*   **Action:** Flip `legacy_csv_fallback` to `ON` for all users.
+*   **Approval:** Requires explicit joint approval from Compliance Officer and Lead Architect via the deployment pipeline.
+
+**Rollback Protocol**
+*   **Condition:** Any report of missing historical data or script breakage.
+*   **Action:** Immediately flip feature flag to `OFF`. This reverts traffic to the legacy dual-path logic instantly without a code redeploy.
+*   **Post-Mortem:** If rollback occurs, freeze all further deprecation work. Investigate Cold Storage latency or Shim Layer mapping errors before re-attempting.
+
+**Final Cleanup**
+*   Only after 30 days of stable operation with zero fallback errors, a secondary ticket will be raised to physically remove the legacy dual-path code from `archive-gateway`.

@@ -1,0 +1,40 @@
+### Delivery Plan: Anti-Cheat Heuristic Update
+
+#### 1. Lanes and Parallelism
+*   **Lane A (Logic Implementation):** Trust & Safety Engineer updates the detection weights and heuristic logic in the `core-match` service. This work is isolated to application logic and does not touch the database schema.
+*   **Lane B (Validation Data Prep):** QA Automation Engineer extracts the specific subset of archived match logs from the summer tournament focusing on entries with scores >50,000.
+*   **Parallel Execution:** Lanes A and B run simultaneously. Lane A must not proceed to integration testing until Lane B confirms the dataset is ready.
+
+#### 2. Gates and Checks
+*   **Gate 1: Local Sanity Check (Pre-Commit):**
+    *   **Revision:** Feature branch head.
+    *   **Action:** Run the lightweight sanitizer only. Full regression suites are skipped to save credits.
+    *   **Pass Condition:** Code compiles; sanitizer reports no critical syntax errors. Ignore flaky network check failures if data ingestion logs confirm success.
+*   **Gate 2: The "High-Score" Firewall (Pre-Merge):**
+    *   **Revision:** Release Candidate (RC) build deployed to a staging environment mirroring production.
+    *   **Action:** Execute the validation script against the summer tournament logs prepared in Lane B.
+    *   **Hard Stop:** If the script flags **even one** legitimate entry (>50k points) as suspicious, the deployment halts immediately. No overrides allowed. The engineer must recalibrate weights and return to Gate 1.
+*   **Gate 3: Dual Approval (Pre-Production):**
+    *   **Revision:** The exact RC build that passed Gate 2.
+    *   **Action:** Manual review of the validation report and change diff.
+    *   **Approvers:** Requires explicit sign-off from both the Lead Engineer and the Community Manager.
+
+#### 3. Review Process
+*   **Code Review:** Performed by a senior engineer **outside** the Trust & Safety squad to ensure independence. Focus is strictly on the weight integration logic and ensuring no hard-coded thresholds bypass the new rules.
+*   **Data Review:** The Community Manager independently verifies the validation script's output, specifically auditing the "false positive" report for high-score users. They act as the proxy for the speedrunning community.
+*   **Separation:** The implementer cannot approve their own code or validate their own data results.
+
+#### 4. Landing Strategy
+*   **Merge Window:** Tuesday–Thursday, 10:00–14:00 local time. **Strictly forbidden** on weekends or Fridays, as the on-call rotation cannot handle database rollbacks (even though schema changes are not planned, this mitigates risk of unforeseen data corruption).
+*   **Deployment Method:** Canary release to 5% of tournament traffic.
+*   **Human Decision Point:** If the canary shows a latency increase >5%, the Community Manager decides whether to rollback or proceed based on player sentiment monitoring.
+*   **Rollback Plan:**
+    *   **Trigger:** Any confirmed false positive ban or system instability during canary.
+    *   **Action:** Revert the `core-match` service to the previous stable tag.
+    *   **Constraint:** Since the replay database is read-only and shared, no database rollback is required or possible. The rollback is purely an application code revert.
+    *   **Notification:** Immediate notification to the requester if a rollback occurs.
+
+#### 5. Risk Mitigation
+*   **Database Safety:** No schema modifications will be attempted. The historical replay database remains untouched.
+*   **Cost Control:** Only the lightweight sanitizer runs during development; the full suite runs only once on the final RC.
+*   **False Positive Guarantee:** The "High-Score" Firewall (Gate 2) is the ultimate safeguard. If it fails, the code never reaches human approvers.

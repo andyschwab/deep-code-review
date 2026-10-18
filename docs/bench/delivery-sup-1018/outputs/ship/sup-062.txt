@@ -1,0 +1,48 @@
+### Delivery Plan: HD Video Buffer Optimization
+
+**Objective:** Implement dynamic buffer sizing to prevent OOM crashes on legacy mobile without increasing memory footprint or breaking tablet streaming.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Analysis & Spec) – Product Analyst:**
+    *   **Task:** Analyze current allocation logs to quantify over-allocation during scene changes. Define the "stability-first" dynamic sizing algorithm.
+    *   **Output:** Technical spec with explicit acceptance criteria for memory caps and visual quality thresholds.
+    *   **Constraint:** Must identify the exact shared configuration keys affecting all three product lines.
+*   **Lane B (Implementation) – Builder (Isolated Worktree):**
+    *   **Task:** Refactor buffer logic per Lane A's spec. Implement safeguards to ensure total footprint never exceeds current static limits.
+    *   **Parallelism:** Runs parallel to Lane C only after Lane A's spec is frozen.
+    *   **Constraint:** Changes to shared config must be backward compatible with tablet streaming.
+*   **Lane C (Test Harness Prep) – QA:**
+    *   **Task:** Prepare the throttled container environment. Script the `Memory-Leak-Suite` trigger and the manual re-trigger procedure for the flaky `Audio-Sync` check.
+    *   **Serialization:** Must complete before Lane D starts.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Owner (Jane Smith) approves the algorithm and risk assessment for tablet regression.
+*   **G4 (Code Complete):** Builder commits to a feature branch. Static analysis and unit tests run locally.
+*   **G5 (Verification):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Execution:** Run `Memory-Leak-Suite` in the throttled staging container.
+    *   **Flake Handling:** If `Audio-Sync` fails, manually re-trigger once. If it fails twice, flag for human triage; do not auto-retry endlessly.
+    *   **Tablet Safety:** Run a smoke test on the tablet configuration profile to prove no regression.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer independent of the Builder (not Jane Smith, as she is the final approver).
+    *   **Scope:** Full diff against the pinned G4 SHA. Focus on memory arithmetic and shared config boundaries.
+    *   **Security:** Verify no new data exposure in buffer logs.
+
+#### 3. Review & Approval
+*   **Independent QA:** Validates the G5 receipts (green suite, passed tablet smoke test).
+*   **Final Approval:** Jane Smith must explicitly approve the merge. This is a hard human gate due to the irreversible deploy nature and shared config risk.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    1.  Rebase onto the latest `main` to ensure no drift in shared configs.
+    2.  Run a final, cost-aware dry-run of the `Memory-Leak-Suite` on the integration branch if CI policy allows (otherwise rely on G5 SHA immutability).
+    3.  **Human Decision:** Jane Smith merges the PR.
+*   **Deployment:**
+    *   Deploy to a canary group (lowest-spec devices only) initially.
+    *   Monitor crash-free session rates and buffering metrics for 2 hours.
+*   **Rollback Plan:**
+    *   Since deploys are irreversible without a full service rollback, the "rollback" is an immediate revert of the merge commit followed by a full media service redeploy to the previous stable SHA.
+    *   **Trigger:** Any increase in OOM kills or tablet playback failures.
+    *   **Owner:** On-call SRE executes the revert; Builder assists with diagnosis.
+
+**Cost Control:** The `Memory-Leak-Suite` ($12/run) is limited to one successful run per lane. Retries are capped at one manual re-trigger for the flaky audio check. No speculative runs.

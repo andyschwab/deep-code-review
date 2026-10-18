@@ -1,0 +1,35 @@
+### Delivery Plan: Waste Route Optimizer v4.2
+
+**Objective:** Deploy v4.2 safely before Saturday 04:00 with guaranteed fallback.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data Validation):** Operations Team verifies staging data parity with production. Must complete before Lane B starts.
+*   **Lane B (Build & Sim):** CI Pipeline executes build and heavy simulation. Limited to 6 runs/day; 55 mins each.
+*   **Lane C (Compliance Prep):** City Compliance Officer reviews change logs and risk assessment independently of code build.
+*   **Lane D (Fallback Config):** DevOps prepares the "kill switch" script for latency >2s and the full reboot procedure.
+
+**Serialization:** Lane A must pass before Lane B begins to avoid wasting a build slot on bad data. Lane B and Lane C run in parallel. Lane D runs parallel to A/B/C but must be tested after B succeeds.
+
+#### 2. Gates & Checks
+*   **Gate 1 (Data Integrity):** Automated diff check between Staging and Production zone mappings. **Stop condition:** Any mismatch in alleyway coordinates.
+*   **Gate 2 (Build Success):** CI passes simulation. **Special Handling:** If the geographic validation check flakes (timeout), trigger one manual re-run immediately. If it fails twice, halt and escalate to Urban Logistics lead; do not burn remaining daily build quota on flaky tests.
+*   **Gate 3 (Latency Trigger Test):** In the staging environment (post-Build), inject 2.1s latency. Verify automatic fallback triggers instantly. **Stop condition:** Fallback delay >200ms.
+*   **Gate 4 (Config Lock Verification):** Confirm the zone mapping file is locked in the target revision. **Stop condition:** File is writable or version mismatch.
+
+**Exact Revision:** All checks run on the specific Git SHA produced by the successful Lane B build. No code changes allowed after Gate 2.
+
+#### 3. Review Process
+*   **Technical Review:** Senior Dispatcher reviews the simulation results and fallback test logs (Gate 2 & 3 outputs). They verify the logic matches dispatch requirements.
+*   **Compliance Review:** City Compliance Officer signs off on the risk assessment and confirms regulatory alignment (Lane C output).
+*   **Independence:** The Senior Dispatcher cannot approve the Compliance Review, and the Compliance Officer cannot approve the Technical Review. Both signatures are required for the final go/no-go.
+
+#### 4. Landing Strategy
+*   **Go/No-Go Decision:** Joint meeting Friday 23:00. Dispatch Lead presents Gate 1-3 results. Both approvers must verbally confirm "GO" by Friday 23:45.
+*   **Deployment Window:** Starts Saturday 00:00. Must complete by 03:00 to allow 1 hour for buffer before trucks roll.
+*   **Merge Strategy:** The approved build SHA is promoted to Production. The configuration lock is engaged immediately upon deployment start.
+*   **Human Decision Point:** If Gate 2 (Build) fails due to flaky tests after one retry, the Urban Logistics Lead must decide whether to burn the final daily build slot on a third attempt or abort to the previous stable version.
+*   **Rollback Plan:**
+    1.  **Instant:** If latency spikes >2s in production, the automatic fallback reverts routing logic to v4.1 behavior immediately.
+    2.  **Hard Reset:** If the config file corrupts or fallback fails, execute the full system reboot procedure (Lane D) to restore the pre-deployment state. This incurs a 15-minute service interruption but guarantees consistency.
+
+**Critical Constraint:** No edits to the zone mapping file are permitted after the deployment window opens. Any errors found post-launch must be handled via the rollback procedure, not hotfixes.

@@ -1,0 +1,51 @@
+### Delivery Plan: Dispatch Logic Rebalance
+
+**Objective:** Reduce driver idle time via load balancing tweaks while guaranteeing 100% on-time delivery window adherence and stability during peak spikes.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Algorithm Design & Unit Logic):**
+    *   **Owner:** Builder.
+    *   **Work:** Implement new balancing heuristic in `core-routing`. Develop unit tests specifically targeting "idle gap" reduction and "morning batch" prioritization.
+    *   **Constraint:** Must run in an isolated worktree. No commits during business hours if touching `global-time-window` config.
+*   **Lane B (Historical Simulation):**
+    *   **Owner:** QA (Independent).
+    *   **Work:** Replay historical peak-volume data against the proposed logic changes. Focus on detecting cascading delays.
+    *   **Dependency:** Requires Lane A's candidate SHA. Runs in parallel with Lane A's later refinement stages but blocks final merge.
+*   **Lane C (Cost & Config Audit):**
+    *   **Owner:** Security/Release.
+    *   **Work:** Verify no changes violate read-only windows for `global-time-window`. Confirm CI batching strategy to minimize cloud credit burn.
+
+**Serialization:** Lane B cannot finalize until Lane A produces a stable candidate. Lane C runs parallel but must sign off before G7 integration.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define "Idle Time" metric baseline and strict "On-Time Guarantee" failure thresholds. Pin base SHA.
+*   **G4 Implement:**
+    *   **Check:** Unit tests green.
+    *   **Constraint:** Batch commits to trigger single CI run (45m duration).
+    *   **Flake Handling:** If `peak-load-validator` fails on a Tuesday, manual verification is required; do not auto-retry.
+*   **G5 Verify (Critical):**
+    *   **Environment:** Staging simulation using historical peak data.
+    *   **Criteria:** Zero missed delivery windows. Morning batches must start within existing SLA bounds.
+    *   **Evidence:** Simulation logs showing idle time reduction vs. delay count (must be 0).
+*   **G6 Review:**
+    *   **Reviewer:** Senior Logistics Engineer (Independent of Builder).
+    *   **Scope:** Full diff review + Simulation receipt audit.
+    *   **Security:** Confirm no hard-coded time-window overrides.
+
+#### 3. Review Strategy
+*   **Code Review:** Independent senior engineer reviews `core-routing` changes. Builder cannot self-approve.
+*   **Logic Validation:** QA validates simulation results against the "no cascading delays" requirement.
+*   **Safety Check:** Release engineer verifies that `global-time-window` remains untouched during restricted hours.
+
+#### 4. Landing & Rollback
+*   **Integration (G7):** Merge to integration branch only after G5/G6 pass on the exact candidate SHA.
+*   **Human Gates (G8):**
+    *   **Required Sign-off:** Explicit written approval from **Jane Smith** AND the **Shift Manager**.
+    *   **Timing:** Deploy outside business hours to avoid config reversion issues.
+*   **Deployment:** Single batch deploy.
+*   **Rollback Plan:**
+    *   **Trigger:** Any missed delivery window or morning batch delay > threshold in first 1 hour post-deploy.
+    *   **Action:** Full system rollback to previous SHA (required as routes are irreversible once published).
+    *   **Preparation:** Rollback script dry-run completed in G5.
+
+**Risk Flag:** If historical simulation shows *any* increase in missed windows under peak load, the lane halts immediately. No partial deploys.

@@ -1,0 +1,50 @@
+### Delivery Plan: AquaSight Dashboard Upgrade with Audit Preservation
+
+**Objective:** Refresh UI and performance while guaranteeing bitwise immutability of historical compliance data (2019–present) and archived PDF checksums.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Data Integrity Baseline) – [Serialized, First]**
+    *   **Actor:** Security Hat (Independent of Builder).
+    *   **Work:** Generate cryptographic hashes (SHA-256) of all historical certified values and archived PDFs from the current production state. Store these in a temporary, isolated verification ledger.
+    *   **Constraint:** Read-only access to archival bucket; no writes.
+*   **Lane B (UI/Performance Refactor) – [Parallel to A, after Spec]**
+    *   **Actor:** Builder Hat.
+    *   **Work:** Implement new frontend interface and optimize aggregation queries in a dedicated worktree.
+    *   **Constraint:** Strict prohibition on modifying data aggregation logic for pre-2024 records. Database schema remains untouched.
+*   **Lane C (Verification Harness) – [Parallel to B, depends on A]**
+    *   **Actor:** QA Hat.
+    *   **Work:** Build a comparison script that re-runs historical reports against the new engine and compares output values/PDF checksums against Lane A's baseline.
+    *   **Constraint:** Must handle the flaky timestamp check by isolating it; failure in timestamp validation must not block data integrity assertion.
+
+#### 2. Gates & Checks
+*   **G1 Spec:** Define "Legal Admissibility" criteria explicitly. Pin base SHA for all lanes.
+*   **G3 Design:** Architectural Decision Record (ADR) confirming no schema changes and detailing the read-path separation for historical vs. new data.
+*   **G4 Implement:** Code complete in isolated worktrees. Unit tests added for new UI components; no new tests required for frozen legacy logic unless a regression is detected.
+*   **G5 Verify (Critical):**
+    *   **Environment:** Staging environment mirroring production data (read-only snapshot).
+    *   **Action:** Run Lane C's harness against the exact integrated SHA.
+    *   **Success Condition:** 100% match on historical values and PDF checksums. The flaky timestamp check is excluded from the blocking gate but logged for manual review.
+    *   **Performance:** Load time improvement verified on staging.
+*   **G6 Review:**
+    *   **Security/AppSec:** Independent review of the read-path logic to ensure no write capabilities exist for the archival bucket.
+    *   **Deep Code Review:** Full diff review focusing on aggregation logic changes.
+*   **G7 Integrate:** Merge to integration branch. Re-run G5 verification on the final merge SHA.
+
+#### 3. Review Strategy
+*   **Builder:** Cannot review their own code.
+*   **QA:** Independent verification of data integrity (Lane C results).
+*   **Security:** Independent audit of access controls and immutability guarantees.
+*   **Legal (Human Gate):** Review the G5 verification receipt and sign off on data integrity *before* G8.
+
+#### 4. Landing & Human Gates
+*   **Merge Train:** Serialized landing. Lane A (baseline) concepts are pre-existing; Lane B and C merge together only after G5 green.
+*   **Human Approval (G8):**
+    *   **Required Sign-offs:** Lead Engineer AND Chief Legal Officer.
+    *   **Trigger:** Deployment to production.
+    *   **Evidence Provided:** G5 verification receipt showing zero deviations in historical data, performance metrics, and the specific SHA being deployed.
+*   **Rollback Plan:**
+    *   **Mechanism:** Immediate revert of the deployment commit.
+    *   **Condition:** Any discrepancy in historical data reported post-deploy or failure in the first 24 hours of operation.
+    *   **Constraint:** Since the archival bucket is WORM, rollback relies on switching the application pointer back to the previous stable version; no data deletion is possible or required.
+
+**Risk Mitigation:** The flaky timestamp check is documented as a known non-blocking warning during this specific delivery to prevent false negatives, but a separate ticket will be raised to fix it permanently after this release. The high cost of CI is managed by running the full 4-hour suite only on the final integration SHA, not on every commit in Lane B.

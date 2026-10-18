@@ -1,0 +1,49 @@
+**Delivery Plan: Regional Cluster Routing (Additive Layer)**
+
+**Scope & Constraints**
+Implement additive routing for `regional-cluster` headers to the Shared Identity Service with local cache fallback. No changes to factory permission schemas. No changes to Platform Security services (frozen). Verification must occur on Production Canary due to staging token limitations.
+
+**Lanes & Parallelism**
+
+*   **Lane A: Routing Logic (Builder)**
+    *   **Work:** Implement header parsing and routing logic in the backend. Ensure strict additive behavior (no schema modifications). Implement timeout handling and local cache fallback.
+    *   **Parallelism:** Runs in parallel with Lane B.
+    *   **Serialization:** Must complete before Lane C (Integration).
+
+*   **Lane B: Configuration & Approval Prep (Conductor)**
+    *   **Work:** Draft the `global-routes.json` update. Prepare the dual-approval request artifact for both Team Leads (Fleet Ops + Platform Security).
+    *   **Parallelism:** Runs in parallel with Lane A.
+    *   **Serialization:** Configuration apply waits on human approval (Gate H1).
+
+*   **Lane C: Integration & Canary Verification (QA)**
+    *   **Work:** Merge approved config and built logic into a single integration commit. Deploy to Production Canary only (staging is invalid for auth). Verify telemetry aggregation and fallback behavior under simulated timeout.
+    *   **Serialization:** Waits for Lane A completion and Lane B human approval.
+
+**Gates & Checks**
+
+*   **G1 Spec (Now):** Confirm acceptance criteria: Header acceptance, central routing, cache fallback on timeout, zero schema changes. Pin base SHA.
+*   **G3 Design (Pre-Code):** Verify additive nature via code review plan. Confirm fallback logic does not block main thread.
+*   **G4 Implement:** Lane A produces patch. Lane B produces config draft.
+*   **G5 Verify (Local/Unit):** Run unit tests for routing logic and fallback mechanisms. *Constraint:* Do not run full 45-min regression suite yet; run targeted path tests only.
+*   **H1 Human Gate (Config):** Obtain dual approval for `global-routes.json` edit. (Blocked until leads respond).
+*   **G6 Review (Independent):**
+    *   **Code:** Senior Backend Engineer (not the Builder) reviews Lane A.
+    *   **Security:** Platform Security representative (async, non-code) validates the additive claim and fallback safety.
+*   **G7 Integrate:** Create single integration SHA combining code and approved config.
+*   **G8 Release (Human):** Owner approves deployment to Production Canary.
+*   **G9 Production Verify:** QA verifies live telemetry aggregation on Canary. Confirms fallback triggers correctly if central service is slow.
+
+**Landing Strategy**
+
+1.  **Merge Train:** Once G6 (Review) and H1 (Config Approval) are green, merge Lane A and the approved config into the integration branch.
+2.  **Deployment:** Deploy integration SHA to Production Canary only. Do not roll out to all hubs immediately.
+3.  **Human Decision:** The "Go/No-Go" for full rollout after Canary verification is a manual decision by Fleet Operations based on G9 results.
+4.  **Rollback:**
+    *   **Config:** Revert `global-routes.json` to previous version (requires dual approval).
+    *   **Code:** Hotfix revert deploying previous binary if Canary shows data loss or latency spikes.
+    *   **Fallback:** The system naturally falls back to local caching if the central service fails, mitigating total data loss during the transition or rollback.
+
+**Risk Mitigation**
+*   **CI Cost:** Targeted tests only until final integration.
+*   **Staging Flakiness:** Skip staging auth verification; rely on Canary.
+*   **Freeze:** No changes requested from Platform Security codebase; only config approval needed.

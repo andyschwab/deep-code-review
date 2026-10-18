@@ -1,0 +1,53 @@
+### Delivery Plan: Legacy Binary Adapter Deprecation
+
+**Objective:** Implement a transparent translation layer in `core-ingest` to support 12 legacy robotic arms without device reconfiguration, ensuring zero downtime during the cutover next Tuesday.
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Architecture & Contract) – Conductor + Product Analyst**
+    *   **Task:** Define the exact binary-to-telemetry mapping and the "flawless fallback" logic. Document the interface in an ADR.
+    *   **Constraint:** Must complete before Lane B starts to prevent rework on the shared C library.
+    *   **Parallelism:** Runs in parallel with Lane C.
+*   **Lane B (Implementation) – Builder (Isolated Worktree)**
+    *   **Task:** Implement the translation layer in the gateway. **Crucial:** Do not modify the shared C library; wrap it or fork the parser logic locally within the gateway service to avoid breaking the three dependent services.
+    *   **Constraint:** Must include a "shadow mode" that ingests legacy traffic without processing it, to verify parsing accuracy against live data.
+    *   **Parallelism:** Starts after Lane A approves the spec.
+*   **Lane C (Test Harness & Emulation) – QA**
+    *   **Task:** Configure the hardware emulation environment to simulate the 12 specific legacy arms. Script the "heartbeat loss" failure injection test.
+    *   **Constraint:** Must be ready before Lane B's integration test to avoid wasting CI credits on broken environments.
+    *   **Parallelism:** Runs in parallel with Lane A.
+
+#### 2. Gates & Checks (Exact Revisions)
+*   **G1/G2 (Spec & Plan):** Review ADR and work graph. **Gate:** Conductor approves; Builder confirms no shared C library modifications.
+*   **G4 (Implement):** Builder submits PR to `feature/legacy-translation`.
+    *   **Check:** Unit tests for parser wrapping (local only, no CI yet to save credits).
+*   **G5 (Verify):** QA triggers CI on the exact merge commit of Lane B.
+    *   **Check 1:** Hardware emulation suite (50 min run). Must pass 100% of heartbeat scenarios.
+    *   **Check 2:** "Shadow mode" verification against recorded production traffic (replay).
+    *   **Check 3:** Flaky network retry logic validation (ensure 3rd retry success).
+    *   **Condition:** If CI fails due to flakiness, do not retry blindly; analyze logs. Max 2 retries allowed before manual investigation.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (not the Builder) reviews the wrapper logic.
+    *   **Security/Safety:** Verify rollback mechanism triggers instantly on heartbeat loss.
+    *   **Dependency Check:** Confirm builds of the three other services using the shared C library remain green.
+
+#### 3. Review Strategy
+*   **Independent QA:** QA executes the emulation suite; they do not rely on Builder's local test results.
+*   **Independent Code Review:** A Senior Engineer from the Data Team (uninvolved in implementation) reviews the changes to ensure no side effects on the shared library consumers.
+*   **Safety Audit:** Operations Lead reviews the fallback/rollback procedure specifically.
+
+#### 4. Landing & Human Gates
+*   **Integration (G7):** Merge to `staging` branch only after G6 approval.
+    *   **Human Gate 1:** **Jane Smith** must approve the deployment to Staging.
+    *   **Action:** Deploy to Staging; run live shadow traffic for 24 hours.
+*   **Production Release (G8):**
+    *   **Human Gate 2:** Dual sign-off required from **Jane Smith** and **John Doe**.
+    *   **Condition:** Approval granted only after 24h of stable Staging shadow traffic with zero heartbeat drops.
+*   **Cutover (Next Tuesday):**
+    *   Enable translation layer via feature flag.
+    *   Monitor heartbeats in real-time.
+*   **Rollback Plan:**
+    *   **Trigger:** Any single arm misses a heartbeat window.
+    *   **Action:** Immediate feature flag flip to revert to legacy adapter path. No code redeploy needed.
+    *   **Database Safety:** Since schema changes are irreversible, the translation layer must write to a compatible schema or buffer data until the cutover is confirmed successful before committing irreversible changes.
+
+**Risk Mitigation:** CI costs (40 credits) are minimized by running local pre-checks before triggering the 50-minute emulation pipeline. The shared C library is protected by isolation/wrapping rather than direct modification.

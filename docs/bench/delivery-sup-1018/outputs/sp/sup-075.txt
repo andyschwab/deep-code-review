@@ -1,0 +1,41 @@
+### Delivery Plan: Hybrid Boarding Pass v2
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Core Logic - Serial):** The Airport Integration team implements the detection logic in `gateway-adapter`. This must happen first to define the interface for the remote toggle.
+    *   *Dependency:* Cannot start until the "Regional Airport" flag definition is confirmed with Ground Operations.
+*   **Lane B (Configuration - Parallel):** The Check-in Kiosk team prepares the update for `legacy-airport-list.json`.
+    *   *Constraint:* This runs parallel to Lane A but cannot merge until the coordinated deployment window is scheduled.
+*   **Lane C (Asset Verification - Parallel):** Design verifies the high-res assets render correctly on the target mobile OS versions. This is independent of code changes.
+
+**2. Gates & Checks**
+*   **Gate 1: Pre-Merge Simulation (Critical)**
+    *   *Trigger:* Any push to the feature branch in `gateway-adapter`.
+    *   *Execution:* Runs on the specific commit hash awaiting review.
+    *   *Check:* Hardware-in-the-loop simulation against the three physical scanner models.
+    *   *Constraint:* Limit to one run per logical change set to manage the $45/22min cost. Do not run on whitespace-only commits.
+*   **Gate 2: Configuration Sync**
+    *   *Trigger:* Update to `legacy-airport-list.json`.
+    *   *Check:* Verification that the file version matches the expected schema for both `gateway-adapter` and the Kiosk service.
+    *   *Constraint:* Must be validated in a dry-run environment that mimics production noise filters, as staging is unreliable for contrast issues.
+*   **Gate 3: Remote Toggle Readiness**
+    *   *Check:* Verification that the dashboard can successfully flip the legacy mode flag without a service restart.
+
+**3. Review Process**
+*   **Code Review:** Independent review by the Lead Architect (technical soundness) AND the Director of Ground Operations (operational safety).
+    *   *Requirement:* Both approvals are mandatory before merging to `main`.
+    *   *Focus:* The Architect reviews the detection logic efficiency; the Director reviews the fallback criteria to ensure no passenger strandings.
+*   **Configuration Review:** Joint sign-off by Airport Integration and Check-in Kiosk leads to prevent version skew on the shared JSON file.
+
+**4. Landing Strategy**
+*   **Merge Protocol:**
+    1.  Merge `legacy-airport-list.json` during the coordinated deployment window.
+    2.  Merge `gateway-adapter` feature branch to `main` immediately after.
+    3.  Deploy to production with the legacy toggle initially **OFF** (canary mode).
+*   **Human Decision Points:**
+    *   **Go/No-Go:** The Director of Ground Operations must explicitly authorize the final toggle switch to **ON** based on initial canary metrics.
+    *   **Escalation:** If scan failure rates exceed 2% post-deployment, the on-call engineer must decide whether to toggle legacy mode globally or roll back the service.
+*   **Rollback Plan:**
+    *   *Immediate Action:* Flip the remote dashboard toggle to force legacy mode for all flights if failure spikes >2%.
+    *   *Service Revert:* If the toggle fails to stabilize operations, revert the `gateway-adapter` commit in `main` and redeploy the previous stable version. The `legacy-airport-list.json` remains unchanged as it is backward compatible.
+
+**Risk Mitigation:** Since staging visual tests are flaky, rely exclusively on the hardware-in-the-loop CI results for pass/fail decisions on contrast and scanning reliability. Do not block deployment on staging visual regression passes.

@@ -1,0 +1,70 @@
+### Delivery Plan: Billing Engine Proration Revert
+
+**Objective:** Roll back faulty proration logic to the last stable version while ingesting three hours of interim usage data without loss or corruption.
+
+#### 1. Lanes and Serialization
+
+Work is divided into three lanes with strict serialization points to prevent data loss and race conditions.
+
+*   **Lane A (Data Preservation - Immediate):**
+    *   **Actor:** Database Administrator (DBA).
+    *   **Action:** Immediately freeze writes to the `global-metering-stream` by pausing the ingestion service, not the database. Export the raw usage events captured in the last three hours to a secure, temporary staging table (`staging_interim_events`).
+    *   **Constraint:** This must complete before any code deployment begins. Do not touch the 02:00 UTC snapshot; it is irreversible and must remain untouched as a fallback baseline.
+
+*   **Lane B (Code Reversion & Validation):**
+    *   **Actor:** Senior Backend Engineer.
+    *   **Action:** Revert the billing engine code to the specific commit hash preceding the proration update.
+    *   **Parallelism:** This lane runs parallel to Lane A's export process but must wait for Lane A to finish before merging.
+    *   **Testing Strategy:** Due to CI costs and time (45 mins), run a targeted test suite focusing *only* on proration calculations and data ingestion paths. Skip full regression suites initially to save time, relying on the targeted suite for the "go/no-go" decision.
+
+*   **Lane C (Approval Coordination):**
+    *   **Actor:** Project Lead.
+    *   **Action:** Simultaneously notify the Lead Architect and Finance Director. Provide them with the specific commit hash being reverted, the scope of the error (12% of enterprise accounts), and the data preservation strategy. Secure explicit written approval before the merge gate.
+
+#### 2. Gates and Checks
+
+*   **Gate 1: Data Freeze Confirmation.**
+    *   **Check:** Verify via database logs that the ingestion service is paused and the `staging_interim_events` table contains all events from the last three hours.
+    *   **Revision:** Checked against the current production head before revert.
+    *   **Failure Mode:** If the count of interim events does not match the expected volume based on traffic logs, halt. Do not proceed.
+
+*   **Gate 2: Targeted CI Pass.**
+    *   **Check:** The reverted code must pass the targeted proration and ingestion test suite in the CI pipeline.
+    *   **Revision:** The revert commit on the `hotfix/proration-revert` branch.
+    *   **Note:** Acceptance of partial test coverage is a calculated risk due to the 45-minute full suite constraint. Full suite runs post-merge in parallel.
+
+*   **Gate 3: Dual Authorization.**
+    *   **Check:** Explicit approval tokens from both the Lead Architect and Finance Director recorded in the ticket.
+    *   **Constraint:** No merge occurs without both signatures.
+
+#### 3. Review Process
+
+*   **Independent Code Review:**
+    *   **Reviewer:** A Senior Engineer *not* involved in the original proration update or this revert.
+    *   **Scope:** Verify that the revert strictly removes only the proration logic changes and does not inadvertently alter the data schema or ingestion handlers.
+    *   **Timing:** Occurs during Lane B execution, before Gate 2.
+
+*   **Data Integrity Review:**
+    *   **Reviewer:** DBA and Finance Analyst.
+    *   **Scope:** Validate row counts and checksums of `staging_interim_events` against raw logs.
+    *   **Timing:** After Gate 1, before deployment.
+
+#### 4. Landing and Rollback
+
+*   **Deployment Strategy:**
+    1.  Deploy reverted code to the Aurora-2 cluster in a "maintenance mode" where it accepts connections but does not process new charges.
+    2.  Execute a scripted migration to replay events from `staging_interim_events` into the main billing tables using the *reverted* (stable) logic.
+    3.  Resume normal ingestion services.
+
+*   **Human Decision Points:**
+    *   **Go/No-Go:** The Finance Director must sign off on the replay script before execution, confirming the logic handles the interim data correctly.
+    *   **Post-Merge Validation:** Finance must manually verify a sample of the affected 12% of accounts once the system is live.
+
+*   **Rollback Plan:**
+    *   If the replay fails or data corruption is detected:
+        1.  Immediately pause ingestion again.
+        2.  Restore the database state from the pre-freeze transaction logs (not the 02:00 snapshot).
+        3.  Re-deploy the *previous* (buggy) version to prevent further data accumulation errors while a deeper fix is engineered. This is a containment measure, not a fix.
+
+*   **Finalization:**
+    *   Once stability is confirmed for 1 hour, trigger the full 45-minute CI suite on the main branch to ensure no latent issues were missed by the targeted tests.

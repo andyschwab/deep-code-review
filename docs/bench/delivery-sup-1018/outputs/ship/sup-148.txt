@@ -1,0 +1,38 @@
+### Delivery Plan: Automated Credit Limit Adjustments
+
+**Strategy:** Isolate the automation logic from the manual override protection to prevent collision. Prioritize the "human-first" constraint by implementing a hard block before any calculation occurs.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Logic & Rules - Serial):** Implement the eligibility algorithm (high usage + on-time payments). **Constraint:** Must read `global_rules.json`. Since editing this file requires a Tuesday freeze window, this lane's final commit to `global_rules.json` is serialized to the next available Tuesday. Development occurs in a feature branch; integration waits for the window.
+*   **Lane B (Override Protection - Parallel):** Implement the "Manual Flag Checker." This module queries for agent tags/adjustments. It acts as a circuit breaker: if a flag exists, the process terminates immediately without touching Lane A's logic. This ensures human decisions are never overwritten.
+*   **Lane C (Audit & Logging - Parallel):** Build the immutable audit logger. Every decision (skip due to flag, calculate increase, apply increase) writes a structured log entry for the weekly audit. This runs independently but is called by Lanes A and B.
+*   **Lane D (Flake Mitigation - Parallel):** Create a retry wrapper specifically for the flaky notification service check to prevent false negatives in CI, isolating it from the core logic validation.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Define exact criteria for "consistent high usage" and "on-time payments" with the Collections Lead. Confirm the specific database fields representing "manual flags."
+*   **G4 Implementation:**
+    *   Unit tests for Lane B (Override) must pass before Lane A (Logic) is considered complete.
+    *   Code must demonstrate that a manual flag prevents *any* downstream execution.
+*   **G5 Verification (Exact Revision):**
+    *   Run full CI pipeline (45 mins) on the merged integration SHA.
+    *   **Critical Check:** Verify the "Retry Wrapper" (Lane D) stabilizes the flaky notification check without masking real failures.
+    *   **Data Safety:** Dry-run the logic against a production snapshot to ensure no irreversible changes occur before the nightly batch job.
+*   **G6 Review:**
+    *   **Reviewer 1:** Senior Backend Engineer (Payments Squad) – Validates code integrity and LedgerCore compatibility.
+    *   **Reviewer 2:** Collections Lead – Validates business logic, specifically that manual overrides are respected.
+    *   *Independence:* Neither reviewer authored the code. Both must approve.
+
+#### 3. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge Lanes B, C, and D to the integration branch immediately upon dual approval.
+    2.  Hold Lane A's `global_rules.json` change until the Tuesday freeze window.
+    3.  Perform a final "Integration SHA" build on Tuesday including the rules update.
+*   **Human Gates (Hard Stops):**
+    *   **Dual Approval:** Required before merging to the integration branch (Backend + Collections).
+    *   **Deployment Authorization:** The Collections Lead must explicitly authorize the toggle switch to "Active" after verifying the first dry-run logs.
+    *   **Tuesday Window:** A human must confirm the change freeze status before merging the rules file.
+*   **Rollback & Recovery:**
+    *   **Pre-Batch Revert:** If issues arise before the nightly batch job, revert the deployment immediately.
+    *   **Post-Batch Reality:** Since reverting is irreversible once the batch runs, the "Rollback" plan is actually a **Correction Plan**: Lane C must include a "Reverse Transaction" script approved by the Collections Lead to manually credit/debit accounts if the automation errs. This script is tested in G5.
+
+**Risk Note:** The 45-minute CI cost requires that the flaky test fix (Lane D) is verified locally before triggering the full pipeline to avoid wasted spend. The "Human-First" logic is the non-negotiable invariant; if the system cannot guarantee a manual flag stops execution, the feature does not ship.

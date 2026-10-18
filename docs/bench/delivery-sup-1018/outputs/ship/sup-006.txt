@@ -1,0 +1,64 @@
+**Delivery Plan: Self-Service Rescheduling with Eligibility Gates**
+
+**Scope & Constraints**
+Target: `claims-core` monorepo. Deadline: Next Friday.
+Hard Constraints: Schema frozen; `eligibility-utils` version-locked; zero bypasses in prod; dual human approval (Security/Compliance) required for `prod-us-east`.
+Risk: Flaky ledger checks (15% failure rate) must not block valid builds or allow false positives.
+
+**Lanes & Parallelism**
+*Worktrees: One writer per lane. Isolated branches from main.*
+
+1.  **Lane A (Builder): Core Logic & Validation**
+    *   **Work:** Implement rescheduling endpoint. Integrate strict ledger check using locked `eligibility-utils`. Enforce immediate failure with specific error codes for lapsed/pending status. No internal bypass flags.
+    *   **Parallel:** Yes.
+    *   **Serialization:** Must complete before Lane B integration tests.
+
+2.  **Lane B (QA): Audit & Failure Modes**
+    *   **Work:** Write tests verifying: (a) successful reschedule for eligible users, (b) hard block + correct error code for ineligible users, (c) audit log entry generation for *every* attempt (success/fail). Simulate flaky ledger responses to ensure system fails closed (denies action) rather than timing out silently.
+    *   **Parallel:** Yes (runs against Lane A's WIP branch).
+
+3.  **Lane C (Builder): Flakiness Mitigation**
+    *   **Work:** Implement retry logic with exponential backoff *only* for the network call to the legacy ledger within the validation step. Ensure retries do not delay the user response beyond SLA; if retries exhaust, fail closed.
+    *   **Parallel:** Yes, but requires coordination with Lane A on error propagation.
+
+4.  **Lane D (Security/Compliance Prep): Evidence Package**
+    *   **Work:** Draft the compliance evidence document showing the logic flow, error codes, and audit schema. Prepare the specific change request for Jane Smith and the Compliance Officer.
+    *   **Parallel:** Yes.
+
+**Gates & Checks**
+
+*   **G1 Spec (Now):** Confirm acceptance criteria: "Zero ineligible changes," "Audit all attempts," "Specific error codes." Pin base SHA.
+*   **G2 Plan (Now):** Define token budgets for LLM-assisted coding/testing. Map lanes to worktrees.
+*   **G4 Implement:**
+    *   Lane A & C commit code with unit tests.
+    *   Lane B commits integration tests.
+    *   **Check:** Local build + lint + type check on exact revision.
+*   **G5 Verify (Critical):**
+    *   **Environment:** Spin up local stack mimicking `prod-us-east` config (without real ledger).
+    *   **Execution:** Run full suite (Unit + Integration) on the exact merge commit of A+B+C.
+    *   **Flake Handling:** If CI fails due to network flake, auto-retry once. If it fails again, analyze logs. If it's a genuine logic error, block. If it's purely network timeout despite retries, flag for manual review but do not merge until green.
+    *   **Audit Proof:** Verify log entries exist for blocked attempts.
+*   **G6 Review:**
+    *   **Reviewer:** Independent Senior Engineer (not from Billing/Scheduling squads).
+    *   **Focus:** Logic gap analysis, fail-closed behavior, audit completeness.
+    *   **Security Lens:** Verify no bypass flags exist in code path.
+
+**Landing & Human Gates**
+
+1.  **Integration (G7):** Merge A, B, C into a release candidate branch. Run final CI ($45 cost).
+2.  **Human Approval (G8 - Mandatory):**
+    *   **Action:** Submit PR + Evidence Package (Lane D) to Jane Smith (Security) and Compliance Officer.
+    *   **Requirement:** Written approval from *both* before any deploy command.
+    *   **Constraint:** Do not merge to `main` or trigger deploy pipeline until both approvals are recorded.
+3.  **Deploy:**
+    *   Trigger deployment to `prod-us-east` only after G8 clearance.
+    *   **Rollback:** Automated rollback script ready if error rate > 0.5% or audit logging fails in first 10 minutes.
+4.  **Post-Deploy (G9):** Monitor audit logs for 1 hour. Verify real-time rejection of ineligible users.
+
+**Failure Protocol**
+*   If ledger flake exceeds 15% in CI, isolate the test and mark as "known infrastructure issue," but do not merge code unless logic tests are 100% green.
+*   If either approver rejects, halt immediately. Do not attempt to "fix" the rejection without explicit re-briefing.
+
+**Cost Control**
+*   Limit CI runs to 3 attempts per lane max before manual intervention.
+*   Total estimated CI cost: ~$225 (5 runs max).

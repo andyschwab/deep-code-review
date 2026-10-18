@@ -1,0 +1,59 @@
+# Delivery Plan: Self-Service Rescheduling with Eligibility Gates
+
+## Lanes & Parallelism
+
+**Lane A: Backend Logic (Scheduling Squad)**
+*   **Work:** Implement the rescheduling endpoint in `claims-core`. Integrate the call to the central ledger using the version-locked `eligibility-utils`. Enforce strict failure on lapsed/pending status with specific error codes.
+*   **Constraint:** Do not modify the database schema (frozen until Q3). Use existing slot tables.
+*   **Parallelism:** Can start immediately.
+
+**Lane B: Audit & Logging (Billing Squad)**
+*   **Work:** Implement the audit logger to capture every validation attempt (success/fail) with user ID, timestamp, and ledger response code.
+*   **Parallelism:** Can run parallel to Lane A, provided the log schema/interface is agreed upon upfront.
+
+**Lane C: Infrastructure & CI Stabilization (DevOps)**
+*   **Work:** Configure a retry mechanism in the CI pipeline specifically for the legacy ledger network flakiness to reduce the 15% manual retry rate.
+*   **Serialization:** Must complete before final merge to ensure build stability.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Unit Test (Revision: `dev-reschedule-v1`)**
+*   **When:** Before integration testing.
+*   **Check:** Unit tests must verify the "fail immediately" logic for lapsed/pending states. No bypass flags allowed in code.
+*   **Runner:** Automated CI.
+
+**Gate 2: Integration & Audit Verification (Revision: `staging-candidate`)**
+*   **When:** After Lane A and B merge to staging branch.
+*   **Check:** Verify audit logs contain entries for both successful and failed attempts. Confirm no ineligible changes persist in the staging database.
+*   **Runner:** QA Team + Automated Audit Script.
+
+**Gate 3: Security & Compliance Sign-off (Revision: `release-candidate`)**
+*   **When:** Post-staging verification, pre-production.
+*   **Check:** Written approval required from Jane Smith (Security) and the Compliance Officer.
+*   **Constraint:** Zero tolerance for bypasses. Review must explicitly confirm audit trail completeness.
+
+## Review Strategy
+
+*   **Code Review:** Cross-squad review required. A member of the Billing Squad must review Lane A (Logic) to ensure eligibility checks match billing definitions. A member of the Scheduling Squad must review Lane B (Audit) to ensure context is captured correctly.
+*   **Independence:** The reviewer must not be the author of the code nor the same squad lead requesting the feature.
+*   **Focus:** Specifically check for any commented-out checks, debug flags, or logic that swallows exceptions.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+1.  Merge Lanes A and B into `staging`. Run Gate 2.
+2.  Upon success, create `release-candidate` branch.
+3.  Secure written approvals (Gate 3).
+4.  Deploy to `prod-us-east` only after approvals are attached to the deployment ticket.
+
+**Human Decisions Required:**
+*   **Approval:** Jane Smith and Compliance Officer must physically sign off before the production deploy button is enabled.
+*   **CI Flakiness:** If the build fails due to network issues, the DevOps lead must decide whether to retry (costing $45/28 mins) or investigate the retry logic again.
+
+**Rollback Plan:**
+*   **Trigger:** Any report of an ineligible appointment being successfully rescheduled or missing audit logs in production.
+*   **Action:** Immediate revert of the `release-candidate` commit in `claims-core`.
+*   **Fallback:** Disable the self-service rescheduling feature flag (if available) or redirect the portal URL to a maintenance page stating "Rescheduling temporarily unavailable."
+*   **Post-Mortem:** Mandatory review of the specific logic gap and audit failure within 24 hours.
+
+**Timeline:** All lanes must complete by Wednesday EOD to allow Thursday for approval gathering and Friday for the deployment window.

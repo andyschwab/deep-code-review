@@ -1,0 +1,54 @@
+# Delivery Plan: Daily Shuttle Location Snapshot
+
+## Work Lanes & Parallelism
+
+**Lane A: Backend Service (Serialized after Lane B start)**
+*   **Owner:** Backend Engineer
+*   **Work:** Create the daily fetcher service using the mocked fixture `/data/fake_fleet.json` for local/dev logic. Implement the "Last Updated" timestamp injection. Build the API endpoint to serve the snapshot.
+*   **Constraint:** Must strictly enforce a 24-hour poll interval logic to prevent IP bans.
+
+**Lane B: Database & Schema (Serialized - High Risk)**
+*   **Owner:** Database Admin (DBA)
+*   **Work:** Draft the migration script to add the location storage column.
+*   **Gate:** This lane requires a manual dry-run review before execution due to irreversibility. No code merges until the migration strategy is signed off.
+
+**Lane C: Frontend Integration (Parallel with Lane A)**
+*   **Owner:** Frontend Engineer
+*   **Work:** Update the commuter dashboard to consume the new API. Implement the "Last Updated" label prominently. Build the static map fallback view triggered by API error states or stale data flags.
+*   **Dependency:** Uses the `geo-utils` library; ensure no breaking changes affect the billing team.
+
+**Lane D: Security & Compliance (Parallel)**
+*   **Owner:** Security Lead (David Chen)
+*   **Work:** Review PII handling in the new service and data storage. Prepare the explicit written approval required for production deployment.
+
+## Gates & Checks
+
+1.  **Code Freeze Gate:** All code must be committed to a feature branch `feat/shuttle-snapshot`.
+2.  **CI Pipeline Check:** Runs on every push to the feature branch.
+    *   **Revision:** Latest commit on `feat/shuttle-snapshot`.
+    *   **Scope:** Unit tests only. Heavy integration tests are excluded to stay under the 12-minute timeout and save $45/run.
+    *   **Mocking:** Must use `/data/fake_fleet.json` for logic verification.
+3.  **Migration Dry-Run:** The DBA must execute the migration script against a local clone of the production schema structure (not production itself) to verify no lock-ups occur.
+4.  **Security Gate:** David Chen must provide written approval explicitly citing the feature branch hash before any merge to `main`.
+
+## Review Process
+
+*   **Technical Review:** Performed by a Senior Engineer **not** involved in Lanes A, B, or C. They must verify:
+    *   The polling logic cannot trigger more than once per 24 hours.
+    *   The fallback mechanism works when the service returns an error.
+    *   `geo-utils` usage does not introduce side effects for billing.
+*   **Security Review:** Performed exclusively by David Chen (Lane D). He reviews data flow diagrams and storage encryption, independent of the code implementation details.
+
+## Landing Strategy
+
+1.  **Merge to Staging:** Once Technical and Security reviews are complete, merge `feat/shuttle-snapshot` into `staging`.
+    *   **Deployment:** Automated deployment to the staging environment (which lacks real fleet credentials).
+    *   **Verification:** QA verifies the "Last Updated" label and static fallback using the mocked data.
+2.  **Production Deployment:**
+    *   **Trigger:** Manual trigger only.
+    *   **Prerequisite:** David Chen's written approval attached to the deployment ticket.
+    *   **Execution:** Deploy to production during low-traffic window (post-midnight UTC preferred to align with data refresh).
+3.  **Rollback Plan:**
+    *   **Service Level:** If the API fails, the frontend automatically reverts to the static map view (no downtime).
+    *   **Data Level:** If the database migration causes issues, a full cluster restore is the only option. Therefore, a full backup must be taken immediately before applying the migration in production.
+    *   **Code Level:** Revert the `staging` merge if critical bugs appear before production. If production is affected, revert the code merge and redeploy the previous stable tag immediately.

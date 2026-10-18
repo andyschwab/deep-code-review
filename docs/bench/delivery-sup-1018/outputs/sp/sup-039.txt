@@ -1,0 +1,63 @@
+### Delivery Plan: Immediate Regulatory Limit Enforcement
+
+**Objective:** Apply new transaction caps to the pending queue immediately, ensuring retroactive rejection of non-compliant items without system restart or duplicate events, ready for tomorrow's audit.
+
+#### 1. Lanes & Parallelism
+
+*   **Lane A (Configuration & Logic - Parallel):**
+    *   **Owner:** Backend Engineer.
+    *   **Work:** Update the shared global rate-limiter configuration file with new caps. Modify the 'pending-queue' processor logic to enforce these limits using existing idempotency keys to prevent duplicate rejections.
+    *   **Constraint:** Changes must be hot-reloadable; no restart allowed.
+*   **Lane B (Database Migration - Serialized after A):**
+    *   **Owner:** Database Administrator (DBA).
+    *   **Work:** Prepare the irreversible migration script for new limit columns.
+    *   **Dependency:** Must wait for Lane A's code to be verified in Staging to ensure the application can handle the new schema immediately upon migration.
+*   **Lane C (Audit Verification - Parallel to B, after A):**
+    *   **Owner:** QA Automation.
+    *   **Work:** Script a scan of the Staging pending queue to simulate the "auditor check," verifying zero legacy items slip through under old rules.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Staging Validation (Pre-Merge)**
+    *   **Revision:** `feat/urgent-compliance-v1` (merged to `staging`).
+    *   **Action:** Deploy Lane A changes to Staging. Trigger the 40-minute integration suite **once**.
+    *   **Check:** Verify pending items > new limit are rejected exactly once (idempotency check). Confirm hot-reload success without restart.
+    *   **Failure Mode:** If integration fails, revert immediately. Do not proceed to Production.
+*   **Gate 2: Migration Dry-Run**
+    *   **Revision:** Same as Gate 1.
+    *   **Action:** Execute migration script on a Staging clone.
+    *   **Check:** Confirm irreversibility behavior matches expectations and data integrity holds.
+*   **Gate 3: Production Readiness (Hard Stop)**
+    *   **Time:** Post-4:00 PM (Compliance Officer online).
+    *   **Approvers:** Lead Architect AND Compliance Officer.
+    *   **Check:** Both must sign off on the Staging audit report (Lane C) and the migration rollback plan.
+
+#### 3. Review Strategy
+
+*   **Code Review:**
+    *   **Reviewer:** Senior Staff Engineer (Independent of Backend Engineer).
+    *   **Focus:** Idempotency logic in the queue processor and hot-reload mechanism. Specifically check that no race conditions exist between the config update and queue processing.
+*   **Compliance Review:**
+    *   **Reviewer:** Compliance Officer.
+    *   **Focus:** Verification that the new caps match the mandate exactly and that the "retroactive" logic covers all queue states.
+*   **Audit Simulation:**
+    *   **Reviewer:** QA Lead.
+    *   **Focus:** The output of Lane C. Must produce a binary pass/fail report on "Legacy Item Leakage."
+
+#### 4. Landing & Rollback
+
+*   **Merge Strategy:**
+    *   Merge `feat/urgent-compliance-v1` to `main` only after Gate 3 approval.
+    *   **Deployment Window:** Immediate upon approval, but strictly sequenced:
+        1.  Deploy Config/Logic (Lane A) to Production (Hot Reload).
+        2.  Verify live traffic rejection via dashboard logs (5-minute observation).
+        3.  Execute Database Migration (Lane B) only after Step 2 confirms stability.
+*   **Human Decision Points:**
+    *   **Go/No-Go:** Compliance Officer (post-4 PM).
+    *   **Migration Trigger:** Lead Architect (after observing Step 2).
+*   **Rollback Plan:**
+    *   **Scenario 1 (Logic Failure):** Revert config file to previous version immediately (hot reload). Queue processing resumes under old limits (acceptable risk temporarily to stop crashes).
+    *   **Scenario 2 (Migration Failure):** **Critical.** Since migration is irreversible, rollback involves switching the application to a "Maintenance Mode" flag while DBAs restore from the pre-migration backup. This constitutes a service outage.
+    *   **Decision:** If the Staging integration suite (Gate 1) shows *any* flakiness, abort the entire landing. The risk of an irreversible migration failure outweighs the audit deadline.
+
+**Summary:** Parallelize config and test prep. Serialize migration behind successful Staging integration. Enforce dual-approval gate post-4 PM. Prioritize avoiding the irreversible migration trap over speed if validation is not 100% clean.

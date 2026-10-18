@@ -1,0 +1,55 @@
+### Delivery Plan: Unified Clinic Calendar View
+
+**Objective:** Aggregate read-only calendar views for all clinics while guaranteeing zero mutation of recurring series data and preserving holiday logic.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Aggregation Logic):** Builds the read-only dashboard view.
+    *   *Constraint:* Strictly read-only access to series data; no migration scripts.
+    *   *Parallel:* Can run independently of Lane B.
+*   **Lane B (Holiday Integration):** Implements the adapter for legacy holiday closures.
+    *   *Constraint:* Must treat the shared time-zone config as immutable; changes here require infrastructure team coordination if assumptions fail.
+    *   *Serialization:* Must complete before final integration testing to ensure date accuracy.
+*   **Lane C (Targeted Verification):** Executes the "Winter Wellness" group test suite.
+    *   *Dependency:* Requires the build from Lanes A+B.
+    *   *Special Handling:* Includes manual verification steps for the known flaky holiday logic check.
+
+#### 2. Gates & Checks
+*   **G1 Spec Freeze:** Define exact acceptance criteria for "unchanged recurring series" (e.g., hash comparison of series IDs pre/post-deploy).
+*   **G4 Implementation:**
+    *   Code must pass static analysis locally before pushing.
+    *   **CI Strategy:** Run lightweight lint/type checks on every commit. Reserve full-suite CI runs *only* for the final candidate to save credits.
+*   **G5 Verification (Staging):**
+    *   **Revision:** Exact SHA of the release candidate.
+    *   **Action:** Deploy to staging (requires Clinical Operations Lead approval).
+    *   **Checks:**
+        1.  Automated regression on non-holiday logic.
+        2.  **Manual Verification:** Explicit human sign-off on the holiday logic module to bypass the known flaky check.
+        3.  **Data Integrity:** Verify recurring series hashes match production baseline exactly.
+        4.  **User Acceptance:** "Winter Wellness" group validation.
+
+#### 3. Review Strategy
+*   **Code Review:** Independent senior engineer (not the author of Lane A or B) reviews the aggregation logic. Focus: Ensuring no write operations exist in the new view layer.
+*   **Security/Data Review:** Separate reviewer verifies that no PII is exposed in the aggregate view and that the immutable config is respected.
+*   **QA Sign-off:** The Clinical Operations Lead must explicitly approve the staging deployment and the manual holiday verification results.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:**
+    *   Do **not** merge to `main` until G5 is fully green and human-approved.
+    *   Since merging to `main` triggers an irreversible data snapshot, the merge commit itself is the point of no return.
+    *   **Human Decision Required:** The Clinical Operations Lead must authorize the final merge after confirming the "Winter Wellness" tests passed.
+*   **Rollback Plan:**
+    *   **Code Rollback:** Revert the merge commit immediately if issues arise post-launch.
+    *   **Data Limitation:** Because the snapshot is irreversible, code rollback restores the previous logic, but the snapshot remains. Therefore, **pre-merge verification is the only true safety net.**
+    *   **Contingency:** If the aggregate view causes display glitches, feature-flag the dashboard off immediately while preserving the underlying data integrity.
+
+**Critical Path:**
+1.  Develop Lanes A & B.
+2.  Deploy to Staging (Human Approval).
+3.  Manual Holiday Check + Winter Wellness Test.
+4.  Final Human Go/No-Go.
+5.  Merge to Main (Irreversible Snapshot).
+
+**Risk Mitigation:**
+*   **Flaky Check:** Never auto-pass; always manual verify.
+*   **Data Safety:** Treat the `main` branch merge as a production deployment, not just a code integration.
+*   **Cost:** Limit full CI runs to the final verified SHA only.

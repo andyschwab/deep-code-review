@@ -1,0 +1,38 @@
+### Delivery Plan: North Region Meter Backfill
+
+**1. Lanes & Parallelism**
+*   **Lane A (Data Prep - Field Team):** Validate recovered CSVs against the "North Region" schema. Generate a manifest of file hashes and interval ranges. *Parallel to Lane B.*
+*   **Lane B (Logic Implementation - Engineer):** Develop the ingestion script within `settlement-core`.
+    *   **Constraint:** Logic must read from the ingestion queue, not direct DB writes.
+    *   **Constraint:** Must reference read-only meter mapping config (no local edits).
+    *   **Core Logic:** Implement a "Pre-Flight Check" that queries the existing time-series for the specific interval ranges in the manifest. If *any* overlap is detected, the script must exit with a non-zero status and trigger an alert; no data is written.
+*   **Lane C (Environment Prep - DevOps):** Provision an isolated staging environment with a sanitized subset of the production snapshot (North Region only) to minimize replay cost during unit testing. *Must complete before Lane B integration testing.*
+
+**2. Gates & Checks**
+*   **Gate 1: Local Validation (Engineer):** Run the script against the Lane C staging subset. Verify that overlapping test data triggers a hard halt and non-overlapping data ingests correctly.
+*   **Gate 2: Code Review (Mandatory):**
+    *   **Reviewers:** Jane Smith (Revenue Ops) AND one Senior Accountant.
+    *   **Focus:** Verification of the "halt on overlap" logic and confirmation that no direct DB writes exist.
+    *   **Revision:** Review occurs on a feature branch commit *before* CI execution.
+*   **Gate 3: CI Pipeline (Automated):**
+    *   **Trigger:** Only after Gate 2 approval.
+    *   **Execution:** Full data replay against the 2TB production snapshot.
+    *   **Contingency:** If the run fails due to network timeout (15% probability), a human must manually retry the pipeline job once. Do not re-commit code to retry.
+    *   **Success Criteria:** Zero duplicates in the ledger; all new intervals present; no existing intervals modified.
+
+**3. Review Strategy**
+*   **Independence:** The code author (Engineer) cannot approve the merge. Jane Smith and the Senior Accountant provide independent verification of business logic safety.
+*   **Data Audit:** Before the final merge, the Field Team (Lane A) must sign off on the CSV manifest used in the CI run, confirming it matches the physical recovery files.
+
+**4. Landing & Merge**
+*   **Timing Window:** The merge must occur **before 18:00 UTC on Thursday**.
+    *   *Reasoning:* The daily closing script runs at 02:00 UTC. Merging Thursday ensures the backfill is processed in the Thursday 02:00 run, leaving Friday for manual verification before the monthly close.
+*   **Merge Protocol:**
+    1.  Merge to `main` only after Gate 3 success.
+    2.  Trigger the production ingestion job immediately upon merge.
+*   **Human Decision Points:**
+    *   **Overlap Detected:** If the script halts during production ingestion, the process stops. Revenue Ops must manually investigate the specific conflicting intervals before re-running.
+    *   **CI Flakiness:** If the CI pipeline times out, a human must decide to retry the job vs. investigating potential regression.
+*   **Rollback Plan:**
+    *   Since the settlement table is immutable after 02:00 UTC, a rollback cannot "delete" data once committed to the ledger.
+    *   **Mitigation:** If bad data lands, the "rollback" is a corrective journal entry issued by Finance. Therefore, the **Gate 2 (Human Review)** and **Gate 3 (Full Replay)** are critical failure preventers. If the script bypasses the overlap check due to a bug, the immediate action is to halt the 02:00 UTC closing script manually to prevent revenue report generation until the data is reconciled.

@@ -1,0 +1,57 @@
+**Delivery Plan: NovaPay Wallet Integration**
+
+**Scope & Constraints**
+Target: Add NovaPay support with strict isolation from the legacy vault.
+Deadline: Next Friday.
+Critical Risk: Cross-contamination causes compliance failure; DB migration is irreversible in prod.
+Ownership: `payments-core` module requires approval from Jane Smith + Security Lead.
+
+**Work Lanes & Parallelism**
+*Lane 1: Architecture & Isolation Design (Serial Pre-requisite)*
+*   **Owner:** Architect (Independent of Builder).
+*   **Task:** Define the new storage namespace, access paths, and beta-feature flag logic. Produce an Architecture Decision Record (ADR) proving zero shared memory addresses with the legacy vault.
+*   **Dependency:** Must complete before Lane 2 starts.
+
+*Lane 2: Implementation (Parallelizable internally, Serial to Lane 1)*
+*   **Owner:** Builder.
+*   **Task:** Implement NovaPay adapter, new storage driver, and logging tags. Enforce beta-group gating.
+*   **Constraint:** Zero modifications to existing validation logic. Code must reside in a dedicated worktree.
+
+*Lane 3: Security & Compliance Verification (Independent)*
+*   **Owner:** Security Lead (Distinct from Builder/Architect).
+*   **Task:** Review ADR and code for isolation guarantees. Validate that no legacy vault paths are referenced.
+*   **Dependency:** Runs against the exact SHA from Lane 2.
+
+*Lane 4: Data Integrity Simulation (Serialized Bottleneck)*
+*   **Owner:** QA / CI System.
+*   **Task:** Execute the 45-minute data-integrity simulation.
+*   **Constraint:** Must run on the exact merged SHA of Lane 2 + Lane 3 approval. Monitor for "shared memory address" failures. Handle flaky network-check timeouts via manual retry protocol if needed.
+
+*Lane 5: Migration Script Preparation (Parallel to Lane 2)*
+*   **Owner:** DBA / Builder.
+*   **Task:** Prepare the irreversible namespace migration script. Dry-run in staging (noting HSM limitation).
+*   **Dependency:** Must be reviewed before G8.
+
+**Gates & Checks**
+*   **G1 (Spec):** Acceptance criteria must explicitly define "isolation" as passing the data-integrity simulation with zero shared addresses.
+*   **G3 (Design):** ADR review by Jane Smith and Security Lead. No coding starts until this is signed off.
+*   **G5 (Verify):**
+    *   Unit tests for NovaPay flow (Builder).
+    *   **Critical Gate:** 45-minute data-integrity simulation must pass green on the exact commit SHA. Failure here blocks all progress.
+    *   Staging verification of beta-gating and logging (acknowledging partial HSM validity).
+*   **G6 (Review):** Independent code review by Jane Smith AND a Security Lead. Builder cannot self-approve.
+
+**Landing Strategy**
+*   **Merge Train:** Changes merge to an integration branch only after G6 approval and a successful G5 simulation.
+*   **Human Decisions Required:**
+    1.  **G3 Approval:** Jane Smith + Security Lead must approve the isolation design.
+    2.  **G8 Release:** Owner must explicitly approve the production deployment and the execution of the irreversible DB migration script.
+    3.  **Flake Handling:** On-call engineer must manually authorize retries for any timed-out network-check jobs during the simulation.
+*   **Rollback Plan:**
+    *   **Code:** Revert the merge commit immediately if post-deploy logs show cross-contamination.
+    *   **Data:** Since the migration is irreversible, the rollback plan relies on feature-flagging NovaPay to "off" instantly. A forensic cleanup script for the new namespace must be prepared but not executed unless authorized by Legal/Compliance.
+
+**Risk Mitigation**
+*   **Compute Budget:** The 45-minute simulation runs only once per candidate SHA to save resources.
+*   **Staging Limitation:** Explicitly document that staging isolation tests are partial due to missing HSM; production readiness relies on the code review and the simulation pass.
+*   **Contamination:** If the simulation detects shared memory, the build fails hard. No workaround; redesign required.

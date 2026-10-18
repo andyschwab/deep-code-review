@@ -1,0 +1,41 @@
+**Delivery Plan: Dynamic Volume Normalization (Non-Destructive)**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Algorithm & Spec):** Define the normalization target (e.g., LUFS-14) and select a non-destructive gain-adjustment algorithm. *Constraint:* Must prove mathematically that no waveform clipping or dynamic range compression occurs.
+    *   *Parallel:* Yes.
+*   **Lane B (Pipeline Integration):** Modify the upload service to fork the audio stream: one path to original storage, one to the normalizer, then merge metadata pointing to both.
+    *   *Parallel:* Yes, but cannot merge until Lane A's algorithm is finalized.
+*   **Lane C (Test Harness):** Isolate the 500-file reversion limit risk. Create a "dry-run" mode for the background job queue that processes files but discards output, allowing safe validation of the 500+ file threshold behavior.
+    *   *Parallel:* Yes.
+*   **Serialization Point:** Lanes A and B must converge for **G4 (Implementation)** to ensure the integration uses the verified non-destructive algorithm. Lane C's dry-run mode must be ready before any production-like load testing.
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Explicitly define "audible artifacts" and "latency budget" for the preview feature. Confirm the storage schema for side-by-side files.
+*   **G3 (Design):** ADR required for the forked-storage strategy. Must address the `global-codec-rules.json` lock: the deployment plan must schedule the config edit for the 02:00 UTC window.
+*   **G4 (Implement):** Code changes in isolated worktrees. Unit tests must assert zero waveform alteration (bit-perfect comparison of non-gain data).
+*   **G5 (Verify):**
+    *   *Functional:* Run on exact revision. Since Staging lacks DSP hardware, performance benchmarks there are **invalid**. Verification must rely on unit-level latency checks and a limited, monitored Production Canary (see Landing).
+    *   *Fidelity:* Blind listening test results attached to the PR.
+*   **G6 (Review):**
+    *   *Code:* Independent review by a senior engineer not involved in Lanes A/B.
+    *   *Security/Privacy:* Verify no temporary files leak PII during processing.
+    *   *Fidelity-Gold:* This suite ($120/run, 45 mins) runs **only** on the final integrated SHA before G8. Do not run on intermediate branches to save cost.
+
+**3. Review Strategy**
+*   **Builder:** Implements Lane A, B, and C logic.
+*   **Independent QA:** Validates the "dry-run" safety mechanism (Lane C) and verifies the storage integrity (original vs. normalized). Does not review their own test code.
+*   **Security/AppSec:** Reviews the file handling paths and permission scopes for the new storage location.
+*   **Media Ingestion Team Lead:** Must sign off on the `global-codec-rules.json` change plan and the 02:00 UTC execution window.
+
+**4. Landing & Human Decisions**
+*   **Merge Train:**
+    1.  Merge Lanes A, B, C to integration branch.
+    2.  Trigger `Fidelity-Gold` suite on the exact merge SHA.
+    3.  **Human Gate:** Jane Smith must approve the deployment manifest *after* seeing green `Fidelity-Gold` results.
+*   **Deployment Window:** Restricted to 02:00 UTC to accommodate the config lock.
+*   **Rollback Strategy:**
+    *   *Pre-500 files:* Standard redeploy of previous version.
+    *   *Post-500 files:* Reversion is **irreversible**. The rollout must be canaried to <1% of traffic initially. If artifacts are detected, the feature flag must instantly revert traffic to the original file path. The normalized files generated during the failure window must be quarantined, not deleted, for analysis.
+*   **Final Approval:** The Q3 marketing push deadline requires a "Go/No-Go" decision 48 hours prior to launch based on the Canary results. If latency exceeds the budget, the feature is disabled, not shipped degraded.
+
+**Risk Mitigation:** The "irreversible after 500 files" constraint dictates a phased rollout. We will not process a full batch until the canary proves stable over a 24-hour period with varied file types.

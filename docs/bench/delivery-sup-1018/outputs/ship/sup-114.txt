@@ -1,0 +1,33 @@
+**Delivery Plan: Supervisor Sign-Off for Critical Safety Flags**
+
+**1. Lanes & Serialization**
+Work is split into three serialized lanes to prevent race conditions on the shared configuration and immutable audit log. Parallel execution is forbidden until Lane 3.
+
+*   **Lane 1 (Spec & Thresholds):** *Product Analyst + Security.* Define "critical safety warning" criteria explicitly to prevent false positives (which trigger costly DB rollbacks). Update the shared configuration file logic to flag these strictly. **Output:** A pinned spec with exact threshold values and a "false positive" test case suite.
+*   **Lane 2 (Core Logic & UI Lock):** *Builder.* Implement the submission lock in the vehicle inspection module. Logic: If critical flag exists → disable digital signature field → render "Supervisor Approval" modal. No database writes to the audit log yet. **Output:** Patch disabling technician submission and routing notification stubs.
+*   **Lane 3 (Integration & Audit):** *Builder + QA.* Connect Lane 2's lock to the supervisor credential verification. Implement the immutable audit log entry *only* upon successful supervisor auth. **Output:** Full flow patch including notification dispatch and audit recording.
+
+**2. Gates & Checks**
+All checks run on an exact, immutable SHA. No gate passes without green results.
+
+*   **G1 (Spec Freeze):** Review Lane 1's definition of "critical." **Check:** Static analysis of the shared config change to ensure no regional branch breaks. **Gate:** Lead Architect approval on threshold logic.
+*   **G4 (Implementation):** Unit tests for the lock mechanism. **Check:** Verify the UI field is physically disabled (not just hidden) when flags are present. **Constraint:** Tests must be deterministic; flaky tests block merge due to CI credit costs.
+*   **G5 (Verification):** Run the full 45-minute suite on the exact integration SHA. **Critical Check:** A "happy path" test where a technician attempts to sign with a critical flag (must fail) and a supervisor resolves it (must succeed). **UI Evidence:** Headed-browser recording of the lock/unlock flow on the specific inspection route.
+*   **G6 (Security & Compliance):** Independent review by the Compliance Officer. **Check:** Verify no loophole allows a technician to bypass the modal (e.g., direct API calls). **Audit Check:** Confirm log entries are immutable and correctly attributed.
+
+**3. Review Strategy**
+*   **Code Review:** Performed by a Senior Engineer *not* involved in Lane 2 or 3. Focus: Logic correctness and avoidance of false positives.
+*   **Security/Compliance Review:** Performed by the Compliance Officer (Human). Focus: Audit trail integrity and regulatory adherence.
+*   **Constraint:** The Builder cannot approve their own code. The Security reviewer must verify the "loophole" closure independently.
+
+**4. Landing & Human Decisions**
+*   **Merge Strategy:** Single PR containing all lanes, merged only after G6. No partial merges to avoid breaking the shared config globally.
+*   **Human Gates (Mandatory):**
+    1.  **Lead Architect:** Must approve the shared configuration change (G1) before any code merge.
+    2.  **Compliance Officer:** Must explicitly approve the final PR (G6) citing the audit requirement.
+    3.  **Deployment:** Dual approval (Lead Architect + Compliance Officer) required to deploy to 'SecureZone'.
+*   **Rollback Plan:**
+    *   *Code Level:* Immediate revert of the PR if false positives are detected post-deploy.
+    *   *Data Level:* If false audit logs are created, the Data Engineering team must execute a full database rollback (costly/irreversible). This is the failure mode we must avoid via rigorous G5 testing.
+
+**Risk Mitigation:** The 45-minute CI cost means we run a "dry-run" of the test suite locally (Lane 2) before triggering the remote pipeline. Any flakiness identified pre-merge results in an immediate stop; no re-runs allowed without a fix.

@@ -1,0 +1,49 @@
+### Delivery Plan: Legacy SMS to NexusGate Migration
+
+**Strategy:** Zero-downtime dual-write with verified cutover. The irreversible nature of key rotation and the 45-minute CI constraint dictate a "measure twice, cut once" approach. We will not rely on staging for load validation; instead, we will use canary traffic in production behind a feature flag.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Implementation - Builder):** Develop the NexusGate adapter within the `core-comms` service.
+    *   *Constraint:* Must implement a dual-write mechanism immediately. All outbound SMS goes to Legacy (primary) and NexusGate (shadow) simultaneously. Inbound receipts from NexusGate are logged to a staging audit buffer, not production, until G5.
+    *   *Parallel:* Can run alongside Lane B.
+*   **Lane B (Verification Harness - QA):** Build a localized "burst simulator" that mimics peak trading volume without triggering the expensive CI carrier simulation.
+    *   *Task:* Validate that the dual-write logic does not block the main thread and that latency stays under 200ms locally.
+    *   *Parallel:* Runs concurrently with Lane A.
+*   **Lane C (Audit & Compliance - Security/Compliance):** Draft the rollback playbook and verify the "append-only" logic for the `delivery-audit` log.
+    *   *Constraint:* Must define the exact procedure to switch the audit log writer from Legacy to NexusGate without data loss.
+    *   *Serialization:* Must complete before G4 (Implementation Finalization).
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Define the exact schema for the "delivery confirmation receipt." Any deviation results in audit failure.
+*   **G3 (Design Review):** Architectural sign-off on the dual-write strategy. **Critical Check:** Verify that the legacy volume lock during business hours is respected; no writes to `delivery-audit` occur during this window in the new code path.
+*   **G4 (Implementation):** Code complete.
+    *   *Check:* Unit tests pass locally. No external calls made yet.
+*   **G5 (Verification - The Hard Gate):**
+    *   *Environment:* Staging for logic, **Canary** for load.
+    *   *Action:* Deploy to a canary subset (5% of traffic). Enable dual-write.
+    *   *Validation:* Compare Legacy receipts vs. NexusGate receipts for 100% match over 4 hours. Verify 2FA success rates match baseline.
+    *   *Latency Check:* Monitor p99 latency. If >200ms, automatic circuit breaker trips, reverting to Legacy-only immediately.
+*   **G6 (Independent Review):**
+    *   *Reviewer:* Security Lead (independent of Builder).
+    *   *Scope:* Key rotation safety, 2FA fallback logic, and audit log integrity.
+    *   *Base:* Exact SHA of the canary deployment.
+
+#### 3. Review Protocol
+*   **Builder** implements lanes A.
+*   **QA** verifies lanes B and G5 results.
+*   **Security Lead** reviews G6 (never the Builder).
+*   **Compliance Officer** reviews G6 (specifically audit trail continuity).
+*   *Rule:* No self-approval. The Builder cannot merge their own code.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:** The code merges to `main` only after G6 approval. However, the NexusGate provider remains **inactive** (feature flag OFF) until the maintenance window.
+*   **Human Gates (Dual Approval Required):**
+    1.  **Activate Canary:** Security Lead + Compliance Officer approve the initial 5% traffic shift.
+    2.  **Full Cutover:** After 24h of successful canary data, both leads must approve flipping the flag to 100% NexusGate and disabling Legacy writes.
+    3.  **Key Rotation:** The irreversible handshake key rotation requires a separate, explicit signed approval from both leads *after* the cutover is confirmed stable.
+*   **Rollback Plan:**
+    *   *Trigger:* Latency >200ms or receipt mismatch >0%.
+    *   *Action:* Flip feature flag to Legacy-only immediately.
+    *   *Constraint:* If key rotation has *not* occurred, this is instant. If keys were rotated, rollback is **impossible**; the system must remain on NexusGate while hot-fixing issues. Therefore, key rotation is the final step, not the first.
+
+**Timeline:** Execution begins only at the scheduled maintenance window for the cutover phases. Preparation (Lanes A/B/C) occurs immediately.

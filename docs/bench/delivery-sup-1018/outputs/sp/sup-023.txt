@@ -1,0 +1,64 @@
+### Delivery Plan: Substation Agent Command Hardening
+
+#### 1. Work Lanes & Parallelization
+**Lane A: Cryptographic Logic (C Firmware)**
+*   **Owner:** Core Firmware Engineer
+*   **Scope:** Implement signature verification wrapper in the command ingestion path. Ensure invalid signatures result in a silent discard (log warning, drop packet) rather than a daemon crash.
+*   **Constraint:** Must read `crypto-keys.dat` in read-only mode; no key rotation logic included.
+
+**Lane B: Simulation & Failure Modes (Python Suite)**
+*   **Owner:** Safety Engineering Team
+*   **Scope:** Update simulation suite to inject spoofed packets. Verify telemetry continuity during rejection events.
+*   **Parallelism:** Runs concurrently with Lane A. Lane B uses mock keys initially, integrating real keys only after Lane A commits the interface.
+
+**Lane C: Deployment Scripting**
+*   **Owner:** DevOps Engineer
+*   **Scope:** Package the update for the existing over-the-air (OTA) mechanism. Verify the payload size fits within current bandwidth limits and that the installation script explicitly skips reboot triggers.
+
+#### 2. Gates & Checks
+**Gate 1: Local Sanity Check (Pre-Commit)**
+*   **Revision:** Feature branch head.
+*   **Action:** Compile check + unit tests (local machine).
+*   **Pass Criteria:** Zero compiler warnings; spoofed packets dropped without process termination.
+
+**Gate 2: Integration Cycle (IronClad CI)**
+*   **Revision:** Release candidate tag.
+*   **Timing:** Avoid Tuesday mornings to bypass `stability-gate` flakiness. Schedule for Wednesday 09:00 UTC.
+*   **Action:** Full hardware emulation test (45 min duration).
+*   **Retry Logic:** If `stability-gate` fails once, re-run immediately. If it fails twice consecutively, **STOP**. Do not merge. Escalate to Lead Architect Jane Smith for manual override.
+
+**Gate 3: Safety Verification**
+*   **Revision:** Post-CI success build.
+*   **Action:** Run Lane B's extended failure mode simulation against the compiled binary.
+*   **Pass Criteria:** Telemetry stream remains unbroken during high-volume spoof attacks.
+
+#### 3. Review Process
+**Independent Code Review**
+*   **Reviewer:** Senior Security Engineer (Not the author of Lane A).
+*   **Focus:** Cryptographic implementation correctness, memory safety in the drop-path, and adherence to the "fail-safe" requirement.
+*   **Timing:** Before Gate 2 submission.
+
+**Deployment Plan Review**
+*   **Reviewer:** Operations Lead.
+*   **Focus:** OTA script safety, rollback triggers (if any), and verification that no reboot is requested.
+*   **Timing:** After Gate 2 success, before approval request.
+
+#### 4. Landing & Merge Strategy
+**Human Decision Points (Dual Approval Required)**
+Before merging to `main` and initiating deployment, explicit written approval is required from:
+1.  **Operations Director:** Confirms readiness for irreversible production push.
+2.  **Security Officer:** Confirms cryptographic implementation meets standards.
+
+**Merge Protocol**
+*   **Branch:** `main` (Protected).
+*   **Condition:** Both approvals present + CI Green + Security Review Approved.
+*   **Action:** Squash merge to maintain clean history.
+
+**Deployment & Rollback**
+*   **Constraint:** Deployments are **irreversible**. There is no technical rollback path once the OTA process begins on the 3,000 live units.
+*   **Mitigation:** Deploy to a **Canary Group** of 50 non-critical substations first. Monitor for 24 hours.
+*   **Full Rollout:** Only proceed to the remaining 2,950 units if the Canary group reports 100% uptime and zero false-positive rejections.
+*   **Failure Scenario:** If the Canary fails, the update is halted. Since physical access is impossible for six weeks, the fleet continues running the previous version. The "rollback" is simply aborting the OTA queue; no remote uninstall is possible.
+
+**Critical Risk Note:**
+Because the update is irreversible and physical access is blocked, the cost of a false positive (rejecting valid commands) is a six-week operational blackout for affected units. The "fail-safe" logic must be proven in Lane B simulations to distinguish between "dropping a bad packet" and "locking out valid control."

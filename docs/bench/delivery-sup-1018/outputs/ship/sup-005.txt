@@ -1,0 +1,36 @@
+**Delivery Plan: Atomic Dynamic Pricing Engine**
+
+**Objective:** Deploy atomic pricing logic to `core-transactions` with zero downtime, no visible intermediate states, and full rollback capability before next Tuesday.
+
+**Lanes & Serialization**
+1.  **Lane A (Spec & Contract):** Define the "atomic switch" interface. Must specify how the ledger immutability is bypassed for reads (e.g., a `current_price_view` table updated via transaction). *Owner: Product Analyst + Architect.*
+2.  **Lane B (Implementation):** Build the calculation engine and the atomic write mechanism. Must include a "circuit breaker" to revert to static pricing if latency exceeds threshold. *Owner: Builder.* **Serialized:** Starts after Lane A spec sign-off.
+3.  **Lane C (Test Data Synthesis):** Since staging data is stale, create a script to generate high-volume, realistic demand spikes locally. *Owner: QA.* **Parallel:** Runs alongside Lane B.
+4.  **Lane D (Rollback Script):** Write the reverse-transaction script required by the immutable ledger. *Owner: Security + DBA.* **Parallel:** Runs alongside Lane B.
+
+**Gates & Checks**
+*   **G1 (Spec Review):** Verify the "no loading spinner" requirement is met by the architecture (server-side atomic swap, not client-side polling). *Reviewer: Architect (Independent of Lane A).*
+*   **G3 (Design Audit):** Confirm the ledger write strategy does not violate immutability constraints without the reverse script. *Reviewer: Security (Independent of Lane D).*
+*   **G4 (Code & Unit):** Builder submits PR against pinned base SHA. Must include unit tests for millisecond latency. *Reviewer: Senior Dev (Independent of Builder).*
+*   **G5 (Verification):** Run Lane B code against Lane C's synthetic data in an isolated environment. **Hard Condition:** Simulate a page load *during* a price recalculation; assert only the final price is returned. No "loading" states permitted. *Verifier: QA (Independent of Builder).*
+*   **G6 (Security & Risk):** Audit the atomic switch for race conditions. Verify Lane D's rollback script on a cloned DB. *Reviewer: Risk Lead (Independent of Security).*
+
+**Review Strategy**
+*   **Code:** Senior Dev reviews Builder's code.
+*   **Logic:** Architect reviews the atomic guarantee mechanism.
+*   **Safety:** Risk Lead and Security independently verify the rollback path and ledger integrity.
+*   **Constraint:** Builder never reviews their own code. QA never verifies their own test data generator.
+
+**Landing & Human Gates**
+*   **Integration:** Merge Lanes B, C, and D into a release candidate branch. Re-run G5 and G6 on the exact merged SHA.
+*   **Human Approval 1 (Scope):** Jane Smith and Risk Lead must explicitly approve the G6 security/risk verdict before deployment scheduling.
+*   **Human Approval 2 (Execution):** The Senior SRE must manually trigger the blue-green swap during business hours. No automated deployment to production.
+*   **Deployment Window:** Scheduled for Monday (day before sale) to allow Tuesday buffer.
+*   **Rollback Plan:** If G9 (Production Verify) shows latency > threshold or data inconsistency, the Senior SRE executes Lane D's script immediately to restore previous ledger state.
+
+**Risk Mitigation**
+*   **Flaky CI:** If the network check fails (15% rate), do not retry automatically. Investigate logs once; if truly flaky, mark as "infrastructure noise" and proceed only if local verification (G5) is green.
+*   **Stale Staging:** Do not rely on staging for final validation. G5 must run against the synthetic high-load dataset generated in Lane C.
+*   **Cost:** Limit CI runs to the final integrated SHA and one pre-merge verification to minimize the $45/run cost.
+
+**Success Criteria:** Price updates are instant (ms), no intermediate states visible to users, and a verified, one-click rollback path exists.

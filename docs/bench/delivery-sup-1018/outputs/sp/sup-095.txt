@@ -1,0 +1,30 @@
+### Delivery Plan: Reservation Auth Bypass Patch
+
+**1. Lanes & Parallelism**
+*   **Lane A (Code & Verification):** Engineer writes the minimal auth-bypass patch and unit tests. Parallel to this, the Shift Lead identifies the specific 15-minute window within the next two hours that avoids the `booking-state` cron lock and represents the lowest traffic.
+*   **Lane B (Approval):** Engineer drafts the hotfix summary and risk assessment. This is held in readiness for the VP of Engineering. As soon as the VP is reachable, the summary is sent for explicit approval. This lane is serialized behind the VP's availability but runs parallel to Lane A's coding.
+*   **Lane C (Deployment Prep):** DevOps prepares the deployment script targeting the **Green** environment (currently 90% traffic). The script must include a pre-check to abort if the `booking-state` file is locked.
+
+**2. Gates & Checks**
+*   **Gate 1 (Code Freeze):** No code merges until the VP approves the hotfix summary.
+*   **Gate 2 (CI Pipeline):** Once approved, the patch is committed to a `hotfix/auth-bypass` branch. The CI pipeline triggers immediately.
+    *   *Check:* CI must pass on the first run. Due to the $120 cost and 45-minute duration, the engineer must locally verify logic before pushing.
+    *   *Revision:* CI runs against the latest `main` branch head.
+*   **Gate 3 (Timing Window):** Deployment is paused at "Ready to Deploy" until the Shift Lead confirms the start of the agreed low-traffic, cron-free window.
+*   **Gate 4 (Pre-Deploy State):** A final automated check verifies no active transactions are in a "committing" state in the Green environment logs to prevent mid-flight rollbacks.
+
+**3. Review Strategy**
+*   **Independent Review:** The patch is reviewed by a Senior Engineer *not* involved in writing the fix. This review happens asynchronously while waiting for the VP's approval.
+*   **Focus:** The reviewer checks specifically for: (a) closure of the auth bypass, (b) zero impact on active WebSocket connections, and (c) no logic that triggers a cache purge on failure.
+*   **Sign-off:** Both the Author and Reviewer must sign off before the VP approval request is sent.
+
+**4. Landing & Rollback**
+*   **Deployment Method:** Blue-Green swap preparation. Since Green is live, the patch is applied to Green. If the architecture supports hot-reloading of the auth module without restart, that is preferred. If a restart is required, it must be a rolling restart of Green instances one by one, ensuring WebSocket drains are handled gracefully by the load balancer before termination.
+*   **Traffic Shift:** No traffic shift is needed as Green is already serving 90%. The fix becomes active as patched instances come online.
+*   **Human Decision:** The VP of Engineering provides the final "Go" command. The Shift Lead provides the "Execute Now" command based on the traffic window.
+*   **Rollback Protocol:**
+    *   *Condition:* If error rates spike or agents report connection drops immediately after deployment.
+    *   *Action:* **DO NOT** trigger an automated revert. Because reverting triggers an irreversible cache purge (deleting pending hold timers), a failed deploy requires a manual "Fix-Forward" or a graceful degradation mode (e.g., read-only access) while a second patch is developed.
+    *   *Fallback:* If the system becomes unstable, isolate the Green environment from new writes manually via the load balancer while preserving state, rather than triggering the destructive revert mechanism.
+
+**Summary:** Code and Window Identification run in parallel. VP Approval is the critical path blocker. CI is the cost/time gate. Deployment is timed precisely to avoid cron locks. Rollback is manual and cautious to prevent data loss from cache purging.

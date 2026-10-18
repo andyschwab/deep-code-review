@@ -1,0 +1,32 @@
+### Delivery Plan: Shift Report Aggregation Acceleration
+
+**Lanes & Parallelism**
+Work is divided into three lanes. Lane A (Backend Optimization) and Lane B (Test Infrastructure) run in parallel. Lane C (Staging Validation) is serialized and depends on the completion of A and B.
+
+*   **Lane A (Backend):** Refactor the aggregation query and data retrieval strategy within the `nexus-ops` reporting module. Focus on indexing, query plan optimization, and implementing pagination or streaming to prevent dashboard hangs. This lane must strictly preserve historical data accuracy.
+*   **Lane B (Infrastructure):** Isolate and patch the flaky integration check that fails when query times drop below two seconds. Develop a stable mock timer or adjust the assertion logic to accommodate sub-second performance without triggering race conditions.
+*   **Lane C (Validation):** Execute the full data replay against the optimized code. This lane cannot start until Lane A provides the optimized query and Lane B provides the stable test suite.
+
+**Gates & Checks**
+All work branches from revision `main-head-pre-opt`.
+
+1.  **Schema Gate:** Before any code merge, a schema change request (if any indexing or structural changes are required) must be submitted to Lead Engineer Jane Smith. No deployment proceeds without her explicit written approval.
+2.  **Performance Gate:** The optimized query must demonstrate execution under five seconds in a local benchmark simulating peak ingestion. If it exceeds 5.5s, the build fails locally.
+3.  **CI Budget Gate:** The CI pipeline must complete the full data replay in under 58 minutes to provide a safety buffer against the 60-minute budget freeze. If the replay exceeds 55 minutes, the build is flagged for optimization review.
+4.  **Accuracy Gate:** A checksum comparison between the legacy report output and the new optimized output must yield 100% match for historical data. Any discrepancy triggers an immediate rollback of the feature branch.
+
+**Review Process**
+*   **Code Review:** Conducted by a Senior Backend Engineer not involved in Lane A. They must verify that the read-only connection pool usage does not starve the billing service.
+*   **Test Review:** Conducted by the QA Lead. They must verify the fix for the flaky check in Lane B ensures stability at sub-two-second execution times.
+*   **Independence:** The Code Reviewer cannot be the same person who wrote the optimization. The QA Lead must validate the flaky check fix independently of the backend implementer.
+
+**Landing Strategy**
+1.  **Merge:** Once all gates pass and reviews are approved, the branch merges to `staging`.
+2.  **Staging Replay:** Run the full 55-minute data replay on the staging cluster. Verify the <5s report generation and <60min total CI time.
+3.  **Human Decision Point:** Before production deployment, the Operations Team Lead must confirm the dashboard remains responsive during a live simulation.
+4.  **Production Deployment:** Deploy to the production analytics cluster during the lowest traffic window.
+5.  **Rollback Protocol:** Since production deployments are irreversible without a full restore, if the report times out (>10s) or data accuracy fails post-deployment, immediately trigger the weekly cold backup restore procedure. Notify all stakeholders of the restoration timeline. No partial rollbacks are possible.
+
+**Risk Mitigation**
+*   **Billing Service Impact:** Monitor the shared connection pool metrics closely during staging. If billing queries slow down by >10%, halt deployment.
+*   **CI Freeze:** If the initial CI run approaches 58 minutes, abort and optimize the test suite before re-running to avoid the budget freeze.

@@ -1,0 +1,73 @@
+# Delivery Plan: Deprecate Legacy Card Token Format
+
+## Lanes & Parallelization
+
+**Lane A: Core Logic (Checkout Service)**
+*   **Owner:** Checkout Team
+*   **Work:** Implement v1 rejection logic, background exchange handler, and feature flag wiring.
+*   **Parallel:** Can start immediately.
+
+**Lane B: Security Module (TokenExchange)**
+*   **Owner:** Security Squad (Lead: Jane Smith)
+*   **Work:** Expose/Update internal API for v1-to-v2 silent exchange.
+*   **Dependency:** None, but must be merged before Lane A integrates the exchange call.
+
+**Lane C: Fraud & Compliance**
+*   **Owner:** Fraud Team + Compliance Lead
+*   **Work:** Define "safe" migration signatures to prevent false positives; prepare dual sign-off documentation.
+*   **Parallel:** Runs concurrently with Lane A/B development.
+
+**Lane D: Infrastructure & Staging**
+*   **Owner:** DevOps
+*   **Work:** Configure staging instances to match production timeout limits (preventing script timeouts); set up feature flag controls.
+*   **Serialization:** Must be ready before Integration Testing.
+
+## Gates & Checks
+
+**Gate 1: Code Review & Security Approval**
+*   **Trigger:** Lane A and Lane B PRs ready.
+*   **Check:** Jane Smith must explicitly approve changes in `TokenExchange` directory.
+*   **Constraint:** PRs must remain modular to ensure review speed.
+
+**Gate 2: Performance & Cost Check**
+*   **Trigger:** Integration Test Suite execution.
+*   **Check:** Suite must complete in **< 12 minutes** to prevent CI cost spikes.
+*   **Action:** If tests exceed limit, strip non-critical paths or parallelize test runners before merging.
+
+**Gate 3: Staging Validation (The "Timeout" Gate)**
+*   **Trigger:** Deploy to Staging behind feature flag.
+*   **Check:** Run migration script against full data volume. Verify no timeouts occur (validating Lane D's instance config).
+*   **Critical:** Verify zero friction for v1 users; confirm v2 token issuance.
+
+**Gate 4: Fraud Verification**
+*   **Trigger:** Successful Staging migration.
+*   **Check:** Fraud Team confirms auto-migrated transactions in staging did not trigger blocks.
+*   **Sign-off:** Required before Production rollout.
+
+## Review Strategy
+
+*   **Independent Code Review:** Lane A (Checkout) code reviewed by a Senior Engineer *not* on the Checkout team. Lane B (Security) reviewed strictly by Jane Smith.
+*   **Logic Verification:** Fraud Team reviews the *mapping logic* (v1 attributes -> v2 attributes) independently of the implementation code to ensure no data loss triggers fraud alerts.
+*   **Compliance Review:** Compliance Lead reviews the "Rejection of new v1" logic to ensure it meets audit reduction goals without violating user agreements.
+
+## Landing Strategy
+
+**Phase 1: Soft Launch (Feature Flag ON for Internal Only)**
+*   Deploy to Production behind flag.
+*   Run internal test transactions with v1 tokens.
+*   **Human Decision:** Engineering Lead verifies logs show successful exchange and no latency spikes.
+
+**Phase 2: Gradual Rollout (1% -> 10% -> 50%)**
+*   Enable for real traffic incrementally.
+*   **Monitor:** Conversion rates and Fraud false-positive rates.
+*   **Stop Condition:** Any drop in conversion or spike in fraud blocks triggers immediate flag rollback.
+
+**Phase 3: Full Cutover & Hardening**
+*   Enable for 100% of traffic.
+*   **Human Decision:** Dual sign-off (Engineering + Compliance) required to flip the flag to "Reject New v1" mode.
+
+**Phase 4: Final Cleanup (The Irreversible Gate)**
+*   **Pre-Condition:** Confirm active queue has **zero** v1 tokens.
+*   **Action:** Trigger nightly data reconciliation job.
+*   **Warning:** This job is irreversible and fails silently if v1 tokens exist. A manual database check must occur immediately prior to execution.
+*   **Rollback Plan:** If post-deploy issues arise, toggle feature flag to "Bypass Exchange" (temporarily accepting v1) to restore conversion, then investigate. Reverting the code requires a full redeploy; toggling the flag is the primary rollback mechanism.

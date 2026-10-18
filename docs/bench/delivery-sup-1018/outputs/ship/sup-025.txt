@@ -1,0 +1,42 @@
+### Delivery Plan: Payment Gateway Stabilization
+
+**Objective:** Aggressively tune fraud filters to handle 40x traffic spike while maintaining <400ms latency and zero false positives on legitimate donations.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data Analysis & Baseline):** Analyze last month's load test data to identify "known bad actor" patterns vs. legitimate donor signatures. Define the specific threshold adjustments. *Owner: Product Analyst.*
+*   **Lane B (Logic Implementation):** Modify risk scoring logic in `nexus-gift` based on Lane A's parameters. Implement a "fast-fail" path for high-confidence blocks to reduce latency. *Owner: Builder.*
+*   **Lane C (Safety & Compliance):** Audit changes to ensure no raw card data hits the legacy audit logger. Verify TTL handling for `fraud-rules.json` updates. *Owner: Security.*
+*   **Serialization Constraint:** Lane B cannot start until Lane A produces the specific threshold parameters. Lane C runs parallel to B but must sign off before G5 (Verify).
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Define exact millisecond targets and risk score cutoffs. Pin base SHA of `nexus-gift`.
+*   **G3 (Design):** Confirm "fast-fail" architecture does not conflict with the 10-minute cache TTL.
+*   **G4 (Implement):** Commit changes with unit tests mocking the 40x load.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Action:** Replay last month's load test data against the modified logic in a sandbox.
+    *   **Constraint:** Do not run full CI regression suite (timeout risk). Run targeted integration tests only. Ignore flaky staging network checks; validate logic locally or in a stable ephemeral environment.
+    *   **Success Criteria:** Latency <400ms for legitimate traffic; 100% block rate on identified bad actors; zero audit log violations.
+*   **G6 (Review):** Independent review by a senior engineer not involved in Lane B. Security sign-off from Lane C owner.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lane B.
+*   **Reviewer:** Senior Trust & Safety engineer (independent of Builder).
+*   **Security:** Lane C owner verifies no PII leakage and safe rollback mechanics.
+*   **Rule:** Builder never reviews their own code. Security verdict is binding on PII issues.
+
+#### 4. Landing & Human Gates
+*   **Integration:** Merge to `production-us-east` branch only after G6 approval.
+*   **Human Approval (Mandatory):** Dual approval required from **Jane Smith** and the **On-Call Lead** before any push to production.
+*   **Deployment Window:** Target deployment 48 hours before "Winter Warmth" launch to monitor cache propagation (10-min TTL).
+*   **Rollback Plan:**
+    *   If latency >400ms or false positives detected: Immediate revert to previous SHA.
+    *   Since `fraud-rules.json` is cached, rollback includes flushing the global cache if possible, or waiting the 10-minute TTL with a "allow-all" fallback switch if implemented.
+*   **Post-Deploy (G9):** Monitor conversion rates and latency in real-time. If conversion dips >5%, trigger rollback immediately.
+
+**Risk Mitigation:**
+*   **CI Cost/Timeout:** Explicitly skip full regression suites; use targeted load replay.
+*   **Flaky Staging:** Do not rely on staging green lights for network-dependent checks; rely on local replay evidence.
+*   **Audit Logger:** Strict code review to ensure no test data triggers irreversible bad logs.
+
+**Next Step:** Await owner confirmation on the specific "bad actor" definitions to begin Lane A.

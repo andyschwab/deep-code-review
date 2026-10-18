@@ -1,0 +1,50 @@
+**Delivery Plan: Deprecate Legacy Card Token Format**
+
+**Lanes & Parallelism**
+*   **Lane 1 (Builder - Checkout Service):** Implement v1 rejection logic and background exchange handler. Must run behind a new feature flag `legacy_token_migration`.
+*   **Lane 2 (Builder - TokenExchange):** Develop the v1-to-v2 mapping logic within the Security-owned module. Requires pre-approval coordination with Jane Smith.
+*   **Lane 3 (QA - Functional):** Verify zero-friction migration on staging. Specifically test timeout behavior on cheaper instances to prevent production discrepancies.
+*   **Lane 4 (Fraud Coordination):** Collaborate with Fraud team to whitelist auto-migrated transaction patterns and verify no false positives occur.
+*   **Serialization:** Lane 2 must complete and be reviewed before Lane 1 integrates the exchange call. Lane 3 and 4 run in parallel after integration. All lanes must complete before G8 (Release).
+
+**Gates & Checks**
+*   **G1 (Spec):** Define exact v1 rejection error codes and the atomicity guarantee for the background exchange. Pin base SHA for all lanes.
+*   **G2 (Plan):** Confirm feature flag strategy and rollback trigger. Explicitly budget lane costs to avoid CI spikes; split integration tests if they exceed 10 minutes locally.
+*   **G3 (Design):** ADR for the irreversible nightly reconciliation job interaction. Ensure the job fails safely if v1 tokens exist post-cutover.
+*   **G4 (Implement):** Code changes in isolated worktrees. Lane 2 changes require Jane Smith's explicit architectural sign-off before merge.
+*   **G5 (Verify):**
+    *   Run full suite on staging with production data volume.
+    *   **Critical Check:** Verify timeout handling on staging instances matches production expectations.
+    *   **Fraud Check:** Confirm Fraud team sign-off on transaction logs.
+    *   **UI/Flow:** Ensure no user re-entry prompts appear during exchange.
+*   **G6 (Review):**
+    *   **Security:** Independent review of Lane 2 by Security squad (not the builder).
+    *   **General:** Deep code review of Lane 1 and integration points.
+*   **G7 (Integrate):** Merge to integration branch. Run a dry-run of the nightly reconciliation job against the integrated build to ensure it detects the state correctly.
+
+**Review Strategy**
+*   **TokenExchange (Lane 2):** Reviewed by Security Squad member (other than builder) + Jane Smith (Approval).
+*   **Checkout Service (Lane 1):** Reviewed by Senior Backend Engineer independent of the Checkout team.
+*   **Fraud Logic:** Verified by Fraud Team Lead (receipt of test logs required).
+*   **Compliance:** Review of the deprecation timeline and user impact assessment.
+
+**Landing & Rollback**
+*   **Merge Train:** Lanes merge sequentially (TokenExchange first, then Checkout).
+*   **Human Decisions (G8):**
+    *   **Jane Smith:** Final approval on TokenExchange directory changes.
+    *   **Engineering Lead + Compliance Lead:** Dual sign-off required for Production deploy.
+    *   **Product Owner:** Approval to flip the feature flag from "off" to "on".
+*   **Deployment:**
+    1.  Deploy behind feature flag (disabled).
+    2.  Enable flag for 1% internal traffic.
+    3.  Enable for 10% canary; monitor Fraud alerts and conversion rates.
+    4.  Full rollout only after 24h stable canary.
+*   **Rollback:**
+    *   **Immediate:** Flip feature flag off to bypass rejection/exchange logic.
+    *   **Code Revert:** If data corruption is detected, revert the merge and restore from pre-deploy backup.
+    *   **Constraint:** If the nightly reconciliation job has already run with partial data, manual intervention is required; the job itself is irreversible.
+
+**Risk Mitigation**
+*   **CI Cost:** Tests are sharded to stay under the 12-minute threshold.
+*   **Timeouts:** Staging tests explicitly mimic production load on cheaper hardware to catch latency issues early.
+*   **Conversion:** Fallback logic defaults to "allow v1" if the exchange service times out, ensuring no transaction drop.

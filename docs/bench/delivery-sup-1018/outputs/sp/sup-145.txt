@@ -1,0 +1,39 @@
+# Delivery Plan: Geo-Replication with Sovereignty Guards
+
+## Lanes & Parallelism
+**Lane A (Configuration & Logic):** Develop the filtering logic within the `sync-engine` module. This lane modifies the replication pipeline to inspect dataset metadata and exclude records tagged 'EuroZone' or 'ApexBank' before transmission serialization.
+**Lane B (Test Infrastructure):** Prepare the isolated CI hardware environment and draft the specific failover and leakage test suites. This includes scripting the "zero leakage" verification asserts.
+**Parallel Execution:** Lanes A and B run simultaneously. Lane A cannot merge until Lane B confirms the test harness is ready to validate the specific sovereignty constraints without triggering the flaky `latency-simulator` unnecessarily.
+
+**Serialization Point:** Lane A must wait for Lane B to finalize the test scripts before the first integration run, ensuring the expensive CI slot (400 credits/55 mins) is not wasted on unverified test configurations.
+
+## Gates & Checks
+**Gate 1: Code Freeze & Lock Check:** Before any commit to the replication branch, verify `/config/global` is unlocked (outside business hours). If locked, pause the pipeline.
+**Gate 2: Pre-Flight Review:** A static analysis check must confirm no hardcoded IPs or region identifiers bypass the filter logic. This runs on every local commit.
+**Gate 3: The CI Run (Critical):**
+*   **Revision:** Runs only on the candidate merge revision.
+*   **Scope:** Execute `sync-engine` tests excluding `latency-simulator` by default.
+*   **Flake Handling:** If `latency-simulator` fails, halt immediately. Do not auto-retry. Trigger manual approval request to Lead Architect Jane Smith. Only proceed upon her explicit bypass authorization.
+*   **Success Criteria:** 100% pass on failover tests for eligible clients; 100% pass on "zero leakage" asserts for restricted accounts.
+
+## Review Process
+**Independent Technical Review:** Assigned to a Senior Engineer *not* affiliated with the `sync-engine` module ownership. They must verify the filter logic against the sovereignty requirements without knowledge of the implementation details to prevent bias.
+**Security Audit:** Mandatory review by the Security Team lead focusing strictly on the data exclusion mechanism. They must sign off on the "zero leakage" claim based on the test output.
+**Operations Review:** Operations Lead verifies the rollback procedure and the irreversibility warning flags.
+
+## Landing Strategy
+**Merge Protocol:**
+1.  **Dual Sign-off Required:** The merge request remains blocked until both Security and Operations leads provide explicit approval comments.
+2.  **Deployment Window:** Merge occurs only during a designated maintenance window to allow for immediate monitoring.
+3.  **Irreversibility Contingency:** Since enabling flags is irreversible without a 4-hour cluster rollback, the merge includes a pre-validated "Kill Switch" configuration that disables replication traffic instantly without a full rollback if leakage is detected post-deploy.
+
+**Human Decision Points:**
+*   **Jane Smith:** Sole authority to bypass the flaky `latency-simulator` failure.
+*   **Security & Ops Leads:** Joint authority to authorize the production deploy.
+*   **Rollback Authority:** Only the Incident Commander can authorize the 4-hour full cluster rollback if the Kill Switch fails to contain leakage.
+
+**Rollback Plan:**
+If leakage is detected post-merge:
+1.  Activate Kill Switch (immediate).
+2.  If Kill Switch fails, initiate full cluster rollback (4-hour duration).
+3.  Post-mortem required before re-attempting enablement.

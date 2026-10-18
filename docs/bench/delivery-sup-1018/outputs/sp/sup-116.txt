@@ -1,0 +1,41 @@
+### Delivery Plan: Apex Cluster Blue-Green Swap
+
+#### 1. Lanes and Parallelism
+*   **Lane A (Configuration & Compatibility):** Update `cluster_weights.json` to support dual-cluster routing. This must remain backward compatible to prevent breaking the three dependent services.
+    *   *Constraint:* Serialized before any traffic shift.
+*   **Lane B (Staging Validation):** Deploy the swap logic to the staging environment. Execute the full 45-minute integration suite once per day.
+    *   *Parallel:* Can run alongside Lane A's code review, but must complete before Lane C begins.
+    *   *Manual Gate:* If the audio sync module fails, pause for Jane Smith's manual re-run approval.
+*   **Lane C (Production Prep):** Prepare the production deployment manifests for the blue-green switch. No code changes; only infrastructure-as-code updates to enable the new routing rules.
+
+#### 2. Gates and Checks
+*   **Gate 1 (Staging Rollback Proof):** Before leaving staging, simulate a failure during an active ingest stream. Verify the system reverts to the legacy cluster within 30 seconds.
+    *   *Check:* Monitoring dashboard must show zero frame drops during the simulated revert.
+    *   *Revision:* Must pass on the exact commit hash approved for production.
+*   **Gate 2 (Health Probe Verification):** In production, prior to any traffic shift, automated health probes must confirm 100% stability on the Apex cluster for a predefined window (e.g., 5 minutes).
+    *   *Condition:* If probes fail, the swap halts automatically. No human intervention required to stop; human intervention required to restart.
+*   **Gate 3 (Dual Sign-Off):** Production deploy requires explicit written approval from both the Shift Lead and the Architecture Board.
+    *   *Timing:* Sign-off occurs only after Gate 1 and Gate 2 are cleared.
+
+#### 3. Review Strategy
+*   **Code Review:** Independent review of `cluster_weights.json` and orchestrator logic by a senior engineer not on the StreamOps team to ensure backward compatibility and correct rollback logic.
+*   **Operational Review:** The Shift Lead must review the staging test logs, specifically the 30-second rollback metric and the audio sync resolution (if Jane Smith's approval was needed).
+*   **Architecture Review:** The Architecture Board verifies that the irreversible decommissioning of the legacy hardware is not triggered until 48 hours of stable production operation post-swap.
+
+#### 4. Landing and Merge Strategy
+*   **Merge Window:** Deployment occurs during the lowest traffic window, strictly outside of any scheduled live broadcast times.
+*   **Execution:**
+    1.  Deploy updated `cluster_weights.json` (Lane A).
+    2.  Activate health probes on Apex (Gate 2).
+    3.  Upon dual sign-off (Gate 3), shift 1% of non-critical traffic.
+    4.  Monitor for 15 minutes. If stable, shift 100% of ingest streams.
+*   **Automatic Revert:** The monitoring dashboard is hooked to the orchestrator. Any anomaly (latency spike, frame drop, ingest disconnect) triggers an immediate script to revert traffic to the legacy cluster. This script must be pre-loaded and armed before the 1% shift.
+*   **Human Decision Points:**
+    *   Proceeding to 100% traffic shift after the 1% trial.
+    *   Authorizing the permanent decommissioning of the legacy cluster (only after 48 hours stability).
+*   **Rollback Plan:**
+    *   *Automated:* Triggered by anomalies within the first hour. Target: <30 seconds.
+    *   *Manual:* If automated revert fails, the Shift Lead executes the emergency "Kill Switch" script to force routing to the legacy cluster.
+    *   *Post-Failure:* If a rollback occurs, no further attempts are made until a full post-mortem and a new 45-minute staging build validates the fix.
+
+**Critical Note:** The legacy hardware repurposing is irreversible. Decommissioning is strictly decoupled from the traffic swap. Traffic moves first; hardware disposal happens days later only after confirmed stability.

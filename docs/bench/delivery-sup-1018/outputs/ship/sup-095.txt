@@ -1,0 +1,51 @@
+**Delivery Plan: Reservation Auth Bypass Patch**
+
+**Strategy:** Blue-Green Hotswap with Traffic Drain. We will patch the idle "Blue" environment, verify it, then drain traffic from "Green" (current live) to "Blue" once verified. This avoids dropping WebSocket connections and allows an instant rollback by shifting traffic back.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Spec & Patch (Serial Start)**
+    *   **Actor:** Builder (Security-constrained).
+    *   **Task:** Isolate the auth bypass logic in the reservation module. Implement a fix that validates ownership without forcing a global lockout.
+    *   **Constraint:** Code must support hot-reload or graceful connection draining; no hard restarts.
+    *   **Output:** Patch commit on `fix/auth-bypass` branch.
+
+2.  **Lane B: Environment Prep (Parallel to A)**
+    *   **Actor:** Release Engineer.
+    *   **Task:** Identify the current "Blue" idle slot. Confirm the legacy cron job schedule for `booking-state` to avoid the 15-minute lock window during the deploy step.
+    *   **Output:** Confirmed deployment window (lowest traffic in next 2h) and cron-safe timestamp.
+
+3.  **Lane C: Verification (Serial, after A & B)**
+    *   **Actor:** Independent QA + Security.
+    *   **Task:** Deploy patch to idle "Blue" slot. Run targeted regression on auth flows and high-load booking edits. Verify WebSocket stability during the deploy.
+    *   **Constraint:** Must run on the exact SHA of Lane A.
+    *   **Output:** Green CI receipt, explicit "No data loss" confirmation on test transactions.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Define the exact auth check missing. Confirm fix does not require agent logout.
+*   **G2 (Plan):** Lock the deployment window with the Shift Lead. Ensure it misses the `booking-state` cron lock by at least 5 minutes.
+*   **G3 (Build):** CI pipeline run on `fix/auth-bypass`. **Critical:** Only one retry allowed due to $120 cost/45m time. If it fails twice, escalate to manual code review before re-running.
+*   **G4 (Verify):** Deploy to Blue. Run smoke tests against Blue endpoint. Verify active session continuity simulation.
+*   **G5 (Approval):** **Human Gate.** VP of Engineering must approve the traffic switch. Since she is in transit, prepare a single-click approval link or async signature required before the window opens. No deploy without this.
+*   **G6 (Release):** Traffic shift (Green → Blue). Monitor error rates and active connection counts for 5 minutes.
+
+**Review**
+
+*   **Code Review:** Security Lead reviews Lane A's patch. Must be independent of the Builder.
+*   **Operational Review:** Shift Lead validates the timing window and agent impact assessment.
+*   **Final Audit:** QA signs off on the Blue environment receipt before any traffic moves.
+
+**Landing & Rollback**
+
+*   **Merge Strategy:** Do not merge to `main` until Blue is verified and traffic is shifted. The "merge" is effectively the traffic router update.
+*   **Human Decision:** VP of Engineering approves the cutover. Shift Lead executes the traffic drain.
+*   **Rollback Plan:** If errors spike post-switch:
+    1.  Immediately route 100% traffic back to Green (still running the old version).
+    2.  **Do not revert the code deployment on Blue** yet, as reverting triggers the irreversible cache purge (losing hold timers).
+    3.  Investigate Blue logs while Green serves traffic. Only purge Blue if a full redeploy is needed later.
+
+**Risk Mitigation**
+*   **Cost/Time:** One shot at CI. Local linting/type-checking must be perfect before pushing.
+*   **Data Integrity:** The `booking-state` file lock is avoided by strict timing. No transactions are interrupted because the swap happens at the load balancer, not the process level.
+*   **Continuity:** Green remains untouched until Blue is proven safe.

@@ -1,0 +1,35 @@
+### Delivery Plan: Atomic Dynamic Pricing Engine
+
+**Lanes & Parallelism**
+*   **Lane A (Logic & Isolation):** Backend engineers develop the new pricing calculation module within `core-transactions`. Simultaneously, DevOps prepares the blue-green infrastructure scripts. These run in parallel.
+*   **Lane B (Verification):** QA constructs synthetic demand datasets mimicking the holiday surge. Since staging data is stale after 3 AM, all integration testing must occur between 4 AM and 2:30 AM or use the synthetic dataset injected into a isolated staging clone.
+*   **Serialization Point:** Lane A cannot merge to the release branch until Lane B confirms the synthetic dataset yields atomic price swaps with zero intermediate states visible.
+
+**Gates & Checks**
+*   **Gate 1 (Code Freeze):** All code must be committed to a specific release candidate revision (`rc-pricing-holiday`) by Friday 12:00 PM. No changes accepted after this point without Risk Lead waiver.
+*   **Gate 2 (CI Stability):** The CI pipeline must pass on `rc-pricing-holiday`. Given the 15% flaky network failure rate, automated retries are configured for network errors only. Any logic failure triggers an immediate halt. This check runs on the exact `rc` revision.
+*   **Gate 3 (Dual Approval):** Before deployment scripting begins, explicit written approval is required from both Jane Smith and the Risk Lead on the `rc` revision hash.
+*   **Gate 4 (Pre-Swap Validation):** A "dry-run" deployment to the inactive blue/green slot occurs 2 hours before the swap. Automated smoke tests verify the new engine loads without crashing the monolith.
+
+**Review Strategy**
+*   **Independent Code Review:** A senior engineer from the mobile team (who does not share the `core-transactions` daily workflow) reviews the atomicity implementation. They focus strictly on the race conditions between calculation and display.
+*   **Operational Review:** The Senior SRE reviews the rollback script independently of the deployment script. Since the database ledger is immutable, the review must confirm the "reverse-transaction script" correctly negates prices without violating ledger integrity.
+*   **Separation:** The developers writing the engine cannot approve their own deployment plan. The Risk Lead reviews the *impact* analysis, not the code syntax.
+
+**Landing & Merge**
+*   **Timing:** The final blue-green swap is scheduled for Tuesday 4:00 AM (lowest traffic, within business hours for the Senior SRE).
+*   **Execution:**
+    1.  Deploy `rc-pricing-holiday` to the inactive environment (Green).
+    2.  Run smoke tests against Green.
+    3.  **Human Decision Point:** The Senior SRE manually triggers the router swap only after verifying real-time metrics show 0% error rates and sub-millisecond response times in Green.
+*   **Atomicity Guarantee:** The router switch is the atomic event. Users are either 100% on Old or 100% on New. No user sees a mix.
+*   **Rollback Protocol:** If anomalies appear post-swap:
+    1.  Immediately trigger the router to revert to the Blue (old) environment. This is instant and requires no database changes.
+    2.  Do *not* attempt to fix data in the live New environment.
+    3.  Execute the complex reverse-transaction script only if financial reconciliation requires it, performed offline by the Risk team.
+*   **Post-Merge:** Once stable for 2 hours, the `rc` branch is merged to `main`. The inactive environment is kept warm for 24 hours before teardown.
+
+**Critical Constraints**
+*   No deployment steps occur between 3:00 AM and 4:00 AM to allow for staging data sanitation verification.
+*   If CI fails three times due to flakiness, the pipeline halts for human investigation to prevent deploying a broken build via excessive retries.
+*   The Senior SRE is the single point of failure for the final swap; a backup SRE must be briefed and ready.

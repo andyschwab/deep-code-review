@@ -1,0 +1,39 @@
+### Delivery Plan: Legacy CSV Deprecation & Archive Fallback
+
+**Strategy:** Isolate the high-risk `archive-gateway` logic in a dedicated worktree. Parallelize interface definition and test harness creation, but serialize the cold-storage integration due to cost and irreversibility.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Spec & Contract) – Product Analyst:** Define the exact date cutoff logic (3 years), the new standardized CSV schema, and the error-handling contract for cold storage failures. *Parallel.*
+*   **Lane B (Test Harness) – QA:** Since `archive-gateway` lacks unit tests, build a localized end-to-end simulation harness that mocks the cold storage response to avoid incurring fees during development. *Parallel with A.*
+*   **Lane C (Implementation) – Builder:** Refactor the dual-path logic in `archive-gateway`. Implement the date-check router: <3 years → new format; ≥3 years → cold storage trigger. *Starts after A & B define contracts.*
+*   **Lane D (Compliance Verification) – Security/Compliance:** Audit the data access path to ensure no PII leakage during the fallback and verify the "invisible transition" requirement against automated script patterns. *Parallel with C.*
+
+**Serialization Constraint:** Lane C must complete and pass local simulation (Lane B) before any real cold storage interaction is attempted.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Freeze):** Owner approves the date cutoff and schema definition.
+*   **G3 (Design Review):** Lead Architect approves the routing logic to ensure no race conditions in the shared module.
+*   **G4 (Implementation):** Commit must include the new simulation harness (Lane B) alongside the logic change. No commit without the harness.
+*   **G5 (Verification):**
+    *   **Staging:** Run the full suite against the simulation harness. **Critical:** Verify zero cold storage calls are made during negative tests.
+    *   **Integration:** Deploy to a non-production clone. Manually verify one successful cold storage retrieval to confirm the irreversible trigger works as expected.
+    *   **Regression:** Re-run the nightly data sync job on a Tuesday (or simulated flake) to ensure the new logic handles retries correctly.
+*   **G6 (Review):** Independent review by a senior engineer not involved in Lane C. Focus on the `archive-gateway` shared impact.
+
+#### 3. Review Protocol
+*   **Code Review:** Performed by a Data Integrity peer independent of the Builder. Must verify the removal of dual-path logic does not introduce new inconsistencies.
+*   **Security/Compliance Review:** Mandatory sign-off on the data access audit (Lane D).
+*   **Artifact:** Review applies to the exact SHA of the merged integration branch, not individual feature branches.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:** Merge to the integration branch only after G6 passes. Due to the 45-minute CI pipeline, ensure the commit is squashed and final before triggering the full replay.
+*   **Human Decisions Required:**
+    1.  **Lead Architect:** Must approve the design (G3) and the final merge request.
+    2.  **Compliance Officer:** Must explicitly approve the production deployment (G8) after verifying the staging retrieval receipt.
+*   **Feature Flag Flip:** The flag controlling the new router remains OFF until the Compliance Officer signs off on the G9 production verification receipt.
+*   **Rollback Plan:**
+    *   **Pre-Flip:** Revert the merge commit.
+    *   **Post-Flip:** Immediate flag toggle back to legacy mode (if code path preserved) or hotfix revert.
+    *   **Cold Storage Mitigation:** Since retrieval is irreversible, any erroneous triggers during validation must be logged and financially accounted for; no technical rollback exists for the external fee.
+
+**Risk Mitigation:** The "Tuesday flake" requires a specific gate check: the CI pipeline must pass on a Tuesday simulation or include a forced retry logic verification before merging.

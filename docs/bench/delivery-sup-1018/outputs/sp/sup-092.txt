@@ -1,0 +1,45 @@
+### Delivery Plan: Adaptive Bitrate Ladder v2
+
+**Lanes & Parallelism**
+*   **Lane A (Configuration - Platform Team):** Prepare the updated `ladder_params.json`. This work is isolated to the configuration file and must be serialized before any code deployment.
+*   **Lane B (Validation - QA/SRE):** Prepare the four-hour simulation suite. Since staging lacks packet-loss tools, this lane focuses entirely on configuring the production-simulation environment.
+*   **Dependency:** Lane B cannot execute the final validation gate until Lane A commits the specific JSON revision. These lanes run in parallel for preparation but serialize at the validation gate.
+
+**Gates & Checks**
+All gates must run on the exact revision containing the final `ladder_params.json` commit.
+
+1.  **Syntax & Schema Gate (Immediate):** Automated linting of `ladder_params.json` to ensure valid JSON and correct key structures. Runs on every commit to the feature branch.
+2.  **Simulation Gate (Critical):** Execute the four-hour simulation against real network traces.
+    *   **Constraint:** Limited to three runs daily; cost $450/run.
+    *   **Requirement:** Must pass with zero quality oscillation errors exceeding the defined threshold.
+    *   **Timing:** Must be scheduled to complete before the 08:00 UTC deploy freeze.
+3.  **Staging Sanity Check (Optional/Low Confidence):** Deploy to staging only to verify the cache purge mechanism triggers correctly. Do not rely on functional playback results due to missing packet-loss tools.
+
+**Review Process**
+*   **Primary Review:** Jane Smith (Platform Team Owner). She must verify the mathematical logic of the new step sizes in `ladder_params.json`.
+*   **Secondary Review:** One Senior Engineer (unspecified). They must verify the deployment script and the rollback procedure.
+*   **Independence:** The Senior Engineer cannot be the author of the configuration change. Jane Smith cannot approve her own changes.
+*   **Evidence Required:** The simulation pass log must be attached to the Merge Request.
+
+**Landing Strategy**
+*   **Merge Window:** Merges to main are permitted only between 20:00 and 08:00 UTC.
+*   **Rollout Phasing (Gradual):**
+    1.  **Phase 1 (Canary):** Deploy to 5% of traffic in the least critical regional cluster. Monitor buffer health and churn metrics for 2 hours.
+    2.  **Phase 2 (Regional):** If Phase 1 metrics are stable, expand to 50% of that region.
+    3.  **Phase 3 (Global):** Only after 24 hours of stable global metrics, roll out to 100%.
+*   **Irreversible Action Warning:** Updating the config triggers a 20-minute cache purge. This must be timed to occur during low-traffic windows within the deploy freeze exemption (post-20:00 UTC).
+
+**Human Decisions & Rollback**
+*   **Human Decision Required:** Authorization to spend the $450 simulation cost. This must be explicitly approved by the Ticket Requester before the simulation lane begins.
+*   **Human Decision Required:** Go/No-Go decision after Phase 1 (5% traffic) based on live buffer health data.
+*   **Rollback Procedure:**
+    *   **Trigger:** Immediate rollback if buffer rebuffering rate increases by >2% or churn spikes in the canary group.
+    *   **Action:** Revert the `ladder_params.json` to the previous commit hash.
+    *   **Consequence:** This will trigger another 20-minute cache purge.
+    *   **Approval:** Rollback does not require secondary approval if automated thresholds are breached; otherwise, Jane Smith must authorize.
+
+**Schedule Summary**
+1.  **Day 1 (Afternoon):** Commit config, obtain cost approval, run Simulation (Run 1).
+2.  **Day 1 (Evening):** If simulation fails, analyze logs. If successful, proceed to Review.
+3.  **Day 2 (Post-20:00 UTC):** Merge to main, trigger Phase 1 deploy.
+4.  **Day 3:** Evaluate Phase 1 data. Proceed to Phase 2/3 or Rollback.

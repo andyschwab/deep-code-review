@@ -1,0 +1,53 @@
+### Delivery Plan: Invoice Generation Acceleration
+
+**Objective:** Reduce invoice generation runtime from 5h 12m to <3h by optimizing historical partition aggregation, ensuring byte-for-byte output parity with the legacy run.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Analysis & Spec) – Serial Prerequisite:**
+    *   **Actor:** Product Analyst + Builder.
+    *   **Work:** Profile current execution plan on the 2TB snapshot. Identify specific bottlenecks in historical partition aggregation. Define the optimization strategy (e.g., query rewrite, indexing, parallelization) without altering output schema.
+    *   **Output:** Technical Spec (G1) with explicit "No Schema Change" constraint and target metrics.
+*   **Lane B (Implementation) – Parallelizable after Spec:**
+    *   **Actor:** Builder (dedicated worktree).
+    *   **Work:** Implement optimized data retrieval logic. Add unit tests for aggregation logic.
+    *   **Constraint:** Must not lock tables during 01:00–03:00 UTC.
+*   **Lane C (Verification Data Prep) – Parallel to Lane B:**
+    *   **Actor:** QA Engineer.
+    *   **Work:** Prepare the exact 2TB production snapshot environment. Script the "legacy run" vs. "optimized run" comparison harness to verify identical totals.
+
+#### 2. Gates & Checks
+*   **G1 (Spec):** Owner approves the optimization approach. *Check:* Does it guarantee <3h runtime theoretically?
+*   **G3 (Design):** Review of query plans. *Check:* Confirmed no table locks during analytics peak (01:00–03:00 UTC).
+*   **G4 (Implement):** Code committed to isolated worktree. *Check:* Unit tests pass locally.
+*   **G5 (Verify):** **Critical Gate.** Run on the **exact final SHA**.
+    *   Execute optimized job against 2TB snapshot.
+    *   **Validation:** Output totals must match legacy run exactly. Runtime must be <3h.
+    *   **Note:** Ignore staging network timeout errors post-02:00 UTC *only* if logs confirm data integrity.
+*   **G6 (Review):**
+    *   **Code Review:** Senior Engineer (independent of Builder). Focus: Logic correctness, no schema drift.
+    *   **Security/Compliance:** Compliance Officer review (SOX implication).
+    *   **Pipeline:** Trigger full data reconciliation test **once** on the final SHA to confirm $45 cost efficiency.
+
+#### 3. Review Strategy
+*   **Independence:** The Builder cannot approve their own code. The QA verification (G5) is independent of the implementation.
+*   **Scope:** Review focuses strictly on aggregation logic and performance; explicitly verifies no changes to output schema or file formats.
+*   **Cost Control:** Pipeline triggered only once at G6 on the final SHA to prevent budget overruns.
+
+#### 4. Landing & Human Decisions
+*   **Integration (G7):** Merge to integration branch only after G5 (parity confirmed) and G6 (reviews approved).
+*   **Human Approval (G8 - Mandatory):**
+    *   **Approvers:** Lead Architect AND Compliance Officer (Dual approval required for SOX).
+    *   **Decision Point:** Confirm G5 receipts (identical totals, <3h runtime) and G6 reviews.
+*   **Deployment:**
+    *   Schedule deployment to occur **after 03:00 UTC** to avoid analytics team contention.
+    *   Deploy behind a feature flag if available, or direct to production upon dual approval.
+*   **Rollback Plan:**
+    *   If runtime exceeds 3.5h or totals mismatch in production: Immediate revert to previous SHA.
+    *   Rollback procedure pre-verified in G8.
+
+#### 5. Risk Mitigation
+*   **Flaky Check:** Explicitly document ignoring 02:00 UTC staging timeouts if data integrity logs are clean.
+*   **Budget:** Strict limit of one full reconciliation run. Local verification (G5) must be robust before triggering CI.
+*   **Concurrency:** Lane B and C run in parallel; Lane A is strictly serial to prevent misaligned optimization efforts.
+
+**Next Step:** Await Owner approval on G1 Spec to commence Lane B and C.

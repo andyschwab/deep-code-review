@@ -1,0 +1,59 @@
+### Delivery Plan: Checkout Replay Mitigation
+
+**Objective:** Implement stateless token validation to mitigate replay attacks while maintaining <50ms added latency and handling 200ms clock skew.
+
+#### 1. Lanes & Parallelism
+*Worktrees must be isolated; one writer per tree.*
+
+*   **Lane A: Cryptographic Design & Token Spec (Conductor + Security)**
+    *   **Work:** Define the stateless token structure (HMAC-SHA256 with embedded expiry/nonces). Calculate worst-case latency for validation logic. Define the clock-skew tolerance window (must cover 200ms drift + network jitter, likely ~500ms total) without extending the replay window dangerously.
+    *   **Constraint:** Must prove mathematically that the skew window does not enable replay within the SDK's 30s cache life.
+    *   **Parallel:** Yes.
+
+*   **Lane B: Gateway Implementation (Builder)**
+    *   **Work:** Implement the validation middleware in the checkout gateway. Integrate the skew tolerance logic. Ensure no synchronous external calls are introduced.
+    *   **Constraint:** Code must pass local latency profiling simulating 3G conditions.
+    *   **Parallel:** Yes (starts after Lane A's spec is frozen).
+
+*   **Lane C: Simulation & Regression (QA)**
+    *   **Work:** Build a local harness to replay captured traffic with manipulated timestamps (±200ms) and duplicate nonces. Verify rejection of duplicates and acceptance of skewed legitimate traffic.
+    *   **Constraint:** **Do not** trigger the full CI ledger replay ($45/22m). Use unit/integration tests only.
+    *   **Parallel:** Yes (starts after Lane B has a draft).
+
+*   **Lane D: Deployment & Rollback Automation (Release)**
+    *   **Work:** Script the canary deployment. Configure the 0.1% error rate auto-rollback trigger. Prepare the "kill switch" feature flag.
+    *   **Serialized:** Must wait for Lane C's success receipt before finalizing the pipeline config.
+
+#### 2. Gates & Checks
+*Every gate requires an exact SHA. Missing evidence is UNVERIFIED.*
+
+*   **G1 (Spec):** Token spec signed off by Security. Latency budget confirmed <50ms.
+*   **G3 (Design):** ADR published detailing clock-skew math and nonce storage strategy (stateless).
+*   **G4 (Implement):** Code committed. Local build green.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA from Lane B.
+    *   **Check:** Simulation harness (Lane C) proves duplicates rejected, skewed valid requests accepted.
+    *   **Performance:** Local profile confirms <50ms overhead.
+    *   **Condition:** If the harness uses the flaky `global-clock-sync` lib, it must be mocked to avoid false negatives.
+*   **G6 (Review):**
+    *   **Security Review:** Independent of Builder. Focus on cryptographic strength and skew window safety.
+    *   **Code Review:** Independent of Builder. Focus on latency and error handling.
+*   **G7 (Integrate):** Merge to integration branch. Run *only* affected subset of CI tests if possible to save cost/time, otherwise accept the 22m cost once.
+
+#### 3. Review Strategy
+*   **Security:** Performed by a Security engineer (not the Builder). Must explicitly sign off on the clock-skew window calculation.
+*   **Code:** Performed by a Senior Backend Engineer (not the Builder).
+*   **QA:** Verification receipts from Lane C are the primary artifact; no manual QA needed if simulation coverage is 100% for the replay scenarios.
+
+#### 4. Landing & Human Gates
+*   **Merge Strategy:** Merge to `main` behind a feature flag (disabled).
+*   **Human Approval (G8):**
+    *   **Required Approvers:** Jane Smith AND On-call SRE.
+    *   **Action:** Enable canary deployment.
+    *   **Timing:** Strictly outside peak evening hours.
+*   **Rollback:**
+    *   **Automatic:** If error rate > 0.1% in canary, the system auto-rolls back to the previous SHA.
+    *   **Manual:** Immediate feature flag toggle to bypass validation if a logic flaw is detected.
+*   **Post-Deploy (G9):** Monitor latency percentiles (p99) on 3G connections specifically. Verify no increase in false positives due to clock drift.
+
+**Risk Note:** The hardcoded 30s SDK cache is a fixed constraint. If the token expiry is shorter than 30s, valid users may face errors until the cache rotates. The token expiry must be ≥30s, or the replay window becomes unmanageable. This trade-off is accepted per the spec.

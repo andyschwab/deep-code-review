@@ -1,0 +1,36 @@
+**Delivery Plan: Hardened Identity Verification**
+
+**Lanes & Parallelism**
+*   **Lane A (Security Logic):** Implement strict certificate chain verification in the ingestion pre-flight check. Must return specific error codes for malformed requests immediately. *Writer: Security Engineer.*
+*   **Lane B (Legacy Compatibility):** Update the `legacy-harness` simulation to assert that older device behaviors still pass and that new error codes are correctly emitted. *Writer: QA Engineer.*
+*   **Serialization Constraint:** Lane A and Lane B must run in **parallel** on separate worktrees to avoid CI queue bottlenecks on gold-tier runners. However, the final integration test (Lane C) must wait for both A and B to succeed individually before merging.
+*   **Lane C (Integration):** Run the full suite against the combined SHA of A+B. *Trigger: Only after A and B are green.*
+*   **Critical Exclusion:** No changes to the firmware validation module interface. Any touch here triggers a 72-hour audit lock. The plan assumes the new logic sits strictly *before* this module in the pipeline.
+
+**Gates & Checks**
+*   **G1 Spec:** Define the specific error codes for rejection. Confirm the exact entry point in the pipeline that precedes the firmware module.
+*   **G4 Implementation:**
+    *   Lane A commits to `feat/spoof-hardening`.
+    *   Lane B commits to `test/legacy-compat`.
+    *   Both lanes verify locally that the firmware module is untouched.
+*   **G5 Verification (Exact Revision):**
+    *   Run Lane A's unit tests on its specific SHA.
+    *   Run Lane B's legacy simulation on its specific SHA. **Constraint:** Do not schedule Lane B's heavy integration run for a Tuesday morning due to known network throttling flakiness.
+    *   **Merge Test:** Create a temporary integration branch combining A and B. Run the full pipeline on this exact SHA. This is the only time the expensive gold-tier runners are used for the full suite.
+*   **G6 Review:**
+    *   **Security Review:** Independent Security Lead reviews Lane A (cannot be the implementer).
+    *   **QA Review:** Senior QA reviews Lane B and the integration results.
+    *   **Compliance Check:** Verify the audit log shows zero modifications to the firmware validation interface.
+
+**Landing Strategy**
+*   **Merge Train:** Once G6 is passed, merge Lane A and Lane B into the integration branch. Run one final "smoke test" on the integrated SHA.
+*   **Human Gates (Dual Approval):**
+    *   The merge to `main` (or release branch) requires explicit approval from **both** the Security Lead and the Compliance Officer.
+    *   The deployment request must explicitly state: "Zero changes to firmware validation interface; legacy harness verified."
+*   **Deployment Window:** Deploy outside business hours to ensure seamless operation. Use a canary rollout if the platform supports it, monitoring specifically for the new error codes in logs (indicating successful rejection) rather than timeouts.
+*   **Rollback:** If the legacy harness fails in production or the new error codes appear for valid certified devices, immediate rollback to the previous SHA is required. The rollback plan must be pre-approved by the Compliance Officer alongside the deploy request.
+
+**Risk Mitigation**
+*   **CI Contention:** By splitting unit/compat tests (Lanes A/B) from the full integration (Lane C), we minimize time on expensive gold-tier runners.
+*   **Flaky Tests:** Legacy harness tests are explicitly scheduled away from Tuesday mornings.
+*   **Audit Lock:** Strict isolation of the firmware module ensures the 72-hour lock is never triggered.

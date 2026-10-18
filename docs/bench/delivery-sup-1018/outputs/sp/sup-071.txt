@@ -1,0 +1,31 @@
+### Delivery Plan: Meridian Trust Bank Settlement Backfill
+
+#### 1. Lanes and Parallelism
+Work is split into three serialized lanes due to dependency on the immutable `reconciliation-engine` and dual-approval requirements. Parallel work is limited to documentation and audit preparation.
+
+*   **Lane A (Script Development):** Develop a standalone Python script (`backfill_meridian_oct.py`) that connects to the archived SFTP, parses the 4,200 records, and generates an idempotent SQL insertion payload. This script must explicitly tag rows with `audit_flag = 'manual-backfill'` and restrict `transaction_date` between `2023-10-12` and `2023-10-18`. It must *not* import or modify the `reconciliation-engine` library to avoid CAB meetings.
+*   **Lane B (Compliance & Security Review):** While Lane A codes, the Compliance Officer and Platform Lead independently review the proposed SQL schema changes and the SFTP credential handling method. They must pre-approve the "silent run" logic to ensure it bypasses standard reconciliation triggers without disabling global alerts.
+*   **Lane C (Audit Trail Setup):** Prepare the external auditor log entry template. Since direct DB access is logged, this lane ensures the ticket description links directly to the specific commit hash that will be executed, satisfying the "irreversible action" audit requirement before execution begins.
+
+**Serialization Point:** Lane A cannot merge or execute until Lane B provides written dual approval. Lane C must be ready before the merge request is opened.
+
+#### 2. Gates and Checks
+*   **Gate 1: Code Freeze & Static Analysis:** The script is committed to a feature branch `feat/backfill-meridian-oct`. A local static analysis check (no network) verifies no dependencies on `reconciliation-engine` are introduced.
+*   **Gate 2: Dual Approval Merge Request:** A Merge Request (MR) is opened against `main`. The MR description must explicitly state: "Bypasses CI reconciliation suite; manual execution only."
+    *   *Check:* Platform Lead approves code safety.
+    *   *Check:* Compliance Officer approves the `manual-backfill` tagging logic and date scoping.
+    *   *Constraint:* Do **not** trigger the full CI pipeline yet. The 55-minute fraud simulation is unnecessary for a data-only backfill and wastes budget. The MR is merged only after both approvals are present, effectively treating the human approvals as the CI gate.
+*   **Gate 3: Pre-Execution Snapshot:** Immediately before running the script in production, a database snapshot of the `settlement_logs` table for the affected dates is taken. This is the rollback anchor.
+
+#### 3. Review Strategy
+*   **Independent Reviewer:** A senior engineer from a different squad (not involved in Lane A) reviews the script. Their sole focus is verifying that the script *cannot* affect dates outside Oct 12–18 and that it does not recalculate monthly totals.
+*   **Compliance Review:** The Compliance Officer reviews the output format of the script (dry run) to confirm the `manual-backfill` flag appears correctly in the generated SQL.
+*   **Separation:** The coder (Lane A) cannot be the one who approves the production execution. The Platform Lead must perform the final "eyes-on" verification of the dry-run output against the snapshot.
+
+#### 4. Landing and Rollback
+*   **Execution:** The merged script is executed manually by the Platform Lead in the production environment during a low-traffic window. It runs in "dry-run" mode first, outputting the exact SQL to be executed. Once verified against the snapshot, the `--execute` flag is enabled.
+*   **Verification:** Post-execution, a targeted query checks the count of records with `audit_flag = 'manual-backfill'` for the specific dates. It must equal 4,200. No full monthly reconciliation is run.
+*   **Rollback:** If the count differs or errors occur, the transaction is rolled back immediately using the pre-execution snapshot (Gate 3). Since the script is idempotent, it can be re-run after fixing the issue without duplicate insertion risk.
+*   **Human Decision:** The final "Go/No-Go" for the `--execute` flag requires a verbal confirmation from both the Platform Lead and Compliance Officer, logged in the ticket.
+
+This plan avoids the costly CI pipeline, respects the immutable library constraint, and satisfies the dual-approval and audit requirements while minimizing blast radius.

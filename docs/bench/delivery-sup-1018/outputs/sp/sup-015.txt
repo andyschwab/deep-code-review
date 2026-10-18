@@ -1,0 +1,32 @@
+### Delivery Plan: Duplicate Reminder Prevention
+
+**1. Work Lanes & Parallelization**
+*   **Lane A (Logic & Code):** Develop the idempotency check within the Notification Service. This involves implementing a "sent-flag" verification against the `sent_logs` table before queue processing begins. This lane runs in parallel with Lane B.
+*   **Lane B (Data Coordination):** Draft the schema change proposal for `sent_logs` (e.g., adding a unique constraint or status flag) required to support the new logic. Since this table is shared with Billing, this lane focuses solely on preparing the joint approval documentation and coordinating the meeting with the Billing Team Lead. No code is merged until this approval is secured.
+*   **Lane C (Timezone Remediation):** Isolate the legacy scheduler's UTC output and implement a conversion layer to local time before it reaches the reminder logic. This addresses the undocumented discrepancy and runs in parallel with Lane A.
+
+**2. Gates & Checks**
+*   **Gate 1 (Design Review):** Before coding begins, Lane A and Lane C leads must present the approach to the Senior Architect to ensure the `sent_logs` query optimization does not degrade daily schedule generation performance.
+*   **Gate 2 (Data Schema Approval):** Lane B must secure signed approval from both the Notification and Billing Team Leads. Deployment cannot proceed without this signature.
+*   **Check Point (CI Execution):** Run the full CI pipeline ($45/55 mins) exactly once on the **release-candidate branch** after all code is merged internally but before the production deploy.
+    *   *Exception Handling:* If the `queue-drain` integration test fails on a Tuesday, ignore the failure *only* if manual log inspection confirms the message processing succeeded. Otherwise, treat as a hard block.
+*   **Check Point (Performance Benchmark):** Verify via staging logs that the new `sent_logs` lookup adds <50ms to the batch processing time.
+
+**3. Independent Review**
+*   **Code Review:** A senior engineer from the **Billing Module team** (not Notification) must review the `sent_logs` access patterns to ensure no regression in billing operations.
+*   **Logic Review:** A QA engineer independent of the implementation team will review the timezone conversion logic in Lane C, specifically testing edge cases around Daylight Saving Time transitions.
+*   **Compliance Sign-off:** The Privacy Officer must review the final logic flow to confirm the duplicate prevention satisfies the compliance flag before the production deploy.
+
+**4. Landing Strategy**
+*   **Merge Protocol:** Code merges to the `staging` branch only after Gate 1 and the Independent Reviews are complete. The schema change (Lane B) is applied to Staging immediately upon Team Lead approval.
+*   **Production Deploy:**
+    *   **Prerequisite:** Successful CI run on the specific release commit hash.
+    *   **Authorization:** The **Director of Operations** must provide digital signature approval. As deploys are irreversible, this signature is the final gate.
+    *   **Execution:** Deploy during the lowest traffic window (02:00–04:00 local time).
+*   **Rollback Plan:**
+    *   Since production deploys are irreversible, a "rollback" entails an immediate hotfix deployment disabling the new queue processor and reverting to the previous stable build, effectively re-enabling duplicates temporarily to restore service availability.
+    *   **Human Decision Point:** If the `sent_logs` locking causes database contention >10%, the Director of Operations must decide whether to halt the deployment or proceed with reduced throughput.
+
+**5. Risk Mitigation**
+*   **Cost Control:** Limit CI runs to the final release candidate to avoid unnecessary $45 charges.
+*   **Data Integrity:** The shared `sent_logs` table will be monitored for deadlocks during the first hour post-deploy. If deadlocks occur, the system alerts the on-call DBA immediately.

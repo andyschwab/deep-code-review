@@ -1,0 +1,41 @@
+### Delivery Plan: Weekend-Ready Refund Approval Workflow
+
+**Lanes & Parallelism**
+*   **Lane A (Core Logic):** Implement the 4-hour timeout timer and the <50 unit threshold check within the refund service. This is independent of UI work.
+*   **Lane B (Dashboard):** Develop the "Auto-Approved" flagging view and the Monday Review queue filter. Can run parallel to Lane A.
+*   **Lane C (Infrastructure):** Configure the polling job to respect the 60-request/hour rate limit and isolate the known flaky notification check to prevent pipeline stalls.
+*   **Serialization Point:** Lane A and B must merge for Integration Testing. Lane C must be validated before the final deployment gate.
+
+**Gates & Checks**
+*   **Revision Control:** All work branches from `main` at the start of the sprint. No mid-sprint rebasing.
+*   **Gate 1 (Unit Logic):** Automated tests verifying the 4-hour window and 50-unit cutoff. Must pass before merging Lane A.
+*   **Gate 2 (Rate Limit Simulation):** A specific integration test simulating 61 requests to ensure the poller backs off correctly. Required for Lane C.
+*   **Gate 3 (Full Suite):** Triggered only once at 08:00 UTC on launch day to conserve credits. This run explicitly excludes the flaky notification check via tag filtering to prevent false stalls.
+*   **Final Gate:** Manual verification of the "Monday Review" dashboard view by the Product Owner.
+
+**Review Process**
+*   **Code Review:**
+    *   Lane A reviewed by a Senior Backend Lead (not the author).
+    *   Lane B reviewed by the Frontend Lead.
+    *   Lane C reviewed by the DevOps Lead.
+*   **Logic Audit (Independent):** The Risk Director (or delegate) must review the *logic specification* of the fallback mechanism (not the code) to confirm the 4-hour/50-unit rules match the business requirement. This happens before the Code Review is finalized.
+*   **Security Check:** A dedicated scan on the new polling mechanism to ensure no credential leakage in the legacy ticketing integration.
+
+**Landing Strategy**
+*   **Merge Window:** Merges to `main` must complete by 14:00 UTC on Friday.
+*   **Deployment:**
+    *   Target: 'Gold' environment.
+    *   Timing: Deploy at 15:00 UTC Friday, well before the 18:00 UTC irreversible snapshot window.
+    *   Approvers: Requires explicit sign-off from two Senior Leads AND the Risk Director in the deployment ticket.
+*   **Human Decision Points:**
+    *   If the Full Suite (Gate 3) fails due to non-flaky tests, the launch is aborted. No overrides.
+    *   If the Risk Director does not sign off by 14:30 UTC, deployment is cancelled.
+*   **Rollback Plan:**
+    *   Since deploys are irreversible after 18:00 UTC, the rollback mechanism is a **feature flag toggle**.
+    *   The fallback mechanism must be wrapped in a config flag defaulting to "OFF" in case of critical failure post-deploy.
+    *   If triggered, the system reverts to hard-stopping refunds requiring manual approval (accepting the weekend risk) until a code fix can be deployed next week.
+    *   A "Break Glass" procedure allows an on-call engineer to disable the auto-approval queue instantly via config without a new deployment.
+
+**Risk Mitigation**
+*   **Flaky Test:** The CI pipeline is configured to treat the notification module failure as "non-blocking" for this specific release branch only, with a mandatory manual log check to ensure no real errors occurred.
+*   **Polling Limits:** The poller includes a local cache to reduce unnecessary calls if the status hasn't changed, ensuring we stay well under the 60/hour limit even during spikes.

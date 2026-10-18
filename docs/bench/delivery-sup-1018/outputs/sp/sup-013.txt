@@ -1,0 +1,68 @@
+### Delivery Plan: Real-Time Usage Alerts
+
+**Objective:** Deploy real-time alerts by Friday while guaranteeing zero impact on nightly batch invoicing.
+
+#### 1. Work Lanes & Parallelism
+
+*   **Lane A: Alert Service Implementation (Notifications Team)**
+    *   Develop the real-time stream monitor and notification trigger.
+    *   **Constraint:** Code must include explicit resource limit configurations (CPU/Memory cgroups) defined in the deployment manifest.
+    *   **Parallel Status:** Can proceed immediately alongside Lane B.
+
+*   **Lane B: Resource Isolation & Concurrency Harness (SRE/DevOps)**
+    *   Create a local simulation script that mimics the production throttling mechanisms missing in staging.
+    *   Modify the CI pipeline to support partial builds targeting only `alert-service` and `integration-tests` to avoid the 55-minute full run cost.
+    *   **Parallel Status:** Can proceed immediately alongside Lane A.
+
+*   **Lane C: Batch Job Verification (Finance Team)**
+    *   Prepare a "dry-run" dataset for the `invoice-generator` that simulates peak load conditions.
+    *   **Serialization Point:** Must wait for Lane A and B to produce a candidate build before executing the concurrency test.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Static Resource Definition (Pre-Merge)**
+    *   **Check:** Automated linting on the deployment manifest.
+    *   **Criteria:** Hard limits on memory/CPU for the alert service must be present and strictly lower than the threshold that previously caused starvation.
+    *   **Revision:** Latest commit on the feature branch.
+
+*   **Gate 2: Partial Build Success (CI)**
+    *   **Check:** Trigger partial CI build ($45 cost avoidance via scope limitation).
+    *   **Criteria:** Compilation success and unit tests for `alert-service` only.
+    *   **Revision:** Feature branch head.
+
+*   **Gate 3: Concurrency Simulation (Staging with Mock Throttling)**
+    *   **Check:** Execute the SRE-created simulation script. Run `alert-service` at projected peak load simultaneously with the Finance team's `invoice-generator` dry-run.
+    *   **Criteria:**
+        1.  Alert latency < 2 seconds.
+        2.  Invoice generation completes within the 02:00–04:00 UTC window.
+        3.  Zero silent database write failures (verified by explicit log scraping, not just exit codes).
+    *   **Revision:** The specific commit hash that passed Gate 2, deployed to a sandboxed staging namespace with injected production-like throttling.
+
+#### 3. Review Process
+
+*   **Code Review:**
+    *   **Reviewer:** Senior Engineer from Finance Team (independent of Notifications Team).
+    *   **Focus:** Verify that no shared database connections are leaked and that the exclusive lock logic in `invoice-generator` is respected.
+    *   **Timing:** Before Gate 3.
+
+*   **Operational Review:**
+    *   **Reviewer:** On-call SRE (independent of implementation).
+    *   **Focus:** Validate the resource limit configuration and the rollback procedure.
+    *   **Timing:** After Gate 3 success, before merge request.
+
+#### 4. Landing Strategy
+
+*   **Merge Request:**
+    *   Requires dual approval: **Jane Smith (Finance)** and **On-call SRE**.
+    *   Must attach the Gate 3 concurrency test logs proving simultaneous execution without timeout.
+
+*   **Deployment Window:**
+    *   Deploy at 10:00 UTC (well outside the 02:00–04:00 critical invoice window) to allow daytime monitoring.
+
+*   **Rollback Plan:**
+    *   **Trigger:** If alert service memory exceeds 90% of its limit or if any invoice job delays >5 minutes post-deploy.
+    *   **Action:** Immediate kubernetes scale-down of `alert-service` to zero replicas. No database migration rollback needed as the service is stateless.
+    *   **Decision Authority:** On-call SRE can execute unilaterally; Jane Smith must be notified within 15 minutes.
+
+*   **Human Decision Required:**
+    *   Final "Go/No-Go" flip of the feature flag to premium users. This requires explicit sign-off from Jane Smith confirming the Gate 3 logs match billing compliance standards.

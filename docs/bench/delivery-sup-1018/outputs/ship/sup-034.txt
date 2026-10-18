@@ -1,0 +1,42 @@
+**Delivery Plan: Cabin Pressure Alert Logic Refinement**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Data & Spec):** Product Analyst extracts last 6 months of telemetry to define "normal variance" vs. "depressurization." Output: A testable spec with precise thresholds and a regression dataset. *Serial dependency: None.*
+*   **Lane B (Implementation):** Builder modifies threshold logic in `pressure-utils` within an isolated worktree. Must ensure backward compatibility for the three dependent microservices. *Serial dependency: Waits for Lane A spec approval (G1).*
+*   **Lane C (Validation Prep):** QA engineer prepares the `test-bed-beta` cluster environment and validates the telemetry simulation script locally to avoid costly CI re-runs. *Parallel to Lane B.*
+
+**2. Gates & Checks**
+*   **G1 (Spec):** Owner + Lead Engineer approve the threshold parameters derived from Lane A. No code changes until signed off.
+*   **G2 (Plan):** Conductor confirms acyclic graph; explicitly budgets the $450 CI cost (max 2 runs allowed: one candidate, one final).
+*   **G4 (Implement):** Builder commits patch with unit tests covering edge cases. Base SHA pinned.
+*   **G5 (Verify - Local/Staging):**
+    *   Run local unit tests (free).
+    *   Deploy to `test-bed-beta` (mandatory). Execute telemetry simulation against the regression dataset.
+    *   **Constraint:** If `test-bed-beta` fails, do not trigger CI. Fix locally.
+*   **G6 (Review):**
+    *   **Code:** Lead Engineer reviews logic independence from Builder.
+    *   **Safety:** Chief Safety Officer (CSO) reviews the G5 `test-bed-beta` results and safety impact analysis.
+    *   **Dependency Check:** Verify no breaking changes to the three other microservices using `pressure-utils`.
+*   **G7 (Integrate):** Merge to integration branch. Run *one* final CI telemetry simulation ($450) on the exact merged SHA.
+
+**3. Review Strategy**
+*   **Independence:** The Builder never reviews their own code. The CSO acts as the independent Security/Safety gate, distinct from the engineering review.
+*   **Scope:** Review focuses on the delta in threshold logic and the pass/fail status of the `test-bed-beta` validation.
+
+**4. Landing & Human Decisions**
+*   **Merge Authority:** Requires dual approval (Lead Engineer + CSO) explicitly recorded in the PR before merging.
+*   **Deployment:**
+    *   Merge triggers deployment to staging.
+    *   **Human Gate:** The CSO must manually authorize the production rollout after verifying staging behavior matches `test-bed-beta`.
+*   **Rollback Plan:**
+    *   Automated revert script ready in the release manifest.
+    *   **Trigger:** If production alert frequency deviates >5% from the `test-bed-beta` baseline within 1 hour of launch, immediate rollback to previous SHA.
+    *   No feature flags; the change is binary. If uncertain, do not deploy.
+
+**5. Risk Mitigation**
+*   **Cost Control:** Local and `test-bed-beta` validation are mandatory prerequisites to the $450 CI run to prevent waste.
+*   **Cascade Prevention:** Explicit integration tests for the three dependent microservices are required in G6.
+*   **False Negative Safety:** If the new logic is ambiguous on any historical "near-miss" data point, the plan halts at G1 for re-scoping. Safety overrides schedule.
+
+**Summary of Flow:**
+Spec (G1) → Build (G4) → `test-bed-beta` Verify (G5) → Dual Review (G6) → Single CI Run (G7) → Human Deploy Auth (G8) → Production Monitor (G9).

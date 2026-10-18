@@ -1,0 +1,63 @@
+**Delivery Plan: Zero-Downtime Catalog Migration**
+
+**Strategy:** Dual-Write Cutover with Verification Lanes. We cannot pause service or fully simulate load, so we rely on a synchronized switch-over with immediate rollback capability via a read-only fallback.
+
+### 1. Lanes & Parallelism
+
+**Lane A: Schema & Migration Scripting (Builder)**
+*   **Work:** Develop the joint schema migration and data sync script. Implement dual-write logic to ensure real-time availability updates flow to both legacy and new repositories during the transition.
+*   **Constraint:** Must handle the irreversible audit log format carefully; script must be idempotent up to the point of no return.
+*   **Parallelism:** Runs parallel to Lane B.
+
+**Lane B: Concurrency Simulation & Load Testing (QA)**
+*   **Work:** Since staging lacks production volume, build a synthetic load generator that mimics the exact concurrency of active renewals and returns. Focus on race conditions during the "swap" moment.
+*   **Constraint:** Must verify that due dates persist exactly; any drift is a blocker.
+*   **Parallelism:** Runs parallel to Lane A.
+
+**Lane C: Rollback & Fallback Engineering (Security/Resilience)**
+*   **Work:** Engineer the "break-glass" procedure. Since data reconstruction is manual if the script fails mid-stream, this lane builds the read-only fallback mode that points to the legacy system if the new repo fails validation post-switch.
+*   **Serialization:** Must complete before the final dry-run (G5).
+
+**Lane D: Coordination & Approval Packaging (Conductor)**
+*   **Work:** Prepare the joint deployment window request. Aggregate evidence for Lending and Billing leads.
+*   **Serialization:** Waits for Lanes A, B, and C to reach G5 (Verify) before scheduling the human gate.
+
+### 2. Gates & Checks
+
+*   **G1 (Spec):** Define the exact "point of no return" in the audit log conversion. Pin base SHA for all lanes.
+*   **G3 (Design):** Architecture Review. Verify dual-write logic ensures zero data loss for active loans. Explicitly map the handshake between Lending and Billing schemas.
+*   **G4 (Implement):** Code freeze on migration scripts. Unit tests for date persistence must pass locally.
+*   **G5 (Verify - Critical):**
+    *   **Revision:** Exact SHA from G4.
+    *   **Action:** Run Lane B's synthetic load against a production shadow (if possible) or the fullest available dataset.
+    *   **Condition:** Renewal transactions must succeed with <200ms latency during simulated switch. Due dates must match byte-for-byte.
+    *   **Gate:** If the stack never starts or latency spikes, status is `UNVERIFIED`.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Scope:** Full diff of migration logic and fallback procedure.
+    *   **Security:** Verify no PII exposure during dual-write sync.
+
+### 3. Review & Independence
+
+*   **Builder** implements the migration.
+*   **QA** owns the load simulation and defines "success" for concurrency.
+*   **Security/Resilience** owns the rollback plan.
+*   **Independence:** The reviewer for G6 cannot be the author of the migration script or the load generator. The "Evil Twin" role must attack the assumption that the shadow data is sufficient before the Director sees the plan.
+
+### 4. Landing & Human Decisions
+
+**The Merge Train:**
+1.  **Pre-Merge:** Lanes A, B, and C merge to an integration branch. One final CI run (55 mins) triggers on this exact SHA.
+2.  **Human Gate (G8):** The **Director of Digital Services** must explicitly approve the production cutover.
+    *   *Prompt to Director:* "Approve cutover window [Date/Time] with verified rollback plan?"
+    *   *Prerequisite:* Signed off by both Lending and Billing leads confirming the joint window.
+3.  **Execution:**
+    *   Enable dual-write.
+    *   Execute sync.
+    *   Switch read traffic to new repo.
+    *   **Verification (G9):** Monitor live renewals for 15 minutes. Check SLOs.
+4.  **Rollback:** If any renewal fails or due dates drift:
+    *   Immediately revert read traffic to legacy system (Lane C's fallback).
+    *   Do not attempt to fix forward; the audit log is irreversible. Initiate manual reconstruction only if data corruption occurred.
+
+**Cost Control:** Only one full CI run is permitted on the integration branch. Local verification must be exhaustive to avoid re-runs.

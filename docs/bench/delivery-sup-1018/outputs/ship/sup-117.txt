@@ -1,0 +1,56 @@
+### Delivery Plan: Non-Blocking Data Masking
+
+**Objective:** Implement dynamic, role-based data masking in `nexus-analytics` ensuring query latency remains ≤6s (baseline ~4s) without pre-processing or caching.
+
+#### 1. Lanes & Serialization
+Work is split into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is strictly serialized after both succeed.
+
+*   **Lane A (Logic Implementation):**
+    *   **Owner:** Builder (Implementer).
+    *   **Scope:** Develop dynamic masking logic within the `query-engine` module. Must apply rules at execution time based on user roles.
+    *   **Constraint:** No changes to storage layers; no caching mechanisms.
+    *   **Worktree:** Isolated worktree `wt-mask-logic`.
+*   **Lane B (Performance Benchmarking):**
+    *   **Owner:** QA (Performance Specialist).
+    *   **Scope:** Establish a repeatable benchmark suite mimicking "power user" complex queries. Baseline must be confirmed at ~4s on current staging.
+    *   **Worktree:** Read-only checkout of current `main` for baseline, then merged with Lane A for testing.
+*   **Lane C (Policy & Rollback Prep):**
+    *   **Owner:** Security + Product Analyst.
+    *   **Scope:** Draft the central policy file rules and prepare the manual database rollback script required for VP sign-off.
+    *   **Dependency:** Cannot finalize until Lane A's interface is stable.
+
+#### 2. Gates & Checks
+All checks run on specific, immutable SHAs. No gate passes without explicit evidence.
+
+*   **G1 Spec (Current):** Confirm acceptance criteria: Latency ≤6s under load, dynamic application only, zero storage overhead.
+*   **G3 Design (Pre-Code):** Architecture Decision Record (ADR) detailing how masking injects into the query path without blocking. Must be reviewed by Jane Smith (Owner of `query-engine`) before G4.
+*   **G4 Implement:**
+    *   Lane A produces patch against pinned base SHA.
+    *   Unit tests for masking logic included (mocked role checks to avoid flaky service).
+*   **G5 Verify (Critical Gate):**
+    *   **Revision:** Exact SHA from Lane A + Lane B harness.
+    *   **Action:** Run benchmark suite on staging.
+    *   **Pass Condition:** Average latency of complex queries ≤6.0s. Any result >6.0s is a hard fail.
+    *   **Flake Mitigation:** If `role-check` service fails during benchmark, retry only the auth handshake; do not rerun full query suite unless latency spikes.
+*   **G6 Review:**
+    *   **Code:** Independent review by Senior Engineer (not Jane Smith, not the Builder).
+    *   **Security:** AppSec review of the policy rules and data exposure surface.
+    *   **Performance:** QA sign-off on G5 receipts.
+*   **G7 Integrate:** Merge to integration branch. Run targeted regression (only `query-engine` and affected downstream modules) to avoid $45 full-suite cost unless core logic changed.
+
+#### 3. Review Strategy
+*   **Builder** never reviews their own code.
+*   **Jane Smith** acts as the mandatory approver for the `query-engine` execution path changes (Human Gate). She reviews the G3 ADR and G6 final diff.
+*   **Security** reviews the policy configuration independently of the implementation logic.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:** Squash merge to `main` only after G6 approval.
+*   **Human Gates (Requires Owner/VP Action):**
+    1.  **Jane Smith:** Must explicitly approve the PR merging changes to `query-engine`.
+    2.  **VP Sign-off:** Required before committing any rules to the central policy file. The code will be merged behind a feature flag disabled by default.
+    3.  **Deployment:** Enabling the feature flag in production is a manual, gated action post-deployment.
+*   **Rollback Plan:**
+    *   **Code Level:** Revert PR immediately if latency >6s observed in canary.
+    *   **Data Level:** If policy rules cause corruption or compliance breach, execute the pre-approved manual database rollback script (prepared in Lane C). This is irreversible without VP authorization.
+
+**Risk Note:** The flaky `role-check` service is a known variable. Benchmarks will mock this service to ensure latency measurements reflect the masking logic alone, not infrastructure instability. False-negative deployment blocks from this service will be bypassed via manual verification of the specific commit hash during the G8 release window.

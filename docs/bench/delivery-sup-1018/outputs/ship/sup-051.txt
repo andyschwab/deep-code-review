@@ -1,0 +1,49 @@
+### Delivery Plan: Legacy UI Deprecation & Alumni Read-Only Mode
+
+**Constraints & Risks:** Lead Architect unavailable (3 days); CI cost limits full regression; Staging data lag (12h); Archive job collision risk; Hard deadline (end of month).
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Auth & Routing Logic) [Builder 1]:**
+    *   **Work:** Extend shared auth middleware to detect `alumni` status. Implement routing guard: if `alumni` + `legacy_path` → redirect to static view; if `alumni` + `post/edit` → 403 Forbidden.
+    *   **Constraint:** Must not modify the archive compression job schedule or logic.
+    *   **Parallelism:** Can run immediately.
+*   **Lane B (Static Read-Only Frontend) [Builder 2]:**
+    *   **Work:** Create/verify the static view component. Ensure search queries function against the existing index without triggering write operations. Verify timestamp/author rendering matches legacy exactly.
+    *   **Parallelism:** Runs parallel to Lane A.
+*   **Lane C (Safety & Serialization) [Conductor/Sec]:**
+    *   **Work:** Define the "Archive Blackout Window" to prevent index corruption. Serialize the merge of Lane A and B to occur strictly outside this window.
+    *   **Dependency:** Must complete before G4 (Implementation) finalizes.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Confirm "alumni" detection logic in auth middleware is testable without full data seeding (e.g., mock tokens). Define exact 403 response bodies.
+*   **G2 (Plan):** Explicitly name the token budget for CI runs. Plan to run unit tests on feature branches; defer heavy data-seeding integration tests to a pre-release candidate build to save costs.
+*   **G3 (Design):** **Critical:** Draft the routing table change for the Lead Architect's asynchronous review. Document the exact commit SHA where the archive job is safe to run.
+*   **G4 (Implement):**
+    *   Lane A & B commit to isolated worktrees.
+    *   **Check:** Unit tests for routing logic and 403 enforcement must pass locally.
+    *   **Check:** Verify search functionality returns results but blocks mutation attempts.
+*   **G5 (Verify):**
+    *   **Revision:** Exact SHA of the combined patch.
+    *   **Action:** Run lightweight unit/integration suite. Do not rely on Staging for real-time alumni redirect verification due to 12h lag; instead, verify via mocked integration tests that simulate the alumni flag.
+    *   **Safety:** Confirm no interaction with the nightly archive job.
+*   **G6 (Review):**
+    *   **Routing Table:** Reviewed by Lead Architect (asynchronous, non-blocking wait until available, but code frozen).
+    *   **Security/Auth:** Independent Security review of the 403 enforcement and role differentiation.
+    *   **Code:** Independent QA review of the static view fidelity.
+
+#### 3. Landing & Human Decisions
+*   **Integration (G7):**
+    *   Merge Lane A and B into a release candidate branch.
+    *   Trigger the heavy regression suite *only* on this candidate.
+    *   **Serialization:** Merge must occur outside the nightly archive compression window.
+*   **Human Gates (G8 - Release):**
+    *   **Approval 1:** Lead Architect must approve the routing table change (blocked for 3 days; work must be ready for immediate merge upon return).
+    *   **Approval 2:** Owner approval for production deploy, confirming the "Archive Blackout Window" is respected.
+*   **Rollback Plan:**
+    *   If alumni are incorrectly blocked from search or active users see the legacy UI: Immediate revert of the routing commit.
+    *   If archive index corruption is detected: Restore from pre-nightly backup and halt all write operations.
+
+**Timeline Strategy:**
+Days 1-2: Complete Lanes A & B, pass G5 with mocked tests. Submit G6 reviews.
+Days 3-4: Wait for Architect approval (work is frozen, not idle). Prepare release manifest.
+Day 5+: Architect approval received → Final G7 integration → Human G8 deploy outside archive window.

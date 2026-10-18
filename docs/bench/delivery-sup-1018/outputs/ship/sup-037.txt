@@ -1,0 +1,54 @@
+### Delivery Plan: Email Vendor Migration (MailFlow → SendGrid)
+
+**Strategy:** Dual-write with legacy receipt capture/replay. Legacy sends nothing; SendGrid sends all. Zero tolerance for receipt loss.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Security & Network) [Serialized First]:**
+    *   **Owner:** Security Hat.
+    *   **Work:** Submit change request to whitelist SendGrid IP ranges.
+    *   **Constraint:** Takes 24h. Must complete before any code deployment.
+*   **Lane B (Schema & Compatibility) [Parallel to A]:**
+    *   **Owner:** Builder.
+    *   **Work:** Implement backward-compatible DB changes for dual receipt logging. Ensure billing service compatibility.
+    *   **Constraint:** Must pass migration dry-run on shared DB.
+*   **Lane C (Core Logic & Replay) [Dependent on B]:**
+    *   **Owner:** Builder.
+    *   **Work:** Implement dual-write logic. Legacy path captures receipts to a replay queue; SendGrid path consumes queue and sends email. Implement 0.1% error-rate circuit breaker with instant rollback switch.
+*   **Lane D (Verification & Flakiness) [Parallel to C]:**
+    *   **Owner:** QA.
+    *   **Work:** Isolate the flaky smoke test. Create a deterministic integration test suite for receipt replay that runs under the 25-minute CI timeout.
+*   **Lane E (Rollback Script) [Parallel to C]:**
+    *   **Owner:** Builder.
+    *   **Work:** Script to flip feature flag to MailFlow and drain replay queue to legacy format if needed.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Spec & Plan):** Confirm "Zero Receipt Loss" definition. Define exact replay latency SLA.
+*   **G2 (Budget):** Cap CI spend. Long tests must be split or mocked to avoid $40/min timeout costs.
+*   **G3 (Design):** ADR confirming backward-compatible schema and replay queue durability.
+*   **G4 (Implement):** Code frozen on immutable SHA. Feature flag added (default: Off).
+*   **G5 (Verify):**
+    *   **Revision:** Exact G4 SHA.
+    *   **Checks:** Unit tests + Deterministic Integration tests (bypassing flaky network check).
+    *   **Condition:** Replay simulation must show 100% receipt capture. Network allow-list confirmation from Security required before staging deploy.
+*   **G6 (Review):**
+    *   **Reviewer:** Independent Senior Engineer (not the Builder).
+    *   **Focus:** Circuit breaker logic, replay idempotency, and rollback script correctness.
+*   **G7 (Integrate):** Merge to integration branch. Run final smoke test (with manual retry protocol documented for the known flake).
+
+#### 3. Landing & Human Gates
+*   **Pre-Deploy Check:** Verify Security IP whitelist is active in production. If not, **STOP**.
+*   **Human Approval (Jane Smith):** Required for:
+    1.  Merging to main.
+    2.  Enabling the dual-write feature flag in Production.
+    3.  Switching traffic to "SendGrid Active" mode.
+*   **Deployment Sequence:**
+    1.  Deploy code (Flag Off).
+    2.  Enable Dual-Write (Legacy captures, SendGrid silent). Monitor 1 hour.
+    3.  Enable SendGrid Sending. Monitor error rates.
+    4.  If errors > 0.1%: Auto-rollback triggers; alert Jane.
+*   **Rollback:**
+    *   **Trigger:** Error rate > 0.1% or missing receipts detected.
+    *   **Action:** Flip flag to MailFlow. Execute script to replay any queued receipts via legacy provider.
+*   **Completion:** After 48h stable, disable legacy capture. Retire MailFlow code in next cycle.
+
+**Risk Mitigation:** The 24h security delay is the critical path. Lane A starts immediately. If the whitelist is not ready by Thursday, the Friday deadline is missed; do not attempt to bypass network restrictions.

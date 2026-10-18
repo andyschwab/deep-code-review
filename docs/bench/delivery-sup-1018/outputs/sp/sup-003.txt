@@ -1,0 +1,37 @@
+### Delivery Plan: Matchmaker v2 Zero-Downtime Deployment
+
+**1. Lanes & Parallelism**
+*   **Lane A (Infrastructure & Config):** Prepares the production cluster for dual-mode operation. Tasks include updating load balancer rules to support header-based routing and preparing the manual cache purge script for `global_rules.json`.
+*   **Lane B (Verification):** Executes the CI pipeline on the release candidate. Since the pipeline takes 45 minutes, this starts immediately upon code freeze. The team will manually validate core logic passes while ignoring known flaky failures in the latency simulation module.
+*   **Lane C (Stakeholder Review):** Prepares the isolation confirmation report for the Tournament Operations lead. This lane is blocked until Lane A produces the routing strategy document and Lane B confirms core stability.
+
+*Parallel Execution:* Lanes A and B run simultaneously. Lane C runs parallel to A but depends on A's output.
+*Serialization:* Deployment (Lane D) cannot begin until Lane B (CI Success), Lane C (Sign-off), and the dual approval (Backend Lead + Tournament Director) are complete.
+
+**2. Gates & Checks**
+*   **Gate 1: Code Freeze & CI Start.** Triggered on revision `release/v2-candidate`. Check: CI pipeline initiated.
+*   **Gate 2: Core Logic Validation.** Occurs at T+45 mins. Check: CI passes excluding latency simulation flakiness. If core logic fails, abort immediately.
+*   **Gate 3: Isolation Confirmation.** Before touching Prod, Lane A must demonstrate via the Staging environment that active sessions (simulated) remain on the legacy path while new entries hit v2.
+*   **Gate 4: The "Go/No-Go" Council.** Requires three keys:
+    1.  Tournament Operations Lead sign-off on the isolation plan.
+    2.  Backend Lead approval.
+    3.  Tournament Director approval.
+    *Constraint:* No deployment proceeds without all three.
+
+**3. Review Strategy**
+*   **Independent Reviewer:** A Senior SRE not involved in writing the v2 logic will review the load balancer configuration and the cache purge procedure.
+*   **Logic Review:** The Backend Lead reviews the CI results and the specific handling of the immutable ledger to ensure no write attempts occur on active brackets.
+*   **Business Review:** The Tournament Operations lead reviews the "Isolation Confirmation" report, specifically verifying the mechanism that identifies active brackets versus new lobby entries.
+
+**4. Landing & Merge Strategy**
+*   **Deployment Window:** Scheduled during lowest traffic, but strictly contingent on Gate 4.
+*   **The Switch:**
+    1.  Deploy v2 binaries to Prod cluster in "standby" mode (no traffic).
+    2.  Execute manual cache purge on `global_rules.json` to ensure immediate rule visibility.
+    3.  Update Load Balancer: Route `X-New-Lobby: true` to v2; all existing session tokens route to v1 (Legacy).
+*   **Human Decision Point:** The Tournament Director holds the final "cut-over" authority. Once the switch is flipped, they monitor the first 50 new pairings.
+*   **Rollback Protocol:**
+    *   *Scenario:* New pairings fail or active sessions show instability.
+    *   *Action:* Revert Load Balancer rules to 100% Legacy immediately.
+    *   *Constraint:* If any bracket state was written to the immutable ledger during the fault window, Legal Review is required before any data correction attempts. The code can be rolled back instantly; ledger data cannot.
+*   **Post-Landing:** Monitor active bracket completion. Legacy instances will naturally drain as tournaments conclude. No forced termination of active games.

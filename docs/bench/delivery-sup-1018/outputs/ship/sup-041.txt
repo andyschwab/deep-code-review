@@ -1,0 +1,50 @@
+### Delivery Plan: Data Retention Enforcement
+
+**Objective:** Implement automatic purging of telemetry >365 days while strictly preserving all `client-config` flagged items, with verified logging, before the audit deadline.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Logic Implementation):** Isolated worktree. Implement the filtering logic in the cleanup job.
+    *   *Constraint:* Must read `global-rules.json` outside business hours if editing is required, or implement an override layer that does not modify the locked source.
+    *   *Parallel:* Yes.
+*   **Lane B (Safety Harness & Logging):** Isolated worktree. Develop the "dry-run" mode and structured logging.
+    *   *Requirement:* Logs must explicitly categorize every item as `PURGED` or `KEPT (client-config)`.
+    *   *Parallel:* Yes (can run alongside Lane A once interfaces are defined).
+*   **Lane C (Verification Dataset):** Separate environment. Curate a test dataset containing: (1) old telemetry, (2) old telemetry marked `client-config`, and (3) active configs.
+    *   *Serial:* Must complete before Lane D.
+*   **Lane D (Destructive Simulation):** Isolated worktree. Execute the job against a clone of the cold storage bucket in a sandbox.
+    *   *Constraint:* Never run against production cold storage directly.
+    *   *Serial:* Depends on Lane A, B, and C.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Conductor):** Define exact regex/logic for `client-config` flagging. Confirm "active" vs. "inactive" definition with stakeholders to prevent false negatives.
+*   **G3 Design (Security):** Review the deletion logic. **Critical:** Verify the "skip" condition is fail-closed (i.e., if the flag is missing or unreadable, the item is *kept*, not deleted).
+*   **G4 Implement:** Code freeze on the filtering algorithm.
+*   **G5 Verify (QA):**
+    *   Run Lane D (Simulation).
+    *   **Success Criteria:** 100% of `client-config` items in the test set are present post-run; 100% of eligible telemetry is removed.
+    *   **Log Audit:** Verify logs show correct counts for kept vs. purged.
+    *   *Note:* Skip the flaky `legacy-integration` check if unrelated; otherwise, retry manually up to 3 times before escalating.
+*   **G6 Review (Independent):**
+    *   Reviewer: Senior Engineer (not Lane A/B/D author).
+    *   Focus: Irreversibility risk. Confirm no code path allows deletion of `client-config`.
+
+#### 3. Review Strategy
+*   **Code Review:** Independent senior engineer reviews the diff. They must not be the implementer.
+*   **Security Review:** Mandatory sign-off on the "fail-closed" logic. If the system cannot determine the flag status, it must default to "keep."
+*   **Data Governance Review:** Verify the test dataset (Lane C) accurately reflects enterprise client scenarios.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge Lane A and B into an integration branch.
+    2.  Run full CI (expect 55m duration). If `legacy-integration` times out, verify it is a known flake and not a regression before proceeding.
+    3.  Create a Release Candidate.
+*   **Human Gate (Jane Smith):**
+    *   **Decision Point:** Deployment to Production.
+    *   **Input Required:** Presentation of G5 Simulation Receipts (logs showing 0 `client-config` deletions) and the Rollback Plan.
+    *   **Timing:** Must occur prior to the audit deadline, ideally during a low-traffic window before the weekly job schedule.
+*   **Rollback Plan:**
+    *   Since cold storage deletion is irreversible, rollback is **prevention**, not restoration.
+    *   *Mechanism:* If the job starts and logs indicate unexpected deletion patterns, the process must be manually killed immediately.
+    *   *Contingency:* If data is lost, the only recourse is legal/compliance notification; technical restoration is impossible per repo facts. Therefore, the "Dry-Run" in G5 is the primary safety net.
+
+**Risk Note:** The $450/exec cost implies we limit production dry-runs to one confirmed successful simulation before the actual cutover.

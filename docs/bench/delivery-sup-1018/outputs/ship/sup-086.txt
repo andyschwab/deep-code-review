@@ -1,0 +1,32 @@
+**Delivery Plan: Global Balance Patch v4.2 Sync**
+
+**Objective:** Atomic synchronization of v4.2 across NA, EU, and APAC regions to eliminate arbitrage vectors. Zero tolerance for staggered exposure.
+
+### 1. Lanes & Parallelism
+*   **Lane A (Pre-Flight Verification):** Isolated worktree. Re-runs the 55-minute CI pipeline against the frozen artifact SHA. Specifically targets the `liquidity-simulator` on a dedicated non-production APAC mirror to pre-empt flakiness. *Parallel with Lane B.*
+*   **Lane B (Rollback Engineering):** Prepares the v4.1 restoration script and validates backup integrity snapshots. Defines the "kill switch" trigger logic. *Parallel with Lane A.*
+*   **Lane C (Access & Comms):** Secures dual approvals (Regional Directors + Chief Risk Officer) in the change portal *before* T-1 hour. Drafts the "Go/No-Go" comms template. *Serial: Must complete before Lane D.*
+*   **Lane D (Execution Command):** The single atomic trigger. Does not touch code; executes the orchestration script that fans out to all three regional clusters simultaneously. *Serial: Depends on A, B, C success.*
+
+### 2. Gates & Checks
+*   **G2 (Plan Freeze):** Confirm frozen artifact SHA matches the repository tag. Verify `global-config` lock status.
+*   **G4 (Implementation Verification):** Lane A must report `PASS` on cross-region consistency checks. If `liquidity-simulator` fails, manual re-trigger is authorized *only* once; a second failure blocks deployment.
+*   **G5 (Readiness Receipt):** Lane B confirms rollback script dry-run success on a staging clone. Lane C confirms all three human approvals are logged in the portal.
+*   **G8 (Release Authorization):** Final "Go" decision requires explicit confirmation from the Conductor that G4 and G5 are green. No deployment proceeds without this.
+*   **G9 (Production Verify):** Post-deploy, immediate execution of arbitrage detection probes in all three regions. Success criteria: zero rate discrepancy >0.01%.
+
+### 3. Review & Independence
+*   **Builder vs. Verifier:** The team preparing the frozen artifacts (Builder) is distinct from Lane A (QA). Lane A reviews the exact SHA, not the builder's narrative.
+*   **Security/Risk Review:** The Chief Risk Officer's approval (Lane C) serves as the independent security/risk gate. They verify the arbitrage closure logic, not the code implementation.
+*   **Integration Review:** A separate SRE (not the one running Lane A) validates the rollback procedure (Lane B).
+
+### 4. Landing & Merge Strategy
+*   **Merge Strategy:** No new code merges. This is a configuration/artifact promotion. The "merge" is the atomic application of the frozen config to the live clusters.
+*   **Human Decisions:**
+    1.  **Approval:** Dual sign-off via portal (mandatory, no bypass).
+    2.  **Go/No-Go:** Conductor issues the final execute command at 02:50 UTC.
+    3.  **Abort/Rollback:** If any region reports failure within the 5-minute window, the Conductor triggers the global rollback immediately. No regional troubleshooting allowed during the window.
+*   **Rollback Protocol:** Triggering the Lane B script reverts all regions to v4.1. This is irreversible for the v4.2 schema attempt; a full DB restore (4+ hours) is the only recovery if rollback fails.
+*   **Timing:** Execution window is strictly 03:00–03:05 UTC Thursday. If not started by 03:00, abort and reschedule.
+
+**Risk Mitigation:** The flaky APAC test is the primary blocker. By isolating it in Lane A with a single retry allowance, we prevent last-minute surprises. The irreversible DB migration mandates that the rollback script is verified *before* the window opens. No smoke testing in production; the staging mirror must suffice.

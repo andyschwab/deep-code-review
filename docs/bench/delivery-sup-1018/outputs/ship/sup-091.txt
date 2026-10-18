@@ -1,0 +1,60 @@
+### Delivery Plan: Grading Algorithm v2 with Auto-Rollback Guard
+
+**G0/G1 Intake & Spec**
+*   **Product Analyst:** Define "deviation >1%" precisely (absolute vs. relative) and formalize the "shadow dataset" selection criteria. Explicitly list edge cases (zero-score, null inputs, max-score) as acceptance criteria.
+*   **Security/Compliance:** Verify that comparing live outputs against shadow data complies with student privacy policies (no PII leakage in logs).
+*   **Output:** A testable spec pinned to the current `GradeCore` main SHA.
+
+**G2 Plan & Lanes**
+*   **Lane A (Core Logic - Builder):** Implement the v2 algorithm and the comparison engine.
+    *   *Constraint:* Must handle zero-score submissions explicitly.
+    *   *Parallelism:* Can run independently of Lane B.
+*   **Lane B (Guardrail & Config - Builder):** Implement the auto-rollback trigger and update the shared configuration.
+    *   *Serialization:* **Blocked** until Finance Lead signs off on the shared config file modification. This lane must wait for Lane A's interface definition to ensure the config keys match.
+    *   *Risk:* The config lock requires manual coordination; do not attempt parallel writes.
+*   **Lane C (Verification - QA):** Construct a verification harness using the shadow dataset.
+    *   *Scope:* Run v2 against shadow data, assert variance <1%, and force-fail scenarios to prove rollback triggers.
+    *   *Timing:* Waits for Lane A's code freeze.
+
+**G3 Design**
+*   **Architect:** Define the rollback mechanism. Since DB migration is irreversible, the rollback plan must rely *only* on the cached image revert and feature-flag toggling, not DB down-migrations. Document this limitation in an ADR.
+
+**G4 Implementation**
+*   **Builder:** Commit code to isolated worktrees.
+    *   Lane A: `feat/grading-v2-core`
+    *   Lane B: `feat/rollback-guard-config` (pending Finance sign-off)
+*   **CI Strategy:** Due to 45-minute pipelines and $12 cost, run full suites only on the final integration SHA. Use lightweight unit tests for intermediate lane checks. Ignore stage-three network flake if data integrity hashes match.
+
+**G5 Verification**
+*   **QA:** Execute on the exact integrated SHA.
+    *   **Critical:** Prove the rollback triggers automatically when variance >1%.
+    *   **Critical:** Verify zero-score handling.
+    *   **Evidence:** Logs showing the switch from v2 to the cached previous image without human intervention.
+*   **Security:** Audit the rollback path to ensure no unauthorized data access occurs during the reversion.
+
+**G6 Review**
+*   **Independent Reviewers:**
+    *   *Core Logic:* Reviewed by a senior engineer not involved in Lane A.
+    *   *Config/Finance:* Reviewed by the Finance Lead (mandatory gate).
+    *   *Rollback Logic:* Reviewed by SRE/DevOps lead.
+*   **Gate:** No approval until the Finance Lead explicitly signs the config change and QA proves the auto-rollback.
+
+**G7 Integration**
+*   **Conductor:** Merge lanes into a temporary integration branch. Run one final full CI pipeline (45 mins).
+*   **Artifact:** One immutable SHA ready for release.
+
+**G8 Release (Human Gate)**
+*   **Approver:** Jane Smith.
+*   **Action:** Jane must approve the production deploy during business hours.
+*   **Pre-flight:** Present Jane with the QA receipt proving auto-rollback works and the Finance sign-off.
+*   **Execution:** Deploy to a canary group first (if available), then full traffic.
+
+**Rollback Strategy**
+*   **Automatic:** If live monitoring detects score variance >1% against the shadow baseline, the system reverts to the cached previous image immediately.
+*   **Manual:** If the automatic trigger fails, Jane Smith executes the manual rollback procedure using the same cached image.
+*   **Limitation:** The database migration is **not** rolled back. The system must remain compatible with the new schema even when running the old code image.
+
+**Failure Modes**
+*   If Finance sign-off is delayed, Lane B halts; do not bypass.
+*   If CI fails due to the known network flake but data hashes match, proceed manually after verification.
+*   If variance exceeds threshold post-deploy, trust the auto-rollback; do not attempt manual fixes until stability is restored.

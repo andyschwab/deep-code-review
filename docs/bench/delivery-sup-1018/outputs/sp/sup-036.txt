@@ -1,0 +1,56 @@
+# Delivery Plan: Seamless Voice Provider Migration
+
+## Lanes & Parallelism
+
+**Lane A: Infrastructure & Routing (Serialized)**
+*   **Owner:** Lead Reliability Engineer (LRE)
+*   **Work:** Configure the live traffic router to support dual-provider routing rules. Prepare the "kill switch" to instantly revert 100% of traffic to the legacy provider.
+*   **Constraint:** This lane is blocked until Lane B completes the code deployment. The LRE must be present for the final switchover.
+
+**Lane B: Core Implementation (Parallel to Lane A prep)**
+*   **Owner:** Backend Engineering Team
+*   **Work:** Modify `nexus-core` voice module to instantiate connections on the new provider while maintaining existing socket handles for the legacy provider. Implement the "handover hook" that migrates active streams at the connection layer without touching the legacy cache.
+*   **Parallelism:** Lane B can proceed while Lane A prepares routing rules.
+
+**Lane C: Validation (Serialized after Lane B)**
+*   **Owner:** QA Automation + Observability Team
+*   **Work:** Execute partial integration tests on the specific voice module (bypassing full 45-min CI suite where safe). Monitor real-time latency and packet loss metrics on a canary subset.
+*   **Constraint:** Cannot begin until Lane B deploys to the staging-like production subset.
+
+## Gates & Checks
+
+1.  **Code Freeze Gate:** Deployment proceeds only on Git revision `HEAD` of the `feature/voice-migration` branch after a successful peer review. No merges allowed during the window.
+2.  **Canary Gate (Automated):** Deploy to 1% of traffic (approx. 50 groups). Automated checks must confirm:
+    *   Zero disconnects over 5 minutes.
+    *   Latency variance < 15ms compared to baseline.
+    *   *Failure Action:* Automatic rollback to 0% new provider.
+3.  **LRE Manual Gate:** Upon successful Canary Gate, the LRE visually verifies metrics and authorizes the expansion to 10%, then 50%, then 100%.
+4.  **Integrity Gate:** If any active raid group reports audio loss, the process halts immediately.
+
+## Review Strategy
+
+*   **Code Review:** Independent Senior Backend Engineer (not the author) reviews the `nexus-core` changes. Focus: Connection layer logic and error handling during provider timeout.
+*   **Operational Review:** LRE reviews the rollback script and routing configuration independently of the code team.
+*   **Validation Review:** Observability Team verifies the monitoring dashboards are correctly tracking the new provider's specific error codes before the window opens.
+
+## Landing & Rollback
+
+**Merge Strategy:**
+The change merges to `main` only after the Code Review is signed off. However, the feature remains dormant behind a configuration flag until the maintenance window.
+
+**Execution Window:**
+1.  Deploy `nexus-core` with the new provider logic (flagged off).
+2.  Enable flag for 1% canary.
+3.  Wait for automated gate pass.
+4.  LRE approves gradual ramp-up (10% → 50% → 100%) over 30-minute intervals.
+5.  Once 100% is stable for 1 hour, the migration is declared complete.
+
+**Rollback Plan (Human Decision Required):**
+*   **Trigger:** Any confirmed audio dropout in an active raid or latency spike > 200ms sustained for 30 seconds.
+*   **Action:** LRE executes the manual "Kill Switch" on the live traffic router to force 100% of connections back to the legacy provider instantly.
+*   **Post-Rollback:** The system reverts to the pre-deployment state. No data is lost as session state remains in the legacy cache. A post-mortem is mandated before any retry.
+
+**Human Decisions Required:**
+1.  LRE approval to start the canary.
+2.  LRE approval to proceed from 10% to 50% and 50% to 100%.
+3.  LRE decision to trigger rollback if anomalies occur.

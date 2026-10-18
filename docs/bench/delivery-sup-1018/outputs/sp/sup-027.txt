@@ -1,0 +1,45 @@
+### Delivery Plan: Co-pay Processor Migration
+
+**Lanes & Parallelism**
+*   **Lane A (Preparation - Revenue Team):** Develop the dual-write adapter and the "drain-and-verify" script. This includes implementing the logic to read from the legacy queue and write to the new vendor without dropping state.
+*   **Lane B (Infrastructure - DevOps):** Provision the new vendor credentials and rotation hooks in the staging environment. Prepare the production feature toggle infrastructure but keep it disabled.
+*   **Lane C (Validation - QA/Finance):** Define the exact reconciliation queries Finance will run. Create a "dry-run" mode for the drain script that outputs expected vs. actual counts without moving money.
+
+*Parallel Execution:* Lanes A, B, and C run simultaneously. Lane A cannot merge until Lane B confirms the staging secrets are active.
+
+**Gates & Checks**
+1.  **Code Freeze (T-3 Days):** All code for the adapter and drain script must be merged to `develop`. No further changes allowed except critical security patches.
+2.  **Staging Rehearsal (T-2 Days):**
+    *   **Revision:** Deploy the latest `develop` build to Staging.
+    *   **Action:** Run the full drain simulation using the sanitized data copy.
+    *   **Check:** Verify the "dry-run" counts match. Ignore `transaction-monitor` failures *only* if application logs explicitly confirm successful record processing.
+    *   **Constraint:** Do not exceed three CI pipeline runs on this day to manage costs.
+3.  **Pre-Cutover Snapshot (T-0, Window Start):**
+    *   **Action:** Take a database snapshot of the `pending_transactions` table.
+    *   **Check:** Confirm no application server restarts occur during this window to preserve in-memory states.
+
+**Review Strategy**
+*   **Code Review:** Independent review by a Senior Engineer *not* on the Revenue Team. Focus strictly on idempotency (preventing duplicates) and error handling during the handoff.
+*   **Logic Review:** The Finance Lead must review and sign off on the SQL queries used for the final reconciliation *before* the migration window opens.
+*   **Operational Review:** DevOps must verify the rollback procedure (reverting the toggle and restarting the legacy writer) in a isolated sandbox.
+
+**Landing & Cutover**
+1.  **The Switch:**
+    *   Deploy the new build with the feature toggle set to "Legacy Only" initially.
+    *   Enable the "Drain Mode" to process the existing queue.
+    *   **Human Decision Point:** Once the drain script reports 100% completion, the Engineering Director and CFO must jointly verify the manual count report against the Finance Lead's pre-approved queries.
+    *   **Flip:** Only upon written confirmation from both approvers, flip the toggle to "New Vendor" for incoming traffic.
+2.  **Verification:** Run the reconciliation script against live data. Compare the pre-cutover snapshot total + new transactions against the new vendor's received count.
+3.  **Completion:** Ticket closes only when the discrepancy count is exactly zero.
+
+**Rollback Protocol**
+If the reconciliation fails or the new vendor rejects valid transactions:
+1.  Immediately revert the feature toggle to "Legacy Only."
+2.  Pause the drain script.
+3.  Restart the legacy writer service (acceptable now as the emergency overrides the "no restart" constraint to prevent data loss).
+4.  Notify stakeholders of the delay. The database schema changes are irreversible, so the rollback relies on the toggle, not schema reversion.
+
+**Critical Constraints**
+*   **Encryption:** Ensure the migration script handles the 24-hour key rotation gracefully; long-running sessions must fetch fresh keys dynamically.
+*   **Cost:** Limit full integration runs to the essential rehearsal and the pre-deployment check.
+*   **Approval:** No code touches production without the dual signature of the Engineering Director and CFO.

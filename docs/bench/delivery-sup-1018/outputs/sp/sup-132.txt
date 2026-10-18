@@ -1,0 +1,55 @@
+### Delivery Plan: Conveyor Motor Failure Validation
+
+**Objective:** Validate the predictive failure module against Q3 logs (July–September) to prove a false positive rate (FPR) < 5% without modifying production.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data Access - Serialized):** The nightly batch job is the sole bridge to the read-only compliance bucket.
+    *   *Action:* Trigger the nightly job immediately to fetch Q3 logs into the staging environment.
+    *   *Constraint:* This is a hard gate; no analysis begins until data lands in staging.
+*   **Lane B (Model Preparation - Parallel to Lane A):**
+    *   *Action:* Prepare the `motor-analytics` service in the staging environment. Configure it to point to the upcoming staging data volume rather than production sources.
+    *   *Action:* Draft the comparison report template (Predicted vs. Actual, Discrepancy Log, FPR Calculation).
+*   **Lane C (Execution - Serialized after A & B):**
+    *   *Action:* Run the prediction model against the fetched Q3 logs in staging.
+    *   *Constraint:* Do not run locally; synthetic data is invalid for this validation.
+
+#### 2. Gates & Checks
+*   **Gate 1: Data Integrity Check**
+    *   *When:* Immediately after the nightly job completes.
+    *   *Check:* Verify the staging volume contains the complete July–September dataset.
+    *   *Revision:* Run against the latest `staging` branch commit prior to execution.
+*   **Gate 2: The 5% Threshold Check**
+    *   *When:* After Lane C completes.
+    *   *Check:* Calculate FPR = (False Positives / Total Predicted Failures).
+    *   *Pass Condition:* FPR < 0.05.
+    *   *Fail Condition:* FPR ≥ 0.05. If failed, the plan halts for root cause analysis; no merge occurs.
+*   **Gate 3: CI Budget Guard**
+    *   *Constraint:* Limit full CI pipeline runs to maximum two per day.
+    *   *Strategy:* Perform dry-run validation locally only for syntax; rely on the single mandatory CI run for the final PR verification.
+
+#### 3. Review Process
+*   **Artifact:** The Comparison Report (CSV/JSON diff + Summary PDF).
+*   **Reviewer:** Marcus Thorne (Senior Reliability Engineer).
+*   **Independence:** Marcus reviews the generated report attached to the Pull Request. He does not author the code or run the analysis.
+*   **Requirement:** The PR cannot be merged without the report attached and Marcus's explicit approval signature in the thread.
+
+#### 4. Landing Strategy
+*   **Merge Path:**
+    1.  Push analysis code (read-only execution scripts) to a feature branch.
+    2.  Trigger the CI pipeline (Run 1 of 2 limit). Ensure tests pass.
+    3.  Execute the model in staging via the nightly job window.
+    4.  Generate the report and attach it to the Pull Request.
+    5.  Request review from Marcus Thorne.
+*   **Human Decision Point:** Marcus reviews the FPR metric.
+    *   *If Pass:* Marcus approves merge to `main`. This merges the *validation logic and report*, not the production activation config.
+    *   *If Fail:* Ticket reopens for model tuning; no merge.
+*   **Rollback Plan:**
+    *   Since production configuration is **not** modified, there is no runtime rollback required.
+    *   If the merged validation logic causes issues in future batch jobs, revert the specific commit via a standard hotfix PR.
+*   **Production Activation:** Explicitly excluded from this ticket. A follow-up ticket will be required to toggle the live alert flag, contingent on this report's approval.
+
+**Summary of Constraints:**
+*   **No Local Testing:** Reliance on staging/nightly job is absolute.
+*   **CI Cost:** Strictly max 2 runs/day.
+*   **Authority:** Marcus Thorne is the single approver.
+*   **Scope:** Offline analysis only; production remains untouched.

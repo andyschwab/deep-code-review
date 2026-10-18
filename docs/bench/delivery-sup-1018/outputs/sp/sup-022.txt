@@ -1,0 +1,61 @@
+### Delivery Plan: Payment Gateway Migration
+
+**Objective:** Migrate to the new payment provider within 30 days, preserving the "3 retries over 7 days" logic for expired cards and ensuring zero loss of pending jobs.
+
+#### 1. Work Lanes & Parallelism
+
+*   **Lane A: Core Integration (Finance Platform Team)**
+    *   **Task:** Implement the new provider SDK within `billing-core` without modifying the frozen `transaction-logger`.
+    *   **Constraint:** Must replicate the existing retry state machine exactly.
+    *   **Parallelism:** Runs concurrently with Lane B.
+*   **Lane B: Staging Simulation (QA/DevOps)**
+    *   **Task:** Build a lightweight "Retry Queue Simulator" service to plug into Staging, as the current environment lacks this capability.
+    *   **Goal:** Enable end-to-end validation of the 3-retry/7-day window without a production dry-run.
+    *   **Parallelism:** Must complete before Lane C can begin full integration testing.
+*   **Lane C: Data Migration Strategy (Database Admin & Backend Lead)**
+    *   **Task:** Design the script to migrate pending retry jobs from the old vendor's queue to the new system's queue.
+    *   **Constraint:** Must guarantee zero job loss during the cutover window.
+    *   **Serialization:** Depends on Lane A's interface definition to ensure queue compatibility.
+
+#### 2. Gates & Checks
+
+*   **Gate 1: Code Freeze & Unit Test Verification**
+    *   **Revision:** `feat/payment-migration-v1` (pre-merge).
+    *   **Check:** All unit tests for retry logic must pass locally. CI pipeline run triggered only after local verification to avoid budget waste on flaky builds.
+    *   **Owner:** Finance Platform Team Lead.
+*   **Gate 2: Staging End-to-End Validation**
+    *   **Revision:** `staging-candidate-rc1` (deployed to Staging with Simulator).
+    *   **Check:** Verify exactly three retry attempts occur over a simulated 7-day period for expired card failures. Confirm `transaction-logger` captures events correctly via the new adapter.
+    *   **Owner:** QA Lead.
+*   **Gate 3: Data Integrity Dry-Run**
+    *   **Revision:** Same as Gate 2.
+    *   **Check:** Execute the migration script against a sanitized production snapshot. Verify count of migrated pending jobs matches source exactly.
+    *   **Owner:** Database Admin.
+
+#### 3. Independent Review
+
+*   **Code Review:**
+    *   **Reviewer:** Senior Engineer from a different domain (e.g., Order Services) to ensure fresh eyes on retry logic.
+    *   **Focus:** Verification that no changes were made to `transaction-logger` and that retry counters reset correctly.
+*   **Security & Compliance Review:**
+    *   **Reviewer:** Security Lead (mandatory).
+    *   **Focus:** Token handling, data encryption in transit, and audit trail continuity.
+*   **Logic Audit:**
+    *   **Reviewer:** Product Owner (Business Logic).
+    *   **Focus:** Confirming the "3 retries over 7 days" behavior matches business requirements based on Staging logs.
+
+#### 4. Landing Strategy
+
+*   **Deployment Window:** Weekend, prior to month-end deadline.
+*   **Mechanism:** Blue/Green deployment is **not** possible due to token incompatibility. The switch is a "Big Bang" cutover.
+*   **Human Decision Point:**
+    *   **Approvers:** Jane Smith AND Security Lead must both explicitly approve the production push.
+    *   **Trigger:** Successful completion of Gate 2 and Gate 3.
+*   **Rollback Plan:**
+    *   **Status:** **Irreversible.** Once live traffic shifts, tokens cannot be reverted to the old vendor.
+    *   **Mitigation:** If critical failure occurs post-switch, the fallback is to manually process transactions via the new vendor's dashboard while engineering patches the integration. There is no automated "undo."
+*   **Post-Landing:**
+    *   Monitor retry queue depth and failure rates hourly for the first 48 hours.
+    *   Verify the first wave of natural retries executes correctly in production.
+
+**Risk Note:** The inability to revert requires absolute confidence in the Staging simulation (Lane B). If the Simulator cannot be built reliably, the risk of financial penalty due to failed retries outweighs the penalty of a delayed migration, and the launch must be paused.

@@ -1,0 +1,53 @@
+### Delivery Plan: Advocate Profile Nightly Sync
+
+**Scope & Constraints**
+Work targets the `connector-monolith` service. The solution must migrate the sync job to a cost-effective cloud environment to avoid on-premise compute penalties. Execution is strictly bound to the 02:00–04:00 UTC window, with a hard failure alert at 03:45 UTC. Data accuracy is critical; no corrections are allowed post-submission. Validation occurs only against the partner's production sandbox.
+
+#### 1. Lanes (Work Decomposition)
+
+*   **Lane A: Data Aggregation & Formatting (Builder)**
+    *   **Task:** Implement logic to query active advocate profiles updated in the previous 24 hours. Transform data into the partner's strict CSV schema. Include validation checks to reject malformed records before batching.
+    *   **Parallelism:** Can run parallel to Lane B.
+    *   **Output:** A verified CSV generator module and unit tests covering schema compliance.
+
+*   **Lane B: Transmission & Scheduling (Builder)**
+    *   **Task:** Develop the transmission client to handle the single-file batch upload. Integrate with a cloud scheduler (e.g., AWS EventBridge or similar) to trigger execution at 02:00 UTC. Implement the 03:45 UTC timeout logic to trigger an immediate failure alert to the on-call channel.
+    *   **Parallelism:** Can run parallel to Lane A.
+    *   **Output:** Scheduler configuration, transmission script, and alerting integration.
+
+*   **Lane C: Infrastructure Migration (DevOps)**
+    *   **Task:** Provision the cloud execution environment. Configure network egress to allow communication solely with the partner's production sandbox and internal databases. Ensure secrets management for API credentials.
+    *   **Serialization:** Must complete before Lane D (Integration).
+    *   **Output:** Terraform/IaC scripts and a ready-to-deploy cloud runtime.
+
+*   **Lane D: End-to-End Verification (QA)**
+    *   **Task:** Execute a dry-run against the partner's production sandbox using a synthesized dataset representing a full day's volume. Verify the CSV content, successful transmission, and the triggering of the 03:45 UTC alert mechanism (via simulated delay).
+    *   **Serialization:** Depends on completion of Lanes A, B, and C.
+    *   **Output:** Verification receipt confirming data integrity and timing constraints.
+
+#### 2. Gates & Checks
+
+*   **G1 Spec Freeze:** Confirm the CSV schema matches the partner's latest documentation and the alerting channel is correctly identified.
+*   **G2 Security Scan:** Run mandatory security scanning on the new cloud dependencies. *Note: Acknowledge the 45-minute CI duration; this lane must start early to avoid blocking the merge train.*
+*   **G3 Data Integrity Check:** Automated test asserting that zero malformed records pass the aggregation filter. This is a blocker; false positives here are unacceptable due to the "no correction" policy.
+*   **G4 Timing Simulation:** A test harness that simulates the job start time and verifies the alert triggers exactly at the 03:45 UTC mark if the upload flag is not set.
+*   **G5 Sandbox Validation:** Final successful transmission of a test batch to the partner's production sandbox. *Constraint: Do not use the flaky staging environment.*
+
+#### 3. Review Strategy
+
+*   **Code Review:** Performed by a Senior Backend Engineer independent of the Builder. Focus on error handling, retry logic (if applicable before the hard deadline), and schema mapping.
+*   **Security Review:** Independent AppSec review of the new cloud network configuration and secret handling.
+*   **Data Accuracy Review:** Product Analyst verifies the mapping logic against a sample of real advocate profiles to ensure no data loss or corruption.
+
+#### 4. Landing & Human Gates
+
+*   **Merge Strategy:** All lanes merge into a release candidate branch. A final integration build runs the full 45-minute CI pipeline.
+*   **Human Approval (Compliance):** Deployment to production requires explicit written approval from the Compliance Lead.
+    *   *Constraint:* Since the Lead is unavailable on weekends, the deployment window is restricted to Monday–Friday. The job must be deployed and tested in the production sandbox *before* the first live run.
+*   **Rollback Plan:**
+    *   If the job fails to start: Manual intervention via cloud console to restart.
+    *   If bad data is detected *before* transmission: Kill the job; fix code; redeploy.
+    *   If bad data is transmitted: **No technical rollback possible.** The procedure is immediate manual notification to the partner team to discard the file, followed by a hotfix for the next night's batch.
+*   **Go/No-Go Decision:** The Conductor will present the Verification Receipt (Lane D) and Compliance Approval to the Release Owner. Only upon explicit confirmation will the scheduler be enabled for the 02:00 UTC window.
+
+**Risk Mitigation:** The 45-minute CI time is a known bottleneck. The merge request will be opened early in the day to ensure green status by the time Compliance approval is sought. The "flaky staging" constraint is enforced by hardcoding the production sandbox URL in the test configuration.

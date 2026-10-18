@@ -1,0 +1,47 @@
+### Delivery Plan: Q4 Tax Rules Activation
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Configuration - Parallel):** Prepare the immutable JSON tax file with Q4 regional rates. This is independent of code changes.
+    *   *Constraint:* Must be versioned distinctly (e.g., `tax-rules-q4-2024.json`).
+*   **Lane B (Logic Guard - Parallel):** Implement the date-gating logic in the billing service.
+    *   *Requirement:* Hard stop condition `if invoice_date < 2024-10-01: use_legacy_engine`.
+    *   *Constraint:* No writes to the historical ledger path.
+*   **Lane C (Pipeline Optimization - Serial, starts after B):** Patch the CI regression suite to isolate the known flaky currency conversion check.
+    *   *Action:* Mark specific test as "manual-validation-required" in the pipeline config to prevent automatic failure and costly 45-minute retries.
+
+**2. Gates & Checks**
+*   **Gate 1: Unit Verification (Local/Dev)**
+    *   *Revision:* Feature branch head.
+    *   *Check:* Run unit tests asserting the date gate. Verify that dates prior to Oct 1st never invoke the new JSON loader.
+*   **Gate 2: Integration & Safety Report (CI)**
+    *   *Revision:* Release Candidate (RC) tag.
+    *   *Check:* Execute the full pipeline once.
+    *   *Deliverable:* Generate the required "Verification Report" showing correct tax application on simulated Oct 1st+ transactions.
+    *   *Safety Check:* Confirm zero attempts to access/write the archived data store in logs.
+    *   *Manual Step:* Engineer manually validates the currency conversion rounding case flagged in Gate 1; marks CI green only upon success.
+*   **Gate 3: Configuration Sync**
+    *   *Check:* Verify the production configuration loader points to the new Q4 JSON version only when the `Q4_ENABLED` flag is active.
+
+**3. Review Process**
+*   **Code Review:** Senior Backend Engineer (independent of Lane B author).
+    *   *Focus:* Verify the date comparison logic is strict (`>=`) and that the legacy path is untouched. Confirm no migration scripts exist that touch historical data.
+*   **Config Review:** Finance Systems Analyst (independent of Lane A author).
+    *   *Focus:* Validate JSON rates against the Q4 compliance spec.
+*   **Pipeline Review:** DevOps Lead.
+    *   *Focus:* Confirm the flaky test bypass is scoped strictly to the currency rounding case and does not suppress other failures.
+
+**4. Landing & Deployment**
+*   **Pre-Deployment:** Load the new JSON config to the production cluster but keep the feature flag `Q4_ENABLED` set to `false`.
+*   **Approval Gate (Human Decision):** During the final week of the quarter, the **Lead Financial Officer** must explicitly approve the toggle switch. No deployment occurs without this signature.
+*   **Execution:**
+    1.  Merge RC to `main` only after LFO approval is secured.
+    2.  Deploy service binary.
+    3.  Toggle `Q4_ENABLED` to `true`.
+*   **Rollback Plan:**
+    *   *Trigger:* Any audit flag regarding historical data or tax calculation error on new invoices.
+    *   *Action:* Immediately toggle `Q4_ENABLED` back to `false`. The system reverts to the legacy engine and previous JSON file instantly without a code redeploy.
+    *   *Critical Note:* Since writing to prior periods is irreversible, if any historical data was corrupted (despite guards), the only recovery is a full database restore from the pre-Oct 1st backup.
+
+**5. Post-Landing**
+*   Monitor the first 100 live invoices.
+*   Update non-essential documentation after the quarter closes.

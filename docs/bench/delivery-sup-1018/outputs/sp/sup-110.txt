@@ -1,0 +1,40 @@
+### Delivery Plan: Soft-Limit Quota Guard
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Core Logic & Flagging):** Implement the monitoring-only quota guard in `core-gateway`. This includes the new usage cap logic, the "bypass" feature flag integration, and the structured logging for potential violations. Crucially, the enforcement path must include an explicit whitelist check for critical billing and authentication daemons that short-circuits any logic before a deny decision is possible.
+*   **Lane B (Observability & Baseline):** Prepare the log aggregation queries and dashboards to track "potential violations" specifically for the critical daemons. Define the "baseline expectations" metrics with the operations team.
+*   **Parallel Execution:** Lanes A and B run in parallel. Lane C (Documentation) runs concurrently, detailing the feature flag usage and the manual rollback procedure.
+
+**2. Gates & Checks**
+*   **Gate 1 (Code Freeze & Unit Test):** All code must be committed to a feature branch. Unit tests must verify the whitelist short-circuit logic proves mathematically that critical daemons cannot hit the denial path.
+    *   *Revision:* Feature branch head.
+    *   *Check:* Automated unit suite (fast).
+*   **Gate 2 (SRE Configuration Review):** Before any CI run, Marcus Thorne must review the configuration schema and the feature flag default state (must be "monitoring-only").
+    *   *Revision:* Feature branch head.
+    *   *Check:* Manual approval by Marcus Thorne.
+*   **Gate 3 (Staging Verification):** Deploy to staging. Run a subset of the integration suite focused on quota logic (avoiding the full 45-minute run unless necessary). Verify logs are generated correctly.
+    *   *Revision:* Staging deployment commit.
+    *   *Check:* Log validation against Lane B's baseline.
+*   **Gate 4 (Production Dry-Run):** Deploy to production in "monitoring-only" mode. Observe for 24 hours.
+    *   *Revision:* Production deployment commit.
+    *   *Check:* Zero false positives in logs for critical daemons; feature flag verified functional.
+
+**3. Review Strategy**
+*   **Code Review:** Performed by a senior backend engineer *not* involved in Lane A implementation. Focus strictly on the whitelist logic and the impossibility of denial for critical services.
+*   **Configuration Review:** Performed exclusively by Marcus Thorne (SRE Lead). No other approver is valid for gateway config.
+*   **Independence:** The code reviewer cannot be the same person who wrote the whitelist logic. The SRE review is independent of the code review.
+
+**4. Landing & Rollback**
+*   **Phase 1 (Monitoring):** Merge to main and deploy with the feature flag enforcing "monitoring-only." No traffic is blocked. This is the landing for the initial ticket.
+*   **Phase 2 (Enforcement - Future):** Activation of blocking requires a separate change request, new approval from Marcus Thorne, and a verified 24-hour clean log period.
+*   **Human Decision Points:**
+    *   Marcus Thorne's approval is required for the initial deploy.
+    *   Marcus Thorne's approval is required to switch from monitoring to enforcement.
+    *   Any detected denial of critical traffic triggers an immediate Severity-One incident response, not an automated fix.
+*   **Rollback Procedure:**
+    *   *Trigger:* Any false positive or Severity-One incident.
+    *   *Action 1:* Instantly toggle the feature flag to bypass the check entirely (seconds).
+    *   *Action 2:* If the flag fails or code is corrupt, revert the deployment.
+    *   *Constraint:* Reverting the deployment requires a manual database schema migration (20 minutes). During this window, the system runs on the previous stable version. The team must accept the risk of non-critical job spikes during the 20-minute migration window to restore stability.
+
+**Summary:** The plan prioritizes safety via a whitelist short-circuit and a monitoring-first deployment. The high cost of rollback (20 mins) dictates that the "monitoring-only" phase is the primary delivery, with enforcement treated as a distinct, future event requiring fresh validation.

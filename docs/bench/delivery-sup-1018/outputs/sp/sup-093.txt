@@ -1,0 +1,56 @@
+### Delivery Plan: Apex-9 Sub-Second Rollback
+
+#### 1. Work Lanes & Parallelism
+**Lane A: Bootloader Logic (Embedded Systems Squad)**
+*   **Owner:** Jane Smith's team.
+*   **Task:** Implement local health-check trigger and rollback execution within the bootloader partition.
+*   **Constraint:** Must occur pre-boot or during the writable window before the partition locks.
+*   **Parallelism:** Can run concurrently with Lane B, but must finish before Lane C integration.
+
+**Lane B: Cryptographic Verification Module**
+*   **Owner:** Security Engineering.
+*   **Task:** Integrate signature verification for the rollback binary using the currently frozen shared crypto-library.
+*   **Constraint:** Cannot update the crypto-library; must use the existing audited version.
+*   **Parallelism:** Independent of Lane A logic, provided the interface (verify binary) remains constant.
+
+**Lane C: Pipeline & Staging Orchestration**
+*   **Owner:** DevOps/Release Engineering.
+*   **Task:** Configure the on-premise cluster to inject the "previous stable" binary into the update package and manage the Hardware-in-the-Loop (HIL) stage.
+*   **Parallelism:** Runs parallel to A and B initially, but blocks on their completion for final integration testing.
+
+#### 2. Gates & Checks
+**Gate 1: Code Freeze & Static Analysis (Revision: `feat/rollback-logic-v1`)**
+*   **When:** Before merging to the integration branch.
+*   **Check:** Static analysis confirms no dynamic memory allocation in the rollback path (deterministic timing).
+*   **Verifier:** Automated CI linter + Lead Architect manual review of critical paths.
+
+**Gate 2: Crypto-Compliance Audit (Revision: `int/rollback-candidate-01`)**
+*   **When:** After Lane A and B merge.
+*   **Check:** Verify the rollback binary signature check uses the frozen crypto-library correctly.
+*   **Verifier:** Safety Compliance Officer. **Hard Stop:** No deployment without signed approval.
+
+**Gate 3: Timing & Flakiness Stress Test (Revision: `int/rollback-candidate-01`)**
+*   **When:** During the 45-minute HIL stage.
+*   **Check:** Simulate network load to induce HIL flakiness; measure time from health-check failure to rollback initiation.
+*   **Success Criteria:** < 2.0 seconds consistently over 100 runs. If > 2.5s or flake detected, automatic rejection.
+
+#### 3. Review Process
+*   **Independent Technical Review:** A senior engineer from a different squad (not Embedded Systems) reviews the bootloader logic for race conditions. They must not be the author or a direct report of Jane Smith.
+*   **Safety Compliance Review:** The Safety Compliance Officer reviews the verification logic independently of the DevOps pipeline configuration.
+*   **Integration Review:** The Lead Architect reviews the final merge request only after Gates 1 and 2 are passed.
+
+#### 4. Landing Strategy
+**Merge Protocol:**
+1.  Merge Lanes A and B into `integration/rollback`.
+2.  Trigger HIL stage on the dedicated on-premise cluster.
+3.  Upon HIL success and Safety Compliance sign-off, merge to `release/candidate`.
+
+**Human Decisions Required:**
+*   **Go/No-Go for Production:** Both Lead Architect and Safety Compliance Officer must explicitly approve the `release/candidate` tag.
+*   **Rollback Trigger Threshold:** Confirmation of the specific health-check metrics that constitute "failure" (to prevent false positives).
+
+**Rollback Plan:**
+*   **If Deployment Fails:** The CI/CD pipeline retains the previous `release/stable` tag. Re-deployment involves pointing the fleet manager to the previous tag.
+*   **If Device Bricks:** Since the bootloader logic is irreversible post-boot without a jig, any failure in the rollback mechanism itself requires physical retrieval. **Mitigation:** The HIL stage must simulate a "bad rollback binary" scenario to ensure the device fails safe (remains on old version) rather than bricking.
+
+**Timeline Constraint:** All gates must clear within the sprint to meet the immediate safety net requirement. The 45-minute HIL stage is the critical path bottleneck; schedule it during low-network-load windows to avoid flakiness-induced delays.

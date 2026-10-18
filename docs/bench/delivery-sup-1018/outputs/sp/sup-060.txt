@@ -1,0 +1,40 @@
+### Delivery Plan: Dispatch Logic Rebalance
+
+**1. Work Lanes & Parallelism**
+*   **Lane A (Algorithm Design):** Owned by the Developer. Isolate the load-balancing logic in `core-routing`. Develop the new scheduling heuristic in a local sandbox using extracted historical data snapshots. This runs parallel to Lane B.
+*   **Lane B (Data Preparation):** Owned by QA/Data Engineering. Extract and sanitize historical peak-volume datasets and morning batch scenarios. Create a "golden set" of inputs where the current system meets all SLAs. This data is required before Lane C can begin.
+*   **Lane C (Validation Harness):** Owned by the Developer. Build a local simulation runner that ingests Lane B's data and executes the Lane A algorithm. This bypasses the 45-minute CI pipeline for iterative development.
+
+**Serialization Point:** Lane C cannot start until both Lane A (logic draft) and Lane B (data set) are ready.
+
+**2. Gates & Checks**
+*   **Gate 1: Local Regression Check (Pre-Commit):** Before any git push, run the local simulation (Lane C) against the "golden set."
+    *   *Pass Criteria:* Zero missed delivery windows; morning batch completion time ≤ current baseline.
+    *   *Revision:* Run on the latest feature branch head.
+*   **Gate 2: The Tuesday Flakiness Protocol:** If running CI on a Tuesday and `peak-load-validator` fails:
+    *   *Action:* Do not retry automatically. Trigger manual verification using the local harness with the specific failing dataset. If local passes, mark CI as false negative and proceed.
+*   **Gate 3: The Config Window:** Edits to `global-time-window` must occur outside business hours.
+    *   *Check:* Verify system clock before committing config changes. If during business hours, stage the change but hold the commit until off-hours to prevent silent reverts.
+*   **Gate 4: The SLA Hard Stop:** If *any* test case shows a slipped commitment or cascading delay >5 minutes, the build is rejected immediately. No "close enough" metrics.
+
+**3. Review Strategy**
+*   **Code Review:** Performed by a Senior Logistics Engineer (independent of the Developer).
+    *   *Focus:* Verify the algorithm does not prioritize efficiency over the hard constraint of delivery windows. Check that peak-spike handling explicitly protects morning batches.
+    *   *Timing:* After Gate 1 passes and before merging to the integration branch.
+*   **Simulation Review:** Performed by QA.
+    *   *Focus:* Validate that the historical data used covers worst-case Tuesday spikes and that the local harness results match expected physical outcomes.
+*   **Independence:** The Code Reviewer must not be the same person who wrote the Validation Harness to prevent bias in test coverage.
+
+**4. Landing & Rollback**
+*   **Batching:** Due to 45-minute CI costs, all logic changes, config updates, and test additions must be squashed into a single commit per major iteration. Do not push WIP branches to remote.
+*   **Approval Chain:**
+    1.  Pass Code & Simulation Reviews.
+    2.  Pass CI (ignoring known Tuesday flakes with manual proof attached).
+    3.  **Human Sign-off:** Explicit written approval from Jane Smith AND the Shift Manager is required before the merge button is clicked.
+*   **Merge Strategy:** Merge to `staging` first. Deploy to a canary group of drivers (5% of fleet) during a low-risk window (mid-afternoon, non-peak).
+*   **Rollback Protocol:**
+    *   *Trigger:* Any reported late delivery or driver complaint regarding route timing in the canary group.
+    *   *Action:* Since published routes are irreversible, a full system rollback to the previous stable revision is mandatory. Do not attempt hotfixes on live published routes.
+    *   *Notification:* Immediate alert to the Shift Manager upon rollback initiation.
+
+**Risk Flag:** If the new logic requires changes to the immutable "published route" structure to function, this plan halts. The risk of requiring a full system rollback for minor tweaks is too high without an architectural redesign.

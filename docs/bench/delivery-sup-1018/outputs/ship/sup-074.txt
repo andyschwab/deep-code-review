@@ -1,0 +1,58 @@
+**Delivery Plan: Oakwood Legacy Meter Backfill**
+
+**Gates & Constraints**
+*   **G0/G1 (Spec):** Define "verified figure" logic explicitly. Cap logic: `Charge = Min(Calculated, Archived)`. Flag condition: `Calculated > Archived`.
+*   **G2 (Plan):** Budget capped at $90 (2 CI runs max). Serialization required for `billing-rates.json` (Tuesday window only).
+*   **G3 (Design):** ADR required for audit trail schema (distinct `source: legacy_pdf` vs `source: live_sensor`).
+*   **G4 (Implement):** Code changes in isolated worktree. **No CI triggers yet.**
+*   **G5 (Verify):** Local verification only. Test env is broken (missing parser); do not rely on integration CI green. Verify logic via unit tests mocking the parser.
+*   **G6 (Review):** Independent review by Compliance (for cap logic) and Lead Architect (for audit schema). Builder cannot self-approve.
+*   **G7 (Integrate):** Merge to integration branch.
+*   **G8 (Release):** Human approval required from Lead Architect AND Director of Resident Services before production deploy.
+*   **Rollback:** Impossible (irreversible tax filings). Roll-forward only via correction entries. Pre-deploy dry-run of tax impact mandatory.
+
+**Lanes & Serialization**
+
+**Lane 1: Ingestion Logic & Cap Implementation (Builder)**
+*   **Work:** Implement PDF parsing for 2021 logs. Apply billing cap logic. Add audit tagging.
+*   **Parallelism:** Can run immediately.
+*   **Constraint:** Must not touch `billing-rates.json` yet.
+*   **Output:** Patch set + Unit test suite (mocked parser).
+*   **Verification:** Local execution. Confirm `Min()` logic and flagging mechanism.
+
+**Lane 2: Audit Schema Definition (Architect/Builder)**
+*   **Work:** Define schema changes to distinguish legacy vs. live data.
+*   **Parallelism:** Runs parallel to Lane 1.
+*   **Output:** ADR + Schema migration script.
+*   **Review:** Independent review by Data Governance (if available) or Lead Architect.
+
+**Lane 3: Compliance Rate Update (Serialized)**
+*   **Work:** Update `billing-rates.json` if new rates are needed for backfill consistency.
+*   **Serialization:** **BLOCKED** until next Tuesday (Compliance window).
+*   **Dependency:** Must wait for Lane 1 & 2 to confirm rate requirements.
+*   **Action:** Prepare PR now, merge only on Tuesday window.
+
+**Lane 4: Independent Verification (QA)**
+*   **Work:** Manually verify a sample set of PDF logs against the tool's output locally.
+*   **Constraint:** Cannot use CI integration tests (flaky/missing lib).
+*   **Output:** Signed receipt of manual verification on exact SHA.
+
+**Review Strategy**
+*   **Code Review:** Lead Architect (independent of Builder) reviews Lane 1 & 2. Focus: Cap logic correctness, audit tagging.
+*   **Compliance Review:** Compliance Team reviews Lane 3 (Tuesday). Focus: Rate accuracy.
+*   **Security/Data Review:** Independent check on irreversible tax filing trigger. Confirm dry-run capability.
+
+**Landing & Merge Plan**
+1.  **Pre-Merge:** Complete Lane 1, 2, 4 locally. Ensure `billing-rates.json` PR is ready but unmerged.
+2.  **Tuesday Window:** Merge Lane 3 (`billing-rates.json`) first. Wait for CI ($45 cost).
+3.  **Integration:** Merge Lane 1 & 2 into main. Trigger final CI ($45 cost).
+4.  **Human Gate (G8):** Present final SHA, manual verification receipt (Lane 4), and dry-run tax report to Lead Architect and Director of Resident Services.
+5.  **Deploy:** Upon dual approval, deploy to production.
+6.  **Post-Deploy:** Monitor first 10 records for correct audit tagging.
+
+**Risk Mitigation**
+*   **Flaky Tests:** Explicitly mark integration tests as "skipped/unverified" in CI if parser missing; rely on Lane 4 manual receipt.
+*   **Irreversibility:** Dry-run tax calculation is mandatory before G8 approval. No deploy without it.
+*   **Cost:** Max 2 CI runs planned. Local verification prevents wasted cycles.
+
+**Immediate Next Step:** Builder starts Lane 1 & 2 locally. Prepare `billing-rates.json` PR for Tuesday. Schedule G8 approval meeting with Architect and Director post-verification.

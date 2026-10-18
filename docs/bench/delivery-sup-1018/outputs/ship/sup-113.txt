@@ -1,0 +1,44 @@
+### Delivery Plan: Auto-Pause Payouts on Volume Spike
+
+**Scope:** Update `ops/automation` incident script to detect 5-minute volume spikes, verify against global ledger, auto-pause transactions, and lock queue pending manual verification. Notification logic remains unchanged.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Detection Logic):** Implement the 5-minute window spike detection algorithm. Must include a pre-check against the global ledger to filter regional batch false positives.
+    *   *Constraint:* Isolated worktree; read-only access to current notification logic.
+*   **Lane B (Pause Mechanism):** Implement the "pause flag" setter and queue lock.
+    *   *Constraint:* Must simulate the "lock" state locally since production resume requires direct DB access.
+*   **Lane C (Test Harness):** Build a localized unit test suite that mocks the ledger and time-window without triggering the full 22-minute CI database replay. Address the flaky "high-volume" timeout by implementing a deterministic time-skip mock.
+    *   *Serialization:* Lane C must wait for interfaces from A and B to be defined (G2), then runs in parallel with implementation.
+
+**Parallel Execution:** Lanes A, B, and C (setup) start simultaneously after G2. Lane C (execution) waits for A/B code freeze.
+
+#### 2. Gates & Checks
+*   **G0/G1 (Intake/Spec):** Confirm "global ledger" data source and exact "suspicious surge" threshold metrics with Finance. Define the specific DB command the SRE will use for resume (for documentation only).
+*   **G2 (Plan):** Verify acyclic dependency graph. Set token/cost budgets for LLM lanes.
+*   **G3 (Design):** ADR confirming the "pause flag" is write-once in code and requires SRE DB intervention to reset. Confirm no changes to notification paths.
+*   **G4 (Implement):** Code commit to isolated worktrees.
+    *   *Check:* Static analysis for race conditions in the 5-minute window check.
+*   **G5 (Verify):**
+    *   *Environment:* Staging with sanitized data.
+    *   *Action:* Run Lane C's localized harness. Simulate spike → Verify Ledger Check → Verify Pause Flag Set → Verify Queue Lock.
+    *   *Critical:* Do **not** rely on the flaky full CI pipeline for initial verification. Run the specific unit tests locally. Only trigger full CI once local harness is green.
+    *   *UI/State:* Evidence must show the queue state transitioned to "LOCKED" in logs.
+*   **G6 (Review):**
+    *   *Security:* Independent review of the ledger access pattern (prevent data leakage).
+    *   *QA:* Independent review of the time-window logic and false-positive mitigation.
+    *   *Constraint:* Reviewers cannot be the implementers of Lanes A or B.
+
+#### 3. Landing & Human Decisions
+*   **G7 (Integrate):** Merge to integration branch. Re-run full 22-minute CI pipeline *once* on the final merged SHA.
+*   **G8 (Release - Human Gate):**
+    *   *Approval Required:* Dual approval from **Risk Lead** and **VP of Finance**.
+    *   *Action:* Deploy to production.
+    *   *Rollback Plan:* Since the pause flag cannot be cleared by code, the rollback procedure is **not** a code revert. It is an operational runbook: "If false positive occurs, On-Call SRE executes [Specific DB Command] to clear flag." This runbook must be signed off by the SRE lead before G8.
+*   **G9 (Production Verify):** Monitor logs for the first 5-minute window post-deploy. Confirm no unintended pauses.
+*   **G10 (Learn):** If the "high-volume" test remains flaky in full CI, document the workaround in the repo README; do not attempt to fix the flaky test in this ticket unless it blocks the merge.
+
+**Critical Risks:**
+1.  **False Positive Lock:** If the ledger check fails or times out, the system must default to *alert-only*, not *pause*, unless explicitly configured otherwise (fail-safe vs. fail-secure decision needed at G1).
+2.  **Irreversible State:** The inability to code-unlock means testing the "resume" path is impossible in staging. Verification relies entirely on code inspection of the "lock" logic and SRE confirmation of the manual reset command.
+
+**Next Step:** Request confirmation on the "fail-safe" behavior (pause on ledger error vs. alert only) to finalize G1 spec.

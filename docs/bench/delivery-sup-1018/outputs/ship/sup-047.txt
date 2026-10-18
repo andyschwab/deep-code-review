@@ -1,0 +1,62 @@
+**Delivery Plan: Legacy Wishlist Deprecation**
+
+**Objective:** Sunset legacy wishlist module, migrate data to archive, implement SEO-safe 301 redirects, remove UI badges, and ensure background job stability without traffic loss.
+
+**Gates & Constraints**
+*   **G0/G1 (Spec):** Define exact URL mapping for redirects and archive schema. Confirm "unread" migration logic.
+*   **G2 (Plan):** Serialize database migration (irreversible). Parallelize code changes.
+*   **G3 (Design):** ADR for redirect strategy (application-level vs. web server) to satisfy 6-hour cache delay.
+*   **G4 (Implement):** Code changes in isolated worktrees.
+*   **G5 (Verify):** Staging dry-run mandatory. Ignore flaky network timeout if logs confirm success.
+*   **G6 (Review):** Independent review by Senior Engineer (not the implementer).
+*   **G7 (Integrate):** Merge to integration branch.
+*   **G8 (Release):** Human approval required (Jane Smith).
+*   **G9 (Production Verify):** Monitor organic traffic and error logs post-deploy.
+
+**Work Lanes & Serialization**
+
+*   **Lane A: Database Migration (Serialized - First)**
+    *   **Owner:** Data Engineer.
+    *   **Task:** Write and test irreversible migration script to move historical entries to the new archive store (unread).
+    *   **Constraint:** Must run on a isolated staging DB clone first. Cannot be parallelized with code that assumes old schema exists.
+    *   **Verification:** Row count match between source and archive; zero data loss proof.
+
+*   **Lane B: Backend Logic & Redirects (Parallel)**
+    *   **Owner:** Backend Developer.
+    *   **Task:** Disable legacy input forms/API endpoints. Implement 301 permanent redirects for all deep links to preserve SEO. Update background jobs to handle migrated records gracefully.
+    *   **Constraint:** Redirect rules must be deployed early to account for the 6-hour search index cache.
+    *   **Verification:** Unit tests for redirect mapping; integration test confirming background jobs do not crash on archived data.
+
+*   **Lane C: Frontend Cleanup (Parallel)**
+    *   **Owner:** Frontend Developer.
+    *   **Task:** Remove UI badges quietly. Ensure no calls are made to disabled endpoints.
+    *   **Verification:** Visual regression tests; network tab verification of zero 404s on legacy routes.
+
+**Review Strategy**
+*   **Code Review:** Backend and Frontend changes reviewed by a Senior Engineer independent of the implementers.
+*   **Security/SEO Review:** Verify redirect chains do not create loops and preserve link equity.
+*   **Data Review:** Verify migration script logic (read-only validation on staging).
+
+**Landing & Merge Strategy**
+1.  **Preparation:** Deploy redirect rules to Staging. Run Lane A (Migration) on Staging DB.
+2.  **Dry-Run:** Execute full integration suite on Staging. Generate dry-run report showing zero data loss, successful redirects, and stable background jobs.
+3.  **Human Gate:** Submit dry-run report to Jane Smith for production deploy approval.
+4.  **Deployment Sequence (Production):**
+    *   Step 1: Deploy Lane B (Redirects) first. Wait for potential cache propagation (or force cache clear if possible).
+    *   Step 2: Deploy Lane A (Migration). **Point of no return.**
+    *   Step 3: Deploy Lane C (Frontend).
+5.  **Rollback Plan:**
+    *   If Lane B fails: Revert redirect code immediately.
+    *   If Lane A fails: **Cannot rollback data.** Restore from pre-deploy backup (manual, high latency).
+    *   If Lane C fails: Revert frontend commit.
+6.  **Post-Deploy:** Monitor organic traffic trends and application logs for 24 hours. Specifically watch for 404 spikes or background job failures.
+
+**Risks & Mitigations**
+*   **Irreversible Migration:** Mitigated by strict staging dry-run and immediate backup verification before G8.
+*   **SEO Loss:** Mitigated by 301 redirects deployed before traffic shifts; monitoring search console post-deploy.
+*   **Flaky Tests:** Explicitly ignore network timeout failures in CI if application logs show successful transaction completion.
+*   **Cache Delay:** Redirects deployed first; accept 6-hour window for full search engine reflection.
+
+**Human Decisions Required**
+*   Jane Smith's approval on the staging dry-run report before G8.
+*   Go/No-Go decision after Lane A execution if anomalies appear.

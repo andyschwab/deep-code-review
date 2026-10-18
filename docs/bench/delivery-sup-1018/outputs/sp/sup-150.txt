@@ -1,0 +1,64 @@
+# Delivery Plan: Cross-Platform Sync with Purchase Conflict Guardrails
+
+## Lanes & Parallelism
+
+**Lane A: Core Logic (Platform Team)**
+*   **Work:** Implement strict ledger comparison logic in `core-sync`. Logic must read from `purchase-ledger` (read-only) and block merges if histories do not match exactly.
+*   **Parallelism:** Can start immediately. Runs parallel to Lane B.
+
+**Lane B: Mocking & Local Verification (Requesting Team)**
+*   **Work:** Create local test harness mocking conflicting purchase ledgers since staging lacks real payment data. Verify blocking logic triggers manual review flags rather than silent failures.
+*   **Parallelism:** Runs parallel to Lane A. Must complete before final integration.
+
+**Lane C: Database Preparation (DBA Team)**
+*   **Work:** Prepare sharded region schema for dual-write period.
+*   **Serialization:** Must complete 24 hours before any production traffic shift. Cannot parallelize with final merge.
+
+## Gates & Checks
+
+**Gate 1: Local Unit Test Pass (Revision: Feature Branch Head)**
+*   **Check:** Lane B's mock harness confirms exact mismatch detection and manual review flagging.
+*   **Constraint:** Must verify no write attempts are made to `purchase-ledger` to avoid security alerts.
+*   **Runner:** Requesting Team Senior Engineer.
+
+**Gate 2: Integration Test Trigger (Revision: Release Candidate)**
+*   **Check:** Full CI pipeline (45 mins) runs only once after Lane A and B converge.
+*   **Constraint:** Do not trigger on intermediate commits to save cloud emulator costs.
+*   **Runner:** Automated CI, monitored by Platform Team.
+
+**Gate 3: Dual-Write Validation (Revision: Post-Schema Change)**
+*   **Check:** Verify data consistency across sharded regions during the 24-hour dual-write window.
+*   **Runner:** DBA Team.
+
+## Review Process
+
+**Primary Review:** Platform Team Senior Engineer (independent of Lane A implementer).
+*   **Focus:** Code adherence to read-only constraints for `purchase-ledger` and correctness of conflict detection logic.
+
+**Secondary Review:** Security Engineer (independent of both lanes).
+*   **Focus:** Verify no write operations exist in the diff that could trigger irreversible security alerts.
+
+**Final Sign-off:** Senior Engineer with 'Deploy-Prod' rights.
+*   **Requirement:** Must confirm Gate 1, 2, and 3 success before merge approval.
+
+## Landing Strategy
+
+**Merge Protocol:**
+1.  **Pre-Landing:** Complete Lane C (Schema) and wait 24 hours for dual-write stability.
+2.  **Merge Window:** Only a Senior Engineer with 'Deploy-Prod' rights merges to the release branch.
+3.  **Timing:** Merge must occur no later than Thursday to allow Friday buffer before the Tuesday holiday event launch.
+
+**Human Decisions Required:**
+*   **Manual Review Workflow:** Support team lead must confirm they can receive and act on flagged conflicts before go-live.
+*   **Rollback Trigger:** If any purchase duplication is detected post-launch, immediate rollback to pre-sync revision is mandatory. No partial fixes allowed due to revenue risk.
+
+**Rollback Plan:**
+*   **Condition:** Any confirmed item duplication or revenue loss.
+*   **Action:** Revert release branch to pre-merge revision. Disable sync feature flag immediately.
+*   **Notification:** Alert finance and support teams within 15 minutes of detection.
+
+**Success Criteria:**
+*   Zero silent merge failures.
+*   All conflicting ledgers correctly flagged for manual review.
+*   No security alerts triggered by read-only violations.
+*   System stable through 24-hour dual-write period before full traffic shift.

@@ -1,0 +1,65 @@
+**Delivery Plan: Zero-Downtime Auth Library Rollout**
+
+**Strategy:** Dual-Write Compatibility → Canary Rollout → Fleet Completion.
+**Constraint:** No global outage; audit ledger immutability; CI budget (3 runs/day).
+
+### 1. Lanes & Parallelism
+
+*   **Lane A: Library Hardening (Builder)**
+    *   **Work:** Update auth module to support dual-token validation (old + new formats). Implement graceful degradation if validation fails (log warning, reject specific request, do not crash).
+    *   **Isolation:** Dedicated worktree.
+    *   **Parallelism:** Runs first. Blocks all other lanes.
+
+*   **Lane B: Service Integration Prep (Builder)**
+    *   **Work:** Draft dependency manifest updates for all 12 services. Prepare deployment scripts for rolling restarts (one instance at a time).
+    *   **Parallelism:** Can run parallel to Lane A *only* if using the current library version for syntax checks; final integration waits for Lane A's artifact.
+
+*   **Lane C: Staging Verification (QA)**
+    *   **Work:** Deploy updated library to staging. Simulate mixed-version traffic (some requests with old tokens, some new). Verify inter-service communication during partial deployment.
+    *   **Critical Check:** Verify audit logging service behavior under failure conditions (ensure no partial/corrupt writes).
+    *   **Serialization:** Must wait for Lane A completion. Consumes 1 of 3 daily CI credits.
+
+*   **Lane D: Production Canary (Release Engineer)**
+    *   **Work:** Deploy to 1 non-critical service instance in production. Monitor error rates and latency.
+    *   **Serialization:** Waits for Lane C success.
+
+### 2. Gates & Checks
+
+*   **G1 (Spec):** Define "graceful swap" metrics (0% 5xx errors, <5ms latency increase). Explicitly state token format compatibility rules.
+    *   *Base SHA:* Current `main`.
+*   **G3 (Design):** ADR confirming dual-token strategy and rollback procedure for the audit service.
+    *   *Review:* Security + Platform Lead.
+*   **G5 (Verify - Staging):**
+    *   *Revision:* Exact SHA from Lane A + B merge.
+    *   *Checks:* Build green, unit tests pass. **Integration test:** Force mixed token traffic. **Audit test:** Induce auth failure, verify ledger integrity (no partial writes).
+    *   *Constraint:* If this fails, do not retry immediately; analyze logs to preserve CI budget.
+*   **G6 (Review):**
+    *   *Reviewer:* Independent Senior Engineer (not the Builder).
+    *   *Focus:* Token logic correctness, rollback safety, audit ledger safeguards.
+    *   *Security:* Specific review of the session validation flaw patch.
+
+### 3. Landing & Human Decisions
+
+*   **Human Gate (G8 - Release Approval):**
+    *   **Approver:** Jane Smith (Platform Lead).
+    *   **Trigger:** Successful G5 staging receipt + G6 security sign-off.
+    *   **Action:** Approve update to the shared dependency manifest.
+    *   **Format:**
+        *   Issue: Approve Auth Library Rollout to Production
+        *   A: Proceed with Canary (Service X) — Staging verified, rollback ready.
+        *   B: Abort — Audit ledger risk unmitigated.
+
+*   **Rollout Sequence:**
+    1.  Merge approved manifest to `release` branch.
+    2.  Execute Lane D (Canary on 1 instance). Monitor 15 mins.
+    3.  If stable, execute rolling update across remaining 11 services (batch size: 2 services/hour to stay within CI/monitoring limits).
+    4.  **Stop Condition:** Any spike in auth failures or audit log errors triggers immediate pause.
+
+*   **Rollback:**
+    *   **Mechanism:** Revert dependency manifest to previous SHA.
+    *   **Constraint:** Since new code handles old tokens, rollback does not invalidate active user sessions.
+    *   **Audit Service:** If corruption detected, halt all writes manually; restore from last known good backup (procedure defined in G3 ADR).
+
+*   **G10 (Learn):** Post-mortem focused on the rolling update mechanism's effectiveness and CI budget usage.
+
+**Risk Note:** Staging lacks the hardware load balancer. Concurrency bugs may only appear in production. The Canary phase (Lane D) is the primary detection gate for these issues; it must be treated as a critical test, not just a deployment step.

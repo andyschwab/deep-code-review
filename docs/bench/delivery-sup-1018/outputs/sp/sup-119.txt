@@ -1,0 +1,56 @@
+# Delivery Plan: Weather Provider Migration
+
+## Lanes & Parallelism
+
+**Lane A: Configuration & Infrastructure (SkyRoute Team)**
+*   **Work:** Create a new configuration profile for the new provider in `global-feeds.json` without removing the legacy entry. Implement the "silent fallback" logic in the flight-planning service code to catch new-provider timeouts/errors and serve cached data (TTL ≤ 1 hour) without raising operational alerts.
+*   **Constraint:** Must coordinate with owners of the three other microservices using `global-feeds.json` to ensure the new schema is backward compatible or deployed simultaneously.
+*   **Parallelism:** Can run parallel to Lane B.
+
+**Lane B: Service Logic Implementation (Assistant/Dev)**
+*   **Work:** Develop the adapter for the new vendor. Hardcode the new API key in the service's environment variables (bypassing the immutable infra layer limitation for the legacy key). Implement the circuit breaker logic: if the new feed fails, check cache; if cache valid, return it silently; if cache expired, log internally but continue returning stale data to prevent dispatcher latency.
+*   **Parallelism:** Runs parallel to Lane A.
+
+**Lane C: Validation & Staging (QA Automation)**
+*   **Work:** Execute integration tests on the external sandbox. Due to the $45/22min cost, tests must be deterministic and limited to one retry maximum. Focus strictly on the fallback path and latency thresholds.
+*   **Serialization:** Must wait for Lane A and B code freeze. Cannot rely on staging load tests due to missing traffic shaper; rely on unit tests for concurrency guarantees.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Dry Run (Monday 14:00)**
+*   **Revision:** `feat/weather-migration-v1` (merged to `staging` branch).
+*   **Check:** Static analysis confirming no removal of legacy API key references (preventing build failures) and verifying the new provider key is injected via environment variables, not code.
+*   **Owner:** Lead Architect Jane Smith.
+
+**Gate 2: Sandbox Verification (Monday 18:00)**
+*   **Revision:** `staging` branch head.
+*   **Check:** One full integration suite run. Success criteria: 100% pass rate on new provider happy-path; verified silent fallback behavior when new provider is mocked as down.
+*   **Owner:** QA Lead. If this fails, the release is aborted for the week; no second spend allowed without executive approval.
+
+**Gate 3: Production Readiness (Tuesday 08:00)**
+*   **Revision:** `release/tuesday-candidate` (cherry-picked from `staging`).
+*   **Check:** Manual sign-off by Jane Smith confirming coordination with other microservice teams regarding `global-feeds.json`.
+
+## Review
+
+*   **Code Review:** Independent senior engineer (not from SkyRoute team) reviews Lane B logic, specifically the fallback silence mechanism and cache TTL enforcement.
+*   **Config Review:** SkyRoute Tech Lead reviews Lane A changes to `global-feeds.json` to ensure no breaking changes for the three other dependent services.
+*   **Isolation:** Reviewers must not be the authors of the implementation lanes.
+
+## Landing Strategy
+
+**Deployment Window:** Tuesday, post-peak morning operations (14:00 CET), following standard EU-West cluster deployment.
+
+**Rollout Mechanism:**
+1.  **Canary 5%:** Deploy to 5% of instances. Monitor internal logs for "fallback triggered" events. **No user-facing alerts.**
+2.  **Verification:** If latency remains stable and fallback counts are zero (or within acceptable noise) for 30 minutes, proceed.
+3.  **Full Rollout:** Expand to 100%.
+
+**Human Decision Points:**
+*   **Go/No-Go:** Jane Smith must explicitly approve the Tuesday deployment after Gate 3.
+*   **Abort Condition:** If integration tests (Gate 2) fail, the launch is delayed by one week.
+
+**Rollback Plan:**
+*   **Trigger:** Any increase in dispatcher-reported latency or internal error rate > 0.1% on the new provider path.
+*   **Action:** Revert the `flight-planning` service image to the previous Tuesday's tag via the deployment orchestrator. Do **not** revert `global-feeds.json` unless the other three services are affected, as the new config is additive.
+*   **Fallback State:** The system naturally reverts to the legacy provider as the new adapter is removed from the running container; the legacy key remains valid in the immutable layer.

@@ -1,0 +1,29 @@
+### Delivery Plan: Flatbed Hard Lock Implementation
+
+**Lanes & Parallelism**
+*   **Lane A (Core Logic - Serialized):** The North American Fulfillment team will refactor the reservation service to implement an immediate, distributed hard lock. This work must be serialized; no other changes to the asset locking module can occur simultaneously to prevent merge conflicts in the shared configuration file.
+*   **Lane B (Configuration - Parallel):** A single designated owner from the three conflicting teams will consolidate the shared configuration file. This must happen before Lane A merges, ensuring the new logic reads from a unified source.
+*   **Lane C (Validation - Parallel):** Operations QA will prepare a manual reconciliation script to verify data integrity post-deployment, running independently of the code build.
+
+**Gates & Checks**
+*   **Gate 1 (Code Freeze):** Immediate freeze on the shared configuration file. Only the Lane B owner has write access until the merge.
+*   **Gate 2 (Unit Testing):** Developers must run unit tests locally. The known flaky network latency check will be explicitly skipped in the CI pipeline to prevent false negatives, documented by the Lead Architect.
+*   **Gate 3 (Integration Testing):** The full suite must run on Staging. Due to the four-minute database latency, this gate requires a dedicated 2-hour window. Success is defined as zero double-booking events in a simulated multi-hub load test.
+*   **Gate 4 (Security & Architecture Review):** The Lead Architect must review the locking mechanism specifically for deadlock risks. This review is independent of the implementing developers.
+
+**Review Process**
+*   **Primary Review:** The Lead Architect conducts a line-by-line code review of the locking logic, focusing on concurrency handling.
+*   **Secondary Review:** The Operations Director reviews the integration test results and the manual reconciliation strategy.
+*   **Independence:** The Architect cannot approve their own code; the Operations Director cannot approve the test results they authored. Both signatures are required before deployment.
+
+**Landing Strategy**
+*   **Deployment Window:** Sunday at 04:00 UTC (before the Monday surge, minimizing traffic).
+*   **Merge Protocol:** The change merges to `main` only after both reviews are signed. The deployment pipeline triggers automatically upon merge to `main`.
+*   **Human Decision Point:** The Operations Director must give the final "Go/No-Go" command at 03:30 UTC after verifying the Staging integration results.
+*   **Rollback Plan:**
+    *   **Critical Constraint:** Reverting requires a 45-minute database restore and wipes all transactions since the last nightly snapshot.
+    *   **Strategy:** Because rollback is destructive and irreversible for current transactions, we will **not** roll back unless the system is completely unusable (e.g., total lockout of all hubs).
+    *   **Contingency:** If minor bugs appear (e.g., occasional false positives), we will hotfix forward. If a total failure occurs, the Director must authorize the 45-minute restore, accepting the loss of interim transaction data. A manual log of all assignments made between deployment and failure must be reconstructed from hub logs prior to restore.
+
+**Risk Mitigation**
+To avoid the irreversible rollback scenario, the Staging integration test must include a "chaos scenario" simulating simultaneous requests from all regional hubs to ensure the lock holds under peak load conditions before the Sunday deployment window opens.

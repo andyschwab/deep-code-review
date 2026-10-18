@@ -1,0 +1,65 @@
+### Delivery Plan: Legacy Discount API Sunset
+
+**Objective:** Zero internal usage of v1, maintain external partner compatibility via a shim with rate limiting, and preserve exact legacy error codes.
+
+#### 1. Lanes & Serialization
+*Work is split into three lanes. Lanes 1 and 2 run in parallel; Lane 3 is serialized after both complete.*
+
+*   **Lane A: Internal Migration (Builder: Backend Engineer)**
+    *   **Scope:** Update all internal services to call the v2 discount endpoint.
+    *   **Constraint:** Must not modify the read-only billing library.
+    *   **Parallelism:** Can run immediately.
+    *   **Output:** PR updating internal callers; verification that no internal traffic hits v1.
+
+*   **Lane B: Compatibility Shim & Rate Limiting (Builder: Platform Engineer)**
+    *   **Scope:** Implement the routing shim in the partner gateway. Configure rate limiting specifically for the three identified retail partners. Ensure error codes match the legacy spec exactly.
+    *   **Constraint:** `partner-mapping.json` changes require Integration Lead sign-off *before* merge.
+    *   **Parallelism:** Can run immediately, but final merge of mapping changes is blocked by human gate.
+    *   **Output:** PR with shim logic, rate limit config, and updated mapping file.
+
+*   **Lane C: Integration & E2E Verification (QA: Independent Tester)**
+    *   **Scope:** Verify internal traffic is zeroed, partner traffic routes correctly, rate limits trigger, and error codes are bit-for-bit identical to v1.
+    *   **Serialization:** Starts only after Lane A and Lane B code is merged to the integration branch.
+    *   **Constraint:** Must run on a fresh integration SHA. Avoid running the flaky latency suite on Thursdays; if it fails, re-run once to confirm flake before triaging.
+
+#### 2. Gates & Checks
+*Every check runs on an exact, immutable SHA. No "latest" branches.*
+
+*   **G1 (Spec Freeze):** Define the exact JSON structure for the three partners and the specific rate limit thresholds. Document the "do not touch" list for the billing library.
+*   **G2 (Plan Review):** Confirm the acyclic graph. Explicitly budget token costs for CI runs (limit retries due to $12/run cost).
+*   **G4 (Implementation):**
+    *   Lane A: Unit tests for v2 callers.
+    *   Lane B: Unit tests for shim routing and rate limiter logic. Mock the legacy error codes.
+*   **G5 (Verification):**
+    *   **Local Stack:** Bring up the full pricing engine + gateway locally.
+    *   **Exact Revision:** Build and test the merged integration SHA.
+    *   **Checks:**
+        *   Internal calls: Assert 0 hits to v1.
+        *   Partner calls: Assert correct routing and JSON shape.
+        *   Rate Limits: Assert 429 responses after threshold.
+        *   Error Codes: Compare v1 vs. shim output for 5 known error scenarios.
+    *   **Timing:** Schedule heavy E2E runs to avoid Thursday database contention if possible, or account for the known flake in the pass criteria.
+*   **G6 (Review):**
+    *   **Code:** Independent review by a senior engineer not involved in Lanes A or B.
+    *   **Security:** Specific review of the rate limiting logic and exposure surface.
+    *   **Data:** Integration Lead reviews `partner-mapping.json` changes.
+
+#### 3. Landing & Human Gates
+*   **Merge Strategy:** Use a merge train. Lane A and Lane B merge to an integration branch. Lane C verifies that branch.
+*   **Human Decisions Required:**
+    1.  **Integration Lead:** Sign-off on `partner-mapping.json` modifications (Gate G6).
+    2.  **Platform Owner & Security Officer:** Joint approval for the production deploy (Gate G8).
+*   **Deployment:**
+    *   Deploy to staging first. Verify sanitized data behavior (post-02:00 UTC run).
+    *   Production deploy is a distinct event from the code merge.
+*   **Rollback Plan:**
+    *   If internal services break: Revert Lane A immediately.
+    *   If partners fail: Disable the shim routing flag (feature flag preferred) or revert Lane B.
+    *   **Constraint:** Do not rollback the billing library (it was not changed).
+
+#### 4. Risks & Mitigation
+*   **CI Cost:** Limit PR updates to batched commits; do not trigger CI on every typo fix.
+*   **Flaky Tests:** If the latency suite fails on Thursday, treat as non-blocking if other gates pass, pending a manual re-run confirmation.
+*   **Billing Library:** Strictly enforce the "read-only" constraint in code review; any import change here is an automatic block.
+
+**Next Step:** Await confirmation of the three partner identifiers and the exact rate limit thresholds to finalize the G1 spec.

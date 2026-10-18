@@ -1,0 +1,69 @@
+# Delivery Plan: 2FA with Legacy Support
+
+## Lanes & Parallelism
+
+**Lane A: Core Authentication (Security Lead)**
+*   Modify `core-remote` to enforce 2FA flags.
+*   Implement strict logging for all access attempts (standard and fallback).
+*   **Constraint:** Must ensure `auth-config.yaml` changes remain backward compatible for the three other dependent services.
+
+**Lane B: Legacy Fallback Interface (Field Ops Team)**
+*   Develop the voice/SMS integration for Gen-2 units.
+*   Build the software emulator patch to better mimic screen latency (mitigating CI flakiness).
+*   **Dependency:** Cannot finalize integration until Lane A defines the token verification interface.
+
+**Lane C: Operations & Comms (Project Manager)**
+*   Draft maintenance window notifications.
+*   Prepare rollback scripts and communication templates for field technicians.
+*   **Parallel:** Can run immediately alongside A and B.
+
+**Serialization Point:** Lane B must wait for Lane A's interface definition before integration testing. Lane C must wait for final sign-off before scheduling the maintenance window.
+
+## Gates & Checks
+
+**Gate 1: Configuration Review (Pre-Merge)**
+*   **Revision:** Latest commit on feature branch `feat/2fa-legacy-support`.
+*   **Check:** Manual inspection of `auth-config.yaml` by owners of the three other dependent services to confirm backward compatibility.
+*   **Pass Criteria:** Written confirmation from all three service owners.
+
+**Gate 2: CI Pipeline Validation**
+*   **Revision:** Same as Gate 1.
+*   **Check:** Full CI run ($45 cost, 22 mins).
+*   **Special Condition:** If the legacy simulator fails network checks, a manual retry is authorized once per commit. Two consecutive failures require a code halt.
+*   **Pass Criteria:** Green status on auth enforcement and fallback logging tests.
+
+**Gate 3: Staging Verification**
+*   **Revision:** Deployed to Staging.
+*   **Check:** Verify 2FA enforcement on modern devices and fallback flow on the patched emulator.
+*   **Limitation:** Acknowledge emulator latency imperfections; rely on unit test coverage for timing-sensitive logic.
+*   **Pass Criteria:** Logs show strict recording of all attempts; modern devices reject non-2FA sessions.
+
+## Review Process
+
+**Independent Code Review:**
+*   **Reviewer:** Senior Engineer from a team *other than* Field Ops or Security (to ensure neutrality).
+*   **Scope:** Full diff of `core-remote` changes, specifically focusing on the irreversibility of 2FA flags and log integrity.
+*   **Constraint:** Reviewer must not be the author of Lane A or Lane B code.
+
+**Security Audit:**
+*   **Reviewer:** Security Lead.
+*   **Scope:** Verification that fallback methods (voice/SMS) meet the "strict logging" requirement equal to standard flows.
+
+## Landing Strategy
+
+**Approval Matrix:**
+*   Production deployment requires explicit approval from **Jane Smith** AND the **Security Lead**. No automated merges to production.
+
+**Deployment Window:**
+*   Scheduled during a defined maintenance window to prevent interruption of active sessions.
+*   **Pre-Condition:** Confirmation that no active maintenance windows are currently running.
+
+**Rollback Plan:**
+*   **Trigger:** Critical failure in 2FA enforcement or legacy access blocking >5% of valid technicians.
+*   **Action:** Revert `core-remote` to the pre-deployment tag immediately.
+*   **Caveat:** Since 2FA flags are irreversible for user accounts, a rollback disables the *enforcement* but does not reset user 2FA status. A data migration script must be prepared by Lane A to reset user flags if a full rollback occurs, requiring Database Admin approval.
+
+**Human Decision Points:**
+1.  **Go/No-Go:** Jane Smith and Security Lead must verbally confirm readiness after Gate 3.
+2.  **Flaky CI:** Authorization of manual retry requires Team Lead acknowledgment.
+3.  **Rollback Execution:** Decision to execute rollback rests solely with the Incident Commander during the maintenance window.

@@ -1,0 +1,48 @@
+### Delivery Plan: Asynchronous Customs Duty Decoupling
+
+#### 1. Work Lanes & Parallelism
+*   **Lane A (Core Logic - Serialized):** Refactor the returns module to split the refund transaction.
+    *   *Step 1:* Implement immediate store credit issuance triggered by warehouse scan.
+    *   *Step 2:* Decouple customs calculation into a background job queue.
+    *   *Step 3:* Update customer notification templates to exclude pending duty mentions.
+    *   *Constraint:* Must not alter domestic return code paths.
+*   **Lane B (Resilience & Ledger - Parallel to A):** Develop failure handling and reconciliation safeguards.
+    *   *Step 1:* Implement idempotency keys for the follow-up duty deduction to prevent double-charging.
+    *   *Step 2:* Create a "stuck transaction" alert for duty calculations exceeding the expected window.
+    *   *Step 3:* Verify ledger balancing logic when duty calculation fails entirely.
+*   **Lane C (Infrastructure - Parallel to A & B):** Mitigate CI and deployment risks.
+    *   *Step 1:* Mock the duty simulation service in CI to eliminate flaky network timeouts and reduce the $45/55-min check cost.
+    *   *Step 2:* Script a pre-deployment check to ensure the nightly reconciliation job is not imminent.
+
+#### 2. Gates & Checks
+*   **Gate 1: Unit & Integration Test Pass (Revision: `feature/async-duty-head`)**
+    *   *Runner:* CI Pipeline (with mocked duty service).
+    *   *Check:* Domestic return latency metrics must match baseline; international returns must show immediate credit issuance.
+*   **Gate 2: Data Integrity Dry-Run (Revision: `release/candidate-1`)**
+    *   *Runner:* Staging Environment.
+    *   *Check:* Simulate duty calculation failures and long delays. Verify ledger remains balanced and no orphaned credits exist.
+    *   *Constraint:* Must complete before the nightly reconciliation window opens.
+*   **Gate 3: Configuration Propagation Check**
+    *   *Runner:* Operations Team.
+    *   *Check:* Confirm tax rule cache expiration status. Deployment must occur only after a fresh cache cycle or force-clear to avoid 4-hour drift.
+
+#### 3. Review Process
+*   **Code Review:** Senior Backend Engineer (independent of Lane A/B authors) reviews the split transaction logic and idempotency implementation. Focus: Race conditions between credit issuance and duty deduction.
+*   **Financial Audit Review:** Lead Financial Auditor (scheduled Mon-Thu only) reviews the ledger balancing proofs and the "failure mode" scenarios. This is a hard gate; no deployment without their signature.
+*   **Operational Review:** On-call Engineer reviews the rollback script and the alerting thresholds for stuck transactions.
+
+#### 4. Landing Strategy
+*   **Merge Window:** Monday through Thursday, early morning (post-cache refresh, pre-peak traffic). **Never Friday** (Auditor unavailable).
+*   **Deployment Protocol:**
+    1.  Deploy Lane C (mocks/config) first.
+    2.  Deploy Lane A & B behind a feature flag (`async_duty_enabled=false`).
+    3.  Enable flag for 1% of international traffic (canary).
+    4.  Monitor immediate credit latency and duty queue depth for 30 minutes.
+    5.  Full rollout if metrics hold.
+*   **Human Decision Points:**
+    *   Lead Financial Auditor must explicitly approve the production promotion.
+    *   If the nightly reconciliation job is <2 hours away, deployment is aborted regardless of test status.
+*   **Rollback Plan:**
+    *   *Trigger:* Ledger imbalance detected or domestic latency regression >5%.
+    *   *Action:* Immediate feature flag toggle to `false`.
+    *   *Contingency:* If partial states were written before rollback, the On-call Engineer must execute the manual database rollback script before the nightly reconciliation job starts. No automatic rollback is permitted once the reconciliation job begins.

@@ -1,0 +1,68 @@
+# Delivery Plan: Transaction History Cache Migration
+
+## Lanes & Parallelism
+
+**Lane A: Infrastructure & Configuration (Serialized)**
+*   **Owner:** DevOps Engineer
+*   **Work:** Prepare the new cache cluster and draft the `global-config.yaml` update.
+*   **Constraint:** This lane must pause before applying config changes until Lane B confirms the dual-write shim is active in Staging.
+
+**Lane B: Application Logic (Parallel Start)**
+*   **Owner:** Backend Developer
+*   **Work:** Implement the "Dual-Write/Read-Through" shim.
+    *   *Write Path:* Write to both Old and New caches simultaneously.
+    *   *Read Path:* Read from Old cache; on miss or specific "migration mode" flag, fetch from Source of Truth (DB) and populate New cache.
+    *   *Dashboard Guard:* Force the 'Past Activity' page to bypass all caches and hit the DB directly during the migration window.
+*   **Parallelism:** Can begin immediately. Lane A waits on Lane B's code readiness, not vice versa.
+
+**Lane C: Verification (Parallel)**
+*   **Owner:** QA Automation
+*   **Work:** Run latency benchmarks comparing Old Cache vs. New Cache vs. DB direct. Verify "Balance Consistency" check stability.
+
+## Gates & Checks
+
+**Gate 1: Code Freeze & Static Analysis**
+*   **Trigger:** Lane B merges shim code to `feature/cache-migration`.
+*   **Check:** Static analysis must pass. No direct edits to `global-config.yaml` allowed in this commit.
+
+**Gate 2: Staging Deployment (The Dry Run)**
+*   **Revision:** `feature/cache-migration` merged to `staging-branch`.
+*   **Action:** Deploy to Staging.
+*   **Human Decision:** Jane Smith must manually approve this deployment.
+*   **Check:** Run "Balance Consistency" check. If it fails once, investigate. If it fails twice, automatic block triggers; rollback to previous Staging revision immediately.
+*   **Validation:** Simulate user refresh mid-migration. Verify balance matches DB exactly (zero latency tolerance).
+
+**Gate 3: The Irreversible Lock Warning**
+*   **Context:** Production DB write-lock during warm-up.
+*   **Check:** Confirm maintenance window is scheduled for a 4-minute deposit freeze.
+*   **Requirement:** Explicit written confirmation from Product Owner that a 4-minute deposit freeze is acceptable for the chosen time slot.
+
+## Review Strategy
+
+**Independent Code Review**
+*   **Reviewer:** Senior Engineer (not the author of Lane B, not the DevOps engineer).
+*   **Focus:** Verify the "Dashboard Guard" logic ensures *no* cached data is served for balances. Ensure the dual-write mechanism handles race conditions without data loss.
+*   **Constraint:** Reviewer must not be the one deploying to Production.
+
+**Configuration Review**
+*   **Reviewer:** System Architect.
+*   **Focus:** Verify `global-config.yaml` changes do not break the three other dependent microservices.
+
+## Landing & Rollback
+
+**Deployment Strategy: Blue/Green with Feature Flag**
+1.  **Pre-Warm:** Deploy new cache nodes. Run background warm-up script (triggers the 4-minute deposit freeze).
+2.  **Switch:** Toggle feature flag to route 1% of traffic to New Cache reads.
+3.  **Ramp:** Increase to 10%, 50%, 100% over 30 minutes, monitoring "Balance Consistency" metrics.
+4.  **Finalize:** Once stable for 2 hours, remove Old Cache writes.
+
+**Rollback Protocol**
+*   **Trigger:** "Balance Consistency" check fails >2 times in Production OR user reports of stale balances.
+*   **Action:** Instantly toggle feature flag back to "Old Cache Only."
+*   **Data Safety:** Since Dual-Write was active, New Cache might have partial data, but Old Cache remains the source of truth until rollback completes.
+*   **Post-Rollback:** Revert `global-config.yaml` if the issue stems from config interaction.
+
+**Human Decisions Required**
+1.  Jane Smith's approval for Staging.
+2.  Product Owner sign-off on the 4-minute deposit freeze window.
+3.  Go/No-Go decision to flip the production feature flag from 1% to 100%.

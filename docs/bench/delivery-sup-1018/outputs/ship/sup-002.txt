@@ -1,0 +1,47 @@
+### Delivery Plan: SwiftPath Rest-Limit Guardrail
+
+**Objective:** Implement a hard guardrail in the assignment logic to reject routes violating the 14-hour rest regulation, ensure fallback activation on optimizer failure, and verify compliance before Monday morning.
+
+#### 1. Lanes & Serialization
+*   **Lane A (Implementation):** Builder implements the rest-limit check in the assignment logic and the fallback trigger mechanism.
+    *   *Constraint:* Must read `driver_rules.json` directly, bypassing the staging cache.
+    *   *Worktree:* Isolated writer branch `feature/swiftpath-rest-guard`.
+*   **Lane B (Verification Data):** QA prepares a specific test dataset containing peak-load scenarios that previously caused over-assignment, plus failure cases for the optimizer.
+    *   *Parallel:* Can run while Lane A codes, but must finish before Lane C.
+*   **Lane C (Simulation & Compliance):** Runs the CI simulation ($450/run, 55 mins) against the exact revision from Lane A using Lane B's data.
+    *   *Serialization:* Must wait for Lane A commit. Limited to 3 runs max.
+    *   *Action:* Explicitly flushes the `driver_rules.json` cache before execution.
+    *   *Contingency:* If `nightly-audit` flakes (DB load >80%), manual retry only; do not alter code.
+
+#### 2. Gates & Checks
+*   **G1 Spec (Now):** Define acceptance: "Zero routes >14h accepted," "Fallback activates on optimizer timeout/error," "Cache flush verified."
+*   **G4 Implement:** Lane A commits code with unit tests for the guardrail logic.
+    *   *Base SHA:* Pin current `main` head before branching.
+*   **G5 Verify:** Lane C executes.
+    *   *Check 1:* Simulation passes with 0 violations.
+    *   *Check 2:* Artificial optimizer failure triggers fallback successfully.
+    *   *Check 3:* Confirm `driver_rules.json` was not served from stale cache (log verification).
+    *   *Exact Revision:* The specific commit hash from Lane A.
+*   **G6 Review:**
+    *   *Code Review:* Senior Engineer (independent of Builder) reviews logic and cache-bypass implementation.
+    *   *Compliance Review:* Compliance Officer verifies test results prove 14h adherence.
+    *   *Security/Supply Chain:* Verify no new dependencies introduced.
+
+#### 3. Landing & Human Decisions
+*   **Integration:** Merge to `main` only after G6 sign-off.
+    *   *Collision Check:* Ensure no other merges occurred during the 55-minute simulation window.
+*   **Human Approval (G8):**
+    *   **Required Approvers:** Lead Dispatcher AND Compliance Officer via internal portal.
+    *   **Trigger:** Deployment to production.
+    *   **Timing:** Must be completed before Sunday midnight to catch Monday rush.
+*   **Rollback Strategy:**
+    *   *Constraint:* Reverting deployed route config is irreversible after 4 AM daily manifest print.
+    *   *Plan:* If issues detected post-deploy but pre-4 AM, immediate hotfix patch. Post-4 AM, no code rollback possible for that day's manifest; fallback to manual dispatcher override until next cycle.
+    *   *Verification:* Monitor first 100 assignments post-deploy for compliance flags.
+
+#### 4. Risk Mitigation
+*   **Cost Control:** Strictly limit CI simulations to 3 attempts. If all 3 fail, halt and re-architect; do not bypass limits.
+*   **Flake Management:** Ignore `nightly-audit` failures unless consistent across retries; document flake in PR body.
+*   **Cache Poisoning:** Explicit cache flush command is mandatory in the deployment script, not just the test script.
+
+**Status:** Ready for G1 Spec confirmation. Await owner approval to proceed to Lane A startup.

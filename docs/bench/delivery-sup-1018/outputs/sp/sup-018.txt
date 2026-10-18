@@ -1,0 +1,33 @@
+### Delivery Plan: StreamFlow Pipeline Stabilization
+
+**Lanes & Parallelism**
+Work is divided into three lanes to maximize parallel execution while respecting serialization constraints.
+
+*   **Lane A (Configuration & Logic):** Owned by Platform Reliability. Tasks include refining `global-throttle.yaml` with explicit version locking to prevent merge conflicts and rewriting cache eviction logic to prioritize active streams over metadata during surges. This lane runs in parallel with Lane B but must serialize before Lane C.
+*   **Lane B (Load Balancer Tuning):** Owned by Network Engineering. Tasks involve adjusting internal load balancer connection timeouts and keep-alive settings to sustain >4,000 concurrent users per region without new provisioning. This runs parallel to Lane A.
+*   **Lane C (Integration & Validation):** Owned by QA Automation. This lane begins only after Lanes A and B merge their changes into a candidate branch. It handles the assembly of the final build and execution of the test suite.
+
+**Gates & Checks**
+All checks run on a specific, immutable git revision tagged `candidate-stabilization-v1` derived from the merged output of Lanes A and B.
+
+1.  **Static Analysis Gate:** Runs immediately on commit to Lanes A and B. Fails on syntax errors or missing version locks in YAML.
+2.  **Unit Test Gate:** Runs on individual lane branches. Must pass 100% of non-flaky tests.
+3.  **The "Latency-Gate" Exception:** The known flaky check in the `latency-gate` suite is manually flagged for exclusion during high-CPU simulation runs. Automation will not block on this specific failure; instead, a human engineer must verify the raw latency metrics in the logs.
+4.  **Load Simulation Gate:** Executed in Lane C against the `candidate-stabilization-v1` revision. Simulates 4,000+ concurrent users. Success criteria: zero dropped connections and memory usage within current limits. Failure here triggers an immediate rollback to the previous stable tag.
+
+**Review Process**
+Reviews are strictly independent to ensure unbiased validation.
+
+*   **Code Review:** Lane A changes are reviewed by a senior engineer from the Data Team (not Platform Reliability). Lane B changes are reviewed by a Security Engineer (not Network Engineering). This cross-team review prevents groupthink regarding configuration risks.
+*   **Operational Review:** Before deployment, Jane Smith and the On-Call Lead perform a joint "Dry Run" review of the deployment plan and rollback triggers. They do not review code line-by-line but validate the operational safety of the changes.
+
+**Landing Strategy**
+Deployment adheres to the mandatory four-hour freeze window prior to the global sports finals.
+
+*   **Merge Protocol:** Once Lane C validates the load simulation, the branch is merged to `main`. This requires dual approval from Jane Smith and the On-Call Lead.
+*   **Deployment Window:** Deployment occurs exactly four hours before the event start time. No other deploys are permitted in this window.
+*   **Human Decision Point:** If the `latency-gate` flaky check fails during the final CI run, a human must manually inspect the latency logs within 15 minutes to authorize or halt the deploy.
+*   **Rollback Plan:** Since database migrations are irreversible, this specific stabilization effort contains **no** database schema changes. If stability degrades post-deploy, an immediate rollback to the previous git tag is executed. If a migration had been required, the plan would have mandated a forward-fix only, as rollback is impossible post-migration.
+
+**Cost Control**
+To respect the CI credit limit, the load simulation runs only once on the final candidate. Pre-merge testing uses unit tests and smaller-scale integration checks to avoid exhausting the 300-credit budget before the final gate.

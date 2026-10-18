@@ -1,0 +1,39 @@
+### Delivery Plan: Sync Schema Update
+
+**1. Lanes & Parallelism**
+*   **Lane A (Preparation - Parallel):**
+    *   *Network Team:* Finalize firewall handshake scripts.
+    *   *Data Governance & Network Lead:* Review and digitally sign the updated configuration file in the central ops repository.
+    *   *On-Call Engineer:* Prepare manual verification checklist for provisioning smoke tests (bypassing Tuesday flakiness).
+*   **Lane B (Validation - Serialized):**
+    *   *CI Pipeline:* Trigger schema compatibility validation. This must complete successfully before the deployment window opens. Due to the 45-minute runtime and twice-weekly dry-run limit, this run serves as the final gate. No other pipeline runs may occur simultaneously.
+
+**2. Gates & Checks**
+*   **Gate 1: Pre-Deployment Sign-off.** The merge to the release branch is blocked until both the Network Lead and Data Governance Officer provide dual sign-off on the configuration file.
+*   **Gate 2: CI Green Light.** Deployment cannot commence until the 45-minute CI pipeline reports success on the exact release revision (`git rev-parse HEAD` of the release branch).
+*   **Gate 3: The Five-Minute Window.**
+    *   *T-Minus 5:* Systems enter maintenance mode; active sessions are drained.
+    *   *T-Zero:* Execute database migration script on **Billing** and **Provisioning** simultaneously via orchestrated script.
+    *   *T-Plus 2:* Verify migration script completion past the midpoint marker (point of no return).
+    *   *T-Plus 4:* Execute Network Team's handshake protocol.
+*   **Gate 4: Health Verification.**
+    *   *Billing:* Automated health checks.
+    *   *Provisioning:* **Manual** verification by On-Call Engineer (automated tests are unreliable on Tuesdays). Success is declared only upon explicit human confirmation.
+
+**3. Review Strategy**
+*   **Code/Config Review:** Independent dual-signatory review (Network Lead + Data Governance) performed *before* the CI run to prevent wasted compute credits on invalid configurations.
+*   **Operational Review:** The "Dry Run" is limited to the CI pipeline output. No separate staging environment execution is permitted due to cost constraints. The CI logs serve as the primary audit trail for schema compatibility.
+*   **Post-Deployment Audit:** A joint review of the handshake logs and manual verification notes will be conducted 24 hours post-merge to validate the synchronization timing.
+
+**4. Landing & Rollback**
+*   **Merge Strategy:** The change merges to `main` only after Gate 1 and Gate 2 are cleared. The production deployment is a distinct event triggered manually within the confirmed window.
+*   **Human Decision Points:**
+    *   Authorization to proceed past the migration midpoint marker (irreversible point).
+    *   Final "Go/No-Go" based on the On-Call Engineer's manual verification of provisioning.
+*   **Rollback Plan:**
+    *   *Pre-Midpoint:* If failure occurs before the migration script's midpoint, the script aborts automatically. Services restart on the old schema.
+    *   *Post-Midpoint:* Since the migration is irreversible, "rollback" implies **Service Degradation Mode**. Both systems must instantly revert to a read-only state using the pre-cached legacy data views (if available) or halt all write operations to prevent data mismatch.
+    *   *Restoration:* There is no instant code revert. Restoration requires a database restore from the pre-window backup, estimated at 4 hours. The "instant revert" requested is technically impossible past the midpoint; the fallback is immediate service suspension to prevent corruption.
+
+**Timeline Confirmation:**
+The deployment window is locked for [Date] at [Time]. CI validation must be initiated 60 minutes prior to allow for the 45-minute run plus buffer. Manual verification resources must be allocated specifically for the Tuesday constraint.

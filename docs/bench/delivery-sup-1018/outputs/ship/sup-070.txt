@@ -1,0 +1,46 @@
+### Delivery Plan: Vaccination Status Backfill
+
+**Strategy:** Isolate the backfill logic from the main monolith to avoid triggering the 55-minute CI pipeline for a data script. Execute in a dedicated, isolated worktree. The process is serialized: analysis first, then dry-run, then production execution.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Logic & Safety):** Extract the vaccination flagging logic and the "clinical note" detection heuristic into a standalone script (`scripts/backfill_vax_status.py`). This script must accept a `--dry-run` flag.
+    *   *Constraint:* Must read the legacy archive logs and the current DB state.
+    *   *Parallelism:* Can run immediately in isolation.
+*   **Lane B (Compliance & Auth):** Prepare the audit override token and the maintenance window scheduling request.
+    *   *Dependency:* None, but must complete before Lane C.
+*   **Lane C (Execution):** Run the backfill during the approved window.
+    *   *Dependency:* Requires Lane A's verified script and Lane B's token/schedule. **Serialized.**
+
+#### 2. Gates & Checks
+*   **G1 Spec (Freeze):** Define the exact SQL/ORM query that identifies "manual verification notes in the last six months." This definition is the invariant; if ambiguous, stop.
+*   **G3 Design (ADR):** Document the skip-logic: `IF note_exists(last_6_months) THEN skip AND log_to_review_queue`. Confirm the transaction log safety mechanism for pausing (or confirm it is impossible, requiring a single atomic batch).
+*   **G4 Implement:**
+    *   Build Lane A in a fresh worktree.
+    *   **Check:** Unit tests for the "skip" condition using synthetic data mimicking the 40k records.
+    *   **Check:** Verify the script exits cleanly if the DB replication lag causes a read mismatch (retry logic with backoff).
+*   **G5 Verify (Dry-Run):**
+    *   Run `scripts/backfill_vax_status.py --dry-run` against a production read-replica (to avoid lag issues on write).
+    *   **Gate:** Confirm the "skip count" matches expected manual note density. If 0 skips, fail the gate (unlikely to have zero manual notes).
+    *   **Gate:** Ensure the output log format matches the medical review team's requirements.
+*   **G6 Review:**
+    *   **Reviewer:** Senior Engineer (independent of Lane A).
+    *   **Focus:** The "skip" logic and the transaction boundary.
+    *   **Security:** Verify the audit token injection method does not leak to logs.
+
+#### 3. Landing & Human Decisions
+*   **Human Gate (Pre-Merge):** Lead Data Steward must approve the "skip" logic definition and the dry-run results. No code merges without this explicit sign-off.
+*   **Human Gate (Execution):** The Lead Data Steward or Ops Lead must manually trigger the production run during the maintenance window. The script is not auto-deployed.
+*   **Merge Strategy:**
+    *   Merge Lane A to `main` only after G6 pass.
+    *   The production run is a **runtime event**, not a code merge. The code sits idle until invoked.
+*   **Rollback:**
+    *   **Prevention:** The script is read-only until the final switch.
+    *   **Failure Mode:** If the job corrupts the transaction log (due to pause), the rollback is a database point-in-time restore to the pre-maintenance snapshot.
+    *   **Data Reversal:** If incorrect flags are written (logic bug), a reverse-script (`scripts/rollback_vax_status.py`) must be prepared and reviewed alongside the main script to undo specific flags without touching clinical notes.
+
+#### 4. Risk Mitigation
+*   **CI Cost:** The standalone script bypasses the heavy synthetic data suite. Only linting and unit tests run in CI.
+*   **Audit Flag:** The override token is injected via environment variable at runtime, not hardcoded.
+*   **Replication Lag:** The script reads from the primary node for the "check" phase if the replica lag exceeds 5 seconds, or implements a 20-second sleep before verification writes.
+
+**Immediate Next Step:** Draft the SQL logic for detecting "clinical notes in the last six months" for Stakeholder Review (G1).

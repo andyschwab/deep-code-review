@@ -1,0 +1,56 @@
+### Delivery Plan: Offline-First Fuel Telemetry Module
+
+**Scope & Constraints**
+This is a high-risk production deployment involving irreversible firmware distribution. The work focuses on integrating the tested local storage logic and verifying the sync mechanism under simulated 12-hour outages. No changes to the `vehicle-protocol` library are permitted in this lane.
+
+**Lanes & Serialization**
+
+1.  **Lane A: Implementation Integration (Builder)**
+    *   **Work:** Integrate the "updated local storage logic" into the telemetry service within a dedicated isolated worktree. Ensure no dependencies on `vehicle-protocol` updates.
+    *   **Parallelism:** Can run immediately.
+    *   **Output:** A commit on a feature branch with unit tests passing locally.
+
+2.  **Lane B: Staging Environment Prep (QA/Infra)**
+    *   **Work:** Provision the staging environment to mimic the "northern sector" connectivity drop. Configure the manual verification harness for the flaky `offline-sync` test.
+    *   **Parallelism:** Runs parallel to Lane A.
+    *   **Dependency:** Must complete before Lane C starts.
+
+3.  **Lane C: Heavy-Load Simulation (QA)**
+    *   **Work:** Execute the mandatory `heavy-load` simulation suite against the exact revision from Lane A.
+    *   **Serialization:** Must wait for Lane A's commit.
+    *   **Constraint:** This gate costs $450 and takes 50 minutes. It must run on the primary CI runner to avoid the known flakiness of the secondary runner.
+    *   **Verification:** Must prove 12-hour local buffering and graceful backlog sync.
+
+4.  **Lane D: Security & Irreversibility Check (Security)**
+    *   **Work:** Verify the firmware signing process and confirm the 48-hour irreversibility window is understood and accepted. Audit the change for any unintended data egress during offline modes.
+    *   **Parallelism:** Runs parallel to Lane C.
+
+**Gates & Checks**
+
+*   **G4 (Implement):** Builder commits code. Base SHA pinned. Unit tests green.
+*   **G5 (Verify):**
+    *   **Automated:** `heavy-load` suite passes on the **exact revision** from G4 on the primary runner.
+    *   **Manual:** QA performs mandatory manual verification of the `offline-sync` mechanism in the staging environment (simulating signal loss and reconnection).
+    *   **Condition:** If the simulation fails or manual sync verification shows data loss, the lane fails closed.
+*   **G6 (Review):**
+    *   **Reviewer:** Senior Engineer (independent of the Builder).
+    *   **Scope:** Full diff + Simulation receipts + Manual verification log.
+    *   **Security:** Security lead approves the offline data handling.
+*   **G8 (Release):**
+    *   **Human Gate:** Explicit written approval from **Jane Smith** is required before pushing to the over-the-air channel.
+    *   **Condition:** All previous gates green.
+
+**Landing & Rollback**
+
+*   **Merge Strategy:** Once G6 is approved, the change merges to the release branch.
+*   **Deployment:** Triggered only after Jane Smith's written approval (G8).
+*   **Rollback Plan:** Since the action is irreversible for 48 hours post-push, there is no technical rollback. The "rollback" is a procedural emergency patch.
+    *   **Contingency:** If data loss is detected post-deploy, an immediate emergency lane must be opened to patch the firmware, requiring a new full cycle (including Jane's approval and the $450 simulation).
+*   **Human Decisions Required:**
+    1.  Approval to spend the $450 on the simulation run (if not pre-authorized).
+    2.  Explicit written approval from Jane Smith for the final push.
+
+**Risk Mitigation**
+*   **Flaky Test:** The `offline-sync` test is bypassed on CI; reliance is placed entirely on the mandatory manual staging verification.
+*   **Cost Control:** The simulation runs exactly once per valid candidate to prevent budget waste on failing builds.
+*   **Data Integrity:** The 12-hour buffer requirement is the primary acceptance criterion for the manual test.

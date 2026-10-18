@@ -1,0 +1,36 @@
+### Delivery Plan: Prepaid Balance Check
+
+**1. Lanes & Parallelism**
+*   **Lane A (Core Logic - Serialized):** One engineer modifies `CoreGate` to detect the "Acme Prepaid" flag. If detected, trigger an asynchronous, non-blocking call to the balance service. If postpaid, bypass this logic entirely. This work must be serialized; no concurrent edits to `auth-config.yaml` are permitted until Lane A merges.
+*   **Lane B (Fallback & Caching - Parallel):** A second engineer implements the timeout handler (defaulting to cached/null value) and the read-replica connection logic. This can proceed in parallel with Lane A but requires the interface definition from Lane A to finalize integration.
+*   **Lane C (Configuration - Serialized):** Updates to `auth-config.yaml` to enable the feature flag. This lane opens only after Lane A and B pass unit tests locally to prevent the recent history of deployment rollbacks.
+
+**2. Gates & Checks**
+*   **Pre-Commit Gate:** All code must pass local unit tests. No push occurs without this.
+*   **CI Gate 1 (Unit/Integration):** Runs immediately on push. Must pass 100%.
+*   **CI Gate 2 (Full-Regression):** Triggers only after Lane A, B, and C are merged into the integration branch.
+    *   *Constraint:* This suite takes 55 minutes.
+    *   *Revision:* Runs strictly on the merge commit of the feature branch.
+*   **LatencyGuard Check:** Runs alongside Full-Regression.
+    *   *Contingency:* If LatencyGuard fails due to network jitter (>10ms), a Lead Engineer must manually verify the latency metrics from the staging logs and re-trigger the check. Do not merge on a flaky failure without manual verification.
+
+**3. Review Process**
+*   **Primary Reviewer:** Jane Smith (Identity Team Owner). She must approve the logic changes in `CoreGate` and the `auth-config.yaml` modifications.
+*   **Independent Reviewer:** A Senior Engineer from the Platform Team (non-Identity) must review the asynchronous implementation to verify it truly decouples from the postpaid auth path. This reviewer cannot be the author of Lane A or B.
+*   **Review Focus:** Specifically verify that postpaid users incur zero additional function calls or I/O waits. Evidence must include a trace comparison (Prepaid vs. Postpaid) showing identical latency profiles for postpaid flows.
+
+**4. Landing Strategy**
+*   **Merge Method:** Squash and Merge to `main` only after:
+    1.  Jane Smith's approval.
+    2.  Independent Platform Engineer's approval.
+    3.  Successful Full-Regression suite (55m).
+    4.  LatencyGuard pass (or manual sign-off on jitter failure).
+*   **Human Decision Points:**
+    *   Manual re-trigger of LatencyGuard if flaky.
+    *   Final "Go/No-Go" decision if Full-Regression exceeds 2 hours (timeout policy).
+*   **Rollback Plan:**
+    *   *Trigger:* Increased error rates in `CoreGate` or postpaid latency spike >5ms in production monitoring.
+    *   *Action:* Revert the merge commit immediately. Since `auth-config.yaml` is shared, the revert must be atomic to restore the previous known-good configuration.
+    *   *Fallback:* If revert fails, disable the "Acme Prepaid" feature flag in the production configuration store (if hot-reloadable) or revert the config file only, isolating the failure to the new feature while restoring postpaid stability.
+
+**Risk Mitigation:** To avoid the `auth-config.yaml` collision, the team must lock the file in the project management tracker during Lane C's work. No other configuration changes are permitted during this window.

@@ -1,0 +1,66 @@
+### Delivery Plan: Telemetry Backend Migration to Chronos-9
+
+**Objective:** Migrate storage to Chronos-9 with zero write interruption and verified data integrity.
+**Constraints:** No write gaps (safety critical), immutable `data-schema-v4`, irreversible DB scripts, costly CI ($450/run, 55m, max 3/PR), staging cannot reproduce write spikes.
+
+#### 1. Lanes & Parallelism
+*Worktrees must be isolated; one writer per tree.*
+
+*   **Lane A (Adapter Implementation):** Build the dual-write adapter within `factory-ingest`. Logic: Write to Legacy (primary) and Chronos-9 (secondary) synchronously. Must handle Chronos-9 failures without blocking Legacy writes.
+    *   *Constraint:* Cannot modify `data-schema-v4`. Adapter must translate or wrap existing schema usage.
+    *   *Parallel:* Yes.
+*   **Lane B (Backfill & Verification Tooling):** Develop the historical backfill script and the "diff-verify" tool. This tool compares sample ranges between Legacy and Chronos-9 to assert integrity before cutover.
+    *   *Parallel:* Yes (independent worktree).
+*   **Lane C (Runbook & Rollback Prep):** Draft the exact cutover procedure for the Tuesday maintenance window, including the "kill-switch" to revert reads to Legacy instantly. Define the "Stop-The-World" criteria if safety shutdowns threaten.
+    *   *Parallel:* Yes.
+*   **Lane D (Integration & Replays):** Serialize after Lanes A & B merge. Execute the full-scale data replay simulation.
+    *   *Serialization:* Must wait for A+B code presence. Limited to 3 attempts.
+
+#### 2. Gates & Checks
+
+*   **G0/G1 (Spec & Scope):** Confirm "zero downtime" definition: <1ms write latency increase allowed? Confirm backfill rate limits to avoid saturating production DB during the switch.
+*   **G2 (Plan):** Freeze the work graph. Assign token budgets for Lane D (max 3 runs × $450 = $1350 cap).
+*   **G3 (Design):** Review dual-write failure modes. If Chronos-9 is down, does the system log locally and retry, or drop? (Requirement: Never drop). Verify `data-schema-v4` usage is read-only in the new code.
+*   **G4 (Implement):** Code complete in isolated worktrees. Unit tests for adapter logic (mocked).
+*   **G5 (Verify - Local/Staging):**
+    *   Run unit tests.
+    *   Run backfill on a small, non-production dataset.
+    *   *Note:* Acknowledge staging cannot validate write spikes. Mark this gap for G9.
+*   **G6 (Review):**
+    *   **Security/Data:** Independent review of the irreversible migration scripts and data access patterns.
+    *   **QA:** Review of the diff-verify logic.
+    *   **Deep Code Review:** Full scan on the exact commit SHA of Lanes A+B.
+*   **G7 (Integrate):** Merge A, B, and C to the integration branch. Trigger **one** CI replay simulation. If red, analyze immediately; second attempt only if root cause is identified. Third attempt is the hard limit.
+*   **G8 (Release - Human Gate):**
+    *   **Required Approvals:** Jane Smith (Robotics) AND Site Reliability Lead.
+    *   **Action:** Deploy adapter to production (Dual-Write ON, Reads OFF).
+    *   **Timing:** Pre-Tuesday window deployment for burn-in.
+*   **G9 (Production Verify):**
+    *   Monitor write latency and error rates during normal production spikes (since staging failed to replicate them).
+    *   Execute backfill.
+    *   Run diff-verify on sampled historical data.
+    *   **Gate:** Only proceed to read-cutover if integrity is 100%.
+*   **G10 (Cutover & Decommission):**
+    *   Switch read traffic to Chronos-9.
+    *   Monitor for 1 hour.
+    *   Decommission Legacy writers.
+
+#### 3. Review Strategy
+*   **Builder:** Implements Lanes A, B, C.
+*   **Independent QA:** Verifies Lane B (backfill correctness) and Lane C (runbook clarity). Does not review their own code.
+*   **Security/AppSec:** Reviews data flow, specifically ensuring no PII exposure in backfill logs and that irreversible scripts are idempotent or guarded.
+*   **Operations Liaison:** Validates the Tuesday window coordination and communication plan.
+
+#### 4. Landing & Rollback
+*   **Merge Strategy:** Merge Lanes A, B, C individually after G6. Lane D (CI) runs on the combined state.
+*   **Human Decisions:**
+    1.  Approval to deploy dual-write adapter (G8).
+    2.  Approval to switch read traffic (G10) based on G9 evidence.
+    3.  Authorization to decommission Legacy.
+*   **Rollback Plan:**
+    *   *Scenario:* Chronos-9 write failures or latency spikes > threshold.
+    *   *Action:* Feature flag disables Chronos-9 writes instantly. System reverts to Legacy-only.
+    *   *Scenario:* Data corruption detected post-read-switch.
+    *   *Action:* Immediate DNS/Config revert to Legacy reads. Backfill paused. Incident declared.
+
+**Risk Note:** The inability to simulate write spikes in staging makes G9 (Production Verify) the critical safety gate. The dual-write phase must run long enough to capture a natural production spike before read cutover is authorized.

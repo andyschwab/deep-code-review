@@ -1,0 +1,46 @@
+### Delivery Plan: Acoustic Leak Threshold Calibration
+
+**Objective:** Implement dynamic filtering for acoustic alerts to eliminate false positives from traffic noise without missing small leaks, deploying before the rainy season.
+
+#### 1. Lanes & Parallelism
+*   **Lane A (Data Analysis & Spec):** Analyze historical sensor data to correlate traffic spikes with false alarms. Define time-of-day patterns and adjacency validation rules.
+    *   *Output:* Technical spec with exact acceptance criteria (false positive rate < X%, detection latency < Y).
+    *   *Parallel:* Runs first, independently.
+*   **Lane B (Logic Implementation):** Implement the dynamic filtering algorithm in a dedicated worktree. Ensure logic reads adjacent sensor states and time-context.
+    *   *Constraint:* Must **not** modify `global-thresholds.json` directly to avoid billing disruption. Introduce a new config `acoustic-dynamic-rules.json`.
+    *   *Parallel:* Starts after Lane A's spec is approved.
+*   **Lane C (Simulation Harness):** Prepare the specific historical datasets required for the 45-minute CI simulation to validate the new logic against known leak/non-leak events.
+    *   *Parallel:* Runs alongside Lane B.
+
+#### 2. Gates & Checks
+*   **G1 (Spec Review):** Product Owner and Safety Director review Lane A's spec. **Gate:** Explicit sign-off on the definition of "small but dangerous seepage."
+*   **G4 (Implementation):** Code complete in isolated worktree. Unit tests added for adjacency logic.
+*   **G5 (Verification):**
+    *   **Action:** Trigger full-grid simulation CI on the exact commit SHA from Lane B.
+    *   **Check:** Monitor the 45-minute run. If the `sensor-handshake` check fails, verify it is the known flake (no functional impact) and document the manual override justification.
+    *   **Requirement:** Simulation must show zero false dispatches on traffic-only datasets and 100% capture on known small-leak datasets.
+*   **G6 (Independent Review):**
+    *   **Reviewer:** Senior Engineer (not the implementer).
+    *   **Focus:** Verify separation of billing config vs. alerting config. Confirm rollback irreversibility risks are mitigated by a "dry-run" mode in logs before live dispatch.
+
+#### 3. Review Strategy
+*   **Code Review:** Conducted by a Senior Infrastructure Engineer independent of the Builder. They must explicitly approve the bypass of the flaky `sensor-handshake` check if it occurs.
+*   **Safety Review:** Jane Smith (Safety Director) reviews the simulation results (G5 receipts), not the code. She validates that the new logic meets safety thresholds.
+
+#### 4. Landing & Human Decisions
+*   **Merge Strategy:**
+    1.  Merge Lane A (docs/spec) to main.
+    2.  Create PR for Lane B targeting main.
+    3.  Wait for G5 (CI) green on the exact merge-commit SHA (or a throwaway integration branch if main is protected).
+*   **Human Gates (Required Before Merge/Deploy):**
+    1.  **Jane Smith (Safety Director):** Must approve the simulation results proving no missed small leaks.
+    2.  **On-Call Shift Lead:** Must approve the deployment timing and acknowledge the irreversible nature of log syncing.
+    3.  **Senior Engineer:** Must authorize the manual override if the `sensor-handshake` flake triggers during the final pre-deploy verification.
+*   **Deployment:**
+    *   Deploy to a canary subset of the downtown grid first.
+    *   Monitor for 24 hours. If false positives occur, disable the dynamic module immediately (feature flag fallback).
+*   **Rollback:**
+    *   Since log syncing is irreversible, rollback involves reverting the code and manually annotating dispatch logs to mark false positives as "system error" for billing/audit correction.
+    *   **Contingency:** If the new logic misses a leak, immediately revert to the static threshold baseline and notify the Shift Lead to increase manual monitoring frequency.
+
+**Timeline:** Spec (2 days) → Build (3 days) → Simulation/Review (2 days) → Approval/Deploy (1 day). Total: ~8 days excluding queue wait.

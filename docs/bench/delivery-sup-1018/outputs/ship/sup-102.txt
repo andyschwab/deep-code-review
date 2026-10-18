@@ -1,0 +1,62 @@
+**Delivery Plan: Strict DRM Validation for Premium Tier**
+
+**Intent & Constraints**
+Implement stricter DRM checks for premium subscribers on legacy devices.
+*   **Hard Constraint:** Time-to-first-frame (TTFF) must not increase by >50ms.
+*   **Architecture:** Validation logic must execute asynchronously during the buffer-fill phase.
+*   **Risk:** Irreversible production deploys (20m cache purge rollback); flaky device-matrix on old hardware; expensive CI (40 credits/run).
+
+**Work Lanes & Serialization**
+
+1.  **Lane A: Specification & Asynchronous Design (Serial Start)**
+    *   **Owner:** Product Analyst + Architect.
+    *   **Work:** Define "stricter" validation rules explicitly. Design the async hook into the buffer-fill phase to ensure zero blocking of the main playback thread.
+    *   **Output:** ADR detailing the async handoff mechanism and failure modes (fail-open vs. fail-closed).
+    *   **Gate:** G3 Design Review. Must prove theoretically that TTFF impact is <10ms before code begins.
+
+2.  **Lane B: Implementation (Parallel to Lane C setup)**
+    *   **Owner:** Builder (Core Playback).
+    *   **Work:** Implement validation logic. Inject mock token handler to mitigate staging expiration issues. Ensure logic skips non-premium tiers instantly.
+    *   **Constraint:** No direct writes to `device-matrix` lib; wrap calls to isolate flakiness.
+    *   **Output:** Patch set with unit tests for logic correctness (no hardware yet).
+
+3.  **Lane C: Test Harness Stabilization (Parallel to Lane B)**
+    *   **Owner:** QA Engineer.
+    *   **Work:** Create a deterministic wrapper for the flaky `device-matrix` library. Implement retry logic or result caching for legacy simulators to prevent false negatives. Configure mock license server with extended TTL tokens.
+    *   **Output:** Stable test runner script.
+
+4.  **Lane D: Performance Verification (Serialized after B+C)**
+    *   **Owner:** Independent QA (not the Builder).
+    *   **Work:** Run full device matrix. Measure TTFF delta strictly.
+    *   **Constraint:** Limit CI runs to 3 iterations max per commit to save credits; use local profiling for initial passes.
+    *   **Success Criteria:** TTFF increase ≤50ms on slowest legacy device; 100% pass rate on stabilized matrix.
+
+**Gates & Checks**
+
+*   **G1 (Spec):** Owner (Jordan Lee) approves the async design and "stricter" definition.
+*   **G4 (Implement):** Code review by two senior engineers. Focus: Async safety, race conditions during buffer fill.
+*   **G5 (Verify):**
+    *   **Functional:** Green on stabilized device matrix (Lane C output).
+    *   **Performance:** Benchmarks attached showing TTFF delta. If >50ms, automatic fail.
+    *   **Security:** Compliance unit signs off on the strictness level and fail-closed behavior.
+*   **G6 (Review):** Aggregate review of code + perf data + security sign-off. Independent of Builder.
+
+**Landing Strategy**
+
+*   **Merge Train:** Single commit to integration branch.
+*   **Human Decision Required:**
+    1.  Jordan Lee approves the merge (G7).
+    2.  Compliance confirms security verdict (G6).
+    3.  **Deploy Approval:** Explicit owner authorization required before triggering production deploy due to irreversible cache purge risk.
+*   **Rollback Plan:**
+    *   Trigger: TTFF regression >50ms detected in production monitoring or access error spike >1%.
+    *   Action: Immediate revert of merge.
+    *   Recovery: Execute full cache purge (20m downtime window communicated).
+*   **Post-Deploy:** Monitor Q3 retention metrics and churn alerts for 24 hours.
+
+**Risk Mitigation**
+*   **Flaky Tests:** Lane C isolates the `device-matrix` flakiness; a "red" result requires manual verification before failing the lane.
+*   **Cost:** Local profiling mandated before CI submission.
+*   **Staging Limits:** Mock tokens with extended lifespans prevent mid-test expiration.
+
+**Next Step:** Await Owner approval on G1 Spec (Async Design) to unlock Lane B and C.

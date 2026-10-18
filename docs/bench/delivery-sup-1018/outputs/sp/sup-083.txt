@@ -1,0 +1,29 @@
+# Delivery Plan: Identity Verification Sync
+
+## Lanes and Parallelism
+Work is divided into three serialized phases with one parallel track.
+1.  **Preparation Lane (Digital Governance Team):** Isolate the `council-thresholds.json` modification and biometric handler updates. This must occur first to prevent audit log mismatches.
+2.  **Parallel Validation Track:** While code is prepared, the Senior Systems Administrator prepares the manual deployment trigger script, and the Security Lead pre-authorizes the specific false positive signatures expected from the new biometric handlers. This prevents the 55-minute CI pipeline from failing due to known security flags.
+3.  **Execution Lane (Joint Officials):** The Mayor, City Clerk, and Council Chair operate in a single, synchronized window. No work proceeds here until the Preparation Lane is complete.
+
+## Gates and Checks
+*   **Gate 1 (Code Freeze):** The Digital Governance Team locks the `citizen-services` module on a specific release candidate revision. No further commits are accepted until the joint sign-off is complete.
+*   **Gate 2 (Pre-Flight CI):** The CI pipeline runs on the frozen revision in a isolated sandbox *before* the officials convene. This verifies the build succeeds and the Security Lead's overrides are correctly applied. If this fails, the meeting is cancelled to save the 400-credit cost and avoid delaying officials.
+*   **Gate 3 (Staging Verification):** The three officials access the staging environment simultaneously. The system must present a unified dashboard showing the updated validation logic. Approval requires three distinct digital signatures on the change request form within a 30-minute window. If any signature is missing, the deployment is immediately aborted; staggered approval is forbidden.
+*   **Gate 4 (Production Trigger):** Only after all three signatures are cryptographically verified does the Senior Systems Administrator manually trigger the production deployment.
+
+## Review Strategy
+*   **Technical Review:** Conducted by the Digital Governance Team Lead prior to Gate 1. Focuses strictly on the integrity of `council-thresholds.json` and the logic of the document validator.
+*   **Security Review:** Conducted by the Security Lead prior to Gate 2. Validates that the manual overrides for biometric handlers are scoped correctly to prevent broader vulnerabilities.
+*   **Compliance Review:** Conducted jointly by the Mayor, City Clerk, and Council Chair during Gate 3. They verify the functional behavior in staging against the tri-council mandate. This review is independent of the technical team; the officials do not rely on developer assurances but on their own observation of the staging environment.
+
+## Landing and Rollback
+*   **Merge Strategy:** The release does not use a standard pull request merge. It utilizes a "Promotion" model where the verified staging artifact is promoted to production only after the triple-signature gate passes.
+*   **Human Decision Point:** The Senior Systems Administrator holds the final "Go/No-Go" key. Even with three signatures, if the pre-flight health checks (latency, error rates) on the production edge nodes are abnormal, the Administrator must halt the trigger.
+*   **Rollback Protocol:**
+    *   **Trigger:** If residents report lockouts or validation errors within 15 minutes of deployment, or if audit logs show data mismatches.
+    *   **Action:** Immediate reversion to the previous stable artifact. Do not attempt to patch the live system.
+    *   **Testing:** The rollback procedure must be dry-run in the sandbox environment during the Preparation Lane to ensure the previous version restores access instantly.
+    *   **Constraint:** Because reverting mid-process risks locking out residents, the rollback script includes a "circuit breaker" that maintains read-only access to existing permits while the verification service restarts, ensuring no user is stranded during the transition.
+
+This plan ensures financial efficiency by gating the expensive CI run, enforces the strict simultaneous approval requirement, and prioritizes resident access through a tested, immediate rollback capability.

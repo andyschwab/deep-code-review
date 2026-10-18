@@ -1,0 +1,43 @@
+**Delivery Plan: Adaptive Sensor Sampling with Compliance Guardrails**
+
+**Strategy**
+We will decompose this into three serialized lanes to prevent merge conflicts on the shared `compliance-logger` and ensure the safety logic is verified before integration. No parallel writes will occur on the compliance module.
+
+**Lane 1: Core Logic & Variance Engine (Builder)**
+*   **Work:** Implement the adaptive sampling algorithm in `core-sensor`. Replace the failed threshold approach with a variance-spike detector. Hard-code the "force high-fidelity" trigger if >3 consecutive points are at risk.
+*   **Constraint:** Do not touch `compliance-logger` yet. Mock the logging interface.
+*   **Gate G4 (Implement):** Unit tests for variance detection must pass locally.
+*   **Output:** Patch A (Logic only), Base SHA: `abc123`.
+
+**Lane 2: Compliance & Audit Logging (Builder)**
+*   **Work:** Update `compliance-logger` to capture every manual override and automatic force-high-fidelity event. Ensure file locking is handled gracefully to minimize repo contention.
+*   **Serialization:** This lane starts only after Lane 1's logic interface is frozen (G3 complete) to avoid interface drift.
+*   **Gate G4 (Implement):** Integration test verifying log entries match trigger events.
+*   **Output:** Patch B (Logging only), Base SHA: `abc123` (rebased on Patch A).
+
+**Lane 3: Independent Safety Verification (QA + Security)**
+*   **Work:** Construct a test harness simulating "quiet periods" transitioning to "anomaly spikes." Specifically target the "three consecutive points" failure mode that broke last month.
+*   **Environment:** Use the staging battery simulator. Ignore network latency timeouts (known flake); focus strictly on data continuity and battery drain metrics.
+*   **Gate G5 (Verify):** Run against the integrated SHA of Patch A + Patch B.
+    *   *Success Criteria:* Battery usage drops in quiet mode; zero instances of >3 missed points during spikes; audit logs populated.
+    *   *Cost Control:* Run suite once on the exact final SHA to avoid the $45/55min redundant build tax.
+*   **Output:** Verification Receipt, Severity Report.
+
+**Review Process (Gate G6)**
+*   **Code Review:** Senior Engineer (independent of Builder) reviews Patch A and B using `deep-code-review` with scope `DIFF abc123..final`. Focus: Algorithm correctness and lock handling.
+*   **Safety Review:** Safety Compliance Officer reviews the "fail-safe" behavior evidence from Lane 3. This is a hard gate; no deployment without their signed verdict on the specific test receipts showing the system forcing high-fidelity mode.
+
+**Landing & Release (G7–G8)**
+*   **Integration:** Merge Patch A and B into a temporary integration branch. Run one final sanity check (lightweight) to confirm no merge-breakage on `compliance-logger`.
+*   **Human Gates (G8):**
+    1.  **Lead Engineer Approval:** Required for code merge.
+    2.  **Safety Compliance Officer Approval:** Required for firmware signing.
+    *   *Note:* Both approvals are mandatory before signing. The process is irreversible; no "try in prod."
+*   **Rollback Strategy:** Since OTA rollback is impossible without a physical kit, the "rollback" is actually a **forward-fix**. If a bug is found post-deploy, the system must default to "Safe Mode" (constant high-fidelity sampling) via a remote config flag, sacrificing battery to ensure compliance until a physical recall can be scheduled.
+
+**Risk Mitigation**
+*   **Merge Conflicts:** Serialized access to `compliance-logger` prevents lock contention.
+*   **False Negatives:** Lane 3 explicitly filters out network latency errors to prevent false failure reports.
+*   **Cost:** Strict "one full build" rule on the final SHA prevents blowing the CI budget.
+
+**Next Step:** Awaiting confirmation to initiate Lane 1 (Core Logic) on base SHA `abc123`.

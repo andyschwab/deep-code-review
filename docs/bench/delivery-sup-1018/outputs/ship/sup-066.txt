@@ -1,0 +1,27 @@
+**Delivery Plan: Legacy Stay Points Backfill with Tax Cap Enforcement**
+
+**1. Lanes & Parallelism**
+*   **Lane A (Data Analysis & Spec):** Isolate a read-only connection to the legacy cluster. Query the 12,000 affected accounts to calculate exact missing points and current proximity to the statutory threshold. Generate the "Dry-Run Report" categorizing accounts into: (1) Full Restore, (2) Capped & Flagged, (3) Manual Review Required. *Constraint:* Execute strictly outside business hours to protect billing team SLAs.
+*   **Lane B (Logic Implementation):** Implement the backfill script in a dedicated worktree. Hardcode the tax threshold logic locally (do not touch the shared library). Implement the "Cap & Flag" mechanism. Ensure the script supports a `--dry-run` flag that outputs the Lane A report format and a `--execute` flag guarded by a confirmation token.
+*   **Lane C (Verification Harness):** Build a local simulation using a subset of anonymized production data. Create unit tests asserting that no account exceeds the threshold post-calculation and that flags are raised correctly for edge cases (<500 units buffer).
+
+*Serialization:* Lane A and Lane B run in parallel. Lane C depends on Lane B's logic. The final integration depends on Lane A's report validation.
+
+**2. Gates & Checks**
+*   **G1 (Spec Freeze):** Owner approves the "Dry-Run Report" schema and the specific tax threshold value used in Lane B (verified against the hardcoded shared lib without modifying it).
+*   **G4 (Local Validation):** Run Lane C's test suite locally. Run Lane B's script in `--dry-run` mode against the live read-only DB (off-hours). Compare the output against Lane A's independent query results. Zero divergence allowed.
+*   **G5 (Safety Audit):** Security/Compliance review of the `--execute` path. Verify the script cannot run without the explicit "Manual Review" flag handling and that it logs every capped account to the compliance queue.
+*   **G6 (Final Dry-Run):** Execute the full dry-run on the exact revision intended for release. Produce a signed receipt showing 0 accounts over the limit and the exact count of capped/flagged accounts.
+
+**3. Review Strategy**
+*   **Code Review:** An engineer independent of Lane B reviews the implementation. They must verify the tax math against the specification, not the shared library source.
+*   **Data Review:** The Product Analyst (or Finance rep) validates the Dry-Run Report (Lane A output) against a manual sampling of 50 high-risk accounts.
+*   **Security Review:** Independent verification that the script respects the read-only constraint during analysis and has no path to modify the shared tax library.
+
+**4. Landing & Human Decisions**
+*   **Merge Strategy:** The code merges to the integration branch only after G6 passes. No auto-deploy.
+*   **Human Gate (CFO):** The CFO must provide written approval referencing the specific G6 Dry-Run receipt SHA and the exact counts of (Full Restore, Capped, Flagged). This is a hard stop; no deployment without this artifact.
+*   **Execution Window:** Deployment occurs during the defined off-hours window.
+*   **Rollback Strategy:** Since points are immutable once credited, "rollback" is impossible. The mitigation plan is a corrective "clawback" or adjustment job pre-written and tested alongside the backfill, ready to run only if the CFO approves it post-facto in case of catastrophic error. However, the primary safety is the G6 Dry-Run and the Cap logic preventing the error state entirely.
+
+**Immediate Next Step:** Generate the Lane A Dry-Run Report (read-only) for owner review before writing a single line of update logic.
