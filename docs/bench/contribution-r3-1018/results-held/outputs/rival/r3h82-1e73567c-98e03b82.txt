@@ -1,0 +1,27 @@
+### Sanitized Load Test Strategy
+
+**1. Abstract the Target, Preserve the Timing**
+Refactor your load test script to accept the target URL and authentication headers as command-line flags or environment variables (e.g., `TARGET_URL`, `AUTH_TOKEN`). In the version you submit to the public repository:
+*   **Default Values:** Set the defaults to `http://localhost:8080/mock-stream` and empty/no-auth headers.
+*   **Mock Handler:** Include a trivial Go `httptest.Server` handler within the test file itself. This handler should simulate the *latency* and *payload size* of your internal endpoints but return static, dummy data. This ensures anyone can run `go test` immediately without external dependencies.
+*   **Documentation:** Add a comment block explaining how to override these defaults to point at a real server if a maintainer wishes to reproduce the exact production conditions.
+
+**2. Numerical Obfuscation of Traffic Volume**
+Do not share absolute request-per-second (RPS) figures or total concurrency numbers that reflect Globex's scale. Instead, describe the load pattern using **ratios and multipliers** relative to the server's configured limits:
+*   **Bad:** "We tested at 50,000 RPS with 2,000 concurrent connections."
+*   **Good:** "The race condition triggers when the inbound request rate exceeds **3.5× the server's configured worker pool size** with a connection churn rate of **200% of the keep-alive timeout frequency**."
+*   **Implementation:** Parameterize your script so the load intensity is defined as `factor * runtime.GOMAXPROCS(0)`. This makes the test portable across different hardware while preserving the critical stress ratio that exposes the bug.
+
+**3. Delivery Format: Raw Script vs. Docker**
+**Provide the raw Go script only.** Do not provide a Docker container unless the reproduction requires complex external dependencies (e.g., a specific database version or message broker) that cannot be mocked in code.
+*   **Reasoning:** Go is self-contained. A Docker image adds unnecessary maintenance overhead for the maintainers and obscures the test logic.
+*   **Exception:** If your test relies on a specific network topology (e.g., forced latency between client and server), provide a `docker-compose.yml` that spins up the test client and a dummy server with `tc` (traffic control) rules, but keep the application code in the main repo.
+
+**4. PR Description Disclosure**
+In your PR description under "Test Plan," explicitly state:
+> "The included test uses a local mock server to simulate latency profiles. To reproduce against a real backend, set `TARGET_URL` and `AUTH_TOKEN`. Load intensity is scaled dynamically based on available CPU cores to ensure reproducibility across environments without revealing specific traffic volumes."
+
+This approach satisfies the requirement for reproducibility, protects Globex's architecture, and adheres to open-source norms by keeping the contribution lightweight and language-native.
+
+*Note: Ensure your mock handler intentionally introduces the same jitter and delay variance as your production system, as constant latency often hides concurrency bugs.*
+*Note: Verify that no hardcoded IP addresses or domain names from Globex remain in comments or error messages within the script.*

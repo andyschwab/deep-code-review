@@ -1,0 +1,17 @@
+You cannot submit this PR in its current form. The project's contribution guide explicitly requires a minimal, reproducible example (MRE) without external dependencies or private data. Submitting a PR that relies on unreproducible synthetic data or requires maintainers to trust private logs violates this hard contract and will result in the PR being closed immediately.
+
+To proceed, you must decouple the **mechanism** of the bug from the **specific data** that triggers it. The fact that only your specific logs trigger the race condition suggests your synthetic data fails to replicate the precise *temporal relationship* or *state sequence* required, not necessarily the exact timestamp values themselves.
+
+Follow this path to construct a compliant MRE:
+
+1.  **Abstract the Trigger Pattern**: Analyze your internal logs to identify the *logical pattern* causing the crash (e.g., "Item A enqueued at T, Item B enqueued at T+δ, clock jumps backward by >δ before dequeue"). You do not need the real timestamps; you need the *mathematical relationship* between them.
+2.  **Build a Deterministic Harness**: Instead of injecting real timestamps, write a test harness that uses a **mock clock** or **time injection interface**. Most Rust async projects allow injecting a `Clock` trait or similar abstraction for testing.
+    *   Create a test that manually advances or rewinds this mock clock to recreate the *exact sequence of events* derived from your analysis in step 1.
+    *   Use arbitrary, non-sensitive numbers (e.g., `t=100`, `t=105`, `jump_back_to=90`) that satisfy the logical conditions you identified.
+3.  **Verify the Race Condition**: Run your fix against this mock-clock test. If the bug reproduces with arbitrary numbers that match the *pattern* of your real logs, you have a valid MRE. If it only reproduces with the real logs, your fix may be addressing a symptom specific to your environment rather than the core race condition in the library.
+4.  **Document the Logic, Not the Data**: In your PR description and test comments, explain the *condition* required to trigger the bug (e.g., "This test simulates a clock skew where the dequeue time precedes the enqueue time by 5ms") without referencing Acme Corp, billing logs, or real transaction times.
+
+If you absolutely cannot extract a logical pattern that works with arbitrary data, you likely do not yet fully understand the root cause. In this scenario, do not open a PR. Instead, open an issue describing the *symptoms* and the *suspected timing pattern* (without data), asking if the maintainers have insights on how to mock such conditions in their test suite.
+
+**Note**: Never attempt to obfuscate or sanitize the real logs for inclusion; even hashed or shifted timestamps derived from proprietary billing data can violate security policies and trust.
+**Note**: If the project lacks a time-injection interface, your PR scope may need to expand slightly to add that test hook first, framed as a testing improvement.

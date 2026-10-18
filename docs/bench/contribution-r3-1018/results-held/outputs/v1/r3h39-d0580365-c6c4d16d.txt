@@ -1,0 +1,29 @@
+### Technical Approach for Pull Request
+
+**Problem:** Text overflow occurs in specific containers when using a font with unique metrics (high x-height, specific line-gap) that differs significantly from the system fallback stack. Current visual regression tests pass falsely because they rely on default fonts that do not trigger the layout break.
+
+**Solution:** Implement a "Metric Mock" strategy using a CSS `@font-face` definition pointing to a locally generated, open-source placeholder font (e.g., a subset of Google Fonts' "Roboto" or a generated `.woff2` via fonttools) that has been programmatically adjusted to match the proprietary font's critical metrics (ascent, descent, x-height, and average character width) without copying any glyph shapes or binary data.
+
+1.  **Metric Extraction (Local Only):** Run a local script to measure the proprietary font's key metrics using a headless browser or font inspection tool. Output only the numerical values (e.g., `ascent: 950`, `descent: -250`, `xHeight: 540`). **Do not commit this script or the output file containing the raw metrics if they uniquely identify the proprietary font.**
+2.  **Synthetic Font Generation:** Use an open-source tool (like `fonttools` with a generic source font) to create a new, dummy font file named `mock-acme-metrics.woff2`. Adjust its internal tables (`hhea`, `OS/2`) to match the extracted numerical metrics. This file contains no proprietary glyph outlines, only adjusted spacing data.
+3.  **Test Environment Update:**
+    *   Add `mock-acme-metrics.woff2` to the test assets directory.
+    *   Update the test harness CSS to map the family name `'Acme-Sans-Pro'` to this local mock file *only* within the test runner's shadow DOM or specific test iframe.
+    *   Ensure the production build configuration explicitly excludes this mock file.
+4.  **Verification:** The visual regression tests will now fail on the main branch (due to the mock font triggering the overflow) and pass on the fix branch, providing a valid signal without distributing licensed assets.
+
+**Commit Message:**
+`test: add metric-mock font to reproduce overflow bug without proprietary assets`
+
+**PR Body Section (Testing):**
+"Visual tests now utilize a synthesized font file (`mock-acme-metrics.woff2`) engineered to replicate the ascent/descent metrics of the internal font causing the bug. This allows the CI to detect the overflow regression without requiring the licensed font file. The mock font contains no proprietary glyph data."
+
+---
+
+### Explanation to Maintainers
+
+"We cannot include the `Acme-Sans-Pro` font file in the repository as it is licensed strictly for internal use by Acme Industries and prohibits redistribution, even in test suites. Including it would violate our legal obligations and expose the project to licensing risks.
+
+Instead, we have implemented a metric-equivalent mock font. This synthetic asset reproduces the exact spacing and line-height characteristics that trigger the bug, ensuring the visual regression tests are accurate and robust. The mock file is generated from open-source components with adjusted metric tables, containing zero proprietary glyph data. This approach satisfies the requirement for passing visual tests while maintaining full license compliance."
+
+**Note:** Run your internal legal/IP review before submitting, as some organizations have specific rules about deriving metrics from licensed assets even for mocking. Ensure the generated mock font is truly distinct in binary structure to avoid accidental inclusion of proprietary tables.

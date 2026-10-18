@@ -1,0 +1,73 @@
+### Minimal Synthetic Concurrency Test Design
+
+To expose the race condition without revealing proprietary infrastructure, you must abstract the **contention pattern** rather than the **traffic volume**. The bug is not caused by "Black Friday traffic" specifically, but by the *timing overlap* of read-modify-write operations on the same key. You can reproduce this deterministically using Go's standard `testing` package with high goroutine density and synchronized start barriers, requiring no external load balancers.
+
+**Test Strategy: The Barrier Pattern**
+Instead of simulating your specific user behavior, create a test that forces $N$ goroutines to attempt an update on the same key at the exact same nanosecond. This removes the need for massive traffic volume; if the lock is flawed, 50 synchronized goroutines will trigger it just as effectively as 50,000 unsynchronized ones.
+
+**Proposed Test Code Structure (`cache_race_test.go`):**
+
+```go
+func TestConcurrentUpdateRace(t *testing.T) {
+    const (
+        key        = "contention-key"
+        iterations = 100
+        goroutines = 50
+    )
+
+    client := NewTestClient() // Use your in-memory or mock backend
+    var wg sync.WaitGroup
+    var startGate sync.WaitGroup
+    startGate.Add(1)
+
+    // Pre-seed the key
+    if err := client.Set(key, 0); err != nil {
+        t.Fatalf("setup failed: %v", err)
+    }
+
+    for i := 0; i < goroutines; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            startGate.Wait() // Block all goroutines until the signal
+
+            for j := 0; j < iterations; j++ {
+                // Perform the read-modify-write sequence that triggers the bug
+                val, err := client.Get(key)
+                if err != nil { continue }
+
+                // The critical section where the race occurs
+                if err := client.Set(key, val + 1); err != nil {
+                    t.Errorf("goroutine %d failed: %v", id, err)
+                }
+            }
+        }(i)
+    }
+
+    // Release all goroutines simultaneously to maximize contention
+    startGate.Done()
+    wg.Wait()
+
+    // Assert final consistency
+    finalVal, err := client.Get(key)
+    if err != nil { t.Fatal(err) }
+
+    expected := goroutines * iterations
+    if finalVal != expected {
+        t.Errorf("data inconsistency detected: expected %d, got %d", expected, finalVal)
+    }
+}
+```
+
+**Why This Works:**
+1.  **Deterministic Contention:** `sync.WaitGroup` acts as a starting gun, ensuring all goroutines hit the critical section simultaneously, creating artificial "extreme load" on a single key without needing network traffic.
+2.  **No Proprietary Data:** The test uses integer increments and a generic key. It proves the *mechanism* of the failure (lost updates), not the specific business scenario.
+3.  **Reproducible:** Maintainers can run this on a laptop in seconds. If your locking fix is correct, the final count will always match `expected`. If flawed, it will fail non-deterministically.
+
+---
+
+### Pull Request Description Note
+
+In your PR description under **Test Plan**, explicitly state: *"The original reproduction requires proprietary Black Friday traffic patterns which cannot be disclosed. The included `TestConcurrentUpdateRace` synthesizes the specific contention window (simultaneous read-modify-write) using a barrier synchronization pattern, which deterministically triggers the race condition without requiring external load infrastructure."*
+
+This approach satisfies the maintainer's need for evidence while respecting your employer's confidentiality constraints.

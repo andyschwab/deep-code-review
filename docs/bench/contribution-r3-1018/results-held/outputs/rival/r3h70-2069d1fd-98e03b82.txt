@@ -1,0 +1,28 @@
+You cannot and must not include LexCorp's real user data in your pull request, nor should you attempt to engineer a synthetic generator that perfectly mimics it if doing so risks reconstructing identifiable patterns. The strategy to proceed is to **decouple the benchmark execution from the benchmark data** by implementing a "bring-your-own-dataset" (BYOD) mode in the benchmark suite.
+
+**Proposed Implementation Strategy:**
+
+1.  **Modify the Benchmark Harness:**
+    Update the C++ benchmark code to accept an optional environment variable (e.g., `JSON_BENCH_EXTERNAL_DATA`) or a command-line flag (e.g., `--data-path`).
+    *   **Default Behavior:** If no external path is provided, the benchmark runs against a small, fully synthetic, public domain dataset committed to the repo. This ensures `git clone && cmake && make && ctest` works immediately for any reviewer without errors.
+    *   **External Mode:** If the flag/path is provided, the harness loads the dataset from that location. This allows you (and other users with private data) to run the full load test locally.
+
+2.  **Create a "Structural Twin" Synthetic Dataset:**
+    Instead of trying to mimic the *content* of LexCorp's data, mimic its *structure*. Write a one-off script (do not commit the script's input, only the output) that generates a synthetic JSON file with:
+    *   The same maximum nesting depth.
+    *   The same distribution of key types and array sizes.
+    *   The same total file size (padding with dummy strings if necessary).
+    *   **Crucially:** Use entirely fake data (e.g., "user_123", "lorem ipsum") that contains zero PII.
+    Commit this structural twin as the new default benchmark asset. It proves your parser handles the *complexity* (which causes the performance bottlenecks) without exposing *secrets*.
+
+3.  **Document the Reproducibility Contract:**
+    In your PR description and the project's `BENCHMARKS.md`, explicitly state:
+    *   The committed synthetic data validates correctness and complexity handling.
+    *   Users with specific real-world distributions can reproduce exact load patterns by setting `JSON_BENCH_EXTERNAL_DATA=/path/to/their/private/data.json`.
+    *   Include your specific performance numbers obtained from running against the LexCorp data locally, but clarify that these specific numbers are illustrative of a private dataset and that the CI will only verify the synthetic baseline.
+
+**Why this works:**
+This approach satisfies the maintainers' requirement for reproducibility (anyone can run the default suite) while respecting privacy laws and corporate policy (no PII leaves your machine). It shifts the burden of "realistic data" to the user who has it, rather than forcing you to leak it or fail at perfectly simulating it.
+
+*Note: Ensure your PR description explicitly mentions that you validated the performance gains against real data locally but are only committing structural proxies.*
+*Do not attempt to anonymize the real dataset by stripping fields; re-identification risks in complex nested JSON are too high for open-source contributions.*

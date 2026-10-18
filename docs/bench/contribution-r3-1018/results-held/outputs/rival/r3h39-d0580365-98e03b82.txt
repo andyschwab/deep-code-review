@@ -1,0 +1,45 @@
+### Technical Approach: Metric-Based Font Mocking
+
+To satisfy the visual regression requirements without distributing the proprietary 'Acme-Sans-Pro' font, we will implement a **metric-equivalent mock font** strategy. This approach replicates the specific rendering characteristics that cause the overflow (ascender, descender, x-height, and advance widths) using an open-source skeleton, rather than converting or subsetting the licensed asset.
+
+**Implementation Steps:**
+
+1.  **Metric Extraction (Local Only):**
+    *   On your local machine (where the font is licensed), use a tool like `fonttools` or a browser DevTools script to measure the exact metrics of 'Acme-Sans-Pro' at the specific weights and sizes used in the failing component.
+    *   Record the `units-per-em`, `ascender`, `descender`, and specific glyph advance widths for the characters triggering the overflow (e.g., "W", "m", "o").
+    *   *Constraint:* Do not commit these raw metrics if they constitute a significant derivation of the font data; treat them as transient build inputs.
+
+2.  **Create a Dummy Font Asset:**
+    *   Select a permissively licensed font (e.g., Roboto or Noto Sans) as a base.
+    *   Use a font editing tool (like FontForge via a local script) to adjust the base font's global metrics (ascender/descender) to match the recorded 'Acme-Sans-Pro' values.
+    *   For critical glyphs causing overflow, manually adjust their horizontal advance widths in the dummy font to match the proprietary font's behavior.
+    *   Export this modified font as `Acme-Sans-Pro-Mock.ttf`. Since the glyph shapes remain those of the open-source base, only the *spacing metrics* are derived, which generally falls under functional compatibility rather than copyright infringement of the artistic design.
+
+3.  **Test Environment Configuration:**
+    *   Add `Acme-Sans-Pro-Mock.ttf` to the repository's `test/assets` directory.
+    *   Update the visual regression test harness (e.g., Storybook, Playwright, or Chromatic config) to inject this mock font specifically for the CI environment using CSS variable overrides or a dedicated test theme provider.
+    *   Ensure the production build continues to reference the actual font via the internal CDN, while the test build swaps in the mock.
+
+4.  **Verification:**
+    *   Run the visual regression tests locally with the mock font. They should now fail in the exact same manner as they do with the real font before your fix, and pass after your fix.
+
+---
+
+### Explanation to Maintainers
+
+**Subject:** Visual Test Strategy for Proprietary Font Dependency
+
+"Hi team,
+
+This PR fixes the text overflow issue occurring with the 'Acme-Sans-Pro' font. As this font is licensed exclusively for internal use by Acme Industries, I cannot include the actual `.ttf`/`.woff` files in this public repository without violating our license agreement.
+
+To satisfy the requirement for passing visual regression tests without infringing on the license, I have implemented a **metric-equivalent mock font** (`test/assets/Acme-Sans-Pro-Mock.ttf`).
+
+*   **How it works:** The mock font uses open-source glyph shapes but has been adjusted to match the exact vertical metrics (ascender/descender) and character advance widths of 'Acme-Sans-Pro' that trigger the overflow bug.
+*   **Why this is safe:** No artistic design elements or proprietary data from the licensed font are distributed; only functional spacing metrics are replicated to ensure test fidelity.
+*   **Result:** The CI visual tests now accurately reproduce the overflow condition and verify the fix, providing the same confidence as if the real font were present, while remaining fully compliant with licensing constraints.
+
+The test suite has been updated to automatically swap this mock font into the rendering context during CI runs."
+
+*Note: Ensure your legal team confirms that replicating only font metrics (numbers) rather than glyph outlines (art) is permissible under your specific license, though this is standard industry practice for compatibility.*
+*If the maintainers reject the mock, propose running the visual tests in a private, access-controlled CI runner where the real font is mounted as a secret, rather than committing the asset.*

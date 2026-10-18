@@ -1,0 +1,28 @@
+### Draft Explanation for Maintainers
+
+**Subject:** Proposal: Add deterministic high-latency race condition test for distributed lock correctness
+
+**Problem:**
+We identified a race condition in the lock acquisition logic that manifests only when inter-node network latency exceeds 200ms. This scenario is rare in low-latency clusters but becomes critical in geo-distributed deployments or during cloud network congestion. The current test suite relies on local execution or standard CI runners, which cannot reliably reproduce latency spikes of this magnitude, leaving this failure mode unverified.
+
+**Proposed Solution:**
+Instead of relying on external network shaping tools or specific cloud topologies, I propose integrating a deterministic latency injection mechanism directly into the test harness using the existing tokio-test or mock network layers already present in the crate.
+
+1.  **Mechanism:** Introduce a test-only wrapper around the transport layer that artificially delays packet delivery by a configurable amount (e.g., 200ms–500ms).
+2.  **Test Case:** Add a specific integration test that:
+    *   Spins up three local nodes.
+    *   Injects 250ms latency between Node A and Node B.
+    *   Attempts a lock transfer during the latency window.
+    *   Asserts that the lock state remains consistent and no deadlock occurs.
+3.  **CI Integration:** This approach requires no special CI infrastructure. It runs entirely on localhost with simulated time delays, ensuring reproducibility across all environments without needing access to specific cloud regions or network configurations.
+
+**Why This Matters:**
+Without this test, the library risks silent data corruption or deadlocks in production environments experiencing transient network slowdowns. Validating behavior under these edge cases is essential for a distributed lock primitive intended for critical infrastructure.
+
+**Implementation Note:**
+The attached patch includes the latency injection wrapper and the new integration test. It does not include any external configuration files or network topology definitions; all parameters are defined inline within the Rust test code.
+
+---
+
+**Note:** Ensure you run `cargo test --features test-utils` (or the appropriate feature flag) to verify the new test passes locally before pushing.
+**Note:** Do not include any logs, config snippets, or IP addresses from your internal Globex staging environment in the PR comments or commit history.

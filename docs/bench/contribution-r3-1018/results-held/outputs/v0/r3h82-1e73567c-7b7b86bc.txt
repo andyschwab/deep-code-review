@@ -1,0 +1,57 @@
+### Sanitized Load Test Strategy
+
+**1. Generalize the Test Script**
+Replace all specific identifiers with synthetic placeholders to isolate the concurrency defect from your environment.
+*   **Endpoints:** Change `https://api.globex.corp/v1/stream/ingest` to `http://localhost:8080/mock/stream`.
+*   **Authentication:** Replace proprietary headers (e.g., `X-Globex-Auth-Token`) with a generic `Authorization: Bearer <mock-token>` or remove them entirely if the bug exists at the connection pool level rather than the auth middleware.
+*   **Paths:** Rewrite `/home/jsmith/globex-billing/src` to `/app/src` in any logged paths within the script.
+
+**2. Describe Load Patterns Numerically (Without Revealing Volume)**
+Do not share absolute request counts (e.g., "50k RPS") which reveal your scale. Instead, define the load relative to the server's saturation point or using abstract concurrency units:
+*   **Concurrency Factor:** "The bug reproduces when concurrent workers exceed $N$, where $N$ is the number of available CPU cores multiplied by 4."
+*   **Queue Depth:** "Failure occurs when the internal request queue depth sustains >90% capacity for 30 seconds."
+*   **Timing Window:** "Race condition triggers when inter-arrival time between requests drops below 2ms while connection keep-alive is set to 5s."
+*   **Stress Profile:** Use a step-function description: "Ramp up from 10 to 1000 concurrent connections over 10 seconds, hold for 60 seconds, then spike by 200% instantly."
+
+**3. Delivery Format: Docker vs. Raw Script**
+**Provide a Docker container.** This is the superior approach for concurrency bugs because it eliminates environmental variance (OS scheduler differences, network stack tuning) that often masks race conditions.
+*   **Image Structure:** Create a `Dockerfile` that builds your sanitized test runner and includes a minimal, mock Go HTTP server (the "backend") that simulates the latency characteristics of your internal system without containing any business logic.
+*   **Reproducibility:** The maintainer can run `docker-compose up` to spin up both the target server and the load generator, ensuring the exact timing window required to trigger the bug is present.
+
+**4. Commit Message Draft**
+```text
+fix(http): resolve race condition in connection pool under high concurrency
+
+Adds a reproducible load test using synthetic mock endpoints.
+The bug manifests when concurrent workers exceed 4x CPU core count
+with inter-arrival times <2ms.
+
+Tested via included Docker composition; fails on main, passes with fix.
+No external dependencies or proprietary headers included.
+```
+
+**5. PR Body Draft**
+```markdown
+## Problem
+Under heavy load, a race condition in the connection pool causes request drops.
+This occurs specifically when concurrency scales beyond the thread pool limit
+while maintaining low inter-arrival times.
+
+## Solution
+Implements a mutex guard around the connection retrieval logic.
+
+## Reproduction
+A Dockerized test case is included (`/tests/concurrency-stress`).
+- Runs a mock backend and load generator.
+- Triggers failure consistently after 45 seconds of sustained load.
+- Uses only synthetic data and localhost networking.
+
+## Risk
+Low. The change is localized to the connection handler.
+```
+
+**Direct Answer to Your Uncertainty:**
+You should absolutely provide the Docker container. Concurrency bugs are notoriously sensitive to timing and OS-level scheduling; a raw script relying on the maintainer to manually configure a backend often fails to reproduce the specific race window. A container guarantees the timing characteristics remain intact without leaking your architecture.
+
+**Fallback if Maintainers Are Silent:**
+If there is no response after two weeks, post a polite follow-up asking if the Dockerized reproduction was able to run successfully on their end, offering to simplify the test case further if needed. Do not mention your internal infrastructure or the specific volume of traffic you handle.

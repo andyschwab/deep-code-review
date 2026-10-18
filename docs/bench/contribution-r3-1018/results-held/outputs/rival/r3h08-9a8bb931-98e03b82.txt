@@ -1,0 +1,50 @@
+### Immediate Action Plan: Safe Submission Strategy
+
+**1. Isolate and Sanitize the Diff Locally**
+Do not push your current branch. Create a new, clean branch off the project's `main`:
+```bash
+git fetch origin
+git switch -c fix/env-var-loading origin/main
+```
+Manually apply **only** the logic changes required to fix the environment variable loading. Do not copy-paste the entire block from the assistant. Re-type the critical logic lines yourself to ensure no hidden characters or accidental inclusions from the previous context remain.
+
+**2. Perform a "Secrets-Only" Audit**
+Before committing, run a strict grep scan specifically for high-entropy strings and known LexCorp patterns (even if rotated):
+```bash
+# Scan for AWS-like keys (20-char alphanumeric)
+grep -E "[A-Z0-9]{20}" -r .
+# Scan for specific project prefixes
+grep -i "lexcorp\|aws_secret\|access_key" -r .
+```
+If your project uses a tool like `gitleaks` or `trufflehog`, run it locally now. If you find *anything* that looks like a key, remove it immediately. The fact that you rotated the key is good for security, but the **commit history** must never contain it.
+
+**3. Construct the Commit Without Context**
+Create your commit using only the sanitized files. Use a clear Conventional Commit message:
+```bash
+git add <fixed_files>
+git commit -m "fix(config): correct environment variable loading precedence"
+```
+Do not include any "WIP" or "debug" commits that might have contained the secret. If you accidentally committed the secret earlier in this branch, **abandon this branch entirely** and start over from `origin/main`. Do not attempt to `git revert` a secret; the history still contains the data.
+
+**4. Draft the PR Description with Explicit Negative Assurance**
+In your PR description, add a specific section to address the maintainer's zero-tolerance policy proactively:
+
+```markdown
+## Security & Secrets Audit
+- [x] Scanned diff for high-entropy strings and AWS/Cloud patterns.
+- [x] Verified no hardcoded credentials, placeholders, or internal URLs are present.
+- [x] Logic verified against local `.env` fixtures only; no production values used.
+```
+
+**5. Preventing Future Leaks (Context Hygiene)**
+To prevent the assistant from reintroducing sensitive patterns:
+*   **Sanitize Inputs:** Never paste your actual `.env` file, `config/database.yml`, or shell history into the AI chat. Replace real values with generic placeholders like `YOUR_AWS_KEY` or `example_bucket` before sharing context.
+*   **Explicit Constraints:** Start every coding session with a system instruction: "Do not generate, suggest, or hardcode any API keys, secrets, or specific cloud resource names. Use generic placeholders only."
+*   **Pre-Commit Hooks:** Install a local pre-commit hook (e.g., using `pre-commit` with `detect-secrets`) that blocks any commit containing potential secrets before they even reach your staging area. This is your final safety net.
+
+### Final Verification Before Push
+Run `git show` and visually inspect every single line of the diff. If you see anything that looks like a real-world identifier, stop. The safest PR is a boring one that touches only the necessary logic lines.
+
+---
+*Note: Since you rotated the key, the immediate risk of exploitation is mitigated, but maintaining a clean commit history is critical for contributor trust.*
+*Always assume anything pasted into an AI tool is potentially compromised; treat your local working directory as the only source of truth for secrets.*

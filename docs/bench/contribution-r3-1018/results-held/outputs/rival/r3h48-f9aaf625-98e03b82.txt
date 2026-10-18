@@ -1,0 +1,45 @@
+## Summary
+Fixes a numerical precision error in p-value calculations for large datasets by implementing extended-precision arithmetic in the core statistical engine. This prevents flawed analysis results in high-volume scenarios without altering behavior for standard dataset sizes.
+
+## What
+- Refactored `src/core/precision.rs` to use 128-bit floating-point intermediates during accumulation.
+- Added a new test suite `tests/large_dataset_precision` using synthetic data that mathematically mimics the variance and magnitude of restricted real-world clinical trials.
+- Updated documentation to clarify precision limits and the new handling of extreme values.
+
+## Why
+Current implementation loses precision when summing squared deviations in datasets exceeding 10^6 rows with high variance, leading to incorrect p-values. This fix ensures mathematical correctness for academic and industrial users processing massive datasets.
+
+## Test Plan
+Since real clinical data from HealthFirst is legally protected and cannot be shared, I have generated a synthetic dataset that replicates the specific statistical properties required to trigger this bug:
+1.  **Magnitude:** Values scaled to match the order of magnitude found in large-scale population studies (10^9 range).
+2.  **Variance:** Constructed to exhibit the specific high-variance/low-mean ratio that causes floating-point cancellation errors in the original code.
+3.  **Reproducibility:** The generator script (`scripts/gen_synthetic_data.py`) is included in the PR. Running it produces `tests/data/synthetic_large.csv`, which consistently fails the old code and passes with this fix.
+
+**Commands to verify:**
+```bash
+python scripts/gen_synthetic_data.py
+cargo test --test large_dataset_precision
+```
+
+## Backward Compatibility
+Fully backward compatible. The change only affects internal calculation precision; output formats and API signatures remain unchanged. Results for small/medium datasets are identical to previous versions within standard floating-point tolerance.
+
+## Security Considerations
+No user input is processed differently. The fix strictly impacts internal mathematical operations. No PII or restricted data is included in the repository; all test data is algorithmically generated.
+
+## Related Issue
+Fixes #402 (Numerical instability in p-value calculation).
+
+## Checklist
+- [x] Code follows project style guidelines.
+- [x] New tests cover the specific edge case (synthetic data replicating high-variance large N scenarios).
+- [x] All existing tests pass.
+- [x] Documentation updated regarding precision limits.
+
+## AI-Assisted Disclosure
+I drafted the initial refactoring and test generator using AI assistance. I have manually verified every line of the precision logic against standard statistical formulas and confirmed the synthetic data properties match the theoretical requirements for triggering the bug. The final review and validation are my own.
+
+***
+
+*Note: The synthetic data generator explicitly avoids using any real patient records, ensuring full compliance with privacy regulations while satisfying the maintainer's requirement for realistic stress testing.*
+*If maintainers require further validation, I can provide the mathematical proof of the synthetic data's equivalence to the restricted dataset's statistical moments upon request via secure channel.*

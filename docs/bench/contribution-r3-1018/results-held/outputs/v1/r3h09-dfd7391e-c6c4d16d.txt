@@ -1,0 +1,54 @@
+**Bug Report Draft**
+
+**Title:** Log rotation fails to trigger when disk threshold is exceeded on services with long identifier paths
+
+**Description:**
+When the logging framework monitors disk usage, it fails to initiate file rotation once the usage percentage crosses the configured threshold (e.g., 80%). This occurs specifically when the active log file path contains a deeply nested directory structure or a filename exceeding 45 characters. Instead of rotating the file, the application continues writing until the disk is full, resulting in a crash. The issue appears to be an off-by-one error or a path-length miscalculation within the disk-space check logic, where the length of the service identifier interferes with the threshold comparison.
+
+**Steps to Reproduce:**
+1. Configure the logger with a disk-threshold policy set to 80%.
+2. Set the log file path to a synthetic location mimicking a long service identifier:
+   `/var/log/services/dept-code-clearance-level-very-long-service-name-subsystem-instance01/app.log`
+   *(Note: The total path length should exceed 100 characters to trigger the edge case.)*
+3. Simulate disk usage reaching 81% on the target volume.
+4. Observe that no rotation occurs and the file grows indefinitely.
+
+**Sanitized Configuration Snippet:**
+```xml
+<configuration>
+  <appender name="ROLLING" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- Synthetic path using generic placeholders to reproduce path-length edge case -->
+    <file>/var/log/services/generic-dept-generic-clearance-extended-service-name-subsystem-instance01/app.log</file>
+
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>/var/log/services/generic-dept-generic-clearance-extended-service-name-subsystem-instance01/app.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+      <maxFileSize>10MB</maxFileSize>
+      <maxHistory>30</maxHistory>
+      <totalSizeCap>1GB</totalSizeCap>
+    </rollingPolicy>
+
+    <!-- Critical setting: Disk threshold check enabled -->
+    <diskThreshold>80</diskThreshold>
+    <checkDiskSpace>true</checkDiskSpace>
+
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+</configuration>
+```
+
+**Expected Behavior:**
+Upon crossing the 80% disk usage threshold, the framework should immediately rotate the log file regardless of the path length or directory depth.
+
+**Actual Behavior:**
+Rotation is skipped; the application continues writing to the full disk until failure.
+
+**Environment:**
+- Java Version: [Insert your version, e.g., 17.0.2]
+- Framework Version: [Insert version]
+- OS: Linux (tested on generic x86_64)
+
+***
+
+**Note:** Before submitting, ensure you replace the bracketed environment details with your actual versions. Do not include any real internal ticket numbers or hostnames in the final submission.

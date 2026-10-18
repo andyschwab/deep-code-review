@@ -1,0 +1,39 @@
+### Strategy for Safe Validation
+
+Since connecting to the live Globex Manufacturing read-replica is forbidden, you must validate the driver using a **protocol-level simulation** rather than a database-level connection. Do not attempt to mock the high-level SQL interface, as this misses the timing and byte-level quirks of the mainframe.
+
+1.  **Capture and Sanitize Traffic:** Use a network proxy (like Wireshark or a specialized JDBC logger) on a *non-destructive* read-only query already running in your lower environments (if any exist) or request a sanitized packet capture from the DBA team. If no capture exists, you must synthesize traffic based on the official mainframe protocol specification.
+2.  **Build a Wire-Level Recorder/Replayer:** Create a test harness that acts as a "fake mainframe." This harness should not implement database logic; it should simply replay the recorded (or synthesized) byte streams back to your driver with the exact timing intervals observed in the specification or logs.
+3.  **Inject Faults Deterministically:** Program the replayer to introduce specific latency spikes, connection resets, and malformed packets defined in the legacy protocol docs. This proves your driver handles edge cases better than a simple mock would.
+4.  **Verification:** Your integration test suite will start this local "fake mainframe" on `localhost`, run your driver against it, and assert that the byte-handling logic correctly parses the legacy response format. This satisfies the requirement for "comprehensive integration tests" without touching a single production table.
+
+### Draft Pull Request Description
+
+**Title:** feat: Add legacy mainframe driver support to DataBridge abstraction
+
+**Problem**
+The DataBridge layer currently throws a `ClassNotFoundException` (driver not found) when attempting to connect to older mainframe systems using the proprietary [Protocol Name] protocol. This blocks integration with legacy inventory data sources.
+
+**Change**
+This PR introduces a new driver implementation capable of handling the specific byte-level handshake and data serialization required by the legacy mainframe.
+- Implemented `LegacyMainframeDriver` extending the core `DataBridge` interface.
+- Added custom serialization logic for [Specific Data Type] handling.
+- Updated the service loader configuration to register the new driver.
+
+**Testing Strategy & Limitations**
+Direct integration testing against the physical mainframe hardware is prohibited due to security policies regarding production read-replicas and the risk of table locking. To ensure reliability without accessing live systems:
+- **Wire-Level Simulation:** A custom test harness was built to replay sanitized protocol traffic at the socket level, mimicking the exact timing and byte-structure of the mainframe.
+- **Deterministic Fault Injection:** The harness successfully validated driver resilience against simulated network latency, packet fragmentation, and protocol-specific error codes.
+- **Verification:** All unit and simulation-based integration tests pass locally. The driver correctly parses valid responses and gracefully handles malformed packets as defined in the protocol specification.
+
+**Risk**
+Low. The change is isolated to the new driver class. Existing drivers remain unaffected. The simulation approach covers the protocol surface area, though final validation in a staging environment with a non-production mainframe instance is recommended before full deployment.
+
+**Checklist**
+- [ ] Code follows project style guidelines
+- [ ] New code includes wire-level simulation tests
+- [ ] No production credentials or endpoints included in this PR
+
+---
+*Note: Replace "[Protocol Name]" and "[Specific Data Type]" with the actual technical details from your implementation before submitting.*
+*Ensure you have explicit written approval from your security team regarding the use of any sanitized packet captures in your test suite.*

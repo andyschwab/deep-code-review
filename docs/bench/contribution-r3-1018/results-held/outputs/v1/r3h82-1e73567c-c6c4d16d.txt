@@ -1,0 +1,32 @@
+### Sanitized Load Test Strategy
+
+**1. Abstract the Endpoint and Auth**
+Replace the specific Globex Corp endpoints and authentication headers with a generic, self-contained mock server within your test script. Do not use public sandbox URLs, as they introduce external network variability that obscures the specific race condition you are isolating.
+
+*   **Action:** Embed a minimal Go HTTP server directly in your test file (or as a separate local binary) that simulates the upstream behavior.
+*   **Implementation:** Instead of calling `https://api.globex.corp/v1/stream`, your test spins up `http://localhost:8080/mock-stream`.
+*   **Auth:** Remove all proprietary tokens. If the bug relies on the *overhead* of authentication, simulate this with a fixed `time.Sleep(5 * time.Millisecond)` in the mock handler to replicate the latency without exposing the mechanism.
+
+**2. Numerical Description of Load Patterns**
+Describe the load using **ratios, concurrency levels, and timing distributions** rather than absolute throughput numbers (e.g., "requests per second" tied to production capacity).
+
+*   **Concurrency:** State the number of goroutines used (e.g., "500 concurrent workers"). This is architecture-agnostic.
+*   **Timing:** Define the inter-arrival time distribution (e.g., "Poisson distributed with a mean of 2ms") rather than total volume.
+*   **Duration:** Use relative duration (e.g., "sustained for 30 seconds") rather than linking it to business cycles.
+*   **Example Description:** "The test spawns 200 goroutines issuing requests with a 1ms jittered interval against a local mock endpoint that introduces a 10ms artificial latency. This creates a queue depth of approximately 50 pending requests, triggering the race condition in the connection pool."
+
+**3. Delivery Format: Raw Script vs. Docker**
+Provide the **raw Go script** with the embedded mock server, not a Docker container.
+
+*   **Reasoning:** The project is a Go HTTP server. Maintainers expect to run `go test -race -run TestConcurrency` or `go run test_load.go`. A Docker container adds an unnecessary abstraction layer, complicates the reproduction of race conditions (which can behave differently across container runtimes and host kernels), and obscures the test logic from immediate review.
+*   **Requirement:** Ensure the script has a `main` function that automatically starts the mock server, runs the load generation, and exits cleanly. It should require zero external setup other than a standard Go installation.
+
+**4. Summary of Changes for the PR**
+When drafting your contribution, explicitly state in the commit message and PR body:
+*   "Replaced proprietary upstream targets with a local synthetic mock server."
+*   "Load parameters are defined by concurrency count and timing distributions, decoupled from production traffic volumes."
+*   "No external network dependencies; the test is fully self-contained."
+
+This approach isolates the concurrency bug as a mechanical failure of the library under specific timing pressures, removing all traces of Globex Corp's infrastructure while satisfying the maintainers' need for a reproducible, race-detector-compatible test case.
+
+*Note: Run `go test -race` locally to confirm the mock server correctly triggers the data race before submitting. Ensure no hardcoded IP addresses or domain names from your internal network remain in comments or string literals.*

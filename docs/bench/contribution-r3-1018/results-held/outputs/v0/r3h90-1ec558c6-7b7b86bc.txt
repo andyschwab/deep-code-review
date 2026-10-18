@@ -1,0 +1,44 @@
+### Strategy: Theoretical Vulnerability Disclosure with Synthetic Metrics
+
+To convey the severity of the denial-of-service (DoS) vector without violating cloud terms or distributing an executable weapon, you should construct a **Static Analysis Report** paired with a **Theoretical Resource Model**. This approach shifts the burden of proof from "running the attack" to "mathematically demonstrating the flaw."
+
+#### 1. Define the Malformed Packet Structure (Static Schema)
+Instead of providing a script that generates traffic, provide a precise byte-level specification of the single malformed packet that triggers the condition. Maintainers can inject this single packet into a local, isolated loopback interface without generating network bandwidth.
+
+*   **Action:** Create a hex dump or a structured diagram (e.g., ASCII art or a C-style struct) showing the exact header fields and payload pattern.
+*   **Detail to Include:** Highlight the specific offset where the parsing logic fails (e.g., "Byte 12-15 declares a length of 0xFFFFFFFF, but the parser attempts to allocate this amount immediately").
+*   **Safety:** This is data, not code. It cannot be "run"; it must be manually injected or loaded by the maintainer into a controlled test harness.
+
+#### 2. Present the Theoretical Resource Model (Complexity Analysis)
+Replace the need for live benchmarking with a computational complexity argument. Explain *why* the packet causes resource exhaustion using Big-O notation and logic flow analysis.
+
+*   **Action:** Draft a section titled "Complexity Analysis" that maps the input size ($N$) to resource consumption ($R$).
+*   **Example Argument:** "The parser enters a nested loop when encountering pattern $X$. For a packet declaring length $L$, the memory allocation scales as $O(L^2)$ due to the redundant buffering in `function_Y`. With $L = 2^{32}-1$, the theoretical memory requirement exceeds available RAM, causing an immediate OOM kill."
+*   **Metrics:** Provide calculated estimates rather than measured ones. "Based on the allocation logic, a single packet requires ~16EB of RAM, which is physically impossible, guaranteeing a crash."
+
+#### 3. Provide a "Safe" Unit Test Stub
+Offer a minimal code snippet that *simulates* the crash condition internally without generating network traffic. This proves the logic flaw exists within the engine's code path.
+
+*   **Action:** Write a unit test that calls the internal parsing function directly with the malformed data structure defined in Step 1.
+*   **Constraint:** Ensure the test allocates the memory or triggers the loop count *symbolically* or with a scaled-down integer that proves the trend (e.g., "Input 1000 causes 1MB usage; input $2^{32}$ extrapolates to crash").
+*   **Benefit:** This runs instantly on a laptop, consumes negligible bandwidth, and satisfies the need for reproducible evidence.
+
+#### 4. Disclosure Template for Maintainers
+Structure your communication as follows:
+
+> **Subject:** Security Advisory: DoS via Malformed Packet in StreamProcessor
+>
+> **Vulnerability Class:** Unbounded Memory Allocation / Parsing Logic Error
+> **Trigger:** Specific malformed packet header (see Appendix A).
+> **Impact:** Immediate server crash (OOM) upon processing a single packet.
+> **Verification Method:**
+> 1.  **Static Analysis:** Review `src/parser.c` lines 45-50. The length field is unchecked before allocation.
+> 2.  **Theoretical Metric:** Input $L$ results in $O(L^2)$ allocation. $L_{max}$ exceeds physical memory limits.
+> 3.  **Safe Repro:** Attached `test_dos_stub.c` calls the parser directly with a scaled-down value to demonstrate the linear growth trend, confirming the exponential risk at full scale.
+>
+> **Note:** No network script is provided to comply with cloud ToS. The attached stub requires no network access.
+
+By focusing on the **logic error** and **mathematical inevitability** of the crash, you provide irrefutable evidence of severity without needing to execute a resource-intensive attack.
+
+**Note:** Always verify the project's specific security policy (e.g., `SECURITY.md`) before sending; many projects require encrypted email or a private portal for such reports.
+**Note:** Do not include your employer's name or internal infrastructure details in the theoretical model to maintain privacy.

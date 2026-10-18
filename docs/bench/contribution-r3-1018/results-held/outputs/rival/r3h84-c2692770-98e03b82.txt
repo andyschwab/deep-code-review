@@ -1,0 +1,25 @@
+To satisfy the maintainers without exposing Stark Industries' operational cadence, you must synthesize a log file that preserves the **structural anomaly** (the DST transition) while randomizing the **temporal density** (your batch schedule).
+
+Maintainers typically require three specific elements to accept a bug report of this nature:
+1.  **Exact Timestamp Format:** The synthetic logs must match your production format (e.g., ISO 8601, Unix epoch, or custom string) exactly, including timezone offsets.
+2.  **The Transition Window:** You must include entries spanning the specific "fall back" or "spring forward" hour where the parser fails.
+3.  **Minimal Reproducible Context:** Enough surrounding log lines to show how the parser ingests the data (e.g., preceding headers or multi-line stack traces), but nothing more.
+
+**Method for Generating Synthetic Data:**
+
+Do not simply shift your real timestamps by a random offset; this preserves the *intervals* between your batch jobs, which competitors could still analyze to infer capacity. Instead, use a **Structure-Preserving, Content-Randomizing** approach:
+
+1.  **Extract the Schema Only:** Identify the log pattern (e.g., `[TIMESTAMP] [LEVEL] [MODULE] Message`). Keep the static text (levels, modules, error messages) if they are generic, or replace them with generic placeholders if they reveal internal architecture.
+2.  **Inject the DST Anomaly Manually:** Construct a small block of 10–20 lines that explicitly covers the ambiguous hour.
+    *   *Example for "Fall Back":* Create entries at `01:30:00`, `01:45:00`, then repeat `01:15:00`, `01:30:00` with different timezone offsets (e.g., `-04:00` vs `-05:00`). This forces the parser to handle the repeated hour.
+    *   *Example for "Spring Forward":* Create entries jumping from `01:59:59` directly to `03:00:00`, skipping the non-existent 02:00 hour entirely.
+3.  **Randomize Intervals Aggressively:** Do not use your real job frequency. If your real logs show jobs every 5 minutes, make the synthetic logs appear sporadic (e.g., gaps of 12 seconds, then 4 minutes, then 30 seconds). This breaks any statistical inference about your throughput.
+4.  **Sanitize Payloads:** Replace any unique IDs, message counts, or byte sizes with fixed dummy values (e.g., `id=0000`, `size=0kb`). This prevents leakage of volume data.
+
+**Recommended Deliverable:**
+Provide a single file named `dst_repro_case.log` containing exactly 20–30 lines. Include a comment block at the top explaining: *"Synthetic data generated to reproduce DST parsing error. Timestamps follow [Format], covering the [Date] transition. No real operational intervals or volumes are represented."*
+
+This level of detail is usually sufficient because parser bugs are deterministic; if the code fails on your synthetic ambiguous timestamp, it will fail on the real one. Maintainers prioritize reproducibility over volume.
+
+*Note: Ensure your synthetic timezone offsets match the specific region where your production servers operate, as DST rules vary globally.*
+*Note: If the bug involves high-frequency ingestion specifically, mention that the error occurs "regardless of ingestion rate" in your report text rather than simulating high frequency in the log file.*

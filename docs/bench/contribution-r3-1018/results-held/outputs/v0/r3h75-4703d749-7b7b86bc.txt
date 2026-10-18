@@ -1,0 +1,81 @@
+### Stop Checks
+Before proceeding, you must clear the following internal constraints:
+1.  **Employer Legal Approval:** Confirm with your legal/compliance team that sharing *any* data derived from the audit (even synthetic) is permitted under your NDA.
+2.  **Contributor Agreement:** Ensure you are authorized to sign the project's CLA as an individual, attesting that this contribution is your own work and not owned by your employer.
+3.  **Security/Privacy Channel:** If the bug could be exploited to manipulate tax liabilities, verify if the project has a private security reporting channel instead of a public issue.
+
+### Generalized Test Case Construction
+You cannot use real data. Instead, you must construct **synthetic data** that mathematically mimics the failure condition without reflecting actual business volume. The bug triggers at a "threshold"; you do not need the *real* threshold, only *a* threshold that proves the logic error.
+
+**Step 1: Define Synthetic Constants**
+Create constants in your test file that are clearly invented but structurally identical to the real problem.
+```csharp
+// SYNTHETIC DATA FOR REPRODUCTION ONLY
+// These values do not represent any real entity's financial data.
+private const decimal SyntheticThreshold = 1_000_000m; // Arbitrary high volume trigger
+private const decimal SyntheticSurchargeRate = 0.045m; // Arbitrary rate
+private const decimal SyntheticBaseAmount = 1_000_001m; // Just above threshold
+```
+
+**Step 2: Isolate the Logic Error**
+Write the test to assert the *mathematical relationship* that fails, not the specific dollar amount of the error.
+```csharp
+[Fact]
+public void CalculateSurcharge_AboveThreshold_AppliesRegionalRate()
+{
+    // Arrange
+    var calculator = new TaxCalculator();
+    var zone = "BorderZone_X"; // Generic identifier
+
+    // Act
+    var result = calculator.Calculate(SyntheticBaseAmount, zone);
+
+    // Assert: The bug causes the rate to be ignored or miscalculated above the threshold.
+    // Expected: Base * Rate
+    // Actual (Bug): Base * (Rate - ErrorFactor) or Base * DefaultRate
+    var expected = SyntheticBaseAmount * SyntheticSurchargeRate;
+
+    Assert.Equal(expected, result.Surcharge, 2);
+    // This will fail on current code, proving the logic error exists
+    // without using Acme's real numbers.
+}
+```
+
+### Commit Message Draft
+```text
+fix: correct regional surcharge calculation logic above volume thresholds
+
+- Identifies a logic error where border zone surcharges are miscalculated
+  when transaction volumes exceed a specific configurable threshold.
+- Adds a regression test using synthetic data to demonstrate the failure
+  mode without relying on real-world financial figures.
+- Corrects the conditional check to ensure the regional rate applies
+  consistently regardless of volume magnitude.
+
+Fixes #[issue-number]
+```
+
+### PR Body Draft
+**Problem:**
+The `TaxCalculator` incorrectly computes regional surcharges for border zones when the base amount exceeds a specific threshold. The current logic inadvertently bypasses the regional rate application under high-volume conditions.
+
+**Change:**
+- Refactored the conditional logic in `CalculateSurcharge` to properly evaluate threshold boundaries.
+- Added `TaxCalculationThresholdTests.cs` with synthetic data reproducing the failure state.
+
+**Testing:**
+- Verified locally: The new unit test fails on `main` and passes with this fix.
+- No real-world financial data was used; all test values are synthetic constants designed solely to trigger the logical branch.
+
+**Risk:**
+Low. The change is scoped strictly to the threshold comparison logic. Existing tests for standard volumes remain unaffected.
+
+### Addressing Your Uncertainty
+You asked if you can describe the condition without revealing sales volume. **Yes.** By defining an arbitrary `SyntheticThreshold` (e.g., 1 million) that is purely for testing purposes, you prove the *code's inability to handle high numbers* without revealing *your* specific high numbers. The maintainers only need to see that the code breaks at *some* point above a limit, not where your specific limit lies.
+
+### Fallback
+If maintainers still reject synthetic data, ask them to provide a **property-based testing framework** or a **fuzzing harness** where you can submit the *logic rule* (e.g., "fails when input > X") without submitting the data itself, or request a private repository invitation to demonstrate the bug under NDA.
+
+---
+*Note: Ensure you rotate any secrets if you accidentally committed real data to a local branch before this fix.*
+*Do not attempt to scale real data down; the structural pattern alone can sometimes be reverse-engineered.*

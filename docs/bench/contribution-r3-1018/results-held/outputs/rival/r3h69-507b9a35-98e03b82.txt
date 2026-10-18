@@ -1,0 +1,44 @@
+### Sanitized Test Dataset & Generalized Fix Strategy
+
+To resolve the parsing error without leaking Stark Industries' proprietary schema, you must abstract the specific "department code" and "project ID" logic into generic "segmented identifiers." The bug likely stems from the regex being too greedy or too rigid regarding specific character classes found in your internal codes.
+
+#### 1. The Generalized Regex Pattern
+Instead of matching your specific internal format, construct a pattern that targets the *structural cause* of the error (e.g., unescaped special characters within delimited segments) rather than the content itself.
+
+**Avoid:** Patterns that hardcode your specific prefix/suffix logic or character lengths unique to Stark Industries.
+**Adopt:** A pattern that escapes or isolates special characters within any alphanumeric segment.
+
+*Example Concept (PHP):*
+If your internal pattern looked like `SI-DEPT\d{3}-PROJ\d{4}`, replace it with a generalized parser that handles special chars in *any* hyphenated segment:
+```php
+// Generalized approach: Escape special regex chars within segments before processing
+$safe_description = preg_replace_callback('/([A-Za-z0-9]+)([-_])([A-Za-z0-9]+)/', function($matches) {
+    // Logic to handle special chars safely without assuming specific segment content
+    return preg_quote($matches[0], '/');
+}, $input);
+```
+*Note: Replace the above logic with the actual fix required for your specific parsing error, ensuring it relies on standard character classes (`\w`, `\s`, `\pL`) rather than proprietary codes.*
+
+#### 2. Sanitized Test Dataset
+Create a `tests/fixtures/special_char_invoices.csv` using fictional companies and generic patterns that mimic the *structure* (segments, separators, special chars) without replicating the *schema* (specific lengths, codes, or meanings).
+
+| ID | Company | Product Description (Input) | Expected Output | Notes |
+| :--- | :--- | :--- | :--- :--- |
+| 001 | Wayne Ent. | `Batmobile-Part#99 (Rare)` | `Batmobile-Part#99 (Rare)` | Tests hash/parentheses |
+| 002 | Cyberdyne | `T-800_Endo_Skeleton$500` | `T-800_Endo_Skeleton$500` | Tests underscore/dollar |
+| 003 | Umbrella Corp | `Virus-T%20Sample&Kit` | `Virus-T%20Sample&Kit` | Tests percent/ampersand |
+| 004 | Acme Corp | `Anvil+Drop[Heavy]` | `Anvil+Drop[Heavy]` | Tests plus/brackets |
+| 005 | Globex Inc | `Item@Zone^3*Power` | `Item@Zone^3*Power` | Tests at/caret/asterisk |
+
+**Why this works:**
+*   **Structural Fidelity:** These strings contain the same types of special characters and segmentation (hyphens, underscores) that trigger your bug.
+*   **Zero Leakage:** No internal department codes, project IDs, or Stark Industries prefixes are present.
+*   **Reproducibility:** Any maintainer can run these tests immediately without needing context about your internal operations.
+
+#### 3. Implementation Steps
+1.  **Refactor the Regex:** Update your PHP parser to use the generalized pattern that handles special characters based on their type, not their position within a proprietary code.
+2.  **Replace Test Data:** Delete any test files containing real Stark Industries invoice numbers. Commit only the `special_char_invoices.csv` listed above.
+3.  **Verify Coverage:** Ensure your new test suite fails on the *original* buggy code (proving the regression exists) and passes on your fixed code.
+4.  **Documentation:** In your PR description, explicitly state: "Test data uses fictional entities to reproduce special character edge cases without exposing internal schemas."
+
+By focusing on the *class* of error (special character handling) rather than the *instance* (your specific invoice format), you provide a robust fix that benefits the open-source community while maintaining strict operational security.
