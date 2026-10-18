@@ -1,0 +1,39 @@
+### Validation Workflow: Childcare Background Checker Pilot
+
+**1. Harm Inventory & Worst-Case Definition**
+*   **Harm:** False Positive Identity Match (Bias/Unfair Outcome).
+*   **Affected Group:** Volunteers with common names (e.g., "John Smith") sharing a birth date with a record holder.
+*   **Worst Case:** An eligible volunteer is wrongly rejected, damaging their reputation and depriving the nonprofit of needed support.
+*   **Constraint Acknowledgement:** Without unique identifiers (SIN, ID numbers), name + birth date matches are **probabilistic, not definitive**. Treat any match as "Unverified Alert," not "Confirmed Disqualification."
+
+**2. Runnable Test Plan (Pre-Deployment)**
+Execute these three test rows before processing real data. Do not launch if Row 1 or 2 fails.
+
+| Test Row | Probe Set (Inputs) | Expected Result | Pass Threshold | Stop Condition |
+| :--- | :--- | :--- | :--- :--- |
+| **1. False Positive Control** | 10 common names + birth dates of team members (known clean). | **0 Alerts.** System must return "No Match" or "Review Required" but never "Auto-Reject." | 100% Clean | If ≥1 team member is flagged as a match, **halt deployment**. Logic is too aggressive. |
+| **2. True Positive Control** | 5 synthetic records created specifically for this test (Name + DOB known to exist in source). | **5 Alerts.** System must successfully retrieve the record. | 100% Retrieval | If <5 retrieved, **halt deployment**. Logic is too weak; safety net has holes. |
+| **3. Edge Case Sweep** | Names with common variations (Jr./Sr., hyphenated surnames, maiden names) + same DOB. | **Flag for Human Review.** Never auto-reject on partial string matches or formatting differences. | 100% Routed to Human | If any variation triggers an automatic rejection, **disable auto-reject function**. |
+
+**3. Human-in-the-Loop Gate (Mandatory)**
+*   **Rule:** Because this involves high-stakes exclusion (rejecting a person) and relies on low-confidence identifiers (name + DOB only), **zero automated rejections are permitted.**
+*   **Workflow:**
+    1.  System generates a "Potential Match List."
+    2.  **Human Reviewer** (one of your four team members) must manually inspect every alert.
+    3.  Reviewer confirms identity using secondary context (middle initial, address history if available, or direct candidate inquiry) before marking as "Disqualified."
+    4.  If the reviewer cannot confirm identity beyond reasonable doubt, the default action is **"Clear to Proceed"** (favoring the volunteer).
+
+**4. Transparency & Uncertainty Reporting**
+*   **Output Labeling:** Never display "Match Found" as a final verdict to the user. Display: **"Potential Record Match – Requires Manual Verification."**
+*   **Confidence Tiering:** Do not show percentages (e.g., "90% match"). Use defined tiers:
+    *   *Exact Name + Exact DOB:* **Review Required** (Not automatic fail).
+    *   *Fuzzy Name + Exact DOB:* **Low Confidence Alert** (Review Required).
+*   **Documentation:** Create a one-page "Model Card" for internal use stating: "This pilot uses name/DOB only; false positives are expected for common names. All disqualifications require human confirmation."
+
+**5. Governance**
+*   **Owner:** Assign one specific team member as the "Safety Owner" responsible for reviewing any disputed flags during the pilot.
+*   **Re-review Trigger:** If the data source changes or you add new fields, re-run Test Rows 1–3.
+
+**Notes**
+*   Legal duty regarding automated decision-making in Ontario/Ottawa must be routed to counsel; this plan assumes human review satisfies current non-regulated pilot needs.
+*   If the volume of "Potential Matches" overwhelms the 4-person team, reduce the pilot scope rather than removing the human gate.

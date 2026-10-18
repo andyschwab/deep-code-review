@@ -1,0 +1,30 @@
+### Safety Review Process for Automated School Bus Routing
+
+Given the two-week timeline and the critical nature of transporting children, the following process addresses the data gaps regarding rural road hazards (ice, construction) and establishes a human-gated safety floor.
+
+#### 1. Simulating Dangerous Conditions (The "Red Team" Dataset)
+Since real-time data lacks granular hazard details, you must construct a **synthetic adversarial dataset** to test the optimizer's failure modes before the pilot.
+*   **Inject Known Hazards:** Create a library of test scenarios where specific rural road segments are flagged with "high-severity" hazards (e.g., black ice, washed-out bridges) that are *invisible* to the live traffic feed but visible to your test harness.
+*   **Positive Control:** Run the optimizer on a route with a known, severe hazard injected. The system must **fail** to optimize through it (i.e., it must reject the route or trigger a fallback). If it optimizes a path through a known deadly hazard because the live feed didn't report it, the safety gate is broken.
+*   **Negative Control:** Run the optimizer on safe routes with normal traffic delays. Ensure the system still optimizes efficiently and does not unnecessarily default to static routes, which would degrade service.
+*   **Stress Test Data Latency:** Simulate delays in weather report ingestion to ensure the system doesn't assume "no news is good news" when data is stale.
+
+#### 2. Fallback Thresholds and Human-in-the-Loop Gates
+Do not rely on the AI to "guess" safety when data is missing. Implement a deterministic **Human-in-the-Loop (HITL) gate** for high-stakes decisions.
+
+**The "Static Route" Default Triggers:**
+The system must automatically revert to a pre-approved, manually vetted static route if *any* of the following conditions are met:
+*   **Data Confidence Tier = "Unverified":** If the granular hazard data for a specific rural segment is missing, stale (>15 mins), or flagged as low-reliability, the confidence tier for that segment is "Unverified." The optimizer must treat "Unverified" rural segments as **impassable** for dynamic routing.
+*   **Weather Severity Threshold:** If weather reports indicate precipitation or temperatures near freezing in a rural zone, regardless of specific road sensor data, default to static routes for that zone.
+*   **Optimization Deviation > 10%:** If the proposed dynamic route deviates significantly from the known safe static route (e.g., using unvetted backroads to save <2 minutes), flag for human review.
+
+**Operational Rule:**
+*   **Dynamic Optimization is Opt-In:** The system only attempts dynamic routing if *all* segments on the proposed path have "Confirmed" or "Corroborated" data status.
+*   **Irreversible Action Gate:** Changing a bus route while children are onboard or immediately prior to pickup is a high-stakes action. Any dynamic route change generated within 1 hour of pickup must require **explicit human dispatcher confirmation** before being sent to drivers. Fully autonomous last-minute rerouting is prohibited.
+
+#### 3. Transparency and Disclosure
+*   **Driver Interface:** Clearly display *why* a route was chosen. If on a static route due to data gaps, show: "Route locked to pre-approved path due to insufficient hazard data in Sector 4."
+*   **Limitation Card:** Publish a one-page "System Limitation" document for the school board and drivers, explicitly stating: "This system does not detect unplanned rural hazards (ice, construction) without external reporting. It defaults to static routes when data is missing."
+
+**Note:** This plan treats the lack of granular data as a critical risk, not a minor gap. The "Unverified = Impassable" rule ensures that missing information never leads to unsafe optimization.
+**Note:** Legal counsel should review the disclosure language regarding liability when the system defaults to static routes versus dynamic ones.

@@ -1,0 +1,40 @@
+### Testing Protocol: Sensor Drift & Missed-Alert Prevention
+
+**Objective:** Validate that the alert system triggers alarms during actual gas leaks despite simulated sensor drift, ensuring no false negatives occur under legacy hardware constraints.
+
+**1. Test Environment & Data Synthesis**
+Since physical sensor replacement is impossible, construct a hardware-in-the-loop (HIL) simulation or a high-fidelity software sandbox.
+*   **Baseline Data:** Ingest historical gas readings from the specific mine shafts to establish normal fluctuation patterns.
+*   **Drift Injection:** Algorithmically apply progressive drift functions to the input stream. Simulate three drift profiles:
+    *   *Linear Drift:* Steady offset increase over time (common in aging electrochemical sensors).
+    *   *Step Drift:* Sudden shifts in baseline reading.
+    *   *Non-linear/Seasonal Drift:* Fluctuations correlating with temperature or humidity changes typical in deep shafts.
+*   **Leak Scenarios:** Overlay synthetic gas leak events onto the drifted data. These must vary in intensity (slow seep vs. rapid burst) and duration.
+
+**2. Execution Matrix (The "Red Team" Run)**
+Execute the following test rows. Each row represents a distinct failure mode the software must catch.
+
+| Test ID | Input Condition | Drift Profile | Leak Severity | Expected Outcome | Pass/Fail Criteria |
+| :--- | :--- | :--- | :--- :--- | :--- |
+| **DR-01** | Normal Background | None | None | No Alarm | Zero false positives over 24h sim. |
+| **DR-02** | Normal Background | High Linear (+15%) | None | No Alarm | Compensation logic must not trigger false alarm. |
+| **DR-03** | Normal Background | High Linear (+15%) | **Critical Leak** | **IMMEDIATE ALARM** | **FAIL if alarm is delayed >5s or suppressed.** |
+| **DR-04** | Normal Background | Step Shift (+20%) | **Moderate Leak** | **IMMEDIATE ALARM** | **FAIL if interpreted as baseline shift.** |
+| **DR-05** | Noisy Environment | Non-linear Drift | **Slow Seep** | **ALARM within 60s** | **FAIL if seep is smoothed out as noise.** |
+| **DR-06** | Sensor Saturation | Max Drift | **Critical Leak** | **FAIL-SAFE ALARM** | System must alarm on "sensor error" if data is unreadable. |
+
+**3. Metrics & Stop Conditions**
+*   **Primary Metric:** False Negative Rate (FNR). The threshold for launch is **0%**. Any missed critical leak in simulation is a hard stop.
+*   **Secondary Metric:** Time-to-Alarm latency under drift conditions.
+*   **Stop Condition:** If any test case (DR-03, DR-04, DR-05) fails to trigger an alarm within the safety window, the software compensation logic is insufficient. Do not launch.
+
+**4. Human-in-the-Loop Gate (Mandatory)**
+Given the life-safety stakes and the known hardware limitation (legacy sensors):
+*   **Irreversible Action Control:** The system must not auto-suppress alarms based solely on AI confidence if the raw sensor value exceeds a hard-coded physical threshold, regardless of the AI's drift assessment.
+*   **Uncertainty Display:** If the system detects high drift uncertainty, the operator dashboard must display a "Sensor Integrity Warning" rather than a normal "All Clear" status.
+
+**5. Reporting**
+Document the residual risk. If the legacy hardware cannot physically distinguish between extreme drift and a slow leak even with software compensation, this risk must be explicitly stated as **UNVERIFIED** for those specific edge cases. Do not invent a safety percentage. The final report must include the specific drift rates where the system begins to fail, defining the operational boundary for the miners.
+
+**Note:** This protocol measures output safety; it does not certify the system as "safe." The launch decision rests with Andes Mining Corp leadership based on these results.
+**Note:** Legal counsel must review if the "sensor integrity warning" meets Chilean mining regulatory disclosure requirements.

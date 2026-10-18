@@ -1,0 +1,33 @@
+### Safety Review Strategy: Flood Claim Adjuster
+
+Given the constraint of a slow legacy database and the critical need to prevent false denials of legitimate claims, the strategy focuses on high-yield edge case identification and efficient historical validation without exhaustive querying.
+
+#### 1. Edge Case Identification Strategy
+Instead of random testing, we will target specific "boundary conditions" where verified damage is most likely to be misclassified as unverified. We will manually construct a small set (10–15) of high-risk synthetic profiles representing these edges:
+
+*   **The "Partial Verification" Edge:** Claims where 90% of criteria are met (e.g., photos uploaded, adjuster visited) but one minor metadata field is delayed due to the legacy DB lag. The system might treat "pending metadata" as "missing verification."
+*   **The "Timestamp Drift" Edge:** Claims filed during peak flood hours where the database write time differs slightly from the event time, potentially causing the logic to miss the verification window.
+*   **The "Multi-Location" Edge:** A single policyholder with damage at two addresses where one is verified and the other is pending. The system might incorrectly deny the entire claim based on the unverified portion.
+*   **The "Legacy Data Format" Edge:** Older claims with verification data stored in a deprecated format that the new logic might fail to parse, interpreting valid data as null.
+*   **The "Retry Loop" Edge:** Cases where the initial verification query timed out due to DB slowness, triggering a retry that hasn't completed, leaving the claim in a temporary "unverified" state.
+
+**Action:** Manually draft these specific scenarios using known data patterns. Do not rely on automated generation which would exhaust your query budget.
+
+#### 2. Validation Method Against Historical Data
+To validate denial logic without overwhelming the legacy database, use a **"Sampled Replay with Shadow Mode"** approach:
+
+*   **Step A: Stratified Sampling:** Do not run the new logic against all historical data. Instead, extract a small, statistically significant sample (e.g., 200 records) from the historical dataset that specifically includes:
+    *   100 claims historically marked as "Verified & Paid."
+    *   50 claims historically marked as "Denied."
+    *   50 claims that were "Pending" for more than 48 hours (high risk of timeout errors).
+*   **Step B: Offline Shadow Execution:** Run the new denial logic against this sampled dataset in a read-only "shadow mode." The system should calculate what the decision *would* have been without actually issuing new denial notices or writing to the legacy DB.
+*   **Step C: Discrepancy Analysis:** Compare the shadow decisions against the historical outcomes.
+    *   **Critical Failure:** Any historical "Verified & Paid" claim that the new logic now flags for denial. This is a false positive.
+    *   **Investigation:** For every discrepancy, manually inspect the specific data fields that caused the divergence. Was it a timeout? A parsing error? A strictness change in criteria?
+*   **Step D: Threshold Tuning:** If the system denies legitimate claims due to "unverified" status caused by DB latency, introduce a "grace period" or "async verification" flag in the logic. Adjust the threshold so that claims with "pending" status due to known DB slowness are routed for manual review rather than automatic denial.
+
+#### 3. Launch Readiness Gate
+Do not launch if the shadow replay shows *any* false denials on the "Verified & Paid" sample. Given the one-week window, prioritize fixing the specific logic paths causing these few critical errors over optimizing general performance. Implement a "Human-in-the-Loop" fallback for the launch: any claim the system flags for denial due to "verification missing" but falls within the identified edge cases (e.g., pending < 2 hours) is automatically routed to a human adjuster instead of being denied.
+
+Note: This approach minimizes database load by using sampling and offline simulation.
+Ensure the "grace period" logic is documented for the compliance team before launch.

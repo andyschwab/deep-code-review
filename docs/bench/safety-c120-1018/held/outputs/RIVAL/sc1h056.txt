@@ -1,0 +1,31 @@
+# Safety Review Plan: Critical Medical Needs Protection
+
+## 1. Immediate Data Triage (Legacy Constraint Workaround)
+Since the legacy database cannot be upgraded, you must create a temporary "Critical Care Flag" layer outside the core system before automation goes live.
+*   **Manual Extraction:** Immediately export all customer notes containing keywords: "medical," "life support," "oxygen," "ventilator," "dialysis," "CPAP," "disabled," and "doctor note."
+*   **Shadow Registry:** Create a secure, read-only lookup table (e.g., a protected CSV or separate SQL view) mapping Account IDs to a binary `IS_CRITICAL_CARE` flag. This acts as the single source of truth for the automation logic, bypassing the legacy field limitations.
+*   **Verification Loop:** Assign a human reviewer to manually validate this Shadow Registry against recent call center logs for the top 5% highest-risk accounts (e.g., those with prior payment extensions due to hardship).
+
+## 2. Logic Gate Implementation
+Modify the shutoff algorithm to include a mandatory "Hard Stop" precondition. The automation must execute the following sequence for every account flagged for non-payment:
+1.  **Check Shadow Registry:** Query the `IS_CRITICAL_CARE` flag.
+2.  **If TRUE:** Automatically abort the shutoff command. Route the account to a "Critical Care Queue" for immediate human intervention. No automated notices suggesting imminent disconnection should be sent without human approval.
+3.  **If FALSE:** Proceed with standard automated workflows.
+4.  **Logging:** Every abort must be logged with a timestamp and the specific keyword match that triggered the safety stop for audit purposes.
+
+## 3. Cross-Reference Method for Unstructured Notes
+To systematically cross-reference existing unstructured notes with shutoff triggers without database schema changes:
+*   **Text Mining Script:** Run a localized script (not connected to the live DB directly if risky) against the latest dump of customer notes. Use regular expressions to catch variations (e.g., "life-support," "life support," "med equipment").
+*   **Fuzzy Matching:** Implement a secondary check for phone numbers associated with known medical equipment suppliers if such data exists in billing addresses or payment descriptions.
+*   **Opt-Out Mechanism:** Include a prominent, free-phone number in all pre-disconnection notices specifically for customers to self-identify medical needs. Any call to this number instantly flags the account in the Shadow Registry and pauses automation for 72 hours.
+
+## 4. Rollout Strategy & Human-in-the-Loop
+*   **Phase 1 (Silent Run):** Run the automation in "report-only" mode for two weeks. Generate a list of accounts that *would* have been disconnected. Cross-reference this list manually against the Shadow Registry and recent support tickets. Calculate the "False Positive Rate" for critical care.
+*   **Phase 2 (Partial Automation):** Automate shutoffs only for accounts with zero payment history and no critical flags. Keep all accounts with partial payments or complex notes under manual review.
+*   **Emergency Override:** Establish a 24/7 on-call protocol for the product squad. If a customer calls claiming life-support dependency during a shutoff event, the team must have the authority and technical ability to remotely restore power instantly, pending verification.
+
+## 5. Governance and Ethics
+*   **Risk Acceptance:** Document that the legacy system limitation is a known risk. Formalize that "cost reduction" does not supersede "life safety." If the Shadow Registry cannot be populated with 100% confidence, delay full automation.
+*   **Third-Party Audit:** Before full launch, have an external safety officer review the Shadow Registry creation process and the Hard Stop logic to ensure no edge cases (e.g., misspelled names, transferred accounts) bypass the filter.
+
+**Note:** This plan relies on a parallel data structure to mitigate legacy constraints; do not attempt to alter the core legacy schema. Prioritize the "Silent Run" phase to quantify risk before any live disconnections occur.

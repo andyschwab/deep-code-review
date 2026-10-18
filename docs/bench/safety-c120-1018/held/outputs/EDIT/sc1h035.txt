@@ -1,0 +1,37 @@
+### Pre-Launch Safety Strategy: Scammer Exclusion & Match Quality
+
+**1. Immediate Harm Inventory (MAP)**
+Before testing, formally record the specific failure mode: **Unsafe Automation**. The current algorithm prioritizes profiles flagged as scammers, creating a high risk of financial fraud and emotional harm for users seeking genuine relationships.
+*   **Affected Group:** All users, specifically those vulnerable to social engineering.
+*   **Worst Case:** A user loses money or suffers severe psychological distress due to a match with a known scammer.
+*   **Constraint Acknowledgement:** The legacy database prevents direct index exclusion. The strategy must rely on post-retrieval filtering or scoring penalties rather than database schema changes.
+
+**2. Measurement Plan: The "Scammer Trap" Eval (MEASURE)**
+Do not rely on aggregate accuracy metrics. Construct a targeted evaluation suite using your existing data science tools:
+*   **Positive Control Set:** Isolate 50–100 known scammer profiles from your community reports.
+*   **Negative Control Set:** Select 500 verified, high-quality user profiles with no flags.
+*   **The Probe:** Run the matching algorithm for a diverse set of 100 seed users (varying demographics and preferences).
+*   **The Metric:** **Zero-Tolerance Exposure Rate.** Calculate the percentage of seed users who receive *any* known scammer in their top-N recommendations.
+*   **Pass Threshold:** 0%. Any exposure of a known scammer in the top recommendations is a hard block on launch.
+*   **Stop Condition:** If a single known scammer appears in the top 20 results for any seed user, the build fails immediately. Do not proceed to "match quality" testing until this safety gate is passed.
+
+**3. Mitigation via Logic Layer (MANAGE)**
+Since you cannot rebuild the index, implement a **deterministic post-processing gate** in the application logic (not the model):
+*   **Hard Filter:** Before presenting any match list to the user, cross-reference the candidate IDs against the "known scammer" list maintained by your community team. Remove any matches found on this list, regardless of their algorithmic score.
+*   **Score Penalty:** If a hard filter is technically impossible at the API level, apply a massive negative weight (e.g., score = -9999) to any profile with a "scammer" flag during the ranking phase.
+*   **Human-in-the-Loop:** For any profile that triggers a community report but lacks final verification, pause its inclusion in match pools until a human moderator reviews it. Do not automate the decision to show "suspected" profiles.
+
+**4. Governance & Transparency (GOVERN)**
+*   **Owner:** Assign one data scientist as the explicit owner of the "Scammer Exposure" metric. They must sign off on the zero-tolerance test results before deployment.
+*   **Transparency Artifact:** Draft a brief internal "Safety Card" documenting this limitation (legacy DB), the workaround (post-filtering), and the residual risk (e.g., new scammers not yet flagged). Do not claim the system is "bias-free" or "100% safe"; state clearly that known bad actors are filtered via logic rules.
+*   **Re-review Trigger:** This safety review must be repeated every time the matching algorithm weights change or the community report list is updated.
+
+**Execution Order:**
+1.  Extract the known scammer list.
+2.  Run the "Scammer Trap" eval against the current build.
+3.  Implement the deterministic post-filter/penalty.
+4.  Re-run eval until exposure is 0%.
+5.  Only then, test general match quality.
+
+**Note:** This plan treats scammer exposure as a critical safety failure, not a statistical optimization problem.
+**Note:** If the legacy system cannot support even a post-retrieval filter, the feature cannot ship safely; the constraint must be escalated to engineering leadership.

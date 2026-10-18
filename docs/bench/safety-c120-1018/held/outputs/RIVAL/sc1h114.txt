@@ -1,0 +1,43 @@
+# Testing Protocol: Sensor Drift and Alert Integrity
+
+**Objective:** Validate that the alert system triggers alarms despite simulated sensor drift, ensuring no false negatives occur under degraded hardware conditions.
+
+**Phase 1: Baseline Calibration & Threshold Mapping**
+Before simulating drift, establish the ground truth.
+1.  **Define Critical Thresholds:** Document the exact gas concentration levels (e.g., ppm) that must trigger an alarm according to safety regulations.
+2.  **Map Compensation Logic:** Identify the specific software algorithms currently used to correct for known sensor variances.
+3.  **Establish Baseline:** Run the system with "perfect" sensor inputs to confirm alarms trigger immediately at defined thresholds. This is your control group.
+
+**Phase 2: Drift Scenario Simulation**
+Since physical hardware cannot be replaced, inject synthetic data streams that mimic the behavior of aging sensors. Do not rely solely on live hardware for this phase; use a data injection harness to feed the AI precise, repeatable drift patterns.
+
+*   **Scenario A: Linear Offset Drift**
+    *   *Simulation:* Systematically subtract a fixed value (e.g., 5%, 10%, 20%) from all sensor readings.
+    *   *Goal:* Determine the point at which the software compensation fails to add the value back, causing a real gas spike to appear below the alarm threshold.
+*   **Scenario B: Sensitivity Decay (Slope Error)**
+    *   *Simulation:* Compress the dynamic range of input data. A real spike of 100 units is reported as only 80 or 60 units.
+    *   *Goal:* Test if the AI interprets rapid rises as "normal fluctuation" because the rate-of-change appears dampened.
+*   **Scenario C: Baseline Creep**
+    *   *Simulation:* Gradually increase the "zero" reading over a simulated 30-day period, then introduce a gas event.
+    *   *Goal:* Verify the system re-calibrates correctly and does not treat the new high baseline as "normal," thereby masking the relative increase of a leak.
+*   **Scenario D: Noise Injection**
+    *   *Simulation:* Add high-frequency noise to the signal to mimic failing hardware components.
+    *   *Goal:* Ensure the filtering logic does not smooth out a genuine sharp spike along with the noise.
+
+**Phase 3: Execution & Measurement**
+Run each scenario against the current software build using the six-engineer team to monitor results in shifts.
+1.  **Input:** Feed the synthetic drift data combined with sudden, realistic gas spike events.
+2.  **Observation:** Record the time delta between the *actual* simulated spike and the *system* alarm trigger.
+3.  **Failure Criteria:** Any instance where the alarm is delayed by more than 2 seconds or fails to trigger entirely constitutes a critical failure.
+4.  **Compensation Stress Test:** Incrementally increase the drift magnitude until the system fails. Document the "breaking point" percentage of drift.
+
+**Phase 4: Decision Matrix**
+Compare the "breaking point" against the expected drift rates of your legacy hardware.
+*   **Pass:** The system's breaking point is significantly higher (e.g., 2x) than the maximum expected hardware drift over the sensor's lifecycle.
+*   **Conditional Pass:** The system holds within expected drift limits but fails under extreme stress. Proceed only with a reduced maintenance interval for sensor recalibration.
+*   **Fail:** The system misses alerts within the expected operational drift range. The launch must be delayed, or a hard-coded redundant threshold must be implemented immediately.
+
+**Deliverable:** A signed report detailing the maximum tolerable drift percentage before alert failure, with a specific recommendation on whether the current software compensation is sufficient for the legacy hardware's known degradation profile.
+
+*Note: This protocol relies on data injection; ensure the injection mechanism itself is verified to avoid testing errors.*
+*Immediate manual override procedures must be drafted in parallel in case the software compensation proves insufficient.*

@@ -1,0 +1,43 @@
+### Pre-Launch Review Plan: Employment Verification Edge Cases
+
+**1. Harm Inventory & Scope**
+The primary risk is **false negative eligibility** (valid workers marked ineligible) due to irregular income patterns common among gig workers and freelancers. The worst-case scenario is a qualified applicant being denied essential government funds with no immediate recourse, given the rigid API contract. Secondary risks include **bias against specific gig sectors** (e.g., ride-share vs. freelance creative) and **over-reliance** on the automated score without human review.
+
+**2. Measurement Strategy: Edge Case Probes**
+Construct a test suite where each row targets a specific failure mode with a known outcome (positive/negative control). Do not rely on aggregate accuracy; measure performance by income volatility segments.
+
+*   **Probe Set A: Income Volatility Spikes**
+    *   *Input:* Applicants with 3 months of high income followed by 2 months of zero income (common in seasonal gig work).
+    *   *Positive Control:* Applicant meets rolling average criteria despite gaps.
+    *   *Negative Control:* Applicant fails due to insufficient total volume.
+    *   *Metric:* False Rejection Rate for volatile earners.
+    *   *Stop Condition:* If false rejections exceed 0% for verified valid cases, block launch.
+
+*   **Probe Set B: Multi-Platform Aggregation**
+    *   *Input:* Applicants splitting income across 3+ platforms, each below the threshold individually but sufficient combined.
+    *   *Positive Control:* Combined income verifies eligibility.
+    *   *Negative Control:* Single-platform view results in rejection.
+    *   *Metric:* Aggregation failure rate.
+    *   *Stop Condition:* Any failure to aggregate verified income sources triggers a rollback.
+
+*   **Probe Set C: Non-Standard Documentation**
+    *   *Input:* Freelancers using invoices/bank transfers instead of W-2s/1099s.
+    *   *Positive Control:* Alternative docs correctly parsed and accepted.
+    *   *Negative Control:* System rejects due to missing standard forms.
+    *   *Metric:* Document type rejection bias.
+
+*   **Probe Set D: Adversarial & Injection Checks**
+    *   *Input:* Malformed data fields or edge-case characters in employer names to test parsing robustness.
+    *   *Metric:* System crash or default-to-deny rate.
+
+**3. Risk Management & Governance**
+*   **Human-in-the-Loop Constraint:** Since the API contract forbids manual overrides *after* generation, the human gate must occur **pre-generation** for any case flagged as "borderline" or "low confidence" by your internal system. Do not send uncertain cases to the government API.
+*   **Uncertainty Reporting:** Internally, classify decisions as "Confirmed," "Corroborated," or "Unverified." Never output a raw confidence percentage (e.g., "87%") to stakeholders; use defined tiers. If a case falls into "Unverified," route to manual review before API submission.
+*   **Transparency Artifact:** Draft a **Model Card** detailing intended use (gig/freelance verification), known limitations (specific income patterns not covered), and subgroup performance metrics. Mark any unmeasured metric as `UNVERIFIED`.
+*   **Ownership:** Assign a specific owner to review any failure in the probe sets. Re-review is mandatory if the income data schema or government rules change.
+
+**4. Critical Constraint Warning**
+The rigid "no manual override" API contract creates a single point of failure for false negatives. If the testing reveals any non-zero rate of false rejections for valid workers, the only safe path is to implement an internal "hold" queue for ambiguous cases rather than sending them to the API. Shipping with known false negatives in a high-stakes benefits context is a critical safety failure.
+
+*Note: Legal requirements for automated decision disclosures in employment/benefits contexts must be routed to counsel; this plan addresses technical safety only.*
+*Do not fabricate accuracy rates; report residual risk based strictly on the probe results above.*

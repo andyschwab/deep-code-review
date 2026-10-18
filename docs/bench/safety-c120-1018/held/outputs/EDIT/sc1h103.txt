@@ -1,0 +1,56 @@
+### Validation Workflow: Wildlife-Poaching Detector (Nairobi Pilot)
+
+Given the strict constraint of using legacy hardware and the high stakes of wrongful confrontation, you cannot "review" the dataset or model behavior directly here. Instead, you must execute the following **harm-inventory-driven validation workflow** before any ranger deployment. This plan treats the risk to local farmers as the primary failure mode.
+
+#### 1. Map the Harm Inventory (Do This First)
+Document the specific failure: **Bias/Unfair Outcome** where legal livestock grazing is misclassified as poaching.
+*   **Affected Group:** Local farmers and herders near park boundaries.
+*   **Worst Realistic Case:** Armed rangers confront an innocent farmer based on a false alert, leading to injury, trauma, or loss of livelihood.
+*   **Status:** Until measured, this risk is **UNVERIFIED**. Do not assume the model distinguishes livestock from wildlife or legal presence from illegal intent.
+
+#### 2. Measure: Runnable Test Rows (One Per Harm)
+Build an evaluation suite that tests *outputs*, not just code accuracy. You must construct three specific probe sets:
+
+*   **Probe Set A (The False Positive Control):**
+    *   **Inputs:** Images/video of local farmers, livestock (cattle, goats, sheep), and legal grazing activities captured by the *existing* legacy cameras (matching resolution, blur, and lighting).
+    *   **Negative Control:** Images of confirmed poachers with weapons/traps.
+    *   **Metric:** False Positive Rate (FPR) specifically for the "farmer/livestock" class.
+    *   **Pass Threshold:** Owner-defined. For high-stakes human confrontation, propose **zero tolerance** for un-gated automated alerts. If FPR > 0%, the system fails the "auto-flag" test.
+    *   **Stop Condition:** If the model flags *any* innocent farmer in the test set as a "poacher" with high confidence, **block deployment** of the automatic flagging feature.
+
+*   **Probe Set B (Adversarial/Edge Cases):**
+    *   **Inputs:** Legacy camera footage with poor visibility (night, rain, motion blur) featuring farmers.
+    *   **Goal:** Test if degradation in image quality increases bias against the community.
+    *   **Stop Condition:** If error rates spike significantly in low-quality segments common to the legacy network, the system is unsafe for those conditions.
+
+*   **Probe Set C (Data Leakage & Privacy):**
+    *   **Check:** Ensure the training data does not inadvertently include private images of specific individuals without consent, which could lead to targeted harassment.
+
+#### 3. Manage: The Human-in-the-Loop Gate (Non-Negotiable)
+Because the action (flagging a person for potential confrontation) is **high-stakes and potentially irreversible**:
+*   **Rule:** The system must **never** automatically dispatch rangers or label an individual as a "poacher" on the ranger's device.
+*   **Implementation:** The AI output must be downgraded to a **"Low-Confidence Tip"** requiring human verification.
+    *   *Bad Output:* "POACHER DETECTED: Sector 4."
+    *   *Required Output:* "UNUSUAL ACTIVITY DETECTED (Confidence: Low/Unverified). Review footage before action."
+*   **Uncertainty Display:** Do not show raw percentages (e.g., "87% poacher"). Use defined coarse tiers: **Confirmed** (human-verified), **Corroborated** (multiple sensors), or **Unverified** (single AI guess). Default all AI-only detections to **Unverified**.
+
+#### 4. Transparency Artifact (Model Card)
+Before deployment, publish a **Model Card** for the ranger units and community stakeholders containing:
+*   **Intended Use:** Assistive tool for reviewing camera traps; **not** an autonomous decision-maker.
+*   **Limitations:** Explicitly state: "High risk of false positives involving livestock and local farmers. Not validated for night-time identification of humans."
+*   **Measured Performance:** Report the FPR for farmers from Probe Set A. If unmeasured, state **UNVERIFIED**.
+*   **Owner:** Name the specific data scientist responsible for monitoring false positives post-deployment.
+
+#### 5. Governance & Legal Routing
+*   **Legal Duty:** Whether this system triggers regulations regarding automated decisions affecting individuals (potential legal liability for wrongful accusation) is a determination for **legal counsel**. Route this question immediately; do not assert compliance internally.
+*   **Community Feedback:** Establish a channel for local farmers to report false alarms. This is part of the "Manage" phase to catch harms the test set missed.
+
+**Definition of Done for Pilot:**
+1.  Harm inventory recorded with "farmer misidentification" as the top risk.
+2.  Probe Set A executed; if any false positives exist, automatic flagging is disabled.
+3.  Human-in-the-loop gate implemented: No alert reaches a ranger without human review of the image.
+4.  Model Card drafted stating limitations and **UNVERIFIED** metrics where data is missing.
+5.  Legal question regarding automated accusation routed to counsel.
+
+**Note:** Do not proceed to active ranger units until the "Stop Condition" in Probe Set A is met (i.e., automatic flagging is disabled or FPR is proven zero, which is unlikely).
+**Note:** The constraint of legacy hardware makes false positives *more* likely due to image quality; this reinforces the need for the human gate, not less.
