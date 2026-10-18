@@ -1,0 +1,38 @@
+**Decision:** Proceed with a "Parallel Run + Shadow Read" migration strategy, deferring the final cutover until a 100% row-count and hash-match verification is achieved in a sandbox mirror. The single number this rests on is **zero discrepancy** between the legacy export and the new system's import log during the dry run.
+
+**Figures:** 300 drivers × ~20 shifts/driver = 6,000 shift records. Stated deadline: February 20th. If the conversion script processes 6,000 records and the new system acknowledges 5,999 or 6,001, the migration halts. Any mismatch >0 triggers the fallback.
+
+**Workflow Sequence:**
+1.  **Extraction & Sanitization (IT Lead):** Export legacy data to a secure staging zone. No live system contact.
+2.  **Conversion Dry-Run (IT Lead):** Run the custom script against the staging data. Generate a "pre-import" manifest.
+3.  **Sandbox Ingestion (IT Lead):** Load the manifest into a full clone of the new production environment (sandbox).
+4.  **Shadow Verification (Joint):** Compare the sandbox state against the legacy export. This is the gate.
+5.  **Parallel Operation (Pilot):** Run 10 drivers on the new system alongside the old for 48 hours (if timeline permits before Feb 20).
+6.  **Live Cutover (CEO Approval):** Only executed after Step 4 passes.
+
+**Contingency Plans Requiring CEO Approval:**
+*   **The "Hard Rollback" Trigger:** If post-cutover errors exceed 0.5% of shifts within the first 4 hours, we immediately revert to the legacy database backup. You must authorize the downtime window required for this revert.
+*   **The "Manual Bridge" Protocol:** If the new system accepts data but fails to display it correctly, you must approve the deployment of a temporary read-only dashboard fed directly by the legacy DB to ensure drivers can see shifts while the new system is patched.
+
+**Validation Steps Managed by IT Lead:**
+*   Writing and unit-testing the conversion script.
+*   Executing the sandbox load and generating the discrepancy report.
+*   Performing referential integrity checks (ensuring every shift links to a valid driver ID and vehicle type).
+*   Running the "double-entry" reconciliation (automated script comparing source vs. destination totals).
+
+**First Specific Verification Task:**
+Before touching the live environment, you must perform a **Row-Level Hash Comparison on the "Shift Window"**.
+*   **Action:** Take the legacy export of the 6,000 shifts. Sort by Driver ID and Start Time. Generate a SHA-256 hash of this sorted list.
+*   **Action:** Load the converted data into the sandbox. Export it back out in the *exact same* sorted order. Generate a SHA-256 hash.
+*   **Pass Condition:** The two hashes must be identical.
+*   **Fail Condition:** Any difference indicates a mapping error, time-zone shift, or dropped record. Do not proceed to step 5 if these do not match.
+
+**Halt Trigger:** If the Shadow Verification (Step 4) reveals >0 missing or duplicated shifts, halt immediately. Date: February 18th (48h buffer). Action: Revert to legacy system, engage manual scheduling for 48h, and debug script.
+
+**Fallback Trigger:** If live system latency exceeds 5 seconds per query during the first 2 hours of Feb 20th. Date: February 20th, 08:00 AM. Action: Activate "Manual Bridge" protocol and pause new assignments in the new system.
+
+**Assumption Re-base:** You stated the migration *must* be complete by Feb 20th. If the Hash Comparison fails on Feb 18th, the realistic date slides to Feb 22nd to allow for script remediation and re-verification. Operating on the 20th with unverified data guarantees service collapse. The gap is 2 days of buffer vs. 0 days of risk tolerance.
+
+**Sign-offs:**
+*   **CEO:** Contingency activation, Final Cutover authorization.
+*   **IT Lead:** Script integrity, Sandbox verification report, Hash match confirmation.

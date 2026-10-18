@@ -1,0 +1,39 @@
+**Decision:** Proceed with a "Encrypt-Then-Verify-Before-Overwrite" workflow, deferring the final legacy file deletion until Monday 9:00 AM validation is complete. The single governing constraint is the 8-hour window; if pre-migration verification of the encryption script exceeds 2 hours, the plan fails and must be escalated immediately.
+
+**Figures:**
+*   **Total Records:** 50,000 records.
+*   **Time Window:** 8 hours (Thursday night).
+*   **Throughput Required:** 6,250 records/hour (approx. 1.7 records/second) to finish in 8 hours.
+*   **Availability Target:** 99.9% (allows max 50 records inaccessible); plan must target 100% to ensure safety margin.
+*   **Risk Window:** Zero tolerance for partial encryption; if the script crashes mid-batch, unencrypted legacy data becomes unreadable.
+
+**Workflow Design**
+
+**Phase 1: Pre-Flight Validation (Thursday 12:00 PM – 4:00 PM)**
+*   **Technical Execution:** Run the encryption script on a 1% sample (500 records) in a staging environment identical to production. Verify that encrypted files can be decrypted and read by the new exchange system.
+*   **Compliance Check:** Compliance officers sign off on the encryption standard (algorithm/key length) and the audit log format *before* the script touches production data.
+*   **Gate:** No production access until the 500-record sample is successfully decrypted and ingested.
+
+**Phase 2: The Maintenance Window (Thursday 10:00 PM – Friday 6:00 AM)**
+*   **Step A: Full Backup (Hour 1):** Create a raw, unencrypted binary copy of the 50,000 records to a separate, isolated secure storage. This is the "break glass" recovery point.
+*   **Step B: Batched Encryption & Transfer (Hours 2–7):**
+    *   Process data in batches of 5,000.
+    *   For each batch: Encrypt → Verify Decryption → Transfer to New Exchange → Confirm Receipt → *Then* mark legacy batch as "safe to archive."
+    *   **Crucial Logic:** Do not delete or overwrite the legacy source until the new system confirms successful ingestion of that specific batch.
+*   **Step C: Final Reconciliation (Hour 8):** Count records in the new system. Must equal 50,000.
+
+**Phase 3: Monday Morning Validation (Friday 8:00 AM – Monday 8:00 AM)**
+*   **Technical Execution:** Automated smoke tests on random patient histories.
+*   **Compliance Check:** Officers verify audit trails show complete chain of custody.
+*   **Final Action:** Only after Monday 9:00 AM confirmation do you authorize the deletion of the Thursday night raw backup.
+
+**Required Authorizations from You (Product Manager)**
+Before encryption begins, you must provide written authorization for:
+1.  **The "Stop-Loss" Trigger:** Explicit permission to halt the migration immediately if error rates exceed 0.1% in any batch, leaving the system in a hybrid state rather than risking data corruption.
+2.  **The Recovery Protocol:** Authorization to restore from the "raw binary backup" if the new exchange rejects the encrypted data, accepting a delay in go-live to preserve data integrity.
+
+**Immediate Next Task for Lead Engineer**
+Create and execute the 500-record staging simulation *now*. Output must include: (a) time taken to encrypt/decrypt, (b) proof of successful ingestion into the new exchange, and (c) a line-by-line log of the process. Do not touch production data until this log is reviewed by both compliance officers.
+
+**Halt Trigger:** If the staging simulation takes longer than 15 minutes for 500 records (projecting >4 hours for full load), halt and re-architect the batching strategy.
+**Fallback Trigger:** If >5 records fail decryption in the staging sample, revert to manual review of the encryption library; do not proceed to backup.

@@ -1,0 +1,28 @@
+**Decision:** Proceed with a **phased validation and gated rollout** rather than an immediate full deployment. The irreversible deletion of heuristic rules creates a single point of failure that outweighs the benefit of speed. We will validate data chunks sequentially, assign monitoring to junior staff, and establish a hard halt trigger before touching the live dashboard.
+
+**Figures:** 120,000 visits / 36 months = ~3,333 visits/month. 6 hours available / 5 scientists = 30 scientist-hours total. If processing 1 month of data takes >15 minutes per scientist, the 6-hour window is insufficient for full re-training and validation.
+
+**1. Order of Data Chunk Validation**
+Validate chronologically backwards from the present to ensure recent trends are captured first, as emergency department dynamics shift rapidly.
+*   **Step A:** Process the most recent 3 months (high relevance for current 48h forecasts).
+*   **Step B:** Process the prior 9 months (seasonal adjustment).
+*   **Step C:** Process the remaining 24 months (long-term baselines).
+*   *Constraint:* If Step A reveals data drift >5% compared to the heuristic baseline, stop training immediately. Do not proceed to Steps B or C until the drift is explained.
+
+**2. Monitoring Tasks for Junior Staff**
+Hand off all **observational and logging tasks** to the five data scientists. They must not touch deployment switches.
+*   **Task:** Monitor input data distribution for each chunk (mean, variance, null rates) against the training set statistics.
+*   **Task:** Log prediction latency per batch to ensure the memory-cap chunking does not introduce unacceptable delays for the 48h window.
+*   **Task:** Generate a "shadow mode" report comparing the new model's output against the old heuristic rules for the most recent 48 hours of *past* data.
+*   *Restriction:* Juniors report anomalies; they do not interpret them or authorize progression.
+
+**3. Error Rate Threshold for Halt**
+The rollout halts automatically if the new model's Mean Absolute Error (MAE) on the shadow mode test (recent 48h historical data) exceeds the current heuristic's MAE by **more than 8%**.
+*   **Rationale:** An 8% degradation in bed availability prediction directly correlates to increased patient wait times and triage bottlenecks.
+*   **Action:** If this threshold is breached, the deployment script locks. Your personal decision is required to either: (a) revert to heuristics (if still possible before deletion), (b) extend the timeline for model re-tuning, or (c) accept the risk with a manual override.
+
+**4. First Action: Baseline Current Performance**
+**Run a shadow simulation immediately.** Before processing any new chunks or updating the dashboard, execute the *current* heuristic rules on the last 48 hours of actual patient arrival and discharge data. Record the exact number of "bed availability mismatches" (predicted available vs. actual occupied) for this period. This single number is your baseline; the new model must beat it in the shadow test before going live.
+
+**Halt Trigger:** Shadow mode MAE > (Heuristic MAE × 1.08). Date: Immediate (pre-deployment). Action: Lock deployment pipeline, notify owner.
+**Fallback Trigger:** Memory error rate > 2% during chunk processing. Date: Within the 6-hour window. Action: Switch to single-threaded processing for critical recent data only, defer historical re-training.

@@ -1,0 +1,28 @@
+**Decision:** Prioritize writing and dry-running the validation scripts before simulating the failover procedure. You cannot verify a failover if you cannot mathematically prove the data integrity of the target system first; without cent-perfect reconciliation, the failover simulation is a dress rehearsal for a crash.
+
+**Order of Operations:**
+
+1.  **Schema Lock & Baseline Snapshot (T-minus 48 hours):** Freeze all non-essential writes. Capture a read-only snapshot of the legacy ledger at a precise timestamp. This is your immutable source of truth.
+2.  **Validation Script Execution (T-minus 36 hours):** Run your validation suite against the snapshot and the initial Prism load. Do not proceed unless the script returns a binary "PASS" on total balance, account-level parity, and transaction count.
+3.  **Controlled Failover Simulation (T-minus 24 hours):** With validated data, simulate the traffic switch in a staging environment mirroring production load. Measure the latency of the switchover and the time-to-detect for any discrepancy.
+4.  **Final Rehearsal & Rollback Drill (T-minus 12 hours):** Execute the full cutover sequence including the "abort" command. Verify that rolling back preserves the last six hours of transaction history without schema corruption.
+5.  **Execution Window (Saturday 02:00 – Sunday 06:00):**
+    *   **02:00:** Initiate write-quiesce on Legacy.
+    *   **02:30:** Final delta sync to Prism.
+    *   **03:00:** **Checkpoint 1:** Run live validation scripts. *Stop here if any mismatch > $0.00.*
+    *   **04:00:** **Checkpoint 2:** Manual sign-off on reconciliation report.
+    *   **04:15:** Switch DNS/Traffic to Prism.
+    *   **05:00:** **Checkpoint 3:** Verify first 1,000 live transactions on Prism.
+    *   **06:00:** Hard deadline to declare success or initiate rollback.
+
+**Owner Verification Checkpoints:**
+You must personally verify three specific gates before authorizing the next step:
+1.  **The Baseline Hash:** Confirm the cryptographic hash of the legacy snapshot matches the pre-migration audit log.
+2.  **The Reconciliation Report:** Physically sign off on the script output showing zero variance between Legacy and Prism totals down to the cent.
+3.  **The Rollback Integrity:** Verify the test result proving that a rollback at T+4 hours restores the schema without losing the final six hours of transaction logs.
+
+**Single Most Important Action Right Now:**
+Immediately isolate and script the "Reconciliation Logic" as a standalone, immutable binary. Do not embed this logic within your migration tooling; it must be an independent auditor that reads from both systems and compares them. If this script is flawed, slow, or coupled to the migration code, you will be blind during the critical window. Write this script today, test it against known bad data to ensure it fails loudly, and lock its version. Everything else depends on your ability to trust this single source of truth.
+
+*Note: Ensure your database administrators have pre-written, tested SQL rollback statements ready in a separate, read-only document accessible even if the primary admin console is locked during the switch.*
+*Do not attempt to optimize the migration speed until the validation script has passed three consecutive dry runs with zero errors.*
