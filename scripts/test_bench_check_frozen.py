@@ -52,6 +52,23 @@ def test_edited_frozen_file_fails(tmp):
     assert code == 1 and "driver.py changed after the freeze" in out, out
 
 
+def test_amendment_supersedes_only_with_a_ledger_event(tmp):
+    d, B, B2 = tmp / "bench", b"print(1)\n", b"print(2)  # amended\n"
+    freeze(d, {"driver.py": B})
+    (d / "driver.py").write_bytes(B2)
+    with open(d / "SHA256-frozen.txt", "a") as f:
+        f.write(f"{sha(B2)}  driver.py\n")  # re-listed below the frozen line
+    code, out = run(d)
+    assert code == 1 and "not in any later ledger event" in out, out  # an undisclosed re-list fails
+    with open(d / "ledger.jsonl", "a") as f:
+        f.write(json.dumps({"event": "amended", "driver": sha(B2), "ts": 3}) + "\n")
+    code, out = run(d)
+    assert code == 0 and "clean" in out, out  # the last line for a path is the one checked
+    (d / "driver.py").write_bytes(b"print(3)\n")
+    code, out = run(d)
+    assert code == 1 and "driver.py changed after the freeze" in out, out
+
+
 def test_missing_frozen_file_fails(tmp):
     d = tmp / "bench"
     freeze(d, {"driver.py": b"print(1)\n"})  # listed, never written
@@ -267,7 +284,8 @@ def test_changed_catches_rename_and_space_paths(tmp):
     assert code == 1 and "my driver.py touched after the freeze" in out, out
 
 
-TESTS = [test_changed_catches_rename_and_space_paths, test_untouched_passes, test_edited_frozen_file_fails, test_missing_frozen_file_fails,
+TESTS = [test_changed_catches_rename_and_space_paths, test_untouched_passes, test_edited_frozen_file_fails, test_amendment_supersedes_only_with_a_ledger_event,
+         test_missing_frozen_file_fails,
          test_malformed_line_fails, test_root_relative_entry, test_landed_bench_frozen_inputs_immutable,
          test_outside_and_unreadable_paths_fail_closed]
 

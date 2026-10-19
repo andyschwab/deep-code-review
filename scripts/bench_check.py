@@ -26,7 +26,9 @@ Fails (exit 1, one line per problem) when a bench dir:
      scenarios) the bench's own tune scenarios, by more than --max-overlap (default 0.2). --allow FILE (default DIR/overlap-allow.txt) lists
      template phrases, one per line, whose shingles are ignored;
   e. lists in SHA256-frozen.txt a file that is missing, or whose sha256 differs from its line's
-     hash, or a line that is not "<sha256>  <path>". A path resolves from the repo root first
+     hash, or a line that is not "<sha256>  <path>". A path listed again on a later line (a
+     disclosed amendment, which rule b makes name a later ledger event) is checked against its
+     last line only. A path resolves from the repo root first
      (the sha256sum -c convention in the bench READMEs), then from the bench dir. Enforced by
      main(), not check(), so check() reports rules a-d only.
 DIR/reuse-allow.txt (optional) lists outputs/ paths whose byte-identical reuse is
@@ -178,13 +180,15 @@ def frozen_errs(d):
         return []
     if not repo_file(f):
         return [f"{f}: resolves outside the repo or is not a file"]
-    out = []
-    for n, l in enumerate(repo_file(f).read_text(errors="replace").splitlines(), 1):
-        m = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](.+)", l)
+    out, ms = [], [re.fullmatch(r"([0-9a-fA-F]{64}) [ *](.+)", l) for l in repo_file(f).read_text(errors="replace").splitlines()]
+    last = {m.group(2): n for n, m in enumerate(ms, 1) if m}
+    for n, m in enumerate(ms, 1):
         if not m:
             out.append(f"{f}: line {n} is not '<sha256>  <path>'")
             continue
         p = m.group(2)
+        if last[p] != n:  # an amendment re-lists the path below; ledger_errs makes it name a later ledger event
+            continue
         hit = None if p.startswith("/") else next((c for c in in_repo(REPO / p, d / p) if c.is_file()), None)
         if hit is None:
             out.append(f"{f}: {p} is missing (tried the repo root and the bench dir)")
