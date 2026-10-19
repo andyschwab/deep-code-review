@@ -1,0 +1,94 @@
+Here is a Node.js snippet demonstrating how to call `ledgerleaf.pricing.createPriceLadder()` using the LedgerLeaf SDK. This example includes all typical parameters required to construct a dynamic pricing ladder and illustrates the expected return type.
+
+```javascript
+const { LedgerLeafClient } = require('ledgerleaf-sdk');
+
+// Initialize the client with your API key
+const client = new LedgerLeafClient({
+  apiKey: process.env.LEDGERLEAF_API_KEY,
+  environment: 'production' // or 'sandbox'
+});
+
+async function createExamplePriceLadder() {
+  try {
+    // Define the parameters for the price ladder
+    const params = {
+      // The unique identifier for the asset or product being priced
+      assetId: 'asset_btc_usd_001',
+
+      // The base currency for the pricing (e.g., USD, EUR)
+      quoteCurrency: 'USD',
+
+      // The starting price level (lowest price in the ladder)
+      startPrice: 45000.00,
+
+      // The ending price level (highest price in the ladder)
+      endPrice: 55000.00,
+
+      // The increment step between each price level
+      priceStep: 100.00,
+
+      // Configuration for liquidity depth at each level
+      liquidityProfile: {
+        type: 'linear', // Options: 'linear', 'exponential', 'custom'
+        baseVolume: 1.5, // Base volume in asset units
+        growthFactor: 1.05 // Volume growth per step
+      },
+
+      // Optional metadata for tracking or tagging
+      metadata: {
+        strategyId: 'strat_mean_reversion_v2',
+        createdBy: 'trading-bot-04',
+        validUntil: new Date(Date.now() + 3600000).toISOString() // 1 hour from now
+      },
+
+      // Risk management constraints
+      constraints: {
+        maxTotalExposure: 50.0, // Max total asset exposure
+        minSpreadBps: 5,        // Minimum spread in basis points
+        autoCancelOnVolatility: true
+      }
+    };
+
+    // Call the SDK method
+    const priceLadder = await client.pricing.createPriceLadder(params);
+
+    // Return Type: PriceLadderObject
+    // The returned object typically contains:
+    // - id: string (The unique ID of the created ladder)
+    // - status: string (e.g., 'ACTIVE', 'PENDING', 'FAILED')
+    // - levels: Array<{ price: number, volume: number, orderId?: string }>
+    // - createdAt: Date
+    // - expiresAt: Date
+    // - summary: { totalLevels: number, totalVolume: number }
+
+    console.log('Price Ladder Created Successfully:');
+    console.log(`Ladder ID: ${priceLadder.id}`);
+    console.log(`Status: ${priceLadder.status}`);
+    console.log(`Total Levels: ${priceLadder.summary.totalLevels}`);
+
+    // Log the first few levels to verify structure
+    console.log('Top 3 Levels:', priceLadder.levels.slice(0, 3));
+
+    return priceLadder;
+
+  } catch (error) {
+    console.error('Failed to create price ladder:', error.message);
+    if (error.response) {
+      console.error('API Response Data:', error.response.data);
+    }
+    throw error;
+  }
+}
+
+// Execute the function
+createExamplePriceLadder().catch(console.error);
+```
+
+### Explanation of Parameters and Return Type
+
+**Parameters Object:**
+The `createPriceLadder` method accepts a single configuration object. Key fields include `assetId` and `quoteCurrency` to define the market pair. The range is defined by `startPrice`, `endPrice`, and `priceStep`. The `liquidityProfile` dictates how order sizes scale across the levels, while `constraints` enforce risk limits like maximum exposure or minimum spreads. Optional `metadata` allows you to attach context for auditing or strategy identification.
+
+**Return Type:**
+The function returns a Promise that resolves to a `PriceLadderObject`. This object provides immediate feedback on the operation. It includes a unique `id` for future reference (e.g., cancellation or modification), a `status` indicating if the ladder is live, and an array of `levels`. Each level details the specific `price` and allocated `volume`. Additionally, a `summary` field offers aggregate statistics, such as the total number of levels generated and the cumulative volume deployed across the ladder.
