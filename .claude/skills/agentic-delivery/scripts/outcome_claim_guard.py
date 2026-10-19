@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""outcome_claim_guard.py — Stop + PreToolUse hook: no "fixed / faster / done" on delivery outcomes without a measurement.
+"""outcome_claim_guard.py — Stop + PreToolUse + UserPromptSubmit hook: no "fixed / faster / done" on delivery outcomes without a measurement.
 
 WHY: a coordinator called pipeline work "done" and "improved" at PR open, reported PRs merged and lanes spawned as
 progress, and the gate time it was tuning rose about fourfold while its own fixes waited in the same slow queue. A
@@ -23,12 +23,19 @@ Two modes, chosen by `hook_event_name` in the stdin JSON:
   the reason to Claude's context and lets it run. `create` reads the diff and commits with git (base `--base`/`-B`,
   else origin/HEAD) and the body like comms_guard.py does; `merge` reads one `gh pr view --json body,files,commits`.
 
+UserPromptSubmit closes the loop in `warn` mode: the Stop `systemMessage` reaches only the owner, so the Stop check also
+writes a one-claim note for the session (needs `session_id`) and the next UserPromptSubmit emits it once as
+`hookSpecificOutput.additionalContext` (the claim, what evidence is missing, "measure or hedge") and deletes it, so the model
+learns its claim was unmeasured. `block` mode writes no note (the model already got the reason). Notes live in
+$PERUN_OUTCOME_DIR, else <cache>/perun/outcome-claim (beside the ceo-altitude counters), one file per session_id.
+
 Mode: env PERUN_OUTCOME_GUARD=off|warn|block, else policy key `outcome_guard` (`perun_policy.py set outcome_guard
 block`), else DEFAULT_MODE. DEFAULT_MODE is `warn`: replaying the Stop check over a few hundred real coordinator replies, a
 hand-labelled sample showed well over 10% of flags landing on honest replies, so blocking by default would bounce them.
-Register as `python3 ".../outcome_claim_guard.py" || true` on Stop and on PreToolUse (Bash). Fail open: bad stdin, an
-unreadable policy, a git or gh failure or any error prints nothing and exits 0. Side effects: none beyond running
-read-only git/gh queries. Limits: a message-level hedge covers every claim in that message; regexes are English-only.
+Register as `python3 ".../outcome_claim_guard.py" || true` on Stop, UserPromptSubmit and PreToolUse (Bash). Fail open:
+bad stdin, an unreadable policy or note, a git or gh failure or any error prints nothing and exits 0. Side effects:
+read-only git/gh queries; in warn mode one small note file per session (written on Stop, deleted on the next
+UserPromptSubmit). Limits: a message-level hedge covers every claim in that message; regexes are English-only.
 Test: scripts/test_outcome_claim_guard.py.
 """
 import fnmatch
@@ -79,6 +86,22 @@ STOP_REASON = ("Unmeasured outcome claim: \"{snip}\". Give before -> after on an
 PR_REASON = ("This PR touches pipeline paths ({paths}) and carries {got}. Measure it: `pipeline_profile.py compare "
              "BEFORE.json AFTER.json --metric ...` and paste the verdict line into the PR body; only KEEP passes. "
              "Until then call it unmeasured, not faster or fixed.")
+NUDGE = ("Outcome check: your last reply claimed \"{snip}\" with no before -> after on an outcome metric tied to a "
+         "merged sha or PR. Measure it or hedge (\"opened, unmeasured\").")
+
+
+def note_path(data):
+    """The pending-note path for this event's session, or None without a session_id. Raises OSError with no absolute cache dir."""
+    sid = re.sub(r"[^A-Za-z0-9_-]", "", str(data.get("session_id") or ""))
+    if not sid:
+        return None
+    base = os.environ.get("PERUN_OUTCOME_DIR")
+    if not base:
+        cache = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+        if not os.path.isabs(cache):
+            raise OSError("no absolute cache dir: set HOME, XDG_CACHE_HOME or PERUN_OUTCOME_DIR")
+        base = os.path.join(cache, "perun", "outcome-claim")
+    return os.path.join(base, sid + ".json")
 
 
 def _sentences(text):
@@ -201,7 +224,30 @@ def handle(data, mode, globs):
         if not snip:
             return None
         reason = STOP_REASON.format(snip=snip)
-        return {"decision": "block", "reason": reason} if mode == "block" else {"systemMessage": reason}
+        if mode == "block":
+            return {"decision": "block", "reason": reason}
+        try:  # the owner-only systemMessage still goes out if the note cannot be written
+            path = note_path(data)
+            if path:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as f:
+                    json.dump({"claim": snip}, f)
+        except OSError:
+            pass
+        return {"systemMessage": reason}
+    if event == "UserPromptSubmit":
+        path = note_path(data)
+        if not path or not os.path.exists(path):
+            return None
+        try:
+            with open(path) as f:
+                claim = str(json.load(f).get("claim") or "")[:120]
+        except (OSError, ValueError, AttributeError):  # unreadable note: drop it, say nothing
+            claim = ""
+        os.remove(path)
+        if not claim:
+            return None
+        return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": NUDGE.format(snip=claim)}}
     cmd = (data.get("tool_input") or {}).get("command")
     if event != "PreToolUse" or data.get("tool_name") != "Bash" or not isinstance(cmd, str) or not GH_PR.search(cmd):
         return None
