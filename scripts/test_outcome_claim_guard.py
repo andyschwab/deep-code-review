@@ -232,10 +232,85 @@ class Contract(unittest.TestCase):
         self.assertEqual(subprocess.run([sys.executable, str(GUARD), "--selftest"], capture_output=True).returncode, 0)
 
 
+class NoteNudge(unittest.TestCase):
+    """warn-mode Stop leaves a per-session note; the next UserPromptSubmit hands it to the model once."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ocg-note-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        patch = mock.patch.dict(os.environ, {"PERUN_OUTCOME_DIR": self.tmp})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def stop(self, mode, text=MUST_FLAG[0], sid="s1"):
+        return ocg.handle({"hook_event_name": "Stop", "last_assistant_message": text, "session_id": sid},
+                          mode, ocg.DEFAULT_PATHS)
+
+    def prompt(self, sid="s1"):
+        return ocg.handle({"hook_event_name": "UserPromptSubmit", "prompt": "go on", "session_id": sid},
+                          "warn", ocg.DEFAULT_PATHS)
+
+    def test_warn_writes_note_then_injects_once_and_deletes_it(self):
+        self.assertIn("systemMessage", self.stop("warn"))
+        self.assertEqual(os.listdir(self.tmp), ["s1.json"])
+        out = self.prompt()["hookSpecificOutput"]
+        self.assertEqual(out["hookEventName"], "UserPromptSubmit")
+        for word in ("ends the risk", "before -> after", "Measure it or hedge"):
+            self.assertIn(word, out["additionalContext"])
+        self.assertLess(len(out["additionalContext"]), 400)
+        self.assertEqual(os.listdir(self.tmp), [])
+        self.assertIsNone(self.prompt(), "second prompt: nothing left to inject")
+
+    def test_notes_are_per_session(self):
+        self.stop("warn", sid="a")
+        self.assertIsNone(self.prompt("b"))
+        self.assertIsNotNone(self.prompt("a"))
+
+    def test_block_mode_and_compliant_replies_write_no_note(self):
+        self.stop("block")
+        self.stop("warn", text=MUST_PASS[0])
+        self.assertEqual(os.listdir(self.tmp), [])
+        self.assertIsNone(self.prompt())
+
+    def test_no_session_id_writes_and_injects_nothing(self):
+        ocg.handle({"hook_event_name": "Stop", "last_assistant_message": MUST_FLAG[0]}, "warn", ocg.DEFAULT_PATHS)
+        self.assertEqual(os.listdir(self.tmp), [])
+        self.assertIsNone(ocg.handle({"hook_event_name": "UserPromptSubmit"}, "warn", ocg.DEFAULT_PATHS))
+
+    def test_session_id_cannot_escape_the_state_dir(self):
+        self.stop("warn", sid="../../evil")
+        self.assertEqual(os.listdir(self.tmp), ["evil.json"])
+
+    def test_bad_note_is_dropped_silently(self):
+        for body in ("not json", "[]", "{}"):
+            Path(self.tmp, "s1.json").write_text(body)
+            self.assertIsNone(self.prompt(), body)
+            self.assertEqual(os.listdir(self.tmp), [], body)
+
+    def test_unwritable_state_dir_still_warns(self):
+        blocker = Path(self.tmp, "file")
+        blocker.write_text("x")
+        with mock.patch.dict(os.environ, {"PERUN_OUTCOME_DIR": str(blocker / "sub")}):
+            self.assertIn("systemMessage", self.stop("warn"))
+            self.assertIsNone(self.prompt())
+
+    def test_hook_process_roundtrip_and_fail_open_on_bad_stdin(self):
+        env = {**os.environ, "PERUN_OUTCOME_GUARD": "warn"}
+
+        def run(stdin):
+            return subprocess.run([sys.executable, str(GUARD)], capture_output=True, text=True, env=env, input=stdin)
+
+        run(json.dumps({"hook_event_name": "Stop", "last_assistant_message": MUST_FLAG[0], "session_id": "p1"}))
+        out = json.loads(run(json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "p1"})).stdout)
+        self.assertIn("additionalContext", out["hookSpecificOutput"])
+        bad = run('{"hook_event_name": "UserPromptSubmit", "session_id": 5')
+        self.assertEqual((bad.returncode, bad.stdout), (0, ""))
+
+
 class Wiring(unittest.TestCase):
-    def test_template_registers_stop_and_bash_pretooluse(self):
+    def test_template_registers_stop_prompt_and_bash_pretooluse(self):
         hooks = json.loads(TEMPLATE.read_text())["hooks"]
-        for ev in ("Stop", "PreToolUse"):
+        for ev in ("Stop", "PreToolUse", "UserPromptSubmit"):
             entries = [e for e in hooks[ev] if "outcome_claim_guard.py" in json.dumps(e)]
             self.assertEqual(len(entries), 1, ev)
             self.assertTrue(entries[0]["hooks"][0]["command"].endswith("|| true"))
@@ -257,13 +332,19 @@ class Wiring(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr[-2000:])
         hooks = json.loads((target / ".claude/settings.local.json").read_text())["hooks"]
         cmds = {ev: [h["command"] for e in hooks[ev] for h in e["hooks"] if "outcome_claim_guard.py" in h["command"]]
-                for ev in ("Stop", "PreToolUse")}
-        self.assertEqual({ev: len(c) for ev, c in cmds.items()}, {"Stop": 1, "PreToolUse": 1})
+                for ev in ("Stop", "PreToolUse", "UserPromptSubmit")}
+        self.assertEqual({ev: len(c) for ev, c in cmds.items()}, {"Stop": 1, "PreToolUse": 1, "UserPromptSubmit": 1})
         run_env = {**env, "CLAUDE_PROJECT_DIR": str(target)}
         fire = lambda stdin, **e: subprocess.run(["bash", "-c", cmds["Stop"][0]], input=stdin, capture_output=True,  # noqa: E731
                                                  text=True, env={**run_env, **e}, cwd=target).stdout
-        msg = json.dumps({"hook_event_name": "Stop", "last_assistant_message": MUST_FLAG[0], "cwd": str(target)})
-        self.assertIn("systemMessage", json.loads(fire(msg)), "installed default is warn")
+        msg = json.dumps({"hook_event_name": "Stop", "last_assistant_message": MUST_FLAG[0], "cwd": str(target),
+                          "session_id": "inst1"})
+        notes = {"PERUN_OUTCOME_DIR": str(tmp / "notes")}
+        self.assertIn("systemMessage", json.loads(fire(msg, **notes)), "installed default is warn")
+        ups = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "inst1", "cwd": str(target)})
+        sent = subprocess.run(["bash", "-c", cmds["UserPromptSubmit"][0]], input=ups, capture_output=True, text=True,
+                              env={**run_env, **notes}, cwd=target).stdout
+        self.assertIn("Measure it or hedge", json.loads(sent)["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(json.loads(fire(msg, PERUN_OUTCOME_GUARD="block"))["decision"], "block")
 
 
