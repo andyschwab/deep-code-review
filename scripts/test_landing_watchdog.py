@@ -271,12 +271,52 @@ class FailOpen(Base):
         self.assertEqual(lw.default_branch(str(self.repo)), "main")
 
 
+class Spawn(Base):
+    """PreToolUse Agent|Task: the same line reaches autonomous runs that spawn lanes without a user prompt."""
+
+    def run_hook(self, **data):
+        p = subprocess.run([sys.executable, str(SC / "landing_watchdog.py")], capture_output=True, text=True, cwd=self.repo,
+                           input=json.dumps({"hook_event_name": "PreToolUse", "cwd": str(self.repo), **data}), env=os.environ)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout
+
+    def test_spawn_emits_the_line_as_pretooluse_context(self):
+        for tool in ("Agent", "Task"):
+            with self.subTest(tool=tool):
+                out = json.loads(self.run_hook(tool_name=tool))["hookSpecificOutput"]
+                self.assertEqual(out["hookEventName"], "PreToolUse")
+                self.assertTrue(out["additionalContext"].startswith("Landing stalled: 0 merged to main in 60 min"))
+                self.assertNotIn("permissionDecision", out)
+
+    def test_subagent_spawn_is_silent(self):
+        self.assertEqual(self.run_hook(tool_name="Agent", agent_id="a1"), "")
+        self.assertEqual(self.gh_calls(), 0)
+
+    def test_other_tools_are_silent(self):
+        for tool in ("Bash", "Edit", "Read"):
+            self.assertEqual(self.run_hook(tool_name=tool), "")
+        self.assertEqual(self.gh_calls(), 0)
+
+    def test_off_mode_is_silent(self):
+        os.environ["PERUN_LANDING_WATCHDOG"] = "off"
+        self.assertEqual(self.run_hook(tool_name="Agent"), "")
+        self.assertEqual(self.gh_calls(), 0)
+
+    def test_prompt_and_spawn_share_one_throttled_probe(self):
+        t = time.time()
+        line = self.prompt(now=t)
+        self.assertEqual(lw.hook({"hook_event_name": "PreToolUse", "tool_name": "Agent", "cwd": str(self.repo)}, now=t + 60), line)
+        self.assertEqual(self.gh_calls(), 1)
+
+
 class Wiring(unittest.TestCase):
     def test_policy_doctor_and_template(self):
         self.assertIn("landing_watchdog.py", perun_doctor.HOOK_SCRIPTS)
         tpl = json.loads((ROOT / ".claude/skills/agentic-delivery/templates/operating-layer.settings.json").read_text())
         ups = [h["command"] for e in tpl["hooks"]["UserPromptSubmit"] for h in e["hooks"]]
         self.assertEqual(sum("landing_watchdog.py" in c for c in ups), 1)
+        spawn = [e for e in tpl["hooks"]["PreToolUse"] if "landing_watchdog.py" in json.dumps(e)]
+        self.assertEqual([e["matcher"] for e in spawn], ["Agent|Task"])
 
     @unittest.skipUnless(shutil.which("jq") and shutil.which("git"), "install.sh needs jq and git")
     def test_install_wires_the_hook_and_the_installed_hook_fires(self):

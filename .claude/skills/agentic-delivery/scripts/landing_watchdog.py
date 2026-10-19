@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""landing_watchdog.py — UserPromptSubmit hook (+ `check` CLI): flag a merge pipeline that has landed nothing while green PRs wait.
+"""landing_watchdog.py — UserPromptSubmit + PreToolUse(Agent|Task) hook (+ `check` CLI): flag a merge pipeline that has landed nothing while green PRs wait.
 
 WHY: a merge pipeline landed nothing for 40 minutes to about 4 hours while green PRs waited and the coordinator kept
 spawning new work, unnoticed. Output (new lanes, new PRs) kept growing; the one number that says work is reaching the
@@ -11,6 +11,10 @@ hold, UserPromptSubmit emits hookSpecificOutput.additionalContext, one line:
 "Landing stalled: 0 merged to <branch> in N min, K green PRs waiting. Fix landing before starting new work."
 A PR with no checks, a pending or failing check, or a draft is not green. Squash-merge and merge-commit workflows both
 land on the first-parent chain; a direct push counts as landing too.
+
+Autonomous runs that spawn lanes without a user prompt never reach UserPromptSubmit, so the same line is also emitted on
+PreToolUse for tool_name Agent or Task (hookEventName PreToolUse), main session only: an input with agent_id (a
+subagent's own spawn) stays silent. It only warns, never denies, and shares the verdict cache and throttle below.
 
 Throttle: the remote is asked (one `git fetch` of the default branch, one `gh pr list`) at most once per 15 minutes
 per repo; the verdict is cached and replayed on each prompt in between, so a standing stall keeps showing without a
@@ -115,10 +119,18 @@ def _stall(branch, merged, k, minutes):
     return LINE.format(b=branch, n=minutes, k=k) if merged == 0 and k else None
 
 
+def _event(data):
+    """The hook event to answer, or None: a user prompt, or a main-session Agent/Task spawn (a subagent's has agent_id)."""
+    ev = data.get("hook_event_name", "UserPromptSubmit")
+    if ev == "UserPromptSubmit" or (ev == "PreToolUse" and data.get("tool_name") in ("Agent", "Task") and not data.get("agent_id")):
+        return ev
+    return None
+
+
 def hook(data, now=None):
     """The additionalContext line for this prompt, or None. Network at most once per THROTTLE_S per repo."""
     mode, minutes = settings()
-    if mode == "off" or data.get("hook_event_name", "UserPromptSubmit") != "UserPromptSubmit":
+    if mode == "off" or not _event(data):
         return None
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     path, now = cache_file(cwd), now or time.time()
@@ -153,9 +165,10 @@ def main():
     if sys.argv[1:2] == ["check"]:
         return check(sys.argv[2:])
     try:
-        line = hook(json.load(sys.stdin))
+        data = json.load(sys.stdin)
+        line = hook(data)
         if line:
-            print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": line}}))
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": _event(data), "additionalContext": line}}))
     except Exception:  # fail open: a broken watchdog must never block a prompt
         pass
     return 0
