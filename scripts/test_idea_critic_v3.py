@@ -45,7 +45,8 @@ class Corpus(unittest.TestCase):
             self.assertFalse({u for c in old for u in c["source_urls"]} & urls, f)
 
     def test_no_source_page_cited_elsewhere_in_repo(self):
-        out = subprocess.run(["git", "grep", "-hIF", "https://en.wikipedia.org/wiki/", "--", ".", ":!" + str(N.relative_to(ROOT))],
+        out = subprocess.run(["git", "grep", "-hIF", "https://en.wikipedia.org/wiki/", "--", ".", ":!" + str(N.relative_to(ROOT)),
+                              ":!docs/bench/*/prior-v3-ids.json"],  # a later bench's disjointness record
                              cwd=ROOT, capture_output=True, text=True, check=True).stdout
         seen = {trim(u) for u in WIKI.findall(out)}
         self.assertIn("https://en.wikipedia.org/wiki/Microsoft_Kin", seen)  # the scan reaches the earlier corpora
