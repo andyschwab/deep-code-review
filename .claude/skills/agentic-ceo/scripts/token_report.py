@@ -932,7 +932,7 @@ def _r_mcp_unused(f):
     names = lambda k: {x for x in cfg[k] if isinstance(x, str)} if isinstance(cfg.get(k), list) else None
     live = set(f["mcp"]) - (names("disabledMcpjsonServers") or set())  # rejected in settings already
     if names("enabledMcpjsonServers") is not None and not cfg.get("enableAllProjectMcpServers"):
-        live &= names("enabledMcpjsonServers")  # only approved servers load; unknown approval = skip
+        live &= names("enabledMcpjsonServers")  # only approved servers load (a non-list value skips this filter)
     norm = {s: re.sub(r"[^A-Za-z0-9_-]", "_", s) for s in live}
     idle = sorted(s for s, n in norm.items() if n not in f["used"])
     if len(idle) >= ADV["mcp_unused"]:
