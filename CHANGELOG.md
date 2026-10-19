@@ -3,6 +3,14 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.598.0] — 2026-10-19
+
+### Added
+- Operating layer: `outcome_claim_guard.py` now tells the model, not only the owner, when its outcome claim was unmeasured. In `warn` mode the Stop check already sent the owner a `systemMessage` that the model never saw, so it repeated the claim. Stop now also writes a small per-session note (one file per `session_id` under `$PERUN_OUTCOME_DIR`, default `<cache>/perun/outcome-claim`), and a new UserPromptSubmit mode of the same script emits it once as `hookSpecificOutput.additionalContext` (the claim, the missing before and after on an outcome metric, "measure or hedge") and deletes it. `block` mode writes no note, and a missing `session_id` or unreadable state writes and injects nothing (fail open). Wired as a UserPromptSubmit entry in the operating-layer settings template. Tests: `scripts/test_outcome_claim_guard.py` (run in CI).
+
+### Added
+- `docs/bench/safety-rep-1018/`: preregistered no-tuning, no-edit replication of the shipped `product-output-safety` `SKILL.md` against the promptfoo redteam-setup rival (PCSS only, $0, GLM-5.1 judge v2 both orders, judged once, bootstrap 10,000 seed 1) on 300 fresh held-out scenarios. Win rate 0.568 [0.518, 0.618] (139 W / 63 T / 98 L), 0 errors, judge slot-1 rate 0.492. The preregistered rule (lower bound above 0.5) is met, narrowly (by 0.018); of four fresh looks at the same text, three clear 0.5 and `safety-c300-1018` (0.483) does not. `docs/perun-vs-rivals.md` now counts five confirmed wins (product-output-safety added, flagged narrow), four more not wins, and the roadmap counts follow. The README lists the fixture-writing workarounds (stale-cache restart, three-digit seed-id parser fallback, whole-batch rewrites, one hand-written seed) and two scenarios that sit 0.004 and 0.007 over the shingle ceiling against the corpus as it now stands.
+
 ## [1.597.0] — 2026-10-19
 
 ### Added
