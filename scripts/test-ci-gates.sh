@@ -627,6 +627,7 @@ gate "$GATES" size-ratchet --base "origin/main" --config "$ROOT/scripts/size-bud
 if [ "$GATE_RC" -eq 0 ]; then
   record 0 "size-ratchet: the real repo config drops no row for a file that still exists vs origin/main"
 else
+  sed 's/^/  /' "$WORK/last.log" >&2
   record 1 "size-ratchet: the real repo config drops no row for a file that still exists vs origin/main"
 fi
 
@@ -3972,6 +3973,15 @@ if python3 "$ROOT/scripts/test_agentic_review_default.py" >"$WORK/agentic-defaul
   record 0 "agentic default: /review, PR workflow and SKILL.md require repo access"
 else
   record 1 "agentic default: /review, PR workflow and SKILL.md require repo access"; tail -8 "$WORK/agentic-default.log"
+fi
+
+# Outcome-first verdict: own per-feature file (scripts/test_bench_verdict.py), plus the gate on the committed doc:
+# a Win row in docs/perun-vs-rivals.md must be labelled preference-only or name a cost figure and an outcome metric.
+if python3 "$ROOT/scripts/test_bench_verdict.py" >"$WORK/bench-verdict.log" 2>&1 \
+  && python3 "$ROOT/scripts/bench_verdict.py" --check-doc "$ROOT/docs/perun-vs-rivals.md" >>"$WORK/bench-verdict.log" 2>&1; then
+  record 0 "bench verdict: ladder tests pass; no Win row in perun-vs-rivals.md without cost figure and outcome metric"
+else
+  record 1 "bench verdict: ladder tests pass; no Win row in perun-vs-rivals.md without cost figure and outcome metric"; tail -8 "$WORK/bench-verdict.log"
 fi
 
 # must-load floor cut: own per-feature file (scripts/test-mustload-split.sh), one case here.
