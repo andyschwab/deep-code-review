@@ -73,7 +73,7 @@ class ClockLint(unittest.TestCase):
     def test_pre_push_hook_wired_warn_only(self):
         with open(os.path.join(ROOT, ".claude/skills/deep-code-review/templates/pre-push-verify.sh")) as fh:
             hook = fh.read()
-        self.assertIn('python3 "${clock_lint}" --base "${base_sha}" --head "${local_sha}" --deadline 5 >&2 || true', hook)
+        self.assertIn('python3 "${clock_lint}" --base "${base_sha}" --head "${local_sha}" --block-added --deadline 5 >&2 || cl_rc=$?', hook)
 
     def test_deadline_is_not_silent(self):
         p = self.put("test_d.py", "time.time()\n")

@@ -439,10 +439,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     python3 "${wired_check}" "${base_sha}" "${local_sha}" >&2 || true
   fi
 
-  # Warn-only: tests that read the real clock (red at the next week rollover); never fails the push.
+  # Tests that read the real clock (red at the next week rollover) or bet on timing under load: findings print
+  # as warnings; only exit 1 (a timing bet in a test file ADDED in this push range) blocks. Exit 2 never blocks.
   clock_lint=".claude/skills/agentic-delivery/scripts/clock_lint.py"
   if [ -f "${clock_lint}" ]; then
-    python3 "${clock_lint}" --base "${base_sha}" --head "${local_sha}" --deadline 5 >&2 || true
+    cl_rc=0
+    python3 "${clock_lint}" --base "${base_sha}" --head "${local_sha}" --block-added --deadline 5 >&2 || cl_rc=$?
+    if [ "${cl_rc}" -eq 1 ]; then
+      printf 'pre-push-verify: FAIL -- timing bet in a NEW test file (lines above). Fix: wait on an event/condition or inject the clock, or add a "clock-lint: allow" comment with the reason, then push again.\n' >&2
+      fail=1
+      continue
+    fi
   fi
 
   if is_blank "${DCR_PREPUSH_CMD:-}"; then

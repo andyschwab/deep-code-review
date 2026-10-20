@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""clock_lint.py [--base REF [--head REF]] [--root DIR] [--deadline SECS] [FILES...] | --selftest -- flag tests that read the real clock.
+"""clock_lint.py [--base REF [--head REF] [--block-added]] [--root DIR] [--deadline SECS] [FILES...] | --selftest -- flag tests that read the real clock.
 
 WHY: tests that read the real clock or timezone pass for weeks, then turn the development branch red at a
 week, month or DST rollover. Flagged reads: py `datetime/dt/timezone/arrow/pendulum .now/.utcnow/.today`,
@@ -20,12 +20,22 @@ Also (py/js, any file, test or not): `file:line: date literal compared with real
 date (`SUNSET = date(2026, 10, 14)`, `"2026-10-14"`) compared with a real-clock read on its line or via the constant it is
 assigned to; within 30 days of `--today` (default: real today) it is tagged `(URGENT: Nd)`, past it `(EXPIRED)`. These
 count toward the exit code only with `--strict`; a pinned fake clock anywhere in the file or the allow escape exempts.
+Also (py test files only, AST): `file:line: timing bet under load; ...` inside a `test_*` function (any function in a file
+under `tests/` of the repo-relative path) for `time.sleep(<number > 0>)` (also `from time import sleep`) followed later by an
+assert that is not in a sibling if/else branch, a run/call/check_call/check_output/communicate/wait/get call with
+`timeout=<number <= 5>`, or `assert <X> < (or <=) <number>` where X is a name/attribute/call matching
+elapsed|duration|latency|took|runtime|wall or an arithmetic expression using time/monotonic/perf_counter: wall-clock
+bets that flake on a busy runner. Same `clock-lint: allow` escape (on any line of a multi-line call). `--block-added`
+(needs `--base`) makes ONLY a timing bet in a file ADDED in base...head count toward exit 1; every other finding still
+prints but is a warning (exit 0), so one hook call blocks new files and only warns for old ones. A crash in this rule
+is COULD_NOT_CHECK (exit 2), never a finding.
 Output: `file:line: real clock in test; pin a fake clock or inject now`. Escape: `clock-lint: allow` in a comment
 on the same line or on a comment-only line above. Exit 0 clean, 1 findings, 2 COULD_NOT_CHECK (unreadable file,
 git failure or `--deadline` exceeded (checked per file; the pre-push hook passes 5); printed, never silent; 2 only when there are no findings).
 Limits: line regexes and indentation/keyword block detection, not a parser; a clock read built by string
 concatenation is not seen; a fake clock anywhere in a test block exempts that whole block. Read-only.
 """
+import ast
 import datetime
 import os
 import re
@@ -60,6 +70,10 @@ ISO = re.compile(r"(?<![\d-])(20\d\d)-(\d\d)-(\d\d)(?!\d)|\b(?:datetime|date)\(\
 NAME = re.compile(r"^\s*(?:export\s+)?(?:const\s+|let\s+|var\s+)?([A-Za-z_]\w*)\s*(?::[^=]+)?=(?!=)")
 CMP = re.compile(r"<=|>=|==|!=|(?<![-=])>|<|\b(?:isBefore|isAfter|isSameOrBefore|isSameOrAfter)\b")
 URGENT_DAYS = 30
+TMSG = "timing bet under load; wait on an event or inject the clock (or add `clock-lint: allow`)"
+ELAPSED = re.compile(r"elapsed|duration|latency|took|runtime|wall", re.I)
+WAITS = {"run", "call", "check_call", "check_output", "communicate", "wait", "get"}
+CLOCKS = {"time", "time_ns", "monotonic", "monotonic_ns", "perf_counter", "perf_counter_ns"}
 
 
 def code(lang, line, st):
@@ -158,26 +172,83 @@ def bombs(path, text, today):
     return sorted(out, key=lambda t: t[2])
 
 
-def files(root, base, head, args):
+def _num(n):
+    return isinstance(n, ast.Constant) and isinstance(n.value, (int, float)) and not isinstance(n.value, bool)
+
+
+def _excl(fn, a, b):
+    """True when a and b sit in opposite branches of one `if`, so a is never followed by b."""
+    for i in ast.walk(fn):
+        if isinstance(i, ast.If):
+            x, y = ({id(m) for s in br for m in ast.walk(s)} for br in (i.body, i.orelse))
+            if id(a) in x and id(b) in y or id(a) in y and id(b) in x:
+                return True
+    return False
+
+
+def timing(path, text):
+    """[line_no] of timing bets in py test functions (see the module docstring); `path` is repo-relative.
+    Raises SyntaxError on unparseable text."""
+    lines, tree = text.split("\n"), ast.parse(text)
+    mods, sleeps = {"time"}, set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            mods |= {a.asname for a in n.names if a.name == "time" and a.asname}
+        elif isinstance(n, ast.ImportFrom) and n.module == "time":
+            sleeps |= {a.asname or a.name for a in n.names if a.name == "sleep"}
+    is_sleep = lambda c: isinstance(c.func, ast.Attribute) and c.func.attr == "sleep" \
+        and isinstance(c.func.value, ast.Name) and c.func.value.id in mods or isinstance(c.func, ast.Name) and c.func.id in sleeps
+    is_clock = lambda c: isinstance(c, ast.Call) and getattr(c.func, "attr", getattr(c.func, "id", "")) in CLOCKS
+
+    def elapsed(e):
+        if isinstance(e, ast.BinOp):
+            return any(is_clock(c) for c in ast.walk(e))
+        e = e.func if isinstance(e, ast.Call) else e
+        return isinstance(e, (ast.Name, ast.Attribute)) and bool(ELAPSED.search(ast.unparse(e)))
+
+    in_tests = "tests" in path.replace(os.sep, "/").split("/")[:-1]
+    hits = {}
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or not (in_tests or fn.name.startswith("test_")):
+            continue
+        nodes = list(ast.walk(fn))
+        asserts = [n for n in nodes if isinstance(n, ast.Assert)
+                   or isinstance(n, ast.Call) and getattr(n.func, "attr", "").startswith("assert")]
+        for n in nodes:
+            if isinstance(n, ast.Call):
+                name = getattr(n.func, "attr", getattr(n.func, "id", ""))
+                if is_sleep(n) and n.args and _num(n.args[0]) and n.args[0].value > 0 and \
+                        any(a.lineno > n.lineno and not _excl(fn, n, a) for a in asserts) or \
+                        name in WAITS and any(k.arg == "timeout" and _num(k.value) and k.value.value <= 5 for k in n.keywords):
+                    hits[n.lineno] = n.end_lineno
+            elif isinstance(n, ast.Assert) and isinstance(n.test, ast.Compare) and len(n.test.ops) == 1 \
+                    and isinstance(n.test.ops[0], (ast.Lt, ast.LtE)) and _num(n.test.comparators[0]) and elapsed(n.test.left):
+                hits[n.lineno] = n.end_lineno
+    return sorted(a for a, b in hits.items() if not any(ALLOW in lines[j - 1] for j in range(a, b + 1))
+                  and not (a > 1 and ALLOW in lines[a - 2] and COMMENT.match(lines[a - 2])))
+
+
+def files(root, base, head, args, filt="AM"):
     if args:
         return args
     top = root
     if base:
         p = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
         top = p.stdout.strip() if not p.returncode else root
-    cmd = ["diff", "--name-only", "--diff-filter=AM", "%s...%s" % (base, head)] if base else ["ls-files"]
+    cmd = ["diff", "--name-only", "--diff-filter=" + filt, "%s...%s" % (base, head)] if base else ["ls-files"]
     p = subprocess.run(["git", "-C", root, *cmd], capture_output=True, text=True)
     if p.returncode:
         raise OSError("git %s failed: %s" % (cmd[0], p.stderr.strip()))
     return [os.path.join(top, f) for f in p.stdout.split("\n") if f]
 
 
-def run(root, base, args, head="HEAD", deadline=None, today=None, strict=False):
+def run(root, base, args, head="HEAD", deadline=None, today=None, strict=False, added=False):  # added = --block-added
     bad = cant = 0
     today = today or datetime.date.today()
     end = time.monotonic() + deadline if deadline is not None else None
     try:
         paths = files(root, base, head, args)
+        new = set(files(root, base, head, args, "A")) if added else ()
     except OSError as e:
         print("COULD_NOT_CHECK %s" % e)
         return 2
@@ -201,12 +272,22 @@ def run(root, base, args, head="HEAD", deadline=None, today=None, strict=False):
         for n, d, left in bombs(f, text, today):
             print("%s:%d: date literal compared with real clock; expires %s%s" % (
                 rel, n, d, " (URGENT: %dd)" % left if 0 <= left <= URGENT_DAYS else " (EXPIRED)" if left < 0 else ""))
-            bad += strict
+            bad += strict and not added
         if not is_test:
             continue
         for n, _ in scan(f, text):
             print("%s:%d: %s" % (rel, n, MSG))
-            bad += 1
+            bad += not added
+        if f.endswith(".py"):
+            try:  # fail open: a crash here is COULD_NOT_CHECK, never a finding that blocks a push
+                tb = timing(os.path.relpath(os.path.realpath(f), os.path.realpath(root)), text)
+            except Exception as e:
+                print("COULD_NOT_CHECK %s: %s" % (rel, e))
+                cant += 1
+                continue
+            for n in tb:
+                print("%s:%d: %s" % (rel, n, TMSG))
+            bad += len(tb) if f in new or not added else 0
     return 1 if bad else 2 if cant else 0
 
 
@@ -274,6 +355,32 @@ def selftest():
     for name, src, want in bomb:
         got = [(n, left) for n, _, left in bombs(name, src, t)]
         assert got == want, (name, src, got, want)
+    tm = [
+        ("test_t.py", "def test_x():\n    time.sleep(1)\n    assert ok()\n", [2]),
+        ("test_t.py", "def test_x():\n    time.sleep(1)\n    self.assertTrue(ok())\n", [2]),
+        ("test_t.py", "def test_x():\n    assert ok()\n    time.sleep(1)\n", []),  # sleep with no assert after it
+        ("test_t.py", "def test_x():\n    time.sleep(n)\n    assert ok()\n", []),  # not a literal
+        ("test_t.py", "def test_x():\n    subprocess.run(c, timeout=5)\n    p.communicate(timeout=0.5)\n", [2, 3]),
+        ("test_t.py", "def test_x():\n    subprocess.run(c, timeout=30)\n    p.wait(timeout=n)\n", []),
+        ("test_t.py", "def test_x():\n    assert elapsed < 2\n    assert r.duration <= 0.5\n    assert elapsed > 2\n", [2, 3]),
+        ("test_t.py", "def test_x():\n    assert count < 2\n", []),
+        ("test_t.py", "def helper():\n    time.sleep(1)\n    assert ok()\n", []),  # not a test function
+        ("tests/h.py", "def helper():\n    subprocess.run(c, timeout=1)\n", [2]),  # any function under tests/
+        ("test_t.py", "def test_x():\n    time.sleep(1)  # clock-lint: allow\n    assert ok()\n", []),
+        ("test_t.py", "def test_x():\n    # clock-lint: allow\n    assert elapsed < 2\n", []),
+        ("test_t.py", "def test_x():\n    sleep(1)\n    assert ok()\n", []),  # bare sleep not imported from time
+        ("test_t.py", "from time import sleep as s\ndef test_x():\n    s(1)\n    assert ok()\n", [3]),
+        ("test_t.py", "import time as t\ndef test_x():\n    t.sleep(1)\n    assert ok()\n", [3]),
+        ("test_t.py", "def test_x():\n    time.sleep(0)\n    assert ok()\n", []),
+        ("test_t.py", "def test_x():\n    await asyncio.sleep(1)\n    assert ok()\n", []),
+        ("test_t.py", "def test_x():\n    if c:\n        time.sleep(1)\n    else:\n        assert ok()\n", []),
+        ("test_t.py", "def test_x():\n    t0 = time.time()\n    assert time.time() - t0 < 2\n", [3]),
+        ("test_t.py", "def test_x():\n    assert timer.elapsed() < 2\n", [2]),
+        ("test_t.py", "def test_x():\n    q.get(timeout=1)\n", [2]),
+        ("test_t.py", "def test_x():\n    run(\n        c,  # clock-lint: allow\n        timeout=1)\n", []),
+    ]
+    for name, src, want in tm:
+        assert timing(name, src) == want, (name, src, timing(name, src), want)
     print("clock_lint selftest ok")
 
 
@@ -282,6 +389,9 @@ def main(argv):
         return selftest()
     root, base, head, deadline, today = ".", None, "HEAD", None, None
     strict = "--strict" in argv
+    added = "--block-added" in argv
+    if added:
+        argv.remove("--block-added")
     if strict:
         argv.remove("--strict")
     for opt in ("--root", "--base", "--head", "--deadline", "--today"):
@@ -301,7 +411,10 @@ def main(argv):
                     print("clock_lint: --today needs YYYY-MM-DD, got %r" % v, file=sys.stderr)
                     return 2
             else: head = v
-    return run(root, base, argv, head, deadline, today, strict)
+    if added and not base:
+        print("clock_lint: --block-added needs --base", file=sys.stderr)
+        return 2
+    return run(root, base, argv, head, deadline, today, strict, added)
 
 
 if __name__ == "__main__":
