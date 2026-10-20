@@ -308,16 +308,17 @@ def _flat(usage: dict) -> dict:
     }
 
 
-def extract_turns(entries: list) -> list:
+def extract_turns(entries: list, main: bool = False) -> list:
     """Dedupe multi-block turns (same requestId, keep max apiBlockIndex), sorted by timestamp.
 
-    A line with no usable requestId is its own singleton turn (degrade path).
+    A line with no usable requestId is its own singleton turn (degrade path). `main=True` (the main
+    transcript) skips sidechain lines; a lane transcript is all sidechain, so lanes keep the default.
     """
     grouped: dict = {}
     singleton_key = 0
     order: list = []
     for entry in entries:
-        if entry.get("type") != "assistant":
+        if entry.get("type") != "assistant" or (main and entry.get("isSidechain")):
             continue
         usage = (entry.get("message") or {}).get("usage")
         if not usage:
@@ -584,9 +585,67 @@ def build_subagent_report(jsonl_path: str, since) -> dict:
     }
 
 
+IDLE_GAP_S, IDLE_GAP_1H_S = 300, 3600
+IDLE_LEVER_SHARE, IDLE_LEVER_SAVING = 0.30, 0.05  # lever needs both: most 5m writes follow an idle gap and the saving is not noise
+MAIN_TIER_LEVER_SHARE = 0.40
+
+
+def idle_rewrites(turns: list, main_ie: float) -> dict:
+    """Main-thread 5m cache writes that follow a gap over 5 minutes (the cache had expired), and the 1h-TTL saving bound.
+
+    Only main turns count (lane gaps are not measured, so lanes would add). The first turn has no predecessor and is
+    never a rewrite. `saving_ie_upper` = (5m-1h gap writes) x (5m write - cache read) - (1h - 5m write) x (all other
+    5m writes), because a 1h pin would also make every other 5m write cost 2x. It is an UPPER BOUND, not a bill: it
+    assumes every gap under 1h would have kept the cache alive and the account may pin 1h (usage-credit and API-key
+    accounts get 5m; see agentic-delivery host-enforcement.md). Negative when a pin would lose.
+    `cache_write_1h_share` is the share of main cache writes already at 1h (a pin is then moot).
+    """
+    live = [t for t in turns if not t.get("iter") and t["timestamp"] and t.get("model") != "<synthetic>"]
+    total = gap = gap_1h = w1h = 0
+    prev = None
+    for t in live:
+        w = t["cache_write_5m"]
+        total += w
+        w1h += t["cache_write_1h"]
+        if prev is not None:
+            dt = (t["timestamp"] - prev).total_seconds()
+            if dt > IDLE_GAP_S:
+                gap += w
+                gap_1h += w if dt <= IDLE_GAP_1H_S else 0
+        prev = t["timestamp"]
+    saving = gap_1h * (CACHE_WRITE_5M_MULT - CACHE_READ_MULT) - (CACHE_WRITE_1H_MULT - CACHE_WRITE_5M_MULT) * (total - gap_1h)
+    return {
+        "idle_rewrite_tokens_5m": gap,
+        "idle_rewrite_tokens_5m_to_1h": gap_1h,
+        "idle_rewrite_tokens_over_1h": gap - gap_1h,
+        "idle_rewrite_share": round(gap / total, 4) if total else 0.0,
+        "idle_rewrite_saving_ie_upper": round(saving, 2),
+        "idle_rewrite_saving_share_of_main_ie": round(saving / main_ie, 4) if main_ie else 0.0,
+        "cache_write_1h_share": round(w1h / (total + w1h), 4) if total + w1h else 0.0,
+    }
+
+
+def tier_split(main_by_model: dict, sub_by_model: dict, rates) -> dict:
+    """Input-equivalent share by model for main and lanes, plus main's share of all input-eq (a measured split, not a price).
+
+    `priced` is False for a model with no rate row (or no rates): the figure stays UNPRICED, never zero.
+    """
+    def rows(by_model):
+        ie = sum(t["input_equivalent"] for t in by_model.values())
+        return {m: {"input_equivalent": t["input_equivalent"], "share": round(t["input_equivalent"] / ie, 4) if ie else 0.0,
+                    "priced": price({m: t}, rates)[0] is not None} for m, t in by_model.items()}
+
+    main_ie = sum(t["input_equivalent"] for t in main_by_model.values())
+    total = main_ie + sum(t["input_equivalent"] for t in sub_by_model.values())
+    top = sum(t["input_equivalent"] for m, t in main_by_model.items() if any(k in m for k in TOP_TIER))
+    return {"main": rows(main_by_model), "subagents": rows(sub_by_model),
+            "main_share_of_total_ie": round(main_ie / total, 4) if total else 0.0,
+            "main_top_tier_share_of_total_ie": round(top / total, 4) if total else 0.0}
+
+
 def build_report(session_path: str, since, top: int = 5, rates=None) -> dict:
     main_entries = list(read_jsonl(session_path))
-    all_main = extract_turns(main_entries)
+    all_main = extract_turns(main_entries, main=True)
     main_turns = filter_since(all_main, since)
     stamps = [t["timestamp"] for t in all_main if t["timestamp"]]
     main_totals = sum_turns(main_turns)
@@ -629,6 +688,8 @@ def build_report(session_path: str, since, top: int = 5, rates=None) -> dict:
         "main_models": main_models,
         "main_by_model": main_by_model,
         "subagents_by_model": sub_by_model,
+        "tier_split": tier_split(main_by_model, sub_by_model, rates),
+        "idle_rewrites": idle_rewrites(main_turns, main_totals["input_equivalent"]),
         "rates": None if rates is None else f"default as of {RATES_DATE}" if rates is DEFAULT_RATES else "--rates file",
         "cost_usd": None if rates is None else {
             "main": cost["main"][0], "main_unpriced": cost["main"][1],
@@ -760,6 +821,30 @@ def _model_line(label: str, by_model: dict) -> str:
     return f"{label} by model: " + ("; ".join(parts) or "n/a")
 
 
+def _gap_tier_lines(report: dict) -> list:
+    """Idle-gap rewrite and model-tier lines (upper bounds, not a bill) plus the lever lines they justify."""
+    i, ts, out = report["idle_rewrites"], report["tier_split"], []
+    pct = lambda v: f"{v * 100:.1f}%"  # noqa: E731
+    if report["main_turns"]:
+        out.append(f"Idle-gap cache rewrites (main, upper bound, not a bill): {pct(i['idle_rewrite_share'])} of 5m writes follow a gap over 5m "
+                   f"({i['idle_rewrite_tokens_5m_to_1h']} tokens 5m-1h, {i['idle_rewrite_tokens_over_1h']} over 1h); "
+                   + (f"1h-TTL saving at most {i['idle_rewrite_saving_ie_upper']} input-eq = {pct(i['idle_rewrite_saving_share_of_main_ie'])} of main input-eq"
+                      if i["idle_rewrite_saving_ie_upper"] > 0 else "a 1h pin would not save")
+                   + (f" ({pct(i['cache_write_1h_share'])} of cache writes already 1h)" if i["cache_write_1h_share"] > 0 else ""))
+    for label, key in (("MAIN", "main"), ("SUBAGENTS", "subagents")):
+        parts = [f"{m} {pct(v['share'])}" + ("" if v["priced"] else " UNPRICED") for m, v in ts[key].items()]
+        out.append(f"{label} input-eq by model: " + ("; ".join(parts) or "n/a") + f" (main = {pct(ts['main_share_of_total_ie'])} of all input-eq)")
+    if (i["idle_rewrite_share"] >= IDLE_LEVER_SHARE and i["idle_rewrite_saving_share_of_main_ie"] >= IDLE_LEVER_SAVING
+            and i["cache_write_1h_share"] < 0.5):
+        out.append("Lever: pin the main conversation cache to 1h (`promptCacheTtl` or CLAUDE_CODE_PROMPT_CACHE_TTL; pins need v2.1.242+; "
+                   "`FORCE_PROMPT_CACHING_5M=1` or an earlier match in the order there wins); which accounts get 1h and the order are in "
+                   "agentic-delivery host-enforcement.md, 'Cache lifetime is the sibling spend control'")
+    if ts["main_top_tier_share_of_total_ie"] > MAIN_TIER_LEVER_SHARE:
+        out.append(f"Lever: orchestrator tier: main on a top-tier model carries {pct(ts['main_top_tier_share_of_total_ie'])} of all input-eq; "
+                   "default main to a mid tier and escalate for a named hard step (model-tiering.md, 'Route delivery lanes by work type and stage')")
+    return out
+
+
 def render_text(report: dict) -> str:
     lines = []
     lines.append(f"Token report — {os.path.basename(report['session'])}"
@@ -781,6 +866,7 @@ def render_text(report: dict) -> str:
                      f"subagents {_usd(c['subagents'], c['subagents_unpriced'])} "
                      f"total {_usd(c['total'], c['unpriced_models'])}"
                      + (f" (priced with default rates as of {RATES_DATE})" if report["rates"] != "--rates file" else ""))
+    lines += _gap_tier_lines(report)
     x = report["main_context"]
     if report["main_turns"]:
         trend = f" first-third={x['first_third']} last-third={x['last_third']}" if x["first_third"] is not None else ""
@@ -1017,7 +1103,7 @@ def advise(report: dict, since, rates, project: str = ".") -> dict:
     settings are assumed set (fail closed). At-stake dollars are the PRICED spend of the flagged items under
     `rates` (default table dated RATES_DATE), not a promised saving; None means UNPRICED.
     """
-    turns = [t for t in filter_since(extract_turns(list(read_jsonl(report["session"]))), since)
+    turns = [t for t in filter_since(extract_turns(list(read_jsonl(report["session"])), main=True), since)
              if not t.get("iter") and t.get("model") != "<synthetic>"]
     cfg, env, mcp, bad = load_settings(project)
     f = {"turns": turns, "rates": rates, "cfg": cfg, "env": env, "mcp": mcp, "bad": bad,
