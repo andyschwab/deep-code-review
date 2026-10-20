@@ -179,7 +179,9 @@ OUTPUT
 ------
 Default text report is at most 20 lines (for up to a few models). `--json` prints the full computed
 report (every subagent, not just the top 5) as one JSON object for
-machine consumption.
+machine consumption. `startup_remainder` is measured lane startup minus that file estimate (system prompt, tool/MCP definitions, skill
+listing, brief; not split further). `startup_files` prices each existing auto-loaded instruction file under `--project` (CLAUDE.md, AGENTS.md,
+.claude/CLAUDE.md, user-level CLAUDE.md, project memory MEMORY.md) at bytes/4 tokens x (1.25 per lane start + 0.1 per later lane turn).
 
 CONTRACT (exit codes)
 ----------------------
@@ -192,7 +194,7 @@ CONTRACT (exit codes)
 
 USAGE
 -----
-  token_report.py --session <path/to/session.jsonl> [--since ISO] [--json] [--top N] [--rates TSV]
+  token_report.py --session <path/to/session.jsonl> [--since ISO] [--json] [--top N] [--rates TSV] [--project DIR]
   token_report.py --session <path/to/session.jsonl> [--since ISO] --budget [budget.tsv]
   token_report.py --session <path/to/session.jsonl> [--since ISO] --advise [--project DIR]
   token_report.py --session <path/to/session.jsonl> [--since ISO] --fix-plan [--project DIR] [--apply SETTINGS.json]
@@ -586,6 +588,7 @@ def build_subagent_report(jsonl_path: str, since) -> dict:
         "agent_type": meta.get("agentType", "unknown"),
         "file": stem,
         "startup_tokens": startup,
+        "turns": sum(1 for t in turns if not t.get("iter")),
         "handback_chars": extract_handback_chars(entries),
         "tool_calls": extract_tool_calls(entries, since),
         "model": model,
@@ -726,7 +729,60 @@ def tier_split(main_by_model: dict, sub_by_model: dict, rates) -> dict:
             "main_top_tier_share_of_total_ie": round(top / total, 4) if total else 0.0}
 
 
-def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = BUDGET_METRICS["max_tool_calls"][0]) -> dict:
+# A trim lever compares a realistic saving, not the file's whole cost: trimming or splitting an instruction file rarely removes more than
+# about half of it, so the saving is TRIM_FRACTION x ie_upper (an ASSUMPTION, not measured). 0.05 of main + lane input-eq is the same
+# noise floor as IDLE_LEVER_SAVING.
+TRIM_FRACTION, STARTUP_LEVER_SHARE = 0.5, IDLE_LEVER_SAVING
+# Remainder lever floor: an assumed noise floor, not measured (tune with real reports). Without a floor "remainder is over half of
+# startup" holds in almost every session, so the lever also needs the remainder to be a sizeable share of lane input-eq.
+REMAINDER_LEVER_SHARE = 0.15
+
+
+def startup_files(project, subagents: list, session_ie: float) -> list:
+    """Price each auto-loaded instruction file across lanes, largest first (empty when `project` is None or no lane ran).
+
+    Size = file bytes / 4 (an ESTIMATE; bytes stand in for chars, no content is read). Upper bound on input-eq the file contributes =
+    tokens x (1.25 per lane start + 0.1 per later lane turn), summed over lanes. Missing files are skipped. `if_loaded` marks files a
+    lane may not load (AGENTS.md, project memory); the user-level file is read from CLAUDE_CONFIG_DIR or ~/.claude.
+    """
+    if project is None or not subagents:  # build_report also passes None under --since: lane starts fall before the window
+        return []
+    weight = CACHE_WRITE_5M_MULT * len(subagents) + CACHE_READ_MULT * sum(max(s["turns"] - 1, 0) for s in subagents)
+    proj, cfg = os.path.realpath(project), os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    mem = os.path.join(cfg, "projects", re.sub(r"[^A-Za-z0-9]", "-", proj), "memory", "MEMORY.md")
+    cands = [("CLAUDE.md", os.path.join(proj, "CLAUDE.md"), False), ("AGENTS.md", os.path.join(proj, "AGENTS.md"), True),
+             (".claude/CLAUDE.md", os.path.join(proj, ".claude", "CLAUDE.md"), False),
+             ("user-level CLAUDE.md", os.path.join(cfg, "CLAUDE.md"), False), ("project memory MEMORY.md", mem, True)]
+    rows, seen = [], set()
+    for label, path, maybe in cands:
+        if not os.path.isfile(path) or os.path.realpath(path) in seen:
+            continue
+        seen.add(os.path.realpath(path))
+        tokens = round(os.path.getsize(path) / 4)
+        ie = round(tokens * weight, 2)
+        rows.append({"file": label, "tokens_est": tokens, "ie_upper": ie, "if_loaded": maybe,
+                     "share_of_session_ie": round(ie / session_ie, 4) if session_ie else 0.0})
+    return sorted(rows, key=lambda r: -r["ie_upper"])
+
+
+def startup_remainder(subagents: list, files: list):
+    """Measured lane startup minus the instruction-file estimate: the part file trimming cannot reach (None when no lane ran).
+
+    Per lane = max(startup_tokens - sum of file tokens_est, 0), so it is a lower bound when an "if loaded" file was not loaded. It is
+    the system prompt, tool/MCP definitions, skill listing and brief together; no split inside it is attempted. Input-eq uses the
+    same weights as `startup_files` (1.25 at the start + 0.1 per later turn); shares are of lane startup tokens and lane input-eq.
+    """
+    if not subagents:
+        return None
+    ftok, w = sum(f["tokens_est"] for f in files), lambda s: CACHE_WRITE_5M_MULT + CACHE_READ_MULT * max(s["turns"] - 1, 0)
+    rem = sum(max(s["startup_tokens"] - ftok, 0) for s in subagents)
+    start = sum(s["startup_tokens"] for s in subagents)
+    ie, lane_ie = sum(max(s["startup_tokens"] - ftok, 0) * w(s) for s in subagents), sum(s["input_equivalent"] for s in subagents)
+    return {"label": "system prompt, tool/MCP definitions, skill listing, brief", "tokens": rem, "ie_upper": round(ie, 2),
+            "share_of_startup": round(rem / start, 4) if start else 0.0, "share_of_lane_ie": round(ie / lane_ie, 4) if lane_ie else 0.0}
+
+
+def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = BUDGET_METRICS["max_tool_calls"][0], project=None) -> dict:
     main_entries = list(read_jsonl(session_path))
     all_main = extract_turns(main_entries, main=True)
     main_turns = filter_since(all_main, since)
@@ -761,6 +817,8 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
     for s in subagents:
         s["cost_usd"], s["unpriced_models"] = price(s["by_model"], rates)
 
+    requested, project = project is not None, None if since else project  # a windowed lane's first turn is not its start, so start weights and startup would be wrong
+    sf = startup_files(project, subagents, main_totals["input_equivalent"] + sub_input_eq)
     report = {
         "session": session_path,
         "since": since.isoformat() if since else None,
@@ -775,6 +833,9 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
         "idle_rewrites": idle_rewrites(main_turns, main_totals["input_equivalent"]),
         "auto_compact": compact_saving(main_turns, main_totals["input_equivalent"]),
         "lane_tail": lane_tail(subagents, cap, shipped_lane_cap()),
+        "startup_files_skipped": "--since" if since and requested else None,
+        "startup_files": sf,
+        "startup_remainder": None if project is None else startup_remainder(subagents, sf),
         "rates": None if rates is None else f"default as of {RATES_DATE}" if rates is DEFAULT_RATES else "--rates file",
         "cost_usd": None if rates is None else {
             "main": cost["main"][0], "main_unpriced": cost["main"][1],
@@ -932,6 +993,10 @@ def _tail_fires(lt: dict) -> bool:
     return (lt["tail_share_over_shipped_cap"] if lt["shipped_cap"] else lt["tail_share_over_cap"]) >= TAIL_LEVER_SHARE
 
 
+def _trim_fires(sf: list) -> bool:
+    return sf[0]["share_of_session_ie"] * TRIM_FRACTION >= STARTUP_LEVER_SHARE
+
+
 def lever_ranking(report: dict) -> list:
     """Firing levers whose saving is already computed above, largest `saving_ie` first, then dollar-only levers.
 
@@ -950,10 +1015,14 @@ def lever_ranking(report: dict) -> list:
     if _tail_fires(lt) and "tail" not in m:
         rows.append((f"lower LANE_TOOL_CAP below {lt['shipped_cap'] or lt['cap']}",
                      lt["tail_ie_over_shipped_cap"] if lt["shipped_cap"] else lt["tail_ie_over_cap"]))
-    out = [{"lever": n, "saving_ie": v, "share_of_session_ie": round(v / session_ie, 4) if session_ie else 0.0, "saving_usd": None}
+    sf = report.get("startup_files") or []
+    if sf and _trim_fires(sf):
+        rows.append((f"trim {sf[0]['file']} (estimate: {TRIM_FRACTION:.0%} of its cost)", round(sf[0]["ie_upper"] * TRIM_FRACTION, 2)))
+    out = [{"lever": n, "saving_ie": v, "share_of_session_ie": round(v / session_ie, 4) if session_ie else 0.0, "saving_usd": None,
+            "estimate": n.startswith("trim ")}
            for n, v in sorted(rows, key=lambda r: -r[1])]
     if ts["main_top_tier_share_of_total_ie"] > MAIN_TIER_LEVER_SHARE:
-        out.append({"lever": "orchestrator tier", "saving_ie": None, "share_of_session_ie": None, "saving_usd": None})
+        out.append({"lever": "orchestrator tier", "saving_ie": None, "share_of_session_ie": None, "saving_usd": None, "estimate": False})
     return out
 
 
@@ -991,6 +1060,24 @@ def _gap_tier_lines(report: dict) -> list:
         out.append(f"Lever: lower LANE_TOOL_CAP ({'shipped ' + str(shipped) if shipped else 'reference ' + str(lt['cap'])}) toward p90 {lt['p90_tool_calls']} "
                    "(or LANE_TOOL_CAP_<TYPE> per lane type) so lane_cap.py tells a lane to checkpoint an UNVERIFIED handback with remaining work, "
                    "or dispatch narrower lanes; the saving is at most the tail share above (cost-quality-guardrails.md, lane caps)")
+    sf = report.get("startup_files") or []
+    if sf:
+        out.append("Startup files re-read by lanes (est. bytes/4, upper bound; ie share of main + lane input-eq): " + "; ".join(
+            f"{r['file']}{' (if loaded)' if r['if_loaded'] else ''} ~{r['tokens_est']} tokens = {pct(r['share_of_session_ie'])}" for r in sf[:3]))
+        if _trim_fires(sf):
+            out.append(f"Lever: trim or split {sf[0]['file']} (est {sf[0]['tokens_est']} tokens): up to {sf[0]['ie_upper']} ie "
+                       f"contributed, an estimated {round(sf[0]['ie_upper'] * TRIM_FRACTION, 2)} ie saved if {TRIM_FRACTION:.0%} is cut"
+                       + (" (if loaded)" if sf[0]["if_loaded"] else ""))
+    sr = report.get("startup_remainder")
+    if report.get("startup_files_skipped"):
+        out.append("Startup files not priced under --since: a windowed lane's first turn is not its start, so start weights would be wrong")
+    if sr:
+        out.append(f"Startup remainder ({sr['label']}; estimate = measured lane startup minus the file estimate; tokens are a lower bound "
+                   f"if an 'if loaded' file was not loaded; input-eq uses cache-write weights): "
+                   f"{pct(sr['share_of_startup'])} of lane startup, {pct(sr['share_of_lane_ie'])} of lane input-eq")
+        if sr["share_of_startup"] > 0.5 and sr["share_of_lane_ie"] >= REMAINDER_LEVER_SHARE:
+            out.append("Lever: the remainder dominates lane startup, so trimming files saves little; cut it with the MCP-unused / tool-search advice "
+                       "(--advise), batching short lanes, and a smaller toolset per lane type")
     if ts["main_top_tier_share_of_total_ie"] > MAIN_TIER_LEVER_SHARE:
         out.append(f"Lever: orchestrator tier: main on a top-tier model carries {pct(ts['main_top_tier_share_of_total_ie'])} of all input-eq; "
                    "default main to a mid tier and escalate for a named hard step (model-tiering.md, 'Route delivery lanes by work type and stage')")
@@ -1433,7 +1520,7 @@ def main(argv=None) -> int:
             print(f"token_report.py: bad --budget file {args.budget}: {exc}", file=sys.stderr)
             return ERROR
     report = build_report(args.session, since, max(args.top, 0), rates,
-                          int(budget["star"]["max_tool_calls"]) if budget else BUDGET_METRICS["max_tool_calls"][0])
+                          int(budget["star"]["max_tool_calls"]) if budget else BUDGET_METRICS["max_tool_calls"][0], args.project)
     if since and not report["main_turns"] and not report["subagents_count"]:
         print(f"token_report.py: warning: --since {since.isoformat()} matched no turns; "
               f"main transcript spans {report['main_span']}", file=sys.stderr)
