@@ -1068,8 +1068,8 @@ def _trim_fires(sf: list) -> bool:
 def lever_ranking(report: dict) -> list:
     """Firing levers whose saving is already computed above, largest `saving_ie` first, then dollar-only levers.
 
-    Reuses `idle_rewrites` (1h pin), `lane_tail` (shipped cap, else reference cap) and `tool_results` (Bash/PowerShell output past the
-    cap) figures; computes no new estimate. Each row is an UPPER BOUND, not a bill, and carries `estimate` (true where the saving is
+    Reuses `idle_rewrites` (1h pin), `auto_compact`, `lane_tail` (shipped cap, else reference cap), `tool_results` (Bash/PowerShell output
+    past the cap) and `startup_files` figures; the one new arithmetic is the startup-trim row (top file `ie_upper` x TRIM_FRACTION). Each row is an UPPER BOUND, not a bill, and carries `estimate` (true where the saving is
     estimated: the tool-result and startup-trim rows), with `share_of_session_ie` = saving / (main + lane input-eq). The orchestrator-tier lever has no computed
     saving, so it lists after the ranked ones with `saving_usd` None (rendered UNPRICED), never zero. Orchestration-share and
     fresh-session levers compute no number and are absent. Empty list when nothing fires.
@@ -1170,7 +1170,7 @@ def _gap_tier_lines(report: dict) -> list:
     if rank:
         out.append("Top levers (est. upper-bound saving, not a bill; share = of main + lane input-eq):")
         for n, r in enumerate(rank, 1):
-            out.append(f"  {n}. {r['lever']}: " + (f"at most {r['saving_ie']} input-eq = {pct(r['share_of_session_ie'])}{' (estimate)' if r.get('estimate') else ''}" if r["saving_ie"] is not None
+            out.append(f"  {n}. {r['lever']}: " + (f"at most {r['saving_ie']} input-eq = {pct(r['share_of_session_ie'])}{' (estimate)' if r.get('estimate') and '(estimate' not in r['lever'] else ''}" if r["saving_ie"] is not None
                        else "saving " + _usd(r["saving_usd"]) + " (dollar-only, listed after ranked levers)"))
     return out
 
