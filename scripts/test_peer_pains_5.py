@@ -98,11 +98,11 @@ class SkipCiSigpipe(unittest.TestCase):
         fn = sh("sed", "-n", "/^skip_ci_marker_in_range() {/,/^}/p",
                 str(ROOT / ".claude/skills/deep-code-review/templates/integrator-gate.sh")).stdout
         with tempfile.TemporaryDirectory() as d:
-            g = lambda *a: sh("git", "-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", *a)  # noqa: E731
+            g = lambda *a, **kw: sh("git", "-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", *a, **kw)  # noqa: E731
             g("init", "-q")
             g("commit", "-q", "--allow-empty", "-m", "base")
             for i, body in enumerate(("plain", "[skip ci] first\n\n" + "x" * 400000, "tail")):
-                g("commit", "-q", "--allow-empty", "-m", f"c{i}\n\n{body}")
+                g("commit", "-q", "--allow-empty", "-F", "-", input=f"c{i}\n\n{body}")  # stdin: Linux caps one argv string at 128 KiB
             run = lambda base: subprocess.run(["bash", "-c", f"set -euo pipefail; cd {d}; {fn}\nskip_ci_marker_in_range {base}"]).returncode  # noqa: E731
             self.assertEqual(run("HEAD~3"), 0)
             self.assertEqual(run("HEAD~1"), 1)
