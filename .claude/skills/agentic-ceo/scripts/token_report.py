@@ -621,9 +621,10 @@ def lane_tail(subagents: list, cap: int = BUDGET_METRICS["max_tool_calls"][0], s
         return round(tail / ie, 4) if ie else 0.0, round(tail, 2), sum(1 for n in calls if n > c)
 
     share, tail_ie, n = over(cap)
-    sh_share, _, sh_n = over(shipped) if shipped else (None, None, None)
+    sh_share, sh_ie, sh_n = over(shipped) if shipped else (None, None, None)
     return {"cap": cap, "tail_share_over_cap": share, "tail_ie_over_cap": tail_ie, "lanes_over_cap": n,
-            "shipped_cap": shipped, "tail_share_over_shipped_cap": sh_share, "lanes_over_shipped_cap": sh_n,
+            "shipped_cap": shipped, "tail_share_over_shipped_cap": sh_share, "tail_ie_over_shipped_cap": sh_ie,
+            "lanes_over_shipped_cap": sh_n,
             "p90_tool_calls": calls[math.ceil(0.9 * len(calls)) - 1] if calls else 0}
 
 
@@ -715,7 +716,7 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
     for s in subagents:
         s["cost_usd"], s["unpriced_models"] = price(s["by_model"], rates)
 
-    return {
+    report = {
         "session": session_path,
         "since": since.isoformat() if since else None,
         "main": main_totals,
@@ -747,6 +748,8 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
         "top_subagents": top5,
         "all_subagents": subagents,
     }
+    report["lever_ranking"] = lever_ranking(report)
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -859,6 +862,38 @@ def _model_line(label: str, by_model: dict) -> str:
     return f"{label} by model: " + ("; ".join(parts) or "n/a")
 
 
+def _pin_fires(i: dict) -> bool:
+    return (i["idle_rewrite_share"] >= IDLE_LEVER_SHARE and i["idle_rewrite_saving_share_of_main_ie"] >= IDLE_LEVER_SAVING
+            and i["cache_write_1h_share"] < 0.5)
+
+
+def _tail_fires(lt: dict) -> bool:
+    return (lt["tail_share_over_shipped_cap"] if lt["shipped_cap"] else lt["tail_share_over_cap"]) >= TAIL_LEVER_SHARE
+
+
+def lever_ranking(report: dict) -> list:
+    """Firing levers whose saving is already computed above, largest `saving_ie` first, then dollar-only levers.
+
+    Reuses `idle_rewrites` (1h pin) and `lane_tail` (shipped cap, else reference cap) figures; computes no new estimate. Each row is an
+    UPPER BOUND, not a bill, with `share_of_session_ie` = saving / (main + lane input-eq). The orchestrator-tier lever has no computed
+    saving, so it lists after the ranked ones with `saving_usd` None (rendered UNPRICED), never zero. Orchestration-share and
+    fresh-session levers compute no number and are absent. Empty list when nothing fires.
+    """
+    i, lt, ts = report["idle_rewrites"], report["lane_tail"], report["tier_split"]
+    session_ie = report["main"]["input_equivalent"] + report["subagents_totals"]["input_equivalent"]
+    rows = []
+    if _pin_fires(i):
+        rows.append(("pin main cache to 1h", i["idle_rewrite_saving_ie_upper"]))
+    if _tail_fires(lt):
+        rows.append((f"lower LANE_TOOL_CAP below {lt['shipped_cap'] or lt['cap']}",
+                     lt["tail_ie_over_shipped_cap"] if lt["shipped_cap"] else lt["tail_ie_over_cap"]))
+    out = [{"lever": n, "saving_ie": v, "share_of_session_ie": round(v / session_ie, 4) if session_ie else 0.0, "saving_usd": None}
+           for n, v in sorted(rows, key=lambda r: -r[1])]
+    if ts["main_top_tier_share_of_total_ie"] > MAIN_TIER_LEVER_SHARE:
+        out.append({"lever": "orchestrator tier", "saving_ie": None, "share_of_session_ie": None, "saving_usd": None})
+    return out
+
+
 def _gap_tier_lines(report: dict) -> list:
     """Idle-gap rewrite and model-tier lines (upper bounds, not a bill) plus the lever lines they justify."""
     i, ts, out = report["idle_rewrites"], report["tier_split"], []
@@ -878,19 +913,24 @@ def _gap_tier_lines(report: dict) -> list:
     for label, key in (("MAIN", "main"), ("SUBAGENTS", "subagents")):
         parts = [f"{m} {pct(v['share'])}" + ("" if v["priced"] else " UNPRICED") for m, v in ts[key].items()]
         out.append(f"{label} input-eq by model: " + ("; ".join(parts) or "n/a") + f" (main = {pct(ts['main_share_of_total_ie'])} of all input-eq)")
-    if (i["idle_rewrite_share"] >= IDLE_LEVER_SHARE and i["idle_rewrite_saving_share_of_main_ie"] >= IDLE_LEVER_SAVING
-            and i["cache_write_1h_share"] < 0.5):
+    if _pin_fires(i):
         out.append("Lever: pin the main conversation cache to 1h (`promptCacheTtl` or CLAUDE_CODE_PROMPT_CACHE_TTL; pins need v2.1.242+; "
                    "`FORCE_PROMPT_CACHING_5M=1` or an earlier match in the order there wins); which accounts get 1h and the order are in "
                    "agentic-delivery host-enforcement.md, 'Cache lifetime is the sibling spend control'")
     shipped = lt["shipped_cap"]
-    if (lt["tail_share_over_shipped_cap"] if shipped else lt["tail_share_over_cap"]) >= TAIL_LEVER_SHARE:
+    if _tail_fires(lt):
         out.append(f"Lever: lower LANE_TOOL_CAP ({'shipped ' + str(shipped) if shipped else 'reference ' + str(lt['cap'])}) toward p90 {lt['p90_tool_calls']} "
                    "(or LANE_TOOL_CAP_<TYPE> per lane type) so lane_cap.py tells a lane to checkpoint an UNVERIFIED handback with remaining work, "
                    "or dispatch narrower lanes; the saving is at most the tail share above (cost-quality-guardrails.md, lane caps)")
     if ts["main_top_tier_share_of_total_ie"] > MAIN_TIER_LEVER_SHARE:
         out.append(f"Lever: orchestrator tier: main on a top-tier model carries {pct(ts['main_top_tier_share_of_total_ie'])} of all input-eq; "
                    "default main to a mid tier and escalate for a named hard step (model-tiering.md, 'Route delivery lanes by work type and stage')")
+    rank = report["lever_ranking"]
+    if rank:
+        out.append("Top levers (est. upper-bound saving, not a bill; share = of main + lane input-eq):")
+        for n, r in enumerate(rank, 1):
+            out.append(f"  {n}. {r['lever']}: " + (f"at most {r['saving_ie']} input-eq = {pct(r['share_of_session_ie'])}" if r["saving_ie"] is not None
+                       else "saving " + _usd(r["saving_usd"]) + " (dollar-only, listed after ranked levers)"))
     return out
 
 
