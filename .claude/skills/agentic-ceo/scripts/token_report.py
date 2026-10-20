@@ -588,6 +588,43 @@ def build_subagent_report(jsonl_path: str, since) -> dict:
 IDLE_GAP_S, IDLE_GAP_1H_S = 300, 3600
 IDLE_LEVER_SHARE, IDLE_LEVER_SAVING = 0.30, 0.05  # lever needs both: most 5m writes follow an idle gap and the saving is not noise
 MAIN_TIER_LEVER_SHARE = 0.40
+TAIL_LEVER_SHARE = 0.10  # lever fires when the beyond-cap tail is at least this share of lane input-eq
+
+
+SHIPPED_SETTINGS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "agentic-delivery", "templates",
+                                "operating-layer.settings.json")
+
+
+def shipped_lane_cap(path: str = SHIPPED_SETTINGS):
+    """The LANE_TOOL_CAP the operating-layer template ships in `env` (what lane_cap.py enforces by default), or None if unreadable/unset."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cap = int(json.load(fh)["env"]["LANE_TOOL_CAP"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return cap if cap > 0 else None
+
+
+def lane_tail(subagents: list, cap: int = BUDGET_METRICS["max_tool_calls"][0], shipped=None) -> dict:
+    """Lane input-eq spent beyond `cap` tool calls: sum(ie * (calls - cap) / calls) over lanes with calls > cap, as a share of all lane ie.
+
+    `cap` is the reference cap (default 150, the budget's default max_tool_calls; build_report(cap=) accepts an override, but --budget is gate-only so CLI output uses 150); `shipped` is the cap the installed hook enforces (None = unknown, its keys
+    are then None). Assumes a lane spends evenly per call, so the tail is a proportional estimate, not a measured split. Both shares are
+    an UPPER BOUND on a cap's saving: work past the cap must be redone in a narrower lane (fresh startup plus rereads), which is ignored.
+    `p90_tool_calls` is nearest-rank over all lanes (0 with no lanes). Empty or zero-ie lanes give a 0.0 share.
+    """
+    ie = sum(s["input_equivalent"] for s in subagents)
+    calls = sorted(s["tool_calls"] for s in subagents)
+
+    def over(c):
+        tail = sum(s["input_equivalent"] * (s["tool_calls"] - c) / s["tool_calls"] for s in subagents if s["tool_calls"] > c)
+        return round(tail / ie, 4) if ie else 0.0, round(tail, 2), sum(1 for n in calls if n > c)
+
+    share, tail_ie, n = over(cap)
+    sh_share, _, sh_n = over(shipped) if shipped else (None, None, None)
+    return {"cap": cap, "tail_share_over_cap": share, "tail_ie_over_cap": tail_ie, "lanes_over_cap": n,
+            "shipped_cap": shipped, "tail_share_over_shipped_cap": sh_share, "lanes_over_shipped_cap": sh_n,
+            "p90_tool_calls": calls[math.ceil(0.9 * len(calls)) - 1] if calls else 0}
 
 
 def idle_rewrites(turns: list, main_ie: float) -> dict:
@@ -643,7 +680,7 @@ def tier_split(main_by_model: dict, sub_by_model: dict, rates) -> dict:
             "main_top_tier_share_of_total_ie": round(top / total, 4) if total else 0.0}
 
 
-def build_report(session_path: str, since, top: int = 5, rates=None) -> dict:
+def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = BUDGET_METRICS["max_tool_calls"][0]) -> dict:
     main_entries = list(read_jsonl(session_path))
     all_main = extract_turns(main_entries, main=True)
     main_turns = filter_since(all_main, since)
@@ -690,6 +727,7 @@ def build_report(session_path: str, since, top: int = 5, rates=None) -> dict:
         "subagents_by_model": sub_by_model,
         "tier_split": tier_split(main_by_model, sub_by_model, rates),
         "idle_rewrites": idle_rewrites(main_turns, main_totals["input_equivalent"]),
+        "lane_tail": lane_tail(subagents, cap, shipped_lane_cap()),
         "rates": None if rates is None else f"default as of {RATES_DATE}" if rates is DEFAULT_RATES else "--rates file",
         "cost_usd": None if rates is None else {
             "main": cost["main"][0], "main_unpriced": cost["main"][1],
@@ -831,6 +869,12 @@ def _gap_tier_lines(report: dict) -> list:
                    + (f"1h-TTL saving at most {i['idle_rewrite_saving_ie_upper']} input-eq = {pct(i['idle_rewrite_saving_share_of_main_ie'])} of main input-eq"
                       if i["idle_rewrite_saving_ie_upper"] > 0 else "a 1h pin would not save")
                    + (f" ({pct(i['cache_write_1h_share'])} of cache writes already 1h)" if i["cache_write_1h_share"] > 0 else ""))
+    lt = report["lane_tail"]
+    if report["subagents_count"]:
+        sh = (f"; {pct(lt['tail_share_over_shipped_cap'])} beyond the shipped hook cap of {lt['shipped_cap']} ({lt['lanes_over_shipped_cap']} lane{'' if lt['lanes_over_shipped_cap'] == 1 else 's'} over)"
+              if lt["shipped_cap"] else "")
+        out.append(f"Lane tail (upper bound, redo cost ignored): {pct(lt['tail_share_over_cap'])} of lane input-eq is spent beyond the "
+                   f"reference cap of {lt['cap']} tool calls ({lt['lanes_over_cap']} lane{'' if lt['lanes_over_cap'] == 1 else 's'} over){sh}; p90 lane tool calls = {lt['p90_tool_calls']}")
     for label, key in (("MAIN", "main"), ("SUBAGENTS", "subagents")):
         parts = [f"{m} {pct(v['share'])}" + ("" if v["priced"] else " UNPRICED") for m, v in ts[key].items()]
         out.append(f"{label} input-eq by model: " + ("; ".join(parts) or "n/a") + f" (main = {pct(ts['main_share_of_total_ie'])} of all input-eq)")
@@ -839,6 +883,11 @@ def _gap_tier_lines(report: dict) -> list:
         out.append("Lever: pin the main conversation cache to 1h (`promptCacheTtl` or CLAUDE_CODE_PROMPT_CACHE_TTL; pins need v2.1.242+; "
                    "`FORCE_PROMPT_CACHING_5M=1` or an earlier match in the order there wins); which accounts get 1h and the order are in "
                    "agentic-delivery host-enforcement.md, 'Cache lifetime is the sibling spend control'")
+    shipped = lt["shipped_cap"]
+    if (lt["tail_share_over_shipped_cap"] if shipped else lt["tail_share_over_cap"]) >= TAIL_LEVER_SHARE:
+        out.append(f"Lever: lower LANE_TOOL_CAP ({'shipped ' + str(shipped) if shipped else 'reference ' + str(lt['cap'])}) toward p90 {lt['p90_tool_calls']} "
+                   "(or LANE_TOOL_CAP_<TYPE> per lane type) so lane_cap.py tells a lane to checkpoint an UNVERIFIED handback with remaining work, "
+                   "or dispatch narrower lanes; the saving is at most the tail share above (cost-quality-guardrails.md, lane caps)")
     if ts["main_top_tier_share_of_total_ie"] > MAIN_TIER_LEVER_SHARE:
         out.append(f"Lever: orchestrator tier: main on a top-tier model carries {pct(ts['main_top_tier_share_of_total_ie'])} of all input-eq; "
                    "default main to a mid tier and escalate for a named hard step (model-tiering.md, 'Route delivery lanes by work type and stage')")
@@ -1184,16 +1233,19 @@ def main(argv=None) -> int:
         except (OSError, ValueError) as exc:
             print(f"token_report.py: bad --rates file {args.rates}: {exc}", file=sys.stderr)
             return ERROR
-    report = build_report(args.session, since, max(args.top, 0), rates)
-    if since and not report["main_turns"] and not report["subagents_count"]:
-        print(f"token_report.py: warning: --since {since.isoformat()} matched no turns; "
-              f"main transcript spans {report['main_span']}", file=sys.stderr)
+    budget = None
     if args.budget is not None:
         try:
             budget = load_budget(args.budget) if args.budget else DEFAULT_BUDGET
         except (OSError, ValueError) as exc:
             print(f"token_report.py: bad --budget file {args.budget}: {exc}", file=sys.stderr)
             return ERROR
+    report = build_report(args.session, since, max(args.top, 0), rates,
+                          int(budget["star"]["max_tool_calls"]) if budget else BUDGET_METRICS["max_tool_calls"][0])
+    if since and not report["main_turns"] and not report["subagents_count"]:
+        print(f"token_report.py: warning: --since {since.isoformat()} matched no turns; "
+              f"main transcript spans {report['main_span']}", file=sys.stderr)
+    if budget is not None:
         reasons = could_not_check(report, budget)
         if reasons:
             for reason in reasons:
