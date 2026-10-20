@@ -22,4 +22,4 @@ saving bound, and input-eq share by model for main and lanes. Lead with their `L
 printed (the 1h cache pin; the orchestrator tier); the doctrine is in `host-enforcement.md` and
 `model-tiering.md`.
 
-Lead with the one change that would save the most. Say what you could not confirm.
+Lead with the top-ranked lever in the report's `Top levers` block (largest estimated input-eq saving, an upper bound); dollar-only levers list after it. Say what you could not confirm.
