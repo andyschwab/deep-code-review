@@ -164,6 +164,17 @@ setting is assumed set when a settings file is unreadable (fail closed). The dol
 spend of the flagged items under the dated default rates (or --rates), not a promised saving; no rate is
 UNPRICED. Thresholds are starting values (ADV), tune from --json. `--json` adds an "advice" object.
 
+FIX PLAN (--fix-plan, --apply PATH)
+-----------------------------------
+`--fix-plan` prints the minimal JSON settings patch for fired levers that map to a key: `promptCacheTtl` "1h",
+`autoCompactWindow` (the computed window), `bashOutputMaxChars` (the documented 10000 starting value), and
+env `LANE_TOOL_CAP` (the lane p90, only when it lowers the cap). A key already set (in user, project or local
+settings or the environment) is skipped; the subagent-model rule names no value, so it is never patched.
+`--apply PATH` merges the patch into the symlink-resolved PATH: unreadable or invalid JSON (or an I/O error) is
+refused (exit 2); PATH.bak is written first, only if absent, keeping PATH's mode; the rewrite is atomic; only keys
+absent from PATH are added; a missing PATH in an existing directory is created (mode 0600); a second run prints
+"nothing to apply". Levers whose key is already set also drop out of the Lever lines and Top levers under --advise.
+
 OUTPUT
 ------
 Default text report is at most 20 lines (for up to a few models). `--json` prints the full computed
@@ -184,17 +195,20 @@ USAGE
   token_report.py --session <path/to/session.jsonl> [--since ISO] [--json] [--top N] [--rates TSV]
   token_report.py --session <path/to/session.jsonl> [--since ISO] --budget [budget.tsv]
   token_report.py --session <path/to/session.jsonl> [--since ISO] --advise [--project DIR]
+  token_report.py --session <path/to/session.jsonl> [--since ISO] --fix-plan [--project DIR] [--apply SETTINGS.json]
   token_report.py --selftest
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -894,6 +908,17 @@ def _model_line(label: str, by_model: dict) -> str:
     return f"{label} by model: " + ("; ".join(parts) or "n/a")
 
 
+# Settings keys/env that already set each mapped lever (what `advise` mutes and `fix_plan` skips).
+LEVER_KEYS = {"pin": ("promptCacheTtl", "CLAUDE_CODE_PROMPT_CACHE_TTL"),
+              "compact": ("autoCompactWindow", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"),
+              "tail": ("LANE_TOOL_CAP",)}
+
+
+def _muted(report: dict) -> set:
+    """Levers whose settings key is already set, as found by `advise` (empty when --advise did not run)."""
+    return set(report.get("advice", {}).get("muted", ()))
+
+
 def _pin_fires(i: dict) -> bool:
     return (i["idle_rewrite_share"] >= IDLE_LEVER_SHARE and i["idle_rewrite_saving_share_of_main_ie"] >= IDLE_LEVER_SAVING
             and i["cache_write_1h_share"] < 0.5)
@@ -917,12 +942,12 @@ def lever_ranking(report: dict) -> list:
     """
     i, lt, ts = report["idle_rewrites"], report["lane_tail"], report["tier_split"]
     session_ie = report["main"]["input_equivalent"] + report["subagents_totals"]["input_equivalent"]
-    rows = []
-    if _pin_fires(i):
+    rows, m = [], _muted(report)
+    if _pin_fires(i) and "pin" not in m:
         rows.append(("pin main cache to 1h", i["idle_rewrite_saving_ie_upper"]))
-    if _compact_fires(report["auto_compact"]):
+    if _compact_fires(report["auto_compact"]) and "compact" not in m:
         rows.append((f"auto-compact at {report['auto_compact']['window']}", report["auto_compact"]["saving_ie_upper"]))
-    if _tail_fires(lt):
+    if _tail_fires(lt) and "tail" not in m:
         rows.append((f"lower LANE_TOOL_CAP below {lt['shipped_cap'] or lt['cap']}",
                      lt["tail_ie_over_shipped_cap"] if lt["shipped_cap"] else lt["tail_ie_over_cap"]))
     out = [{"lever": n, "saving_ie": v, "share_of_session_ie": round(v / session_ie, 4) if session_ie else 0.0, "saving_usd": None}
@@ -951,17 +976,18 @@ def _gap_tier_lines(report: dict) -> list:
     for label, key in (("MAIN", "main"), ("SUBAGENTS", "subagents")):
         parts = [f"{m} {pct(v['share'])}" + ("" if v["priced"] else " UNPRICED") for m, v in ts[key].items()]
         out.append(f"{label} input-eq by model: " + ("; ".join(parts) or "n/a") + f" (main = {pct(ts['main_share_of_total_ie'])} of all input-eq)")
-    if _pin_fires(i):
+    m = _muted(report)
+    if _pin_fires(i) and "pin" not in m:
         out.append("Lever: pin the main conversation cache to 1h (`promptCacheTtl` or CLAUDE_CODE_PROMPT_CACHE_TTL; pins need v2.1.242+; "
                    "`FORCE_PROMPT_CACHING_5M=1` or an earlier match in the order there wins); which accounts get 1h and the order are in "
                    "agentic-delivery host-enforcement.md, 'Cache lifetime is the sibling spend control'")
     ac = report["auto_compact"]
-    if _compact_fires(ac):
+    if _compact_fires(ac) and "compact" not in m:
         out.append(f"Lever: auto-compact the main thread at {ac['window']} tokens (`/autocompact {ac['window'] // 1000}k`, `autoCompactWindow` or CLAUDE_CODE_AUTO_COMPACT_WINDOW): {ac['compactions']} simulated compaction{'' if ac['compactions'] == 1 else 's'} dropping to an assumed "
                    f"{ac['restart_tokens']} tokens; at most {ac['saving_ie_upper']} input-eq = {ac['saving_share_of_main_ie'] * 100:.1f}% of main input-eq "
                    "(upper bound; quality lost to compaction is not modelled)")
     shipped = lt["shipped_cap"]
-    if _tail_fires(lt):
+    if _tail_fires(lt) and "tail" not in m:
         out.append(f"Lever: lower LANE_TOOL_CAP ({'shipped ' + str(shipped) if shipped else 'reference ' + str(lt['cap'])}) toward p90 {lt['p90_tool_calls']} "
                    "(or LANE_TOOL_CAP_<TYPE> per lane type) so lane_cap.py tells a lane to checkpoint an UNVERIFIED handback with remaining work, "
                    "or dispatch narrower lanes; the saving is at most the tail share above (cost-quality-guardrails.md, lane caps)")
@@ -1253,7 +1279,88 @@ def advise(report: dict, since, rates, project: str = ".") -> dict:
     for a in fired:
         del a["_i"]
     notes = [f"settings file(s) unreadable ({', '.join(bad)}): settings-dependent rules assume the setting is set"] if bad else []
-    return {"advice": fired, "notes": notes}
+    muted = [k for k, names in LEVER_KEYS.items() if f["isset"](*names)]
+    return {"advice": fired, "notes": notes, "muted": muted, "fix_plan": fix_plan(report, f)}
+
+
+BASH_OUTPUT_START = 10_000  # documented starting value (host-enforcement.md, 'Per-turn token levers'), not computed
+
+
+def fix_plan(report: dict, f: dict) -> dict:
+    """Minimal settings patch for the fired levers that map to a key; a key `f["isset"]` reports set is skipped.
+
+    Values come from the report (compact window, lane p90) or the documented lever (`1h`, `BASH_OUTPUT_START`). The subagent-model
+    rule names no value, so it is not patched. LANE_TOOL_CAP is patched only when the p90 is below the cap it would replace.
+    """
+    p, env = {}, {}
+    if _pin_fires(report["idle_rewrites"]) and not f["isset"](*LEVER_KEYS["pin"]):
+        p["promptCacheTtl"] = "1h"
+    ac = report["auto_compact"]
+    if _compact_fires(ac) and not f["isset"](*LEVER_KEYS["compact"]):
+        p["autoCompactWindow"] = ac["window"]
+    if _r_tool_out(f) and not f["isset"]("bashOutputMaxChars", "BASH_MAX_OUTPUT_LENGTH"):
+        p["bashOutputMaxChars"] = BASH_OUTPUT_START
+    lt = report["lane_tail"]
+    if _tail_fires(lt) and 0 < lt["p90_tool_calls"] < (lt["shipped_cap"] or lt["cap"]) and not f["isset"](*LEVER_KEYS["tail"]):
+        env["LANE_TOOL_CAP"] = str(lt["p90_tool_calls"])
+    return {**p, **({"env": env} if env else {})}
+
+
+def apply_plan(path: str, plan: dict):
+    """Merge `plan` into the settings file `path`; return (keys written, created). Env keys are `env.NAME`.
+
+    `path` is resolved through symlinks first. Raises ValueError (nothing half-written) if the file or its directory is
+    unusable, or the file is not a JSON object with an object env. A missing file whose directory exists is created
+    exclusively (mode 0600). An existing file gets `path`.bak only if that is absent (the first original survives reruns),
+    then an atomic replace that keeps the file's mode. Writes nothing when no plan key is absent, so a rerun is a no-op.
+    """
+    path = os.path.realpath(path)
+    tmp = None
+    try:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                raw = fh.read()
+            cur, mode = json.loads(raw), os.stat(path).st_mode & 0o7777
+        except FileNotFoundError:
+            if not os.path.isdir(os.path.dirname(path)):
+                raise
+            raw, cur, mode = None, {}, 0o600
+        if not isinstance(cur, dict) or not isinstance(cur.get("env", {}), dict):
+            raise ValueError("not a JSON object with an object env")
+        wrote = [k for k in plan if k != "env" and k not in cur]
+        cur_env = cur.get("env", {})
+        new_env = [k for k in plan.get("env", {}) if k not in cur_env]
+        if not wrote and not new_env:
+            return [], False
+        out = {**cur, **{k: plan[k] for k in wrote}}
+        if new_env:
+            out["env"] = {**cur_env, **{k: plan["env"][k] for k in new_env}}
+        text = json.dumps(out, indent=2, ensure_ascii=False) + "\n"
+        if raw is None:
+            with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode), "w", encoding="utf-8") as fh:
+                tmp = path  # a failed write below must not leave a half-written new file
+                fh.write(text)
+            tmp = None
+        else:
+            try:
+                fd = os.open(path + ".bak", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    os.fchmod(fh.fileno(), mode)
+                    fh.write(raw)
+            except FileExistsError:
+                pass
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".settings-", suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                os.fchmod(fh.fileno(), mode)
+                fh.write(text)
+            os.replace(tmp, path)
+            tmp = None
+        return wrote + [f"env.{k}" for k in new_env], raw is None
+    except (OSError, ValueError) as exc:
+        if tmp:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+        raise ValueError(f"cannot apply to {path}: {exc}")
 
 
 def render_advice(a: dict) -> str:
@@ -1286,6 +1393,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--advise", action="store_true", help="add usage-optimization advice (rule table in the ADVISE section)")
     p.add_argument("--project", default=".", metavar="DIR",
                    help="project whose .claude settings and .mcp.json --advise reads (default .)")
+    p.add_argument("--fix-plan", action="store_true", help="print the minimal JSON settings patch for fired levers (implies --advise)")
+    p.add_argument("--apply", metavar="PATH", help="merge the --fix-plan patch into settings file PATH: backup, absent keys only, idempotent")
     p.add_argument("--selftest", action="store_true")
     return p
 
@@ -1343,8 +1452,26 @@ def main(argv=None) -> int:
         return BREACH
     for stem in report["unusable_subagents"]:
         print(f"token_report.py: warning: subagent file {stem}.jsonl has no usable turns", file=sys.stderr)
-    if args.advise:
+    if args.advise or args.fix_plan or args.apply:
         report["advice"] = advise(report, since, rates, args.project)
+        report["lever_ranking"] = lever_ranking(report)  # now without levers the settings already set
+    if args.fix_plan or args.apply:
+        plan = report["advice"]["fix_plan"]
+        if not args.apply:
+            for n in report["advice"]["notes"]:
+                print(f"token_report.py: note: {n}", file=sys.stderr)
+            print(json.dumps(plan, indent=2, sort_keys=True))
+            return OK
+        for n in report["advice"]["notes"]:
+            print(f"token_report.py: note: {n}", file=sys.stderr)
+        try:
+            wrote, created = apply_plan(args.apply, plan)
+        except ValueError as exc:
+            print(f"token_report.py: {exc}", file=sys.stderr)
+            return ERROR
+        print(("created " + args.apply + "\n" if created else "") + "\n".join(f"wrote {k}" for k in wrote)
+              + "\nre-run token_report --advise next session to measure" if wrote else "nothing to apply")
+        return OK
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

@@ -23,3 +23,5 @@ Lead with the top-ranked lever in the report's `Top levers` block (largest estim
 line gives the how (the 1h cache pin, auto-compact, the lane cap, the orchestrator tier), and the doctrine is in
 `host-enforcement.md` and `model-tiering.md`. A dollar-only lever (the orchestrator tier) has no computed saving and
 lists after the ranked ones; lead with it only when it is the only lever fired. Say what you could not confirm.
+
+To act on the mapped levers, run the same command with `--fix-plan` (prints the settings patch) and, only if the owner agrees to edit that file, `--apply <settings.json>` (backs up first, adds absent keys only).
