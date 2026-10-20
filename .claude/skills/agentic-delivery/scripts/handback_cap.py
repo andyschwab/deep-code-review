@@ -70,6 +70,14 @@ cwd inside that worktree, `warn` sends the owner a `systemMessage` naming the pi
 same text on stderr (released after PUSH_MAX_S, like a live push). Dev servers are not matched. The scan reuses
 lane_liveness.cwd_pids (lsof, else /proc) plus one `ps`, excludes this hook's own pid, ancestors and descendants, and
 fails open: a blind scan prints COULD_NOT_CHECK and never blocks. A non-worktree cwd (a shared checkout) is not scanned.
+DIRTY WORKTREE (same switch): in a linked worktree, `git status --porcelain` (gitignored files excluded) listing
+uncommitted or untracked paths gets a `systemMessage` under `warn` (merged with the line above, one JSON line) or exit 2
+under `block` (released after PUSH_MAX_S). Read-only agent types (READONLY_RE: review, investigat, audit, explore) are
+skipped. Linked worktrees are told from the main checkout, submodules and `--separate-git-dir` repos by `git rev-parse
+--git-dir` differing from `--git-common-dir`; the payload does not expose the parent session cwd, so the message
+says to ignore edits that are not the lane's. The main checkout is never reported; a git failure prints COULD_NOT_CHECK
+and passes. A leaked listening process is not checked: `reap_own.sh --report` prints `orphans=COULD_NOT_CHECK` in the
+sandbox (pgrep denied), so it is no usable primitive there.
 When the scan finds nothing but the handback text itself says the lane is "waiting on" its background tests (WAIT_RE),
 a `systemMessage` flags it in every mode but `off`; never a block (the text is a claim, not evidence).
 
@@ -303,6 +311,42 @@ def _bg_found(table, pids, me):
     return sorted((p, table[p][1]) for p in pids if p in table and p not in skip and BG_RE.search(table[p][1]))
 
 
+def _linked_top(cwd):
+    """Root of the LINKED git worktree containing `cwd` (its `.git` is a file), else None: a shared checkout (`.git` a
+    directory) or no repo at all. The bg process scan skips a shared checkout (the dirty check uses git instead)."""
+    top = os.path.realpath(cwd)
+    while not os.path.exists(os.path.join(top, ".git")) and top != os.path.dirname(top):
+        top = os.path.dirname(top)
+    return top if os.path.isfile(os.path.join(top, ".git")) else None
+
+
+def _dirty_tree(cwd):
+    """`git status --porcelain` lines (gitignored files excluded) of the LINKED worktree containing `cwd`: [] = clean,
+    not a linked worktree (the main checkout, a submodule or a `--separate-git-dir` repo: their git-dir equals the
+    common dir; also a non-repo or missing dir) or no cwd; None = git failed or timed out (the hook fails open and says
+    COULD_NOT_CHECK). Read-only: `--no-optional-locks` keeps it from touching the index. Limit: the hook payload names
+    only the lane's own cwd, so a lane whose linked worktree is also its parent session's cwd cannot be told apart;
+    the message therefore says to ignore the finding when the edits are not the lane's."""
+    if not cwd or not os.path.isdir(cwd):
+        return []
+    try:
+        r = subprocess.run(["git", "rev-parse", "--show-toplevel", "--git-dir", "--git-common-dir"], cwd=cwd, capture_output=True, text=True, timeout=15)
+        paths = r.stdout.splitlines()
+        if r.returncode != 0 or len(paths) != 3:
+            return []
+        top, gd, cd = (os.path.realpath(os.path.join(cwd, x)) for x in paths)
+        if gd == cd:
+            return []
+        r = subprocess.run(["git", "--no-optional-locks", "status", "--porcelain"], cwd=top, capture_output=True, text=True, timeout=15)
+        return r.stdout.splitlines() if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+# Agent types that only read: a dirty tree is never theirs, so it is not reported against them.
+READONLY_RE = re.compile(r"review|investigat|audit|explore", re.I)
+
+
 def _bg_running(cwd):
     """[(pid, command)] of test/build processes whose cwd is inside this lane's worktree (empty = none), or None =
     could not check (ps/lsof/proc blind or failed; the hook fails open). Only a linked worktree is scanned: in a shared
@@ -310,10 +354,8 @@ def _bg_running(cwd):
     if not cwd or not os.path.isdir(cwd):
         return None
     try:
-        top = os.path.realpath(cwd)
-        while not os.path.exists(os.path.join(top, ".git")) and top != os.path.dirname(top):
-            top = os.path.dirname(top)
-        if not os.path.isfile(os.path.join(top, ".git")):
+        top = _linked_top(cwd)
+        if not top:
             return []
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import lane_liveness
@@ -368,6 +410,7 @@ def check(data):
         )
         return 2
     mode = _bg_mode()
+    notes = []
     bg = _bg_running(data.get("cwd")) if mode != "off" else []
     if bg is None and data.get("cwd"):
         sys.stderr.write("COULD_NOT_CHECK: cannot tell whether a test or build from this worktree is still running (ps/lsof unavailable).\n")
@@ -380,10 +423,22 @@ def check(data):
             )
             return 2
         if mode == "warn":
-            print(json.dumps({"systemMessage": f"background_guard: this lane handed back with a test/build still running from its worktree: {what}."}))
+            notes.append(f"background_guard: this lane handed back with a test/build still running from its worktree: {what}.")
+    dirty = [] if READONLY_RE.search(str(data.get("agent_type") or "")) or mode == "off" else _dirty_tree(data.get("cwd"))
+    if dirty is None and data.get("cwd"):
+        sys.stderr.write("COULD_NOT_CHECK: cannot tell whether this worktree has uncommitted changes (git status failed).\n")
+    if dirty:
+        left = f"{len(dirty)} uncommitted path(s) (first: `{dirty[0][:80]}`)"
+        if mode == "block" and _hold(agent_id, ".dirty"):
+            sys.stderr.write(f"This linked worktree has {left}. Commit or discard your own changes, then hand back (ignore this if the edits are not yours).\n")
+            return 2
+        if mode == "warn":
+            notes.append(f"background_guard: this lane handed back with a dirty worktree: {left}. Ignore if these edits are not yours.")
     msg = data.get("last_assistant_message") or ""
     if not bg and mode != "off" and _waiting_claim(msg):  # scan saw nothing (or was blind) but the lane says it is waiting
-        print(json.dumps({"systemMessage": "background_guard: this lane's handback says it is waiting on background work; it must wait in its own turn (lane_guard.py wait) and hand back the result."}))
+        notes.append("background_guard: this lane's handback says it is waiting on background work; it must wait in its own turn (lane_guard.py wait) and hand back the result.")
+    if notes:  # one JSON line however many findings
+        print(json.dumps({"systemMessage": " ".join(notes)}))
     chars, lines, too_long = _shape(msg)  # fields-only and the 400/8 target never block: audit() logs them
     no_status = _require_status() and not STATUS_RE.search(msg)
     if not (too_long or no_status):
