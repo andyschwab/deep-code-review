@@ -17,9 +17,9 @@ work? — cost accounting") and `agentic-delivery`'s `operating-discipline.md`.
    cheaper route the doctrine gives (tier, effort, caching, fewer or longer-lived lanes, a hand-back
    cap) and the quality check that still has to hold.
 
-The report also prints two upper-bound lines (not a bill): idle-gap cache rewrites with a 1h-TTL
-saving bound, and input-eq share by model for main and lanes. Lead with their `Lever:` lines when
-printed (the 1h cache pin; the orchestrator tier); the doctrine is in `host-enforcement.md` and
-`model-tiering.md`.
-
-Lead with the top-ranked lever in the report's `Top levers` block (largest estimated input-eq saving, an upper bound); dollar-only levers list after it. Say what you could not confirm.
+The report also prints upper-bound lines (not a bill): idle-gap cache rewrites with a 1h-TTL saving bound, a
+simulated auto-compact saving, the lane tail beyond the lane cap, and input-eq share by model for main and lanes.
+Lead with the top-ranked lever in the report's `Top levers` block (largest estimated input-eq saving); its `Lever:`
+line gives the how (the 1h cache pin, auto-compact, the lane cap, the orchestrator tier), and the doctrine is in
+`host-enforcement.md` and `model-tiering.md`. A dollar-only lever (the orchestrator tier) has no computed saving and
+lists after the ranked ones; lead with it only when it is the only lever fired. Say what you could not confirm.

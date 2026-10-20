@@ -16,7 +16,7 @@ def rep(pin=0.0, tail=0.0, top_tier=0.0, main_ie=1000.0, lane_ie=1000.0, shipped
     """Report dict with only the fields lever_ranking/_gap_tier_lines read. pin/tail are saving input-eq (0 = lever off)."""
     return {
         "main": {"input_equivalent": main_ie}, "subagents_totals": {"input_equivalent": lane_ie},
-        "main_turns": 0, "subagents_count": 0,
+        "main_turns": 0, "subagents_count": 0, "auto_compact": {"saving_share_of_main_ie": 0.0},
         "idle_rewrites": {"idle_rewrite_share": 0.9 if pin else 0.0, "idle_rewrite_saving_ie_upper": pin,
                           "idle_rewrite_saving_share_of_main_ie": pin / main_ie, "cache_write_1h_share": 0.0},
         "lane_tail": {"cap": 150, "shipped_cap": shipped, "tail_ie_over_cap": tail, "tail_ie_over_shipped_cap": tail,
