@@ -52,6 +52,33 @@ for t in git awk bash head date mkdir find grep dirname cat sed tr; do ln -sf "$
 { [ "$rc" -ne 0 ] && grep -q 'python3 (or fix_class_gate.py) missing' "$WORK/log"; }
 ok $? "missing python3 is refused with the explicit message"
 
+# Skip token in the tip message: blocked; allowed with PERUN_GITHUB_ACTIONS=off; clean message allowed.
+g commit -q --amend -m "quotes [Skip CI] in prose"
+run "$(g rev-parse HEAD)"; rc=$?
+{ [ "$rc" -ne 0 ] && grep -q 'contains "\[Skip CI\]"' "$WORK/log"; }
+ok $? "skip token in tip message is refused naming the token"
+PERUN_GITHUB_ACTIONS=off run "$(g rev-parse HEAD)"; ok $? "skip token allowed when PERUN_GITHUB_ACTIONS=off"
+DCR_PREPUSH_ALLOW_SKIP_CI=1 run "$(g rev-parse HEAD)"; ok $? "skip token allowed when DCR_PREPUSH_ALLOW_SKIP_CI=1"
+# Policy github_actions=off (perun_policy.py + PERUN_POLICY file) allows the token.
+mkdir -p "$R/.claude/skills/agentic-delivery/scripts"
+cp "$ROOT/.claude/skills/agentic-delivery/scripts/perun_policy.py" "$R/.claude/skills/agentic-delivery/scripts/"
+g add -A; g commit -q --amend --no-edit # a clean tree is required
+printf '{"github_actions": "off"}\n' >"$WORK/policy.json"
+PERUN_POLICY="$WORK/policy.json" run "$(g rev-parse HEAD)"; ok $? "skip token allowed when policy github_actions=off"
+printf '{"github_actions": "on"}\n' >"$WORK/policy.json"
+PERUN_POLICY="$WORK/policy.json" run "$(g rev-parse HEAD)"; rc=$?
+ok $((rc == 0)) "skip token refused when policy github_actions=on"
+# Token mid-body of a multi-line message, and the skip-checks trailer, are refused.
+g commit -q --amend -m "subject" -m "body line one" -m "text [no ci] more" -m "last line"
+run "$(g rev-parse HEAD)"; rc=$?
+ok $((rc == 0)) "skip token in mid-body is refused"
+g commit -q --amend -m "subject" -m "skip-checks: true"
+run "$(g rev-parse HEAD)"; rc=$?
+{ [ "$rc" -ne 0 ] && grep -q 'contains "skip-checks: true"' "$WORK/log"; }
+ok $? "skip-checks trailer is refused"
+g commit -q --amend -m "mentions the skip-ci marker"
+run "$(g rev-parse HEAD)"; ok $? "message without a skip token passes"
+
 # A branch delete (zero local sha) is never blocked by the mechanism gate.
 (cd "$R" && printf 'refs/heads/b 0000000000000000000000000000000000000000 refs/heads/b %s\n' "$(g rev-parse HEAD)" |
   PATH="$WORK/nopy" "$WORK/nopy/bash" "$PPV" origin) >"$WORK/log" 2>&1; rc=$?
