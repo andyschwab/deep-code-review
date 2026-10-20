@@ -17,4 +17,9 @@ work? — cost accounting") and `agentic-delivery`'s `operating-discipline.md`.
    cheaper route the doctrine gives (tier, effort, caching, fewer or longer-lived lanes, a hand-back
    cap) and the quality check that still has to hold.
 
+The report also prints two upper-bound lines (not a bill): idle-gap cache rewrites with a 1h-TTL
+saving bound, and input-eq share by model for main and lanes. Lead with their `Lever:` lines when
+printed (the 1h cache pin; the orchestrator tier); the doctrine is in `host-enforcement.md` and
+`model-tiering.md`.
+
 Lead with the one change that would save the most. Say what you could not confirm.
