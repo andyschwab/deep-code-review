@@ -1,5 +1,5 @@
 """Field-audit additions: FULL-only refs routed from SKILL.md, probes present, DIFF path untouched."""
-import hashlib, pathlib, re, subprocess, unittest
+import pathlib, re, unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SK = ROOT / ".claude/skills/deep-code-review"
@@ -29,19 +29,11 @@ class FullAuditField(unittest.TestCase):
         self.assertRegex(skill, r"`nextjs-app-router\.md` when `next`")
         self.assertRegex(skill, r"`FULL` scope: `full-audit\.md`")
 
-    def test_diff_path_unchanged(self):
-        self.assertTrue((ROOT / "commands/review.md").is_file())
-        def git(*a):
-            return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True)
-        mb = git("merge-base", "HEAD", "origin/main")
-        base = mb.stdout.strip() if mb.returncode == 0 else git("rev-list", "--max-parents=0", "HEAD").stdout.split()[-1]
-        for p in ("commands/review.md", "method.md"):
-            path = p if p.startswith("commands") else f".claude/skills/deep-code-review/references/{p}"
-            old = git("show", f"{base}:{path}")
-            if old.returncode != 0:
-                continue  # absent at fallback base
-            h = lambda b: hashlib.sha256(b.encode()).hexdigest()
-            self.assertEqual(h(old.stdout), h((ROOT / path).read_text()), f"{path} must not change")
+    def test_diff_path_present(self):
+        # The FULL-audit change once pinned these files byte-for-byte against the merge base; that was a
+        # one-PR invariant and, run on every PR, it failed any later edit to the DIFF method.
+        for path in ("commands/review.md", ".claude/skills/deep-code-review/references/method.md"):
+            self.assertTrue((ROOT / path).is_file(), path)
 
     def test_probes_hit_multilang_fixtures(self):
         table = (REF / "full-audit.md").read_text()
