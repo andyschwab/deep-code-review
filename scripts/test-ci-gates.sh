@@ -4172,8 +4172,8 @@ sb_out=$(cd "$sb_repo" && echo '{}' | PERUN_SOURCE="$sb_src" CLAUDE_PROJECT_DIR=
   && printf '%s' "$sb_out" | grep -q "#42 Fix the importer" || { hg_ok=0; echo "sb: brief wrong: $sb_out"; }
 # outside a repo: no report lines (systemMessage); only the always-on HOST_RULES additionalContext may print.
 [ "$(cd "$hg_dir" && echo x | PERUN_SOURCE=/nonexistent CLAUDE_PROJECT_DIR="$hg_dir/none" python3 "$sbr" | python3 -c 'import json,sys;d=json.load(sys.stdin);print("systemMessage" in d)')" = False ] || { hg_ok=0; echo "sb: noisy outside a repo"; }
-# report-only: no hook file may delete or stop anything.
-if grep -nE '\brm[[:space:]]|\bkill\b|pkill|worktree[[:space:]",]+remove|rmtree|os\.(remove|unlink|kill)|find .*-delete|\.unlink\(' "$hg" "$sbr"; then
+# report-only: no hook file may delete or stop anything (an option name such as --kill-after is not a call).
+if grep -nE '\brm[[:space:]]|(^|[^-[:alnum:]_])kill([^-[:alnum:]_]|$)|pkill|worktree[[:space:]",]+remove|rmtree|os\.(remove|unlink|kill)|find .*-delete|\.unlink\(' "$hg" "$sbr"; then
   hg_ok=0; echo "hooks contain a delete/kill call"
 fi
 if [ "$hg_ok" = 1 ]; then
