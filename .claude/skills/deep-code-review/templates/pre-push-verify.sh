@@ -39,6 +39,15 @@
 # Without that `git config` line, Git never looks in `.githooks/` and this
 # file is inert.
 #
+# SKIP-TOKEN CHECK: a tip commit message that quotes a GitHub skip token
+# ([skip ci], [ci skip], [no ci], [skip actions], [actions skip], or the
+# `skip-checks: true` trailer; any case) makes GitHub silently skip
+# pull_request CI, so the PR waits forever with no run. The push is refused
+# with the token named; reword the message (e.g. "skip-ci marker").
+# github_actions=off (PERUN_GITHUB_ACTIONS, else perun_policy.py when
+# installed: skipping is intended there) or DCR_PREPUSH_ALLOW_SKIP_CI=1
+# disables the check.
+#
 # MECHANISM GATE (refs #1380): CI's "Fix commits carry a pinned test" and
 # "Prose lessons carry a mechanism" steps judge the WHOLE PR range, so a
 # follow-up commit that edits a SKILL.md/reference without a test/eval in
@@ -116,6 +125,11 @@
 #                                "main" if that ref is not set locally (run
 #                                `git remote set-head <remote> --auto` once
 #                                to set it).
+#   DCR_PREPUSH_ALLOW_SKIP_CI    "1" allows a tip commit message that contains a
+#                                GitHub skip token (see SKIP-TOKEN CHECK).
+#   PERUN_GITHUB_ACTIONS         "off" allows skip tokens (policy where
+#                                skipping CI is intended); unset: read
+#                                github_actions from perun_policy.py.
 #   DCR_PREPUSH_SKIP_CACHE       "1" ignores an existing verdict-cache entry
 #                                and always reruns DCR_PREPUSH_CMD (see
 #                                VERDICT CACHE above); a passing run still
@@ -322,6 +336,19 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     printf 'pre-push-verify: FAIL -- rejecting push of %s (leftover conflict marker)\n' "${local_ref}" >&2
     fail=1
     continue
+  fi
+
+  # Skip-token check: see SKIP-TOKEN CHECK in the header.
+  skip_ga="${PERUN_GITHUB_ACTIONS:-}"
+  skip_pol=".claude/skills/agentic-delivery/scripts/perun_policy.py"
+  [ -z "${skip_ga}" ] && [ -f "${skip_pol}" ] && skip_ga="$(python3 "${skip_pol}" get github_actions 2>/dev/null || true)"
+  if [ "${skip_ga}" != off ] && [ "${DCR_PREPUSH_ALLOW_SKIP_CI:-0}" != 1 ]; then
+    skip_tok="$(git log -1 --format=%B "${local_sha}" | grep -oiE '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]|skip-checks: ?true' | head -n1 || true)"
+    if [ -n "${skip_tok}" ]; then
+      printf 'pre-push-verify: FAIL -- %s tip message contains "%s", which makes GitHub skip PR CI. Fix: reword it (e.g. "skip-ci marker"), or set DCR_PREPUSH_ALLOW_SKIP_CI=1.\n' "${local_ref}" "${skip_tok}" >&2
+      fail=1
+      continue
+    fi
   fi
 
   # Mechanism gate (#1380): CI's fix-class steps over the whole branch range.
