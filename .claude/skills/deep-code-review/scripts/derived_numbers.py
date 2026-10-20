@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""derived_numbers.py — a number in a doc may be bound to the counter that derives it.
+"""derived_numbers.py — bind a doc number to the counter that derives it.
 
 WHY THIS EXISTS
 A doc that says "11 skills" or "412 tests" is true the day it is written and
