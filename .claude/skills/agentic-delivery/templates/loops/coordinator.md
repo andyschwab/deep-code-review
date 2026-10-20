@@ -9,13 +9,15 @@ Token policy (`python3 perun_policy.py get tokens`): `efficient` (default) means
 
 ```
 /loop 30m Coordinator wake. Run this checklist once, in order, then stop; do not re-poll inside a wake.
+0. WIP first: `python3 .claude/skills/agentic-delivery/scripts/landing_watchdog.py check`; a `WIP:` or `Landing stalled`
+   line means drain (review, land) before spawning anything new.
 1. Activity: list new issue/PR activity since the last wake. Match on issue number plus a keyword set
    (URGENT, regression, blocked), never by author: peers share one account.
 2. Peers: read each machine's free-lane count from the coordination issue. Run
    `ROOT=<repo-root> bash .claude/skills/agentic-delivery/scripts/reap_own.sh --report`; an idle peer while
    `lane:<machine>` issues wait is a finding: label or assign, per the pull-queue doctrine
    (references/multi-session-coordination.md). Host: `python3 .claude/skills/agentic-delivery/scripts/host_probe.py
-   --lane-type cpu` (add `--lane-type heavy` before a heavy local command: same verdicts; slots = `perun_policy.py heavy-slots`); `HOLD` or `COULD_NOT_CHECK` means start no new lane this wake, and say so on the board.
+   --lane-type cpu --live-lanes "$(python3 .claude/skills/agentic-delivery/scripts/perun_policy.py heavy-load)" --max-lanes "$(python3 .claude/skills/agentic-delivery/scripts/perun_policy.py lanes)"` (add `--lane-type heavy` before a heavy local command: same verdicts; slots = `perun_policy.py heavy-slots`); `HOLD` or `COULD_NOT_CHECK` means start no new lane this wake, and say so on the board.
 3. Trains: for 2 or more green, reviewed PRs on one base, run
    `bash .claude/skills/agentic-delivery/scripts/train_land.sh <tag> <pr> <pr> ...`. A single PR takes the
    normal merge path.
@@ -27,7 +29,8 @@ Token policy (`python3 perun_policy.py get tokens`): `efficient` (default) means
    week, run `python3 .claude/skills/agentic-delivery/scripts/tracker_weekly_update.py` and hand the draft to the
    project DRI to post; never post it unread. A `NOT CHECKED` line is a finding, not a pass.
 6. Board: post one status update (what landed, what is in flight, what is blocked, who owns each).
-Idle with nothing to act on: say so in one line and end the wake.
+Idle only after `python3 .claude/skills/agentic-delivery/scripts/lane_liveness.py --worktree <lane-worktree>` reports no ALIVE or QUIET lane
+(one call per lane worktree); a HOLD with live lanes is not idle: say "draining". Then say so in one line and end the wake.
 ```
 
 ## Scheduled-task template

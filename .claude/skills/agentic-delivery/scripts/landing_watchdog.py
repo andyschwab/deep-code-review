@@ -16,6 +16,12 @@ Autonomous runs that spawn lanes without a user prompt never reach UserPromptSub
 PreToolUse for tool_name Agent or Task (hookEventName PreToolUse), main session only: an input with agent_id (a
 subagent's own spawn) stays silent. It only warns, never denies, and shares the verdict cache and throttle below.
 
+WIP cap: the same `gh pr list` call also counts open non-draft PRs into the branch (a draft cannot be drained by review or
+landing). Ceiling: the call asks for `--base <branch> --limit 100`, so PRs into other branches are not counted and above 100
+the count stops at 100. When that count exceeds policy `wip_cap` (integer >= 0; opt-in, default 0 = off), a second line is added:
+"WIP: N open PRs > cap M. Drain (review, land) before spawning." It is independent of the stall line, warn-only, and
+shares the same throttle, cache and CLI (`check` exits 1 for either line).
+
 Throttle: the remote is asked (one `git fetch` of the default branch, one `gh pr list`) at most once per 15 minutes
 per repo; the verdict is cached and replayed on each prompt in between, so a standing stall keeps showing without a
 network call. The cache is one small JSON file per repo under $PERUN_LANDING_DIR, else <cache>/perun/landing-watchdog
@@ -42,6 +48,7 @@ THROTTLE_S = 15 * 60
 DEFAULT_MIN = 60
 DEFAULT_MODE = "warn"
 MODES = ("off", "warn")
+WIP = "WIP: {n} open PRs > cap {c}. Drain (review, land) before spawning."
 LINE = "Landing stalled: 0 merged to {b} in {n} min, {k} green PRs waiting. Fix landing before starting new work."
 
 
@@ -80,13 +87,13 @@ def default_branch(cwd):
 
 
 def probe(cwd, minutes):
-    """(branch, merged_count, green_count). Raises on any git/gh problem; callers fail open."""
+    """(branch, merged_count, green_count, open_non_draft_count). Raises on any git/gh problem; callers fail open."""
     branch = default_branch(cwd)
     _run(["git", "fetch", "-q", "origin", branch], cwd, timeout=20)
     merged = _run(["git", "log", "--first-parent", f"--since={minutes} minutes ago", "--format=%H", "origin/" + branch], cwd)
     prs = json.loads(_run(["gh", "pr", "list", "--state", "open", "--base", branch, "--limit", "100",
                            "--json", "isDraft,statusCheckRollup"], cwd, timeout=30))
-    return branch, len(merged.split()), sum(green(p) for p in prs)
+    return branch, len(merged.split()), sum(green(p) for p in prs), sum(not p.get("isDraft") for p in prs)
 
 
 def settings():
@@ -103,6 +110,16 @@ def settings():
     return (env if env in MODES else mode if mode in MODES else DEFAULT_MODE), minutes
 
 
+def wip_cap():
+    """Policy `wip_cap` (0 = off, the default). An unreadable policy reads as off."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import perun_policy
+        return perun_policy.load().get("wip_cap") or 0
+    except Exception:  # fail open
+        return 0
+
+
 def cache_file(cwd):
     base = os.environ.get("PERUN_LANDING_DIR")
     if not base:
@@ -115,8 +132,12 @@ def cache_file(cwd):
     return os.path.join(base, hashlib.sha1(top.encode()).hexdigest()[:16] + ".json")
 
 
-def _stall(branch, merged, k, minutes):
-    return LINE.format(b=branch, n=minutes, k=k) if merged == 0 and k else None
+def _stall(branch, merged, k, n_open, minutes, cap):
+    """The stall line and/or the WIP line, newline-joined, or None when neither applies."""
+    lines = [LINE.format(b=branch, n=minutes, k=k)] if merged == 0 and k else []
+    if cap and n_open > cap:
+        lines.append(WIP.format(n=n_open, c=cap))
+    return "\n".join(lines) or None
 
 
 def _event(data):
@@ -132,31 +153,32 @@ def hook(data, now=None):
     mode, minutes = settings()
     if mode == "off" or not _event(data):
         return None
+    cap = wip_cap()
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     path, now = cache_file(cwd), now or time.time()
     try:
         with open(path) as f:
             c = json.load(f)
-        if now - c["ts"] < THROTTLE_S and c.get("minutes") == minutes:
+        if now - c["ts"] < THROTTLE_S and c.get("minutes") == minutes and c.get("cap") == cap:
             return c.get("line")
     except (OSError, ValueError, KeyError, TypeError):
         pass
     with open(path, "w") as f:  # stamp first: a failing or hanging remote is not retried on every prompt
-        json.dump({"ts": now, "minutes": minutes, "line": None}, f)
-    line = _stall(*probe(cwd, minutes), minutes)
+        json.dump({"ts": now, "minutes": minutes, "cap": cap, "line": None}, f)
+    line = _stall(*probe(cwd, minutes), minutes, cap)
     with open(path, "w") as f:
-        json.dump({"ts": now, "minutes": minutes, "line": line}, f)
+        json.dump({"ts": now, "minutes": minutes, "cap": cap, "line": line}, f)
     return line
 
 
 def check(argv):
     minutes = int(argv[argv.index("--minutes") + 1]) if "--minutes" in argv else settings()[1]
     try:
-        b, merged, k = probe(os.getcwd(), minutes)
+        b, merged, k, n_open = probe(os.getcwd(), minutes)
     except Exception as e:
         print(f"landing unknown: {e}")
         return 2
-    line = _stall(b, merged, k, minutes)
+    line = _stall(b, merged, k, n_open, minutes, wip_cap())
     print(line or f"landing ok: {merged} merged to {b} in {minutes} min, {k} green PRs waiting")
     return 1 if line else 0
 
