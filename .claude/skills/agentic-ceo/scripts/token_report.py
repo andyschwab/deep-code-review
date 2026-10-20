@@ -171,7 +171,7 @@ FIX PLAN (--fix-plan, --apply PATH)
 env `LANE_TOOL_CAP` (the lane p90, only when it lowers the cap). A key already set (in user, project or local
 settings or the environment) is skipped; the subagent-model rule names no value, so it is never patched.
 `--apply PATH` merges the patch into the symlink-resolved PATH: unreadable or invalid JSON (or an I/O error) is
-refused (exit 2); PATH.bak is written first, only if absent, keeping PATH's mode; the rewrite is atomic; only keys
+refused (exit 2); PATH.bak is written first, only if absent (its path is printed when created), keeping PATH's mode; the rewrite is atomic; only keys
 absent from PATH are added; a missing PATH in an existing directory is created (mode 0600); a second run prints
 "nothing to apply". Levers whose key is already set also drop out of the Lever lines and Top levers under --advise.
 
@@ -1242,7 +1242,7 @@ def load_settings(project: str):
 
     Layers: user (`$CLAUDE_CONFIG_DIR` or `~/.claude`) then the project's `.claude/settings.json` and
     `settings.local.json` (later wins; list keys merge), env block merged, plus the project's `.mcp.json` `mcpServers` keys.
-    An unreadable or non-object file is reported, and `advise` then treats every setting as already set.
+    An unreadable or non-object file is reported, and `advise` then treats every setting as already set (rules go silent) and mutes only levers whose key a readable file or the env sets.
     """
     home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
     cfg: dict = {}
@@ -1450,8 +1450,8 @@ def advise(report: dict, since, rates, project: str = ".") -> dict:
     fired.sort(key=lambda a: (a["at_stake_usd"] is None, -(a["at_stake_usd"] or 0), a["_i"]))
     for a in fired:
         del a["_i"]
-    notes = [f"settings file(s) unreadable ({', '.join(bad)}): settings-dependent rules assume the setting is set"] if bad else []
-    muted = [k for k, names in LEVER_KEYS.items() if f["isset"](*names)]
+    notes = [f"settings file(s) unreadable ({', '.join(bad)}): settings-dependent rules assume the setting is set; settings unreadable: some levers may already be set"] if bad else []
+    muted = [k for k, names in LEVER_KEYS.items() if any(n in cfg or n in env for n in names)]  # keys seen in readable files/env only; isset fails closed on bad
     return {"advice": fired, "notes": notes, "muted": muted, "fix_plan": fix_plan(report, f)}
 
 
@@ -1637,11 +1637,14 @@ def main(argv=None) -> int:
         for n in report["advice"]["notes"]:
             print(f"token_report.py: note: {n}", file=sys.stderr)
         try:
+            bak = os.path.realpath(args.apply) + ".bak"
+            had_bak = os.path.exists(bak)
             wrote, created = apply_plan(args.apply, plan)
         except ValueError as exc:
             print(f"token_report.py: {exc}", file=sys.stderr)
             return ERROR
-        print(("created " + args.apply + "\n" if created else "") + "\n".join(f"wrote {k}" for k in wrote)
+        print(("created " + args.apply + "\n" if created else "")
+              + (f"backup {bak}\n" if wrote and not created and not had_bak else "") + "\n".join(f"wrote {k}" for k in wrote)
               + "\nre-run token_report --advise next session to measure" if wrote else "nothing to apply")
         return OK
     if args.json:

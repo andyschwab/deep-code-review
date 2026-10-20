@@ -430,7 +430,7 @@ def check(data):
     if dirty:
         left = f"{len(dirty)} uncommitted path(s) (first: `{dirty[0][:80]}`)"
         if mode == "block" and _hold(agent_id, ".dirty"):
-            sys.stderr.write(f"This linked worktree has {left}. Commit or discard your own changes, then hand back (ignore this if the edits are not yours).\n")
+            sys.stderr.write(f"This linked worktree has {left}. Commit or discard your own changes, then hand back; if the edits are not yours, tell the owner.\n")
             return 2
         if mode == "warn":
             notes.append(f"background_guard: this lane handed back with a dirty worktree: {left}. Ignore if these edits are not yours.")

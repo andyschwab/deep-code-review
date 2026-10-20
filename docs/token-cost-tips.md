@@ -34,7 +34,7 @@ measured in this repository; adapt the settings to your own fleet and re-measure
    <transcript> --budget` reports main versus subagent tokens and flags lanes over their caps;
    `/perun:cost-retro` turns that into "what would have been cheaper". Add `--advise` for rule-based
    advice (each rule is one measured signal, one lever, one link back here); a lever you already set is never recommended.
-   `--fix-plan` prints the matching settings patch and `--apply PATH` merges it (backup first, absent keys only, safe to re-run). A reproducible run on a synthetic session, next to six peer tools: [`docs/bench/token-levers/`](bench/token-levers/README.md).
+   `--fix-plan` prints the matching settings patch and `--apply PATH` merges it (backup first, absent keys only, safe to re-run; the `.bak` keeps only the first original and its path is printed when created). A reproducible run on a synthetic session, next to six peer tools: [`docs/bench/token-levers/`](bench/token-levers/README.md).
    Add `--project DIR` to price each auto-loaded instruction file (CLAUDE.md, user-level CLAUDE.md, memory) across lanes: file bytes/4 is an estimate (skipped under `--since`), and the report ranks the largest as a trim lever.
 10. **Attribute spend before capping it.** Name keys `<tracker-project-id>-<handle>`, prefer one key
     per project, set alerts first, caps last, and total an export with
