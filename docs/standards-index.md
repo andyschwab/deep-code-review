@@ -1788,3 +1788,16 @@ Every page was fetched on 2026-10-19; a lever the pages did not show is not reco
 | Claude Code — How Claude Code uses prompt caching | https://code.claude.com/docs/en/prompt-caching | Each model has its own cache, so a `/model` switch re-reads the context uncached; compaction also rewrites the cached prefix. Basis for the `cache-switch` and `ctx-drops` advice rules. |
 
 **By name only, not verified:** that tsx's IPC pipe is the cause of `listen EPERM` under the macOS sandbox comes from field reports, not from a docs page; the docs confirm only that the macOS sandbox blocks every Unix socket by default. The Playwright `allowMachLookup` service names are not documented.
+
+## Token-lever peer READMEs (fetched 2026-10-20)
+
+Public pages read to fill the peer cells in [`docs/bench/token-levers/README.md`](bench/token-levers/README.md). Each row records what the page says, not an independent check of its numbers.
+
+| Tool | URL | What was confirmed |
+|---|---|---|
+| caveman | https://github.com/JuliusBrussee/caveman | `caveman stats`, `/caveman-stats`, `caveman learn` ("Ranks where your tokens go"; "Not yet" measured), Warm cache ("Not yet" measured); "33.2% fewer input tokens, whole sessions" (885,793 to 591,673, 54 runs); output 6,983 to 2,693 tokens on 10 questions; page notes "Be concise" is the real baseline. Verified 2026-10-20. |
+| ponytail | https://github.com/DietrichGebert/ponytail | "-53% code, -41% time, -26% cost, -45% tokens", 39 tasks, Opus 5.5, 5 runs, self-run; per-task band and local board; "The rule was never 'fewest tokens.'" Verified 2026-10-20. |
+| RTK | https://github.com/rtk-ai/rtk | "60-90% on common dev commands"; `rtk gain` measures command-output savings and "is not the same as cutting your bill"; tokens are bytes/4; Bash tool calls only. Verified 2026-10-20. |
+| context-mode | https://github.com/mksglu/context-mode | "315 KB becomes 5.4 KB. 98% reduction" in KB; `ctx_stats`; statusline "$ saved this session". The last 15,848 of 115,848 characters were not read. Verified 2026-10-20. |
+| Headroom | https://github.com/chopratejas/headroom | "20% fewer tokens for coding agents, 60-95% fewer tokens for JSON"; `headroom savings`; CacheAligner flags prefix-busting content; savings scale with payload repetition. Verified 2026-10-20. |
+| ccusage | https://github.com/ryoppippi/ccusage | Daily, weekly, monthly, session and 5-hour-block reports in USD; cache creation and read tokens shown separately; `--breakdown` per model. Verified 2026-10-20. |

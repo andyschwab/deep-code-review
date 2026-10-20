@@ -29,7 +29,7 @@ measured in this repository; adapt the settings to your own fleet and re-measure
 9. **Measure per session, then per project.** `agentic-ceo/scripts/token_report.py --session
    <transcript> --budget` reports main versus subagent tokens and flags lanes over their caps;
    `/perun:cost-retro` turns that into "what would have been cheaper". Add `--advise` for rule-based
-   advice (each rule is one measured signal, one lever, one link back here); a lever you already set is never recommended.
+   advice (each rule is one measured signal, one lever, one link back here); a lever you already set is never recommended. A reproducible run on a synthetic session, next to six peer tools: [`docs/bench/token-levers/`](bench/token-levers/README.md).
 10. **Attribute spend before capping it.** Name keys `<tracker-project-id>-<handle>`, prefer one key
     per project, set alerts first, caps last, and total an export with
     `agentic-delivery/scripts/spend_report.py`. See [`operating-discipline.md`](../.claude/skills/agentic-delivery/references/operating-discipline.md), item 9.
