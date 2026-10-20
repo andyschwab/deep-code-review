@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# post_review.sh <PR-number> <findings.json> [--post] — opt-in PR-native delivery of review findings.
+# post_review.sh <PR-number> <findings.json> [--post] — post review findings to a PR (opt-in).
 #
 # Default is a DRY RUN: prints the `gh api` call and JSON payload, posts nothing. --post (explicit,
 # never implied) creates ONE pending review (no `event`: only its author sees it until they submit it
