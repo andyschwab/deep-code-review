@@ -588,6 +588,8 @@ def build_subagent_report(jsonl_path: str, since) -> dict:
 IDLE_GAP_S, IDLE_GAP_1H_S = 300, 3600
 IDLE_LEVER_SHARE, IDLE_LEVER_SAVING = 0.30, 0.05  # lever needs both: most 5m writes follow an idle gap and the saving is not noise
 MAIN_TIER_LEVER_SHARE = 0.40
+AUTO_COMPACT_WINDOW = 200_000  # the autoCompactWindow install.sh writes
+COMPACT_RESTART_TOKENS = 30_000  # ASSUMPTION: context right after a compaction (fixed prefix + summary); a real summary varies
 TAIL_LEVER_SHARE = 0.10  # lever fires when the beyond-cap tail is at least this share of lane input-eq
 
 
@@ -663,6 +665,35 @@ def idle_rewrites(turns: list, main_ie: float) -> dict:
     }
 
 
+def compact_saving(turns: list, main_ie: float, window: int = AUTO_COMPACT_WINDOW, restart: int = COMPACT_RESTART_TOKENS) -> dict:
+    """Counterfactual: what compacting at `window` would have saved on the main thread. UPPER BOUND, not a bill.
+
+    Replays each main turn's context (input + cache writes + cache read). The simulated context starts as the observed one, grows by
+    the observed per-turn delta, and drops to `restart` (an ASSUMPTION, see COMPACT_RESTART_TOKENS) whenever it passes `window`.
+    `saving_ie_upper` = sum(0.1 x (observed - simulated)) as cache reads - 1.25 x `restart` per simulated compaction. Skipped
+    (`skipped` set, saving 0) when the session already compacts (an observed context drop of over 50%) or never passes `window`.
+    Not modelled: quality lost to compaction, the summarizer call itself, or the cache write for the turn's own new tokens.
+    """
+    ctx = [t["input_tokens"] + t["cache_write_5m"] + t["cache_write_1h"] + t["cache_read"]
+           for t in turns if not t.get("iter") and t["timestamp"] and t.get("model") != "<synthetic>"]
+    out = {"window": window, "restart_tokens": restart, "compactions": 0, "saving_ie_upper": 0.0,
+           "saving_share_of_main_ie": 0.0, "skipped": None}
+    if any(a >= ADV["drop_floor"] and b < a / 2 for a, b in zip(ctx, ctx[1:])):
+        out["skipped"] = "already compacts"
+    elif max(ctx, default=0) <= window:
+        out["skipped"] = "never passes window"
+    else:
+        sim, saving = 0, 0.0
+        for i, c in enumerate(ctx):
+            sim = c if i == 0 else max(sim + c - ctx[i - 1], min(c, restart))  # a partial drop can not take it below the restart size
+            if sim > window:
+                sim, out["compactions"], saving = restart, out["compactions"] + 1, saving - CACHE_WRITE_5M_MULT * restart
+            saving += CACHE_READ_MULT * (c - sim)
+        out["saving_ie_upper"] = round(saving, 2)
+        out["saving_share_of_main_ie"] = round(saving / main_ie, 4) if main_ie else 0.0
+    return out
+
+
 def tier_split(main_by_model: dict, sub_by_model: dict, rates) -> dict:
     """Input-equivalent share by model for main and lanes, plus main's share of all input-eq (a measured split, not a price).
 
@@ -728,6 +759,7 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
         "subagents_by_model": sub_by_model,
         "tier_split": tier_split(main_by_model, sub_by_model, rates),
         "idle_rewrites": idle_rewrites(main_turns, main_totals["input_equivalent"]),
+        "auto_compact": compact_saving(main_turns, main_totals["input_equivalent"]),
         "lane_tail": lane_tail(subagents, cap, shipped_lane_cap()),
         "rates": None if rates is None else f"default as of {RATES_DATE}" if rates is DEFAULT_RATES else "--rates file",
         "cost_usd": None if rates is None else {
@@ -867,6 +899,10 @@ def _pin_fires(i: dict) -> bool:
             and i["cache_write_1h_share"] < 0.5)
 
 
+def _compact_fires(ac: dict) -> bool:
+    return ac["saving_share_of_main_ie"] >= IDLE_LEVER_SAVING
+
+
 def _tail_fires(lt: dict) -> bool:
     return (lt["tail_share_over_shipped_cap"] if lt["shipped_cap"] else lt["tail_share_over_cap"]) >= TAIL_LEVER_SHARE
 
@@ -884,6 +920,8 @@ def lever_ranking(report: dict) -> list:
     rows = []
     if _pin_fires(i):
         rows.append(("pin main cache to 1h", i["idle_rewrite_saving_ie_upper"]))
+    if _compact_fires(report["auto_compact"]):
+        rows.append((f"auto-compact at {report['auto_compact']['window']}", report["auto_compact"]["saving_ie_upper"]))
     if _tail_fires(lt):
         rows.append((f"lower LANE_TOOL_CAP below {lt['shipped_cap'] or lt['cap']}",
                      lt["tail_ie_over_shipped_cap"] if lt["shipped_cap"] else lt["tail_ie_over_cap"]))
@@ -917,6 +955,11 @@ def _gap_tier_lines(report: dict) -> list:
         out.append("Lever: pin the main conversation cache to 1h (`promptCacheTtl` or CLAUDE_CODE_PROMPT_CACHE_TTL; pins need v2.1.242+; "
                    "`FORCE_PROMPT_CACHING_5M=1` or an earlier match in the order there wins); which accounts get 1h and the order are in "
                    "agentic-delivery host-enforcement.md, 'Cache lifetime is the sibling spend control'")
+    ac = report["auto_compact"]
+    if _compact_fires(ac):
+        out.append(f"Lever: auto-compact the main thread at {ac['window']} tokens (`/autocompact {ac['window'] // 1000}k`, `autoCompactWindow` or CLAUDE_CODE_AUTO_COMPACT_WINDOW): {ac['compactions']} simulated compaction{'' if ac['compactions'] == 1 else 's'} dropping to an assumed "
+                   f"{ac['restart_tokens']} tokens; at most {ac['saving_ie_upper']} input-eq = {ac['saving_share_of_main_ie'] * 100:.1f}% of main input-eq "
+                   "(upper bound; quality lost to compaction is not modelled)")
     shipped = lt["shipped_cap"]
     if _tail_fires(lt):
         out.append(f"Lever: lower LANE_TOOL_CAP ({'shipped ' + str(shipped) if shipped else 'reference ' + str(lt['cap'])}) toward p90 {lt['p90_tool_calls']} "
