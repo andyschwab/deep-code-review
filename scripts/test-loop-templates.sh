@@ -15,6 +15,11 @@ while read -r s; do
   [ -f "$ROOT/.claude/skills/agentic-delivery/scripts/$s" ] || bad "referenced script missing: $s"
 done < <(grep -ohE '[a-z_]+\.(sh|py)\b' "$L"/*.md | sort -u)
 
+# WIP-first coordinator: step 0 check, live-lane cap wired, idle only after liveness
+for t in landing_watchdog.py --live-lanes --max-lanes heavy-load ALIVE QUIET lane_liveness.py draining; do
+  grep -q -- "$t" "$L/coordinator.md" || bad "coordinator.md missing: $t"
+done
+
 # no /loop interval or schedule under 20 minutes
 while read -r m; do
   [ "$m" -ge 20 ] || bad "interval ${m}m under 20-minute floor"
