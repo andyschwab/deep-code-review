@@ -203,6 +203,7 @@ USAGE
 from __future__ import annotations
 
 import argparse
+import bisect
 import contextlib
 import json
 import math
@@ -597,6 +598,7 @@ def build_subagent_report(jsonl_path: str, since) -> dict:
         "effort": meta.get("effort"),
         "consults": sum(1 for t in turns if t.get("iter")),
         "consult_by_model": model_stats([t for t in turns if t.get("iter")])[2],
+        "tool_results": tool_results(entries, turns, totals["input_equivalent"], since),
         "in_flight": not called and last_stop != "end_turn",
         **totals,
     }
@@ -607,6 +609,7 @@ IDLE_LEVER_SHARE, IDLE_LEVER_SAVING = 0.30, 0.05  # lever needs both: most 5m wr
 MAIN_TIER_LEVER_SHARE = 0.40
 AUTO_COMPACT_WINDOW = 200_000  # the autoCompactWindow install.sh writes
 COMPACT_RESTART_TOKENS = 30_000  # ASSUMPTION: context right after a compaction (fixed prefix + summary); a real summary varies
+TOOL_RESULT_MIN_CHARS, CHARS_PER_TOKEN = 10_000, 4  # CHARS_PER_TOKEN is a rough ASSUMPTION, which is why the carry is an estimate
 TAIL_LEVER_SHARE = 0.10  # lever fires when the beyond-cap tail is at least this share of lane input-eq
 
 
@@ -682,6 +685,57 @@ def idle_rewrites(turns: list, main_ie: float) -> dict:
     }
 
 
+def _drops(ctx: list) -> list:
+    """Indices of turns whose context fell by over half from a size of at least ADV["drop_floor"]: an observed compaction."""
+    return [k for k in range(1, len(ctx)) if ctx[k - 1] >= ADV["drop_floor"] and ctx[k] < ctx[k - 1] / 2]
+
+
+def _tool_class(name) -> str:
+    return "bash" if name in ("Bash", "PowerShell") else "read" if name == "Read" else "other"  # other = MCP, Grep, anything else
+
+
+def tool_results(entries: list, turns: list, ie: float, since=None, main: bool = False) -> dict:
+    """Tool results over TOOL_RESULT_MIN_CHARS by tool class (`by_tool`: bash = Bash/PowerShell, read, other = MCP and the rest) with a bounded carry estimate. Reads content LENGTH only, never the text.
+
+    A result stays in the context every later turn until the next observed compaction (`_drops`) or the end, so a class's
+    `carry_ie_upper` = sum(chars / 4 x min(turns left, turns to next compaction) x CACHE_READ_MULT): an ESTIMATE (4 chars/token) and an
+    UPPER BOUND (ignores that a result may be cleared sooner), never a bill. For `bash` only the part past the cap (chars - TOOL_RESULT_MIN_CHARS)
+    counts, since that is all `bashOutputMaxChars` would remove; `read` and `other` count whole results and are information only (no setting
+    caps them). Each class and the scope total are clamped to `ie`, the scope's own input-eq, so none can exceed what was spent;
+    `clamped` says when that happened. A result whose tool_use id is unknown is `other`. `main=True` skips sidechain lines.
+    """
+    live = [t for t in turns if not t.get("iter") and t["timestamp"] and t.get("model") != "<synthetic>"]
+    stamps = [t["timestamp"] for t in live]
+    ctx = [t["input_tokens"] + t["cache_write_5m"] + t["cache_write_1h"] + t["cache_read"] for t in live]
+    drops = _drops(ctx)
+    names = {b["id"]: b.get("name") for e in entries if e.get("type") == "assistant" for b in (e.get("message") or {}).get("content") or []
+             if isinstance(b, dict) and b.get("type") == "tool_use" and isinstance(b.get("id"), str)}
+    raw = {k: {"count": 0, "chars": 0, "carry": 0.0} for k in ("bash", "read", "other")}
+    for e in entries:
+        if e.get("type") != "user" or (main and e.get("isSidechain")) or not isinstance(e.get("message"), dict):
+            continue
+        ts = parse_timestamp(e.get("timestamp"))
+        if ts is None or (since is not None and ts < since):
+            continue
+        for b in e["message"].get("content") or []:
+            if not (isinstance(b, dict) and b.get("type") == "tool_result"):
+                continue
+            c = b.get("content")
+            n = len(c) if isinstance(c, str) else sum(len(x["text"]) for x in c if isinstance(x, dict) and isinstance(x.get("text"), str)) if isinstance(c, list) else 0
+            if n <= TOOL_RESULT_MIN_CHARS:
+                continue
+            k = _tool_class(names.get(b.get("tool_use_id")))
+            pos = bisect.bisect_right(stamps, ts)
+            held = min(len(live) - pos, next((d for d in drops if d >= pos), len(live)) - pos)
+            r = raw[k]
+            r["count"], r["chars"] = r["count"] + 1, r["chars"] + n
+            r["carry"] += (n - TOOL_RESULT_MIN_CHARS if k == "bash" else n) / CHARS_PER_TOKEN * max(held, 0) * CACHE_READ_MULT
+    total = sum(r["carry"] for r in raw.values())
+    return {"count": sum(r["count"] for r in raw.values()), "chars": sum(r["chars"] for r in raw.values()),
+            "carry_ie_upper": round(min(total, ie), 2), "clamped": total > ie or any(r["carry"] > ie for r in raw.values()),
+            "by_tool": {k: {"count": r["count"], "chars": r["chars"], "carry_ie_upper": round(min(r["carry"], ie), 2)} for k, r in raw.items()}}
+
+
 def compact_saving(turns: list, main_ie: float, window: int = AUTO_COMPACT_WINDOW, restart: int = COMPACT_RESTART_TOKENS) -> dict:
     """Counterfactual: what compacting at `window` would have saved on the main thread. UPPER BOUND, not a bill.
 
@@ -695,7 +749,7 @@ def compact_saving(turns: list, main_ie: float, window: int = AUTO_COMPACT_WINDO
            for t in turns if not t.get("iter") and t["timestamp"] and t.get("model") != "<synthetic>"]
     out = {"window": window, "restart_tokens": restart, "compactions": 0, "saving_ie_upper": 0.0,
            "saving_share_of_main_ie": 0.0, "skipped": None}
-    if any(a >= ADV["drop_floor"] and b < a / 2 for a, b in zip(ctx, ctx[1:])):
+    if _drops(ctx):
         out["skipped"] = "already compacts"
     elif max(ctx, default=0) <= window:
         out["skipped"] = "never passes window"
@@ -817,6 +871,12 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
     for s in subagents:
         s["cost_usd"], s["unpriced_models"] = price(s["by_model"], rates)
 
+    mt, lane_trs = tool_results(main_entries, main_turns, main_totals["input_equivalent"], since, main=True), [s["tool_results"] for s in subagents]
+    sum_tr = lambda xs: {**{k: sum(x[k] for x in xs) for k in ("count", "chars", "carry_ie_upper")}, "clamped": any(x["clamped"] for x in xs),  # noqa: E731
+                         "by_tool": {c: {k: sum(x["by_tool"][c][k] for x in xs) for k in ("count", "chars", "carry_ie_upper")} for c in ("bash", "read", "other")}}
+    all_tr, lanes_tr = sum_tr([mt, *lane_trs]), sum_tr(lane_trs)
+    session_ie = main_totals["input_equivalent"] + sub_input_eq
+    pct_ie = lambda v: round(v / session_ie, 4) if session_ie else 0.0  # noqa: E731
     requested, project = project is not None, None if since else project  # a windowed lane's first turn is not its start, so start weights and startup would be wrong
     sf = startup_files(project, subagents, main_totals["input_equivalent"] + sub_input_eq)
     report = {
@@ -832,6 +892,8 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
         "tier_split": tier_split(main_by_model, sub_by_model, rates),
         "idle_rewrites": idle_rewrites(main_turns, main_totals["input_equivalent"]),
         "auto_compact": compact_saving(main_turns, main_totals["input_equivalent"]),
+        "tool_results": {**all_tr, "main": mt, "lanes": lanes_tr, "share_of_session_ie": pct_ie(all_tr["carry_ie_upper"]),
+                         "bash_share_of_session_ie": pct_ie(all_tr["by_tool"]["bash"]["carry_ie_upper"])},
         "lane_tail": lane_tail(subagents, cap, shipped_lane_cap()),
         "startup_files_skipped": "--since" if since and requested else None,
         "startup_files": sf,
@@ -972,7 +1034,9 @@ def _model_line(label: str, by_model: dict) -> str:
 # Settings keys/env that already set each mapped lever (what `advise` mutes and `fix_plan` skips).
 LEVER_KEYS = {"pin": ("promptCacheTtl", "CLAUDE_CODE_PROMPT_CACHE_TTL"),
               "compact": ("autoCompactWindow", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"),
-              "tail": ("LANE_TOOL_CAP",)}
+              "tail": ("LANE_TOOL_CAP",),
+              "tooloutput": ("bashOutputMaxChars", "BASH_MAX_OUTPUT_LENGTH")}
+TOOL_LEVER = "cap Bash output with bashOutputMaxChars"
 
 
 def _muted(report: dict) -> set:
@@ -989,6 +1053,10 @@ def _compact_fires(ac: dict) -> bool:
     return ac["saving_share_of_main_ie"] >= IDLE_LEVER_SAVING
 
 
+def _tool_fires(report: dict) -> bool:
+    return report.get("tool_results", {}).get("bash_share_of_session_ie", 0.0) >= IDLE_LEVER_SAVING
+
+
 def _tail_fires(lt: dict) -> bool:
     return (lt["tail_share_over_shipped_cap"] if lt["shipped_cap"] else lt["tail_share_over_cap"]) >= TAIL_LEVER_SHARE
 
@@ -1000,8 +1068,9 @@ def _trim_fires(sf: list) -> bool:
 def lever_ranking(report: dict) -> list:
     """Firing levers whose saving is already computed above, largest `saving_ie` first, then dollar-only levers.
 
-    Reuses `idle_rewrites` (1h pin) and `lane_tail` (shipped cap, else reference cap) figures; computes no new estimate. Each row is an
-    UPPER BOUND, not a bill, with `share_of_session_ie` = saving / (main + lane input-eq). The orchestrator-tier lever has no computed
+    Reuses `idle_rewrites` (1h pin), `lane_tail` (shipped cap, else reference cap) and `tool_results` (Bash/PowerShell output past the
+    cap) figures; computes no new estimate. Each row is an UPPER BOUND, not a bill, and carries `estimate` (true where the saving is
+    estimated: the tool-result and startup-trim rows), with `share_of_session_ie` = saving / (main + lane input-eq). The orchestrator-tier lever has no computed
     saving, so it lists after the ranked ones with `saving_usd` None (rendered UNPRICED), never zero. Orchestration-share and
     fresh-session levers compute no number and are absent. Empty list when nothing fires.
     """
@@ -1018,8 +1087,10 @@ def lever_ranking(report: dict) -> list:
     sf = report.get("startup_files") or []
     if sf and _trim_fires(sf):
         rows.append((f"trim {sf[0]['file']} (estimate: {TRIM_FRACTION:.0%} of its cost)", round(sf[0]["ie_upper"] * TRIM_FRACTION, 2)))
+    if _tool_fires(report) and "tooloutput" not in m:
+        rows.append((TOOL_LEVER, report["tool_results"]["by_tool"]["bash"]["carry_ie_upper"]))
     out = [{"lever": n, "saving_ie": v, "share_of_session_ie": round(v / session_ie, 4) if session_ie else 0.0, "saving_usd": None,
-            "estimate": n.startswith("trim ")}
+            "estimate": n.startswith("trim ") or n == TOOL_LEVER}
            for n, v in sorted(rows, key=lambda r: -r[1])]
     if ts["main_top_tier_share_of_total_ie"] > MAIN_TIER_LEVER_SHARE:
         out.append({"lever": "orchestrator tier", "saving_ie": None, "share_of_session_ie": None, "saving_usd": None, "estimate": False})
@@ -1078,6 +1149,20 @@ def _gap_tier_lines(report: dict) -> list:
         if sr["share_of_startup"] > 0.5 and sr["share_of_lane_ie"] >= REMAINDER_LEVER_SHARE:
             out.append("Lever: the remainder dominates lane startup, so trimming files saves little; cut it with the MCP-unused / tool-search advice "
                        "(--advise), batching short lanes, and a smaller toolset per lane type")
+    tr_ = report.get("tool_results")
+    if tr_ and tr_["count"]:
+        bt = tr_["by_tool"]
+        out.append(f"Tool results over {TOOL_RESULT_MIN_CHARS} chars: {tr_['count']} ({tr_['chars']} chars; main {tr_['main']['count']}, lanes {tr_['lanes']['count']}); "
+                   f"Bash/PowerShell {bt['bash']['count']}, Read {bt['read']['count']}, other (MCP etc.) {bt['other']['count']}; Bash carry past the cap "
+                   f"(estimate) {bt['bash']['carry_ie_upper']} input-eq = {pct(tr_['bash_share_of_session_ie'])} of main + lane input-eq"
+                   + (" (clamped to input-eq)" if tr_["clamped"] else ""))
+        if bt["read"]["count"]:
+            out.append(f"Large Read results ({bt['read']['count']}, {bt['read']['chars']} chars): read with offset/limit; `bashOutputMaxChars` does not cap Read")
+        if bt["other"]["count"]:
+            out.append(f"Large non-Bash, non-Read results ({bt['other']['count']}, {bt['other']['chars']} chars): check MCP output size (`MAX_MCP_OUTPUT_TOKENS`); `bashOutputMaxChars` does not cap them")
+    if _tool_fires(report) and "tooloutput" not in m:
+        out.append("Lever: cap Bash output (`bashOutputMaxChars`, start at 10000; docs/token-cost-tips.md tip 2): the Bash carry above counts only the part past "
+                   "the cap and is an ESTIMATE (4 chars/token x turns resent until compaction x 0.1 cache-read weight, clamped to input-eq)")
     if ts["main_top_tier_share_of_total_ie"] > MAIN_TIER_LEVER_SHARE:
         out.append(f"Lever: orchestrator tier: main on a top-tier model carries {pct(ts['main_top_tier_share_of_total_ie'])} of all input-eq; "
                    "default main to a mid tier and escalate for a named hard step (model-tiering.md, 'Route delivery lanes by work type and stage')")
@@ -1085,7 +1170,7 @@ def _gap_tier_lines(report: dict) -> list:
     if rank:
         out.append("Top levers (est. upper-bound saving, not a bill; share = of main + lane input-eq):")
         for n, r in enumerate(rank, 1):
-            out.append(f"  {n}. {r['lever']}: " + (f"at most {r['saving_ie']} input-eq = {pct(r['share_of_session_ie'])}" if r["saving_ie"] is not None
+            out.append(f"  {n}. {r['lever']}: " + (f"at most {r['saving_ie']} input-eq = {pct(r['share_of_session_ie'])}{' (estimate)' if r.get('estimate') else ''}" if r["saving_ie"] is not None
                        else "saving " + _usd(r["saving_usd"]) + " (dollar-only, listed after ranked levers)"))
     return out
 

@@ -10,6 +10,10 @@ measured in this repository; adapt the settings to your own fleet and re-measure
 2. **Cap what every turn resends.** Set `bashOutputMaxChars` (start at `10000`) and
    `skillListingMaxDescChars` (start at `300`, default `1536`); use `"name-only"` for skills a
    project never needs. See [`host-enforcement.md`](../.claude/skills/agentic-delivery/references/host-enforcement.md), "Per-turn token levers".
+   `token_report.py` measures the lever: `tool_results` in `--json` counts main and lane tool results over 10,000 chars by tool
+   (`by_tool`: Bash/PowerShell, Read, other) and estimates their carry (4 chars per token x turns resent until the next compaction x
+   0.1 cache-read weight, clamped to input-eq). Above 5% of session input-eq from Bash/PowerShell output past the cap it ranks a
+   `cap Bash output with bashOutputMaxChars` row marked `estimate: true`; large Read and MCP results get info lines only, since the setting caps Bash output only.
 3. **Default to the cheapest tier that passes its gate.** Mechanical steps get the cheapest tier at
    low effort; build and audit lanes get mid; only verify and judge stages get top at high effort.
    See [`model-tiering.md`](../.claude/skills/deep-code-review/references/model-tiering.md), "Route delivery lanes by work type and stage".
