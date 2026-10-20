@@ -2,7 +2,7 @@
 """handback.py — one command for a lane's last mile; composes the existing scripts, adds no gate logic of its own.
 
   handback.py --sha SHA --base REF --branch BRANCH --gate-cmd CMD [--gate-cmd CMD ...]
-              [--cite PATH ...] [--artifact-root DIR] [--fragment-dir DIR] [--worktree DIR]
+              [--cite PATH ...] [--spec PATH ...] [--artifact-root DIR] [--fragment-dir DIR] [--worktree DIR]
               [--repo OWNER/NAME [--tracker-issue N --agent NAME --to NAME --body-file FILE [--send]]] [--timeout S]
 
 Gates run in --worktree and every git step runs there too (default: the current directory).
@@ -13,6 +13,11 @@ Runs in order and stops at the first red step, printing `handback RED: <step>` a
   ff        BASE is an ancestor of SHA, so BASE can fast-forward to it; otherwise rebase first.
   diff      `git diff --check BASE...SHA` is clean.
   fragment  the range adds a file under --fragment-dir (default changelog.d; pass '' to skip).
+  spec      each --spec PATH (a .py run with python3, anything else with bash) runs 3 times in --worktree, each under --timeout; one
+            failure or timeout is red (`handback RED: spec PATH`), and so is a worktree that is not clean at SHA. --spec is REQUIRED
+            when any BASE..SHA commit subject matches `^fix.*flak(e|y|iness)` (case-insensitive) or the diff changes a file named by
+            an id on the flake_ledger.py quarantine list (`path` or `path::name`). The list is read from BASE at
+            $FLAKE_LEDGER_DIR (default `.claude/flake-ledger`) when that is relative, else from that absolute directory.
 With --repo (the only network use) it also prints the base branch's required check names and the exact-SHA
 verdict of the latest check runs (`surface_check.check_checks`); a failing check is red, pending, NO-RUN or unreadable
 is UNVERIFIED: it prints `handback UNVERIFIED: <n> checks could not run` instead of GREEN and exits 3. With --tracker-issue it composes a HANDOFF post through `board_post.py`: a dry run that
@@ -68,6 +73,7 @@ def main(argv):
     ap.add_argument("--branch", required=True)
     ap.add_argument("--gate-cmd", action="append", required=True, help="a gate command line (repeatable)")
     ap.add_argument("--cite", action="append", default=[])
+    ap.add_argument("--spec", action="append", default=[], help="a spec to run 3x at --sha; required for a flake fix (repeatable)")
     ap.add_argument("--artifact-root")
     ap.add_argument("--fragment-dir", default="changelog.d", help="'' skips the changelog-fragment check")
     ap.add_argument("--worktree", default=os.getcwd(), help="the lane worktree: gates and git steps run here; named in the printed cleanup")
@@ -117,7 +123,37 @@ def main(argv):
         rc, out = run(["git", "diff", "--name-only", "--diff-filter=A", f"{a.base}...{a.sha}", "--", a.fragment_dir], cwd=a.worktree)
         if rc or not out.strip():
             return red(f"fragment: the range adds no file under {a.fragment_dir}/")
-    print(f"ok: gates, guard, fast-forward of {a.base}, diff --check" + (", fragment" if a.fragment_dir else ""))
+    if not a.spec:
+        sys.path.insert(0, HERE)
+        import flake_ledger as fl  # noqa: E402
+        d = os.environ.get("FLAKE_LEDGER_DIR", fl.DEFAULT_DIR)
+        try:  # the list comes from BASE (or an absolute dir outside the tree), so a PR cannot delete its own entry
+            if os.path.isabs(d):
+                q = fl.load_q(os.path.join(d, "quarantine.json"))
+            else:
+                rc, out = run(["git", "show", f"{a.base}:{d}/quarantine.json"], cwd=a.worktree, stderr=subprocess.DEVNULL)
+                q = json.loads(out) if rc == 0 else {}
+        except ValueError:
+            return red("spec: quarantine list is not valid JSON")
+        (rc1, changed), (rc2, log) = (run(["git", *c], cwd=a.worktree) for c in (
+            ["diff", "--name-only", f"{a.base}...{a.sha}"], ["log", "--format=%s", f"{a.base}..{a.sha}"]))
+        if rc1 or rc2:
+            return red("spec: git diff/log failed")
+        if re.search(r"^fix.*flak(e|y|iness)", log, re.I | re.M) or any(i.split("::")[0] in changed.split("\n") for i in q):
+            return red("spec: --spec PATH is required for a flake fix or a change to a quarantined test")
+    if a.spec and (run(["git", "rev-parse", "HEAD"], cwd=a.worktree)[1].strip() != a.sha
+                   or run(["git", "status", "--porcelain"], cwd=a.worktree)[1].strip()):
+        return red("spec: worktree not clean at SHA")
+    for s in a.spec:
+        for _ in range(3):
+            try:
+                rc, out = run([sys.executable if s.endswith(".py") else "bash", "--", s], cwd=a.worktree, timeout=a.timeout)
+            except subprocess.TimeoutExpired:
+                return red(f"spec {s}: timeout")
+            if rc:
+                print(out.rstrip())
+                return red(f"spec {s}")
+    print(f"ok: gates, guard, fast-forward of {a.base}, diff --check" + (", fragment" if a.fragment_dir else "") + (f", {len(a.spec)} spec x3" if a.spec else ""))
     unverified = 0
     if a.repo:
         failed, unverified = required_checks(a.repo, a.base, a.sha, a.timeout)
