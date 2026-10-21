@@ -152,6 +152,7 @@ run, with `delegate: spawn a lane with the brief ...`. A lane is never flagged; 
 delete, or a shared/external send needs an owner-authored grant, urgent or
 not; `agentic-delivery`'s **Human gates** names which actions gate and what
 counts as a grant.
+Run `scripts/context_audit.py` when asked what always-loaded CLAUDE.md, MEMORY.md or skill-description context costs per turn: bytes per source plus one cut each.
 Run `scripts/token_report.py --budget [caps.tsv]` at wave end and in the morning
 handoff; each breach line names its lever. Dispatch to that budget:
 - **Cap every lane** — the brief carries a tool-call cap (`lane-preamble.md`).

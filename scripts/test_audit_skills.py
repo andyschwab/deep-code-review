@@ -203,6 +203,7 @@ REASON = {
     "deep-code-review/references/infra-iac-containers.md": "review guidance naming curl-pipe installs as a finding",
     "deep-code-review/references/lang-shell.md": "review guidance naming curl-pipe installs as a finding",
     "deep-code-review/references/security-agent-skills.md": "the skill-security checklist that describes these attacks",
+    "agentic-ceo/scripts/context_audit.py": "docstring listing the instruction files the read-only audit measures; the script never writes",
 }
 
 def fingerprints(root):
@@ -221,6 +222,7 @@ def fingerprints(root):
 # Expected findings per (file, rule, hash of the flagged line); a new, removed or swapped line fails. Regenerate with
 # fingerprints(...) after triaging every difference.
 COUNTS = {
+    ('agentic-ceo/scripts/context_audit.py', 'sensitive-write', 'c4d6535d'): 1,
     ('agentic-delivery/references/operating-discipline.md', 'curl-pipe', 'c2b36e0c'): 1,
     ('agentic-delivery/references/operating-discipline.md', 'rm-broad', 'c2b36e0c'): 2,
     ('agentic-delivery/scripts/destructive_guard.py', 'curl-pipe', '87301335'): 1,
