@@ -883,6 +883,35 @@ TRIM_FRACTION, STARTUP_LEVER_SHARE = 0.5, IDLE_LEVER_SAVING
 REMAINDER_LEVER_SHARE = 0.15
 
 
+def est_tokens(nbytes: int) -> int:
+    """Approximate token count: bytes / 4 (an ESTIMATE, not a tokenizer; shared with context_audit.py)."""
+    return round(nbytes / 4)
+
+
+def user_config_dir():
+    """`$CLAUDE_CONFIG_DIR` or `~/.claude`; None when no home can be resolved (HOME unset and no passwd entry). Never raises."""
+    d = os.environ.get("CLAUDE_CONFIG_DIR")
+    if d:
+        return d
+    d = os.path.expanduser("~/.claude")  # returns the "~" path unchanged when the home is unresolvable
+    return None if d.startswith("~") else d
+
+
+def instruction_candidates(project) -> list:
+    """(label, path, maybe_not_loaded) for each auto-loaded instruction file under `project`, existing or not (shared with context_audit.py).
+
+    CLAUDE.md, AGENTS.md, .claude/CLAUDE.md, the user-level CLAUDE.md (CLAUDE_CONFIG_DIR or ~/.claude) and the project's memory MEMORY.md.
+    `maybe_not_loaded` marks files a lane may not load (AGENTS.md, project memory). No file is read.
+    """
+    proj, cfg = os.path.realpath(project), user_config_dir()
+    rows = [("CLAUDE.md", os.path.join(proj, "CLAUDE.md"), False), ("AGENTS.md", os.path.join(proj, "AGENTS.md"), True),
+            (".claude/CLAUDE.md", os.path.join(proj, ".claude", "CLAUDE.md"), False)]
+    if cfg:  # no resolvable home: skip the user-level files rather than read a literal "~" path
+        mem = os.path.join(cfg, "projects", re.sub(r"[^A-Za-z0-9]", "-", proj), "memory", "MEMORY.md")
+        rows += [("user-level CLAUDE.md", os.path.join(cfg, "CLAUDE.md"), False), ("project memory MEMORY.md", mem, True)]
+    return rows
+
+
 def startup_files(project, subagents: list, session_ie: float) -> list:
     """Price each auto-loaded instruction file across lanes, largest first (empty when `project` is None or no lane ran).
 
@@ -893,17 +922,12 @@ def startup_files(project, subagents: list, session_ie: float) -> list:
     if project is None or not subagents:  # build_report also passes None under --since: lane starts fall before the window
         return []
     weight = CACHE_WRITE_5M_MULT * len(subagents) + CACHE_READ_MULT * sum(max(s["turns"] - 1, 0) for s in subagents)
-    proj, cfg = os.path.realpath(project), os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
-    mem = os.path.join(cfg, "projects", re.sub(r"[^A-Za-z0-9]", "-", proj), "memory", "MEMORY.md")
-    cands = [("CLAUDE.md", os.path.join(proj, "CLAUDE.md"), False), ("AGENTS.md", os.path.join(proj, "AGENTS.md"), True),
-             (".claude/CLAUDE.md", os.path.join(proj, ".claude", "CLAUDE.md"), False),
-             ("user-level CLAUDE.md", os.path.join(cfg, "CLAUDE.md"), False), ("project memory MEMORY.md", mem, True)]
     rows, seen = [], set()
-    for label, path, maybe in cands:
+    for label, path, maybe in instruction_candidates(project):
         if not os.path.isfile(path) or os.path.realpath(path) in seen:
             continue
         seen.add(os.path.realpath(path))
-        tokens = round(os.path.getsize(path) / 4)
+        tokens = est_tokens(os.path.getsize(path))
         ie = round(tokens * weight, 2)
         rows.append({"file": label, "tokens_est": tokens, "ie_upper": ie, "if_loaded": maybe,
                      "share_of_session_ie": round(ie / session_ie, 4) if session_ie else 0.0})
@@ -1347,13 +1371,14 @@ def load_settings(project: str):
     `settings.local.json` (later wins; list keys merge), env block merged, plus the project's `.mcp.json` `mcpServers` keys.
     An unreadable or non-object file is reported, and `advise` then treats every setting as already set (rules go silent) and mutes only levers whose key a readable file or the env sets.
     """
-    home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    home = user_config_dir()  # None when no home resolves: the user layer is skipped
     cfg: dict = {}
     env: dict = {}
     mcp: set = set()
     bad: list = []
-    for path in (os.path.join(home, "settings.json"), os.path.join(project, ".claude", "settings.json"),
-                 os.path.join(project, ".claude", "settings.local.json"), os.path.join(project, ".mcp.json")):
+    for path in ((os.path.join(home, "settings.json"),) if home else ()) + (
+            os.path.join(project, ".claude", "settings.json"),
+            os.path.join(project, ".claude", "settings.local.json"), os.path.join(project, ".mcp.json")):
         if not os.path.isfile(path):
             continue
         try:
