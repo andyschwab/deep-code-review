@@ -130,5 +130,10 @@ check(proc.returncode == 0, "--hook ignores a missing file")
 proc, _ = run("--hook", stdin="not json")
 check(proc.returncode == 1, "--hook with bad JSON exits 1")
 
+sys.path.insert(0, str(LINT.parent))
+import lint_ui_slop  # noqa: E402
+
+check(lint_ui_slop.px("16PX") == 16 and lint_ui_slop.px("1REM") == 16 and lint_ui_slop.px("2Em") == 32, "px() reads uppercase units")
+
 print(f"Tests: {sum(results)}/{len(results)}")
 sys.exit(0 if all(results) else 1)

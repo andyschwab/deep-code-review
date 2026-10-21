@@ -215,6 +215,17 @@ with tempfile.TemporaryDirectory() as td:
     p = run("--base", "main", "--json", cwd=sub)
     check(p.returncode == 0 and "deep.css" in p.stdout and "wip.css" in p.stdout, "--base from a subdirectory still scans untracked files (root-relative paths)")
 
+    # review nits: grid-gap, uppercase units, calc(), DTCG array fontFamily
+    check(probe("gridgap", SP, ".a { grid-gap: 13px; }\n.b { grid-row-gap: 13px; }\n.c { grid-column-gap: 13px; }\n")
+          == [(1, "off-token-space"), (2, "off-token-space"), (3, "off-token-space")], "grid-gap, grid-row-gap and grid-column-gap count as spacing")
+    check(probe("upper", SP, ".a { padding: 16PX; }\n.b { padding: 8PX; }\n") == [(1, "off-token-space")],
+          "uppercase units parse as px: 16PX flags, 8PX is the token")
+    check(probe("calc", SP, ".a { padding: calc( 13px + 4px ); }\n.b { margin: calc(100% - 13px) 13px; }\n.c { gap: calc(var(--x) + 13px); }\n")
+          == [(2, "off-token-space")], "calc() values are skipped, the literal rest still flags")
+    check(probe("fontarr", '{"space": {"2": "8px"}, "font": {"body": {"$type": "fontFamily", "$value": ["Inter", "sans-serif"]}}}',
+                ".a { font-family: Georgia, serif; }\n.b { font-family: Inter, sans-serif; }\n", tfile="tokens.json") == [(1, "off-token-font")],
+          "DTCG fontFamily array $value is read (first family) without crashing")
+
     # arguments and defaults
     check(run(cwd=tmp).returncode == 1 and run("--nope", cwd=tmp).returncode == 1, "no input and unknown option exit 1")
     check(run("--tokens", cwd=tmp).returncode == 1 and run("--base", cwd=tmp).returncode == 1, "--tokens/--base without a value exit 1")
