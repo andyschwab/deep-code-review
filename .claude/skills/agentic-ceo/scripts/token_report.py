@@ -1336,7 +1336,8 @@ TOP_TIER = ("opus", "fable")
 # model ids, tool NAMES, timestamps and settings keys; never message or tool-result text.
 ADV = {"drops": 2, "drop_floor": 100_000, "jump": 30_000, "jumps": 3, "cache_turns": 10, "switches": 2,
        "mech_out_per_call": 100, "short_calls": 3, "short_lanes": 5, "mcp_unused": 2,
-       "main_top_share": 0.5, "main_top_usd": 20.0}
+       "main_top_share": 0.5, "main_top_usd": 20.0,
+       "resumes": 2, "busts": 2, "bust_gap_s": 150, "bust_read": 0.05, "effort_turns": 10, "effort_out_turn": 1500, "effort_out_share": 0.30}
 
 
 def load_settings(project: str):
@@ -1488,6 +1489,62 @@ def _r_main_tier(f):
             f"orchestration share {f['share']:.0%}", (usd, miss))
 
 
+def _ctx(t: dict) -> int:
+    return t["input_tokens"] + t["cache_write_5m"] + t["cache_write_1h"] + t["cache_read"]
+
+
+def _pairs(f):
+    """(previous, next, seconds between) for consecutive timestamped main turns."""
+    t = [x for x in f["turns"] if x["timestamp"]]
+    return [(a, b, (b["timestamp"] - a["timestamp"]).total_seconds()) for a, b in zip(t, t[1:])]
+
+
+def _write_stake(hits: list, rates):
+    """Priced cache writes of the flagged turns (their rebuild cost), by model."""
+    by: dict = {}
+    for x in hits:
+        m = by.setdefault(x.get("model") or "unknown", dict(ZERO_USAGE))
+        m["cache_write_5m"] += x["cache_write_5m"]
+        m["cache_write_1h"] += x["cache_write_1h"]
+    return _stake(by, rates)
+
+
+def _r_idle_resume(f):
+    # A cold resume: the turn after a gap past even the 1h TTL re-wrote (not read) most of a big context.
+    hit = [b for a, b, dt in _pairs(f) if dt > IDLE_GAP_1H_S and _ctx(b) >= ADV["drop_floor"]
+           and b["cache_write_5m"] + b["cache_write_1h"] >= _ctx(b) / 2]
+    if len(hit) >= ADV["resumes"]:
+        return (f"{len(hit)} main turns resumed a context of at least {ADV['drop_floor']} tokens after a gap over 1h and re-wrote "
+                f"{sum(x['cache_write_5m'] + x['cache_write_1h'] for x in hit)} tokens to the cache"), _write_stake(hit, f["rates"])
+
+
+def _r_cache_bust(f):
+    # Same model, a short gap, a big warm context, yet almost none of the previous context was read back: the cached prefix changed.
+    # Rule: fires when cache read is under bust_read (5%) of the previous context, whatever the growth; a turn whose context
+    # shrinks stays silent because that shape is compaction, an expected rebuild (costs docs).
+    # Heuristic; treat a hit as a lead, not proof. Known limits: (1) a prefix change late in the prefix reads a large part back
+    # and is missed; (2) a real collapse with a net shrink (for example 150k to 120k, read 0) is silent, like compaction;
+    # (3) the docs do not say which tool results are cleared, so a clear of the oldest results (read near 0, context growing)
+    # can fire as a false positive.
+    hit = [b for a, b, dt in _pairs(f) if a.get("model") and a["model"] == b.get("model") and dt <= ADV["bust_gap_s"]
+           and _ctx(a) >= ADV["drop_floor"] and _ctx(b) >= _ctx(a) and b["cache_read"] < _ctx(a) * ADV["bust_read"]]
+    if len(hit) >= ADV["busts"]:
+        return (f"{len(hit)} main turns rebuilt the cache within {ADV['bust_gap_s']}s of the previous turn on the same model "
+                f"({sum(x['cache_write_5m'] + x['cache_write_1h'] for x in hit)} tokens re-written): the cached prefix changed (heuristic: a collapse whose context shrinks, or a change late in the prefix, is not detected)"), _write_stake(hit, f["rates"])
+
+
+def _r_effort(f):
+    t = f["turns"]
+    if len(t) < ADV["effort_turns"] or f["isset"]("effortLevel", "CLAUDE_CODE_EFFORT_LEVEL", "modelSettings"):
+        return None
+    tot = sum_turns(t)
+    out, w = tot["output_tokens"], weighted_tokens(tot)
+    if out / len(t) >= ADV["effort_out_turn"] and w and out / w >= ADV["effort_out_share"]:
+        return (f"main output averages {out // len(t)} tokens per turn and is {out / w:.0%} of main input-eq plus output "
+                "(thinking tokens bill as output) with no effort level set; heuristic thresholds, not calibrated on a corpus, "
+                "so a thinking-heavy session you want may also fire"), _stake(model_stats(t)[2], f["rates"])
+
+
 def _r_short_lanes(f):
     hit = [s for s in f["lanes"] if s["tool_calls"] <= ADV["short_calls"] and not s["in_flight"]]
     if len(hit) >= ADV["short_lanes"]:
@@ -1519,6 +1576,12 @@ ADVICE_RULES = [
      TIPS + " tip 11"),
     ("ctx-window", _r_ctx_window, "Run /autocompact 200k (or set autoCompactWindow) so a long session compacts before it gets expensive; /context shows what fills it.",
      TIPS + " tip 11"),
+    ("idle-resume", _r_idle_resume, "Before stepping away for over an hour, run /compact while the cache is warm (after the gap the summary request reprocesses the full history uncached), or /clear when the next task is unrelated (/rename first, /resume to return).",
+     TIPS + " tip 11"),
+    ("cache-bust", _r_cache_bust, "Change model, effort, fast mode, MCP servers or plugins at a task boundary (/clear or /compact), not mid-task; the /usage 'Prompt cache (main)' line names the likely cause of the last miss. Editing CLAUDE.md or files does not invalidate the cache. This check is a heuristic: it stays silent on a rebuild that shrinks the context (it looks like compaction) and may fire on a clear of the oldest tool results.",
+     TIPS + " tip 6"),
+    ("effort", _r_effort, "Lower the effort level for routine work (/effort low or /effort medium; /effort status shows the current one). Set it at the start of a task: except on Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1 (API key or subscription), a mid-session change re-reads the whole context uncached.",
+     TIPS + " tip 3"),
     ("tool-output", _r_tool_out, _tool_out_rec, TIPS + " tips 2 and 12"),
     ("mcp-unused", _r_mcp_unused, "If these servers stay unused across sessions, disable them in /mcp between sessions rather than mid-task; prefer CLI tools such as gh.",
      TIPS + " tip 12"),

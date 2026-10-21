@@ -17,6 +17,9 @@ measured in this repository; adapt the settings to your own fleet and re-measure
 3. **Default to the cheapest tier that passes its gate.** Mechanical steps get the cheapest tier at
    low effort; build and audit lanes get mid; only verify and judge stages get top at high effort.
    See [`model-tiering.md`](../.claude/skills/deep-code-review/references/model-tiering.md), "Route delivery lanes by work type and stage".
+   Thinking tokens bill as output, so lower the effort level (`/effort low` or `/effort medium`) for routine work and set it at the start of a task, since except on Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1 (API key or subscription) a mid-session change re-reads the context uncached;
+   `--advise` fires `effort` when main output averages 1,500 or more tokens per turn and is at least 30% of main input-eq plus output with no effort level set (heuristic thresholds, not calibrated on a corpus).
+   Docs: [Manage costs](https://code.claude.com/docs/en/costs), [Model configuration](https://code.claude.com/docs/en/model-config), [Prompt caching](https://code.claude.com/docs/en/prompt-caching).
 4. **Do not use the cheapest tier for judgment.** A cheapest-tier dedupe lane matched 13 of 23
    findings to unrelated issues by keyword and reported comments as posted that did not exist; a
    mid-tier lane found zero such comments. Same file, same section.
@@ -26,6 +29,9 @@ measured in this repository; adapt the settings to your own fleet and re-measure
 6. **Cache inside one model.** Cache reads cost 0.1x base input on most models (writes 1.25x at a
    5-minute TTL); switching models mid-task forfeits the cached prefix. See
    [`model-tiering.md`](../.claude/skills/deep-code-review/references/model-tiering.md), lever 2.
+   A rebuild with no model change is a changed prefix (an MCP server connected or removed, a plugin, a whole-tool deny rule, fast mode, an effort change, many images); do those at a task boundary.
+   Editing CLAUDE.md or files mid-session does not invalidate the cache. `--advise` fires `cache-bust` on 2 or more main turns within 150 seconds of the previous turn,
+   on the same model, with a context of at least 100,000 tokens where cache read was under 5% of the previous context, whatever the growth; a collapse with a net shrink stays silent because it looks like compaction. It is a heuristic: a clear of the oldest tool results can also fire; `/usage` names the likely cause. Docs: [Prompt caching](https://code.claude.com/docs/en/prompt-caching).
 7. **Keep hand-backs short.** Lane narration multiplies across a fleet; cap hand-backs and report
    status first. See [`host-enforcement.md`](../.claude/skills/agentic-delivery/references/host-enforcement.md), "Subagent handback".
 8. **Fewer, longer-lived lanes.** Each subagent start pays the project's instruction files again;
@@ -43,6 +49,9 @@ measured in this repository; adapt the settings to your own fleet and re-measure
     natural breaks, and set the auto-compact window (`/autocompact 200k`, or `autoCompactWindow` in settings; valid range
     100K to 1M) so a long session compacts before it gets expensive. Every compaction rewrites the cached prefix, and `/context`
     shows what fills the window. Docs: [Manage costs](https://code.claude.com/docs/en/costs), [Commands](https://code.claude.com/docs/en/commands), [Settings reference](https://code.claude.com/docs/en/settings-reference).
+    After a gap longer than the cache lifetime the next turn re-reads the whole context uncached, and a `/compact` then reprocesses it uncached too,
+    so `/compact` before stepping away or `/clear` if the next task is unrelated. `--advise` fires `idle-resume` on 2 or more main turns that re-wrote
+    at least half of a 100,000-token-or-larger context after a gap over 1 hour (past the one-hour TTL, so a pin does not help). Docs: [Prompt caching](https://code.claude.com/docs/en/prompt-caching).
 12. **Keep MCP tool definitions out of every turn.** Tool search defers MCP tool definitions by default, so leave
     `ENABLE_TOOL_SEARCH` unset (`false` loads them all upfront), disable servers this project never calls (`/mcp`), and
     prefer a CLI such as `gh` where one exists. Claude Code warns at 10,000 tokens of MCP output (`MAX_MCP_OUTPUT_TOKENS`,
