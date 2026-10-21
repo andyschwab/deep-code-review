@@ -18,6 +18,8 @@ Writes TARGET/.claude/.perun-install.json, merged with any previous marker:
   shipped: {<skill>: {<file>: [sha256]}}  every hash install itself copied in, per release: the only content uninstall may delete
   settings: {sandbox, permissions}  only the values the operating layer added (nested; lists hold the added items)
   settings_created: true when install created settings.local.json
+  policy_role: "created" | "added"  install armed policy role=ceo: wrote .perun/policy.json itself, or added the key to an existing file
+  policy_sha: sha256 of .perun/policy.json right after that write; uninstall touches the file only while it still matches
   agents_md: {blocks: [name], created: bool}  AGENTS.md blocks install wrote, and whether it created the file
   agent:  {path, sha} | null  delivery-lane.md when install created it
   version, remote             the installed release and where it came from (perun_auto_update.py)
@@ -104,7 +106,7 @@ def _skill_of(backup):
     return f"{m.group(1)}/skills/{m.group(2)}" if m else None
 
 
-def record(target, dirs, pre=None, template=None, agent_created=False, files=(), version=None, remote=None, backups=(), agents_blocks=(), agents_created=False, settings_created=False):
+def record(target, dirs, pre=None, template=None, agent_created=False, files=(), version=None, remote=None, backups=(), agents_blocks=(), agents_created=False, settings_created=False, policy_role=None):
     target = Path(target)
     m = load(target) or {}
     m.update({k: v for k, v in (("version", version), ("remote", remote)) if v})
@@ -141,6 +143,9 @@ def record(target, dirs, pre=None, template=None, agent_created=False, files=(),
                 m.setdefault("settings", {})[k] = merge(m.get("settings", {}).get(k, {}), a)
     if settings_created:
         m["settings_created"] = True
+    if policy_role:
+        m["policy_role"] = policy_role
+        m["policy_sha"] = sha(target / ".perun/policy.json")
     if agents_blocks:
         am = m.setdefault("agents_md", {"blocks": [], "created": False})
         am["blocks"] += [b for b in agents_blocks if b not in am["blocks"]]
@@ -175,7 +180,8 @@ if __name__ == "__main__":
     ap.add_argument("--agents-block", nargs="*", default=[])
     ap.add_argument("--agents-created", action="store_true")
     ap.add_argument("--settings-created", action="store_true")
+    ap.add_argument("--policy-role", choices=["created", "added"])
     ap.add_argument("--version")
     ap.add_argument("--remote")
     a = ap.parse_args()
-    record(a.target, a.dirs, a.pre, a.template, a.agent_created, a.files, a.version, a.remote, a.backups, a.agents_block, a.agents_created, a.settings_created)
+    record(a.target, a.dirs, a.pre, a.template, a.agent_created, a.files, a.version, a.remote, a.backups, a.agents_block, a.agents_created, a.settings_created, a.policy_role)

@@ -260,13 +260,26 @@ def plan(repo):
             def cut(new=new, whole=whole):
                 ag.unlink() if whole else ag.write_text(new)
             ops.append((f"AGENTS.md: remove {len(am['blocks'])} Perun block(s)" + (" (and the file, install created it)" if whole else ""), cut))
+    pol = ".perun/policy.json"
+    if m.get("policy_role") and safe(repo, pol) and (repo / pol).is_file():  # undo only what install armed, and only while the file is still byte-for-byte what install wrote
+        if perun_marker.sha(repo / pol) != m.get("policy_sha"):
+            notes.append(f"{pol}: kept: changed since install, so the role it armed is not provably install's")
+        else:
+            def unarm(f=repo / pol):
+                c = json.loads(f.read_text())
+                del c["role"]
+                if c or m["policy_role"] != "created":
+                    f.write_text(json.dumps(c, indent=2) + "\n")
+                else:
+                    f.unlink()
+            ops.append((".perun/policy.json: undo the role=ceo install armed (the file too if install created it and nothing else is in it)", unarm))
     return ops, notes
 
 
 def finish(repo, m):
     for f in (".claude/.dcr-install-flags", ".claude/.dcr-install-flags.local", perun_marker.MARKER):
         rmf(repo, f)
-    prune_empty(repo, [*m.get("skills", {}), *(d.partition("/skills/")[0] + "/skill-backups" for d in m.get("skills", {})), *m.get("backups", []), *m.get("files", {}), ".claude/agents", ".claude"])
+    prune_empty(repo, [*m.get("skills", {}), *(d.partition("/skills/")[0] + "/skill-backups" for d in m.get("skills", {})), *m.get("backups", []), *m.get("files", {}), ".claude/agents", ".claude", ".perun"])
 
 
 def run(repo, apply=False):
