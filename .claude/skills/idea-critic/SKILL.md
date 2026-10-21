@@ -118,14 +118,10 @@ enforced only by the fixtures in `evals/evals.json`.
    to watch and a review date.
 
 A hard call of the owner's own (pivot, quit, big irreversible spend, no board
-to check it) also reads `references/decision-hygiene.md`: door class, outside
-view, bias check and pre-committed kill criteria; it structures the bet and
-never makes the call or invents a probability (label it `assumption`).
+to check it) also reads `references/decision-hygiene.md`; it structures the bet
+and never makes the call or invents a probability (label it `assumption`).
 **Only a high-stakes, low-reversibility call escalates** to Veche, the
-decision council: read `references/council.md`. It runs independent seats
-(optionally different models), scores options on weights fixed beforehand,
-aggregates deterministically, records the minority report, and fails closed
-with `COULD_NOT_DECIDE`. Everything else stays inline.
+decision council: read `references/council.md`. Everything else stays inline.
 
 ---
 
@@ -155,7 +151,7 @@ One skill, three hats. Default: run all three. Do not invent a fourth.
 2. **Write the packet:** claim, steelman, origin, blast, reversibility, evidence on hand, alternatives already rejected, what the parent wants to tell the owner.
 3. **Independence.** Low-blast / same-turn: the parent runs the hats and labels the verdict `inline`. High-blast, unsolicited, or owner-decision: a **different context** (another session, model, or throwaway checkout). Calling `inline` "independent" is a lie. A different context is weaker decorrelation than a different model family (a model favors its own outputs: Panickssery, Bowman & Feng, 2024; tested on GPT-4/Llama 2 only), so reserve a different model/vendor for owner-decision-grade or irreversible claims; same-model-different-context is the floor for the highest-blast tier. `independence` is a *declaration*, not proof a review ran.
 4. **Return only the verdict schema, and validate it.** Validity proves the declaration is well formed, not independence or truth. A malformed or missing verdict is `HOLD`. A required review that *could not run* is `UNVERIFIED` (outside the enum): the absence of a review, not a rejection of the idea.
-5. **Act before any owner-facing message** (skipping a hat or about to emit `PASS_TO_USER`? read `references/anti-rationalization.md` first: discussion is not a verdict, missing keys = `HOLD`):
+5. **Act before any owner-facing message** (skipping a hat or about to emit `PASS_TO_USER`? see Anti-rationalization):
    - `HOLD`: do not recommend it. Owner hears nothing unless they asked.
    - `REVISE`: incorporate the attack and re-run, at most **two** rechecks. Still unresolved: report it as unresolved; never loop, never treat exhausted rechecks as a pass. Do not show the original.
    - `PASS_TO_USER`: show the rec **and** a short dissent ledger.
@@ -203,14 +199,13 @@ next to this file and is copied by `install.sh`.
 
 ## Parent obligations
 
-- Do not create a new identity, bot, or profile for this hat.
+- Do not create a new identity, bot, or profile for this hat (no fifth bot, no sticky critic profile).
 - Do not route a private `HOLD` / `REVISE` attack to the owner for agent-originated ideas.
 - Do not ask the owner questions the parent can answer.
 - After a recurring miss, patch **this** skill. Memory alone is not the fix.
 
 ## Pitfalls
 
-- Duplicating code review or artifact polish; a fifth bot / sticky critic profile.
 - Silent kill of a direct request; question dumping; same-brain pass labeled independent.
 - Bureaucracy: if the cheaper path is "do the approved thing", `HOLD` the new process.
 - **Slop recs.** `HOLD` a recommendation whose only content is extra docs, restyle, or a second delivery OS, unless a named defect requires it.
@@ -219,9 +214,9 @@ next to this file and is copied by `install.sh`.
 ## Anti-rationalization (excuse → rebuttal)
 
 Before emitting `PASS_TO_USER`, or when the critic or parent is about to skip a hat, read
-`references/anti-rationalization.md`: it pre-writes the rebuttals to the shortcuts (too small
-to attack, owner already wants it, steelman later, seems right, skip the hats, self-scoring
-change, inline-as-independent).
+`references/anti-rationalization.md`: rebuttals to the shortcuts (too small to attack, owner
+already wants it, steelman later, seems right, skip the hats, self-scoring change,
+inline-as-independent); discussion is not a verdict, missing keys = `HOLD`.
 
 ---
 

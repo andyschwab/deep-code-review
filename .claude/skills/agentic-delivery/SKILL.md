@@ -14,8 +14,9 @@ metadata:
 # Agentic delivery
 
 Delivery overlay — a **pattern**, not a
-runtime or a standing swarm. Installing, recommending, or self-verifying this
-overlay: `references/install.md`.
+runtime or a standing swarm. Installing, recommending, or self-verifying
+this overlay (contract, planted-defect proof, privacy check):
+`references/install.md` **Verification**.
 
 It does **not** replace `deep-code-review` — review is the bar, this is how work
 reaches it. Do not run a second delivery OS (Superpowers, gstack `/ship`, a
@@ -33,7 +34,7 @@ chat may be terse.
 |---|---|
 | Land PRs as a train | `scripts/merge_train.py`, `scripts/train_land.sh`; depth `references/merge-queue-worktrees.md` |
 | Fix a red gate or union | `references/gate-epistemology.md`, `references/red-gate-triage.md`; repeat flake: `scripts/flake_ledger.py` |
-| Start a lane | `templates/lane-preamble.md` |
+| Start a lane | `templates/lane-preamble.md`: paste into every lane brief |
 | Isolate a lane's worktree | `references/worktree-isolation.md` |
 | Slow pipeline (hooks, CI, merge wait) | `references/pipeline-optimizer.md`; `scripts/pipeline_profile.py map` first; claims: `scripts/outcome_claim_guard.py` |
 | Verify or relay a lane's result | `references/verification-handback.md` |
@@ -116,7 +117,7 @@ when a lane serves a dev server, re-runs a generator or ratchet, or shares files
 under an ownership map; `references/unattended-trackers.md` when closing tracker
 issues or running a multi-hour work loop; `references/work-tracking.md` when a
 repo uses a work tracker (issue/PR linking, auto-close hazards, the
-weekly update, `tracker_check.py`). Paste `templates/lane-preamble.md` into every lane brief. Loop and scheduled-task templates (coordinator, peer, cleanup; 20-minute floor): `templates/loops/*.md`.
+weekly update, `tracker_check.py`). Loop and scheduled-task templates (coordinator, peer, cleanup; 20-minute floor): `templates/loops/*.md`.
 
 **Drifting into a lane's work** — while a lane is in flight, two consecutive
 Conductor turns that query, build, edit, or mutate the target instead of
@@ -372,8 +373,3 @@ started.
 **Anti-rationalization (G4 / G5)** — tempted to defer tests, skip a spec, let
 unit tests stand in for the UI, trust local green, or pass a stack that never
 started: `references/roles.md` **Anti-rationalization (G4 / G5)**.
-
-## Verification
-
-Install/recommend contract, planted-defect proof, privacy check:
-`references/install.md` **Verification**.
