@@ -906,15 +906,15 @@ fi
 
 # Policy file pinned to the target: never $PERUN_POLICY, never a parent dir's file.
 PERUN_POLICY_FILE="$(cd "${TARGET_DIR}" && pwd)/.perun/policy.json"
+[[ -f "${PERUN_POLICY_FILE}" ]] && POLICY_ROLE_WAS=added || POLICY_ROLE_WAS=created  # before --policy writes the file
 if [[ -n "${POLICY}" ]]; then
-  for kv in "${_kv[@]}"; do
-    PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null || exit 2
+  for kv in "${_kv[@]}"; do  # PERUN_POLICY_INSTALL: install's own writes must not disown the file (only a user-run set does)
+    PERUN_POLICY_INSTALL=1 PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null || exit 2
   done
 fi
 # Operating layer arms the CEO-altitude guard (warn) unless the policy already has a role or PERUN_ROLE is set.
 if [[ "${WITH_OPERATING_LAYER}" -eq 1 && "${APPLY_OPLAYER}" -eq 1 && -z "${PERUN_ROLE:-}" ]] \
    && ! jq -e 'has("role")' "${PERUN_POLICY_FILE}" >/dev/null 2>&1; then
-  [[ -f "${PERUN_POLICY_FILE}" ]] && POLICY_ROLE_WAS=added || POLICY_ROLE_WAS=created
   PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" set role ceo >/dev/null || exit 2
   python3 "${SCRIPT_DIR}/scripts/perun_marker.py" "${TARGET_DIR}" --policy-role "${POLICY_ROLE_WAS}"  # so uninstall can undo it
   echo "CEO-altitude guard now warns (role=ceo); opt out: perun_policy set role off"

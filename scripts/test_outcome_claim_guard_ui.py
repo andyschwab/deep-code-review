@@ -97,9 +97,15 @@ class UiClaim(unittest.TestCase):
         self.assertIsNone(self.check(CLAIM, EDIT, ("Bash", {"command": "git commit -m 'make it so'"}), SHOT))
 
     def test_lint_and_build_commands_are_not_restarts(self):
-        for cmd in ("make lint", "turbo run lint", "docker compose build", "make test", "vite build", "npx vite build"):
+        for cmd in ("make lint", "turbo run lint", "docker compose build", "make test", "vite build", "npx vite build",
+                    "npm i vite-plugin-react", "cat vite.config.ts", "npx vite-node build.ts"):
             with self.subTest(cmd=cmd):
                 self.assertIsNone(self.check(CLAIM, EDIT, SHOT, ("Bash", {"command": cmd})))
+
+    def test_vite_builder_and_bare_vite_are_restarts(self):
+        for cmd in ("npx vite", "vite --port 3000", "vite builder"):
+            with self.subTest(cmd=cmd):
+                self.assertIn("stale server", self.check(CLAIM, EDIT, SHOT, ("Bash", {"command": cmd}))[1])
 
     def test_a_screenshot_path_is_not_a_capture(self):
         for cmd in ("ls shots/screenshot-1.png", "cat docs/screenshot.md", "cp screenshot.png /tmp/x.png"):

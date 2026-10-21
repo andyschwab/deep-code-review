@@ -166,12 +166,17 @@ def set_value(dim: str, value: str) -> dict:
 
 def _disown(path: Path) -> None:
     """An explicit `set` makes the file the user's: drop `policy_sha` from the install marker (if any) so uninstall keeps it,
-    even when the bytes equal what install wrote. Best effort; an absent or unreadable marker is a no-op."""
+    even when the bytes equal what install wrote. install.sh's own writes set PERUN_POLICY_INSTALL and skip this.
+    Best effort; an absent or unreadable marker is a no-op. The marker is replaced atomically (tmp file + os.replace)."""
+    if os.environ.get("PERUN_POLICY_INSTALL"):
+        return
     marker = path.resolve().parent.parent / ".claude/.perun-install.json"
     try:
         m = json.loads(marker.read_text())
         if m.pop("policy_sha", None) is not None:
-            marker.write_text(json.dumps(m, indent=2) + "\n")
+            tmp = marker.with_name(marker.name + ".tmp")
+            tmp.write_text(json.dumps(m, indent=2) + "\n")
+            os.replace(tmp, marker)
     except (OSError, ValueError, AttributeError):
         pass
 
