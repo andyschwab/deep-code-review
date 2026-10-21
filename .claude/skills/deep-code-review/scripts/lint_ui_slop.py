@@ -153,8 +153,8 @@ def ratio(a, b):
 
 
 def px(v):
-    m = re.fullmatch(r"([\d.]+)(px|rem|em)", v)
-    return None if not m else float(m.group(1)) * (1 if m.group(2) == "px" else 16)
+    m = re.fullmatch(r"([\d.]+)(px|rem|em)", v, re.I)
+    return None if not m else float(m.group(1)) * (1 if m.group(2).lower() == "px" else 16)
 
 
 def find_tokens(path, names=TOKEN_NAMES):

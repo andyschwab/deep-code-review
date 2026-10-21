@@ -56,10 +56,10 @@ from lint_ui_slop import EXTS, HEX, TOKEN_NAMES, blank, files, find_tokens, line
 NAMES = TOKEN_NAMES + ("DESIGN.md",)
 PAIR = re.compile(r"([\w-]+)[*`\"']*\s*[:=|]\s*[`\"']*([^;|\n]+)")
 DECL = re.compile(r"([\w-]+)['\"]?\s*:\s*((?:[^;{}\n,]|,(?!\s*['\"]?[A-Za-z-]+['\"]?\s*:))+)")
-LEN = re.compile(r"-?[\d.]+(?:px|rem)")  # em is relative to the element's font size, so it is not comparable
-IGNORED = re.compile(r"var\((?:[^()]|\([^()]*\))*\)|url\([^)]*\)")
+LEN = re.compile(r"-?[\d.]+(?:px|rem)", re.I)  # em is relative to the element's font size, so it is not comparable
+IGNORED = re.compile(r"(?:var|calc)\((?:[^()]|\([^()]*\))*\)|url\([^)]*\)")
 COLOR_PROP = re.compile(r"color|background|fill|stroke|border|outline|shadow|gradient|decoration|accent|caret|filter|rule|mask|bg|tint|^--")  # not selectors/hrefs
-SPACE = re.compile(r"(margin|padding)(-(top|right|bottom|left|inline|block)(-(start|end))?)?|(row-|column-)?gap")
+SPACE = re.compile(r"(margin|padding)(-(top|right|bottom|left|inline|block)(-(start|end))?)?|(grid-)?(row-|column-)?gap")
 RADIUS = re.compile(r"border(-[a-z]+)*-radius")
 GENERIC = {"inherit", "initial", "unset", "revert", "sans-serif", "serif", "monospace", "system-ui", "cursive",
            "fantasy", "-apple-system", "ui-sans-serif", "ui-serif", "ui-monospace", "ui-rounded"}
@@ -69,7 +69,9 @@ def flatten(node, path=""):
     """(dotted-name, value) pairs for every string/number leaf of a JSON token tree; {value}/{$value} unwrap."""
     if isinstance(node, dict):
         inner = node.get("$value", node.get("value"))
-        if isinstance(inner, (str, int, float)):
+        if isinstance(inner, list) and all(isinstance(i, str) for i in inner):  # DTCG fontFamily array
+            yield path, ", ".join(inner)
+        elif isinstance(inner, (str, int, float)):
             yield path, str(inner)
         else:
             for k, v in node.items():
