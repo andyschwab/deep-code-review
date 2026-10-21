@@ -1,2 +1,0 @@
-### Added
-- Delivery: `handback.py --spec PATH` (repeatable) runs each named spec 3 times in `--worktree` at a clean `--sha`, each under `--timeout`, and names a failing one with `handback RED: spec PATH`. The flag is required when any commit subject in `BASE..SHA` matches `^fix.*flak(e|y|iness)` (case-insensitive) or the diff changes a file named by an id on the `flake_ledger.py` quarantine list (read from `BASE`, so a PR cannot delete its own entry), so a flake fix ships with a repeat-run receipt instead of one lucky pass.
