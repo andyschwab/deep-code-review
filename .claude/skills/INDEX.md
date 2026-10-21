@@ -21,7 +21,7 @@ Read `<skill>/SKILL.md` when its line matches the task. `<skill>/INDEX.md` lists
 ## Commands
 
 - /cost-retro: Report what this session spent and what would have been cheaper — [transcript path, optional]
-- /deliver: Deliver a change through the gated agentic-delivery flow — [what to build or fix]
+- /deliver: Deliver a change via the gated flow — [--auto] [change]
 - /perun-run: Start an owner-authorised autonomous run that works the task… — <goal>
 - /perun: Print the weekly value receipt (PRs landed, findings, tokens… — [--session JSONL] [--baseline N]…
 - /review: Run a deep code review of a diff, files, or the whole repo — [--high-stakes] [DIFF <base> | FULL |…
@@ -87,7 +87,7 @@ Run `python3 <skill>/scripts/<name>` (`bash` for `.sh`). `name: purpose — argu
 - union_overlap.py: two machines each building a merge union raced into stale… — [--repo DIR] --base REF --mine…
 - vacuous_test_gate.py: a changed test file must really run and assert. — [REPORT] (--changed PATH... | --base…
 - wired_check.py: warn when a NEW script has no caller. — BASE HEAD [--root DIR]
-- No documented CLI: _clean_union.sh, _dirty_guard.sh, _lock.sh, board_common.py, bypass_guard.py, ceo_altitude_guard.py, comms_guard.py, context_nudge.py, cost_statusline.py, destructive_guard.py, flake_ledger.py, gh_rest.py, handback_cap.py, handoff_inject.py, heavy_gate.py, host_safety.py, landing_watchdog.py, lane_cap.py, lane_resume_nudge.py, outcome_claim_guard.py, perun_auto_update.py, pipe_mask_guard.py, pipeline_profile.py, restore_ledger.py, scope_creep_check.py, session_brief.py, stall_guard.py, surface_check.py, terse_reply_check.py
+- No documented CLI: _clean_union.sh, _dirty_guard.sh, _lock.sh, board_common.py, bypass_guard.py, ceo_altitude_guard.py, comms_guard.py, context_nudge.py, cost_statusline.py, destructive_guard.py, flake_ledger.py, gh_rest.py, handback_cap.py, handoff_inject.py, heavy_gate.py, host_safety.py, landing_watchdog.py, lane_cap.py, lane_resume_nudge.py, outcome_claim_guard.py, perun_auto_update.py, pipe_mask_guard.py, pipeline_profile.py, plan_gate.py, restore_ledger.py, scope_creep_check.py, session_brief.py, stall_guard.py, surface_check.py, terse_reply_check.py
 
 ### communication-structure
 - comms_lint.py: score a human-facing draft against its artifact template. — --kind K [--file F] [--source S]…
