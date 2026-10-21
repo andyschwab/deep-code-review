@@ -160,7 +160,20 @@ def set_value(dim: str, value: str) -> dict:
         tmp.unlink()
         raise
     os.replace(tmp, path)
+    _disown(path)
     return pol
+
+
+def _disown(path: Path) -> None:
+    """An explicit `set` makes the file the user's: drop `policy_sha` from the install marker (if any) so uninstall keeps it,
+    even when the bytes equal what install wrote. Best effort; an absent or unreadable marker is a no-op."""
+    marker = path.resolve().parent.parent / ".claude/.perun-install.json"
+    try:
+        m = json.loads(marker.read_text())
+        if m.pop("policy_sha", None) is not None:
+            marker.write_text(json.dumps(m, indent=2) + "\n")
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 def resolve_ci(pol: dict, advisor: Path | None = None) -> tuple[str, str]:
