@@ -230,6 +230,23 @@ coincidence, and the coincidence breaks silently:
   the production build — `method-situational.md`; this is capturing *feature* evidence past an
   auth gate.)
 
+## "Ready" for a UI means seen, not loaded
+
+A page that returned HTTP 200 was reported as "now showing"; it rendered blank (its data source was unconfigured, so the
+view drew nothing) and had none of its sibling pages' padding or header. Unit tests were green because none rendered it.
+
+- **"Ready" needs screenshots, looked at.** One at a phone width and one at a desktop width, from a **fresh dev server on
+  the exact commit** (a stale server serves old routes), checked by eye, **with fixture data and with the data source
+  off**. What counts as a receipt: [A visual receipt proves the feature only past the auth wall](#a-visual-receipt-proves-the-feature-only-past-the-auth-wall).
+  A ready-claim with only a load check is unverified.
+- **A data-backed view renders an explicit unconfigured / empty / error state, never blank**
+  (`ux-states.md`: the empty state must say which). **A route whose main region renders empty in a browser test is a
+  finding**: assert the main region is non-empty with the source on and a named state with it off.
+- **A new page reuses its sibling pages' frame** (layout, page padding, header). Diff it against two siblings in the
+  screenshot; a bare page beside framed ones is a finding.
+- **A new feature-class UI (timeline, chart, board) names two or three established open-source references before it is
+  built**, so the design starts from known behaviour instead of a guess.
+
 ## A locator keyed to visible text breaks the moment the component's own edit mode replaces that text
 
 - **Prefer a stable, name-based identifier (role + name, or test id) over visible text for a locator that must survive
