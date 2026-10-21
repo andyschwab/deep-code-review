@@ -157,14 +157,14 @@ def px(v):
     return None if not m else float(m.group(1)) * (1 if m.group(2) == "px" else 16)
 
 
-def find_tokens(path):
-    """Nearest tokens file walking up from the file to the nearest .git (the repo root). With no .git above
-    the file the bound is the cwd, or the file's own directory when it is outside the cwd."""
+def find_tokens(path, names=TOKEN_NAMES):
+    """Nearest tokens file (one of names) walking up from the file to the nearest .git (the repo root). With no
+    .git above the file the bound is the cwd, or the file's own directory when it is outside the cwd."""
     cwd = Path.cwd().resolve()
     dirs = [path.parent, *path.parent.parents]
     root = next((d for d in dirs if (d / ".git").exists()), cwd if cwd in dirs else dirs[0])
     for d in dirs[:dirs.index(root) + 1]:
-        for n in TOKEN_NAMES:
+        for n in names:
             if (d / n).is_file():
                 return d / n
     return None
