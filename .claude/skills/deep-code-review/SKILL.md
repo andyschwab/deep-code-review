@@ -21,7 +21,8 @@ Overlays (`agentic-delivery`, `idea-critic`) are optional: install is
 
 This file is the map: scope, principles, gates, routing. Depth lives in
 `references/` and is loaded on demand. Lookup table: `INDEX.md`; read it
-instead of opening references blindly.
+instead of opening references blindly — except on the DIFF quick-path (below),
+which never opens it.
 
 ---
 
@@ -53,7 +54,7 @@ non-file-capable model also paste the `references/*.md` for the archetype.
 - `FILE <paths>` — named files.
 
 **DIFF quick-path** — diff ≤300 changed lines (`git diff --shortstat`) and no
-blast-radius 🚩: method = `compact-mode.md` only. Read no other reference; run
+blast-radius 🚩: method = `compact-mode.md` only. Read no other reference or `INDEX.md`; run
 affected tests only (import graph), full suite once before land; batch all reads in one turn. Any 🚩 or
 >300 lines → full DIFF method (`method.md`).
 
@@ -72,17 +73,13 @@ affected tests only (import graph), full suite once before land; batch all reads
 Domains outside the set: **N/A with a one-line reason + probe**. `other` has
 no default — derive from Phase 0 entry points.
 
-**Role overlay (optional lens).** Orders and assigns the same A–W domains; it
-never adds or drops one. The role → domain map, per-role checklists, colour
-model, and architecture / product-planning / SLO / release-sign-off lists:
-`role-coverage.md` — **read it when** the request is framed by
-delivery role or security-team colour.
-
-**Security-team colours** re-package the same evidence (no new rules); the
-Red/Blue/Purple/Yellow/Green/Orange/White model is tabulated in
-`role-coverage.md`. **Black Team — the agent boundary is absolute:**
-plan/tabletop/analyse owner-supplied evidence only; never perform or direct
-physical or social-engineering action.
+**Role / colour lens (optional).** Orders the same A–W domains by delivery role
+or security-team colour; adds or drops none. Role map, colour model, checklists:
+`role-coverage.md` — **read it when** the request is framed by role or colour
+(architecture, product planning, SLO, release sign-off lists).
+**Black Team — the agent boundary is absolute:** plan/tabletop/analyse
+owner-supplied evidence only; never perform or direct physical or
+social-engineering action.
 
 **Host-neutral tools.** Read files, `rg`, `git show`/`git log`, run the
 project's scripts. Fan-out contract: `parallel-audit.md`.
@@ -269,12 +266,9 @@ first-response block; it shapes the going-forward roadmap (`report-format.md`).
    changes only what *blocks now*). The going-forward roadmap sequences findings
    by stage-urgency; it does not downgrade them.
 
-**Stage-evolution lenses (when to add, not how to secure).** When the going-forward
-roadmap must say how infrastructure/architecture or documentation should *evolve*
-for its stage, **read** `infra-evolution-by-stage.md` (each step gated on an observable
-trigger; the security/backup floor never relaxes) and `docs-evolution-by-stage.md`
-(trigger-not-calendar); both feed the roadmap in
-`report-format.md`. How-to-secure: `infra-iac-containers.md` (L), `docs-and-dx.md` (O).
+**Stage-evolution lenses (when to add, not how to secure).** Roadmap "how should
+this evolve for its stage": **read** `infra-evolution-by-stage.md` and
+`docs-evolution-by-stage.md` (feed `report-format.md`); the security/backup floor never relaxes.
 
 ---
 
@@ -363,25 +357,6 @@ SLSA:** never state a level you did not walk.
 
 ## Optional overlays (same repository, not default)
 
-This skill is the bar. Sibling skills install only on an explicit flag or an owner yes:
-
-| Skill | Install | Does |
-|---|---|---|
-| `agentic-delivery` | `--with-delivery` or `--full` | Gated G0–G10 delivery; independent QA/security; one writer per worktree; names this review skill at G1/G6/G7 |
-| `idea-critic` | `--with-critic` or `--full` | Pre-owner attack on plans and "we should" (3 hats; HOLD / REVISE / PASS_TO_USER) |
-
-Recommend, don't dump: `./install.sh --recommend <project>` inspects the
-target and prints a pack. Default `./install.sh <project>` stays review-only.
-
-`--with-gates` is a **mechanism, not a skill**: it wires this skill's own
-gate scripts (`fix_class_gate.py`, `binaries_gate.py`) into the target's own
-CI via `scripts/dcr-gates.sh` — **read `docs-and-dx.md`'s
-Standards-imprint section when pairing a Phase 6 standard with a mechanized
-gate**, not just a doc. A count in a doc: `derived_numbers.py` (same file, "store the query").
-
-Terse chat voice is **not** vendored. For compressed assistant prose add
-[JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) separately.
-Persisted artifacts (code, PR bodies, docs) stay normal English.
-
-Compose with other packs; never run a second delivery OS on one repo.
-This skill always composes.
+Sibling skills (`agentic-delivery`, `idea-critic`) install only on an explicit
+flag or an owner yes; default install is review-only. Table, `--with-gates`,
+chat voice: `overlays.md` — **read it when** recommending or installing one.
