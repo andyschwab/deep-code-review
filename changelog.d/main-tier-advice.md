@@ -1,2 +1,0 @@
-### Added
-- `token_report.py --advise`: new `main-tier` rule. When main-session turns on a top-tier (opus-family) model carry at least half of the main turns' priced spend and at least $20, it recommends a mid-tier default (`model` setting or `/model`) with escalation only for a named hard step. It also needs the orchestration share above 20%, and it judges measured usage, so a `model` or `ANTHROPIC_MODEL` setting does not silence it. Silent when unpriced, below any threshold, or when only subagent lanes use the top tier.
