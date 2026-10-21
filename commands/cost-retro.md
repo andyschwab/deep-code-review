@@ -16,12 +16,16 @@ work? — cost accounting") and `agentic-delivery`'s `operating-discipline.md`.
    lever and a docs link; a lever the settings already set is not recommended). Then name the
    cheaper route the doctrine gives (tier, effort, caching, fewer or longer-lived lanes, a hand-back
    cap) and the quality check that still has to hold.
+4. Context: if `agentic-ceo`'s `scripts/context_audit.py` is available, run it from the project root. It lists the
+   files loaded on every turn (instruction files, the memory index, skill descriptions) with their bytes and one cut for
+   each of the largest. Report its top cut on its own line, in bytes: it is not ranked against the levers below, but it
+   is paid on every turn of every session, not only this one.
 
-The report also prints upper-bound lines (not a bill): idle-gap cache rewrites with a 1h-TTL saving bound, a
+`token_report.py` also prints upper-bound lines (not a bill): idle-gap cache rewrites with a 1h-TTL saving bound, a
 simulated auto-compact saving, the lane tail beyond the lane cap, and input-eq share by model for main and lanes.
 Lead with the top-ranked lever in the report's `Top levers` block (largest estimated input-eq saving); its `Lever:`
 line gives the how (the 1h cache pin, auto-compact, the lane cap, the orchestrator tier), and the doctrine is in
 `host-enforcement.md` and `model-tiering.md`. A dollar-only lever (the orchestrator tier) has no computed saving and
 lists after the ranked ones; lead with it only when it is the only lever fired. Say what you could not confirm.
 
-To act on the mapped levers, run the same command with `--fix-plan` (prints the settings patch) and, only if the owner agrees to edit that file, `--apply <settings.json>` (backs up first, adds absent keys only).
+To act on the mapped levers, run `token_report.py` again with `--fix-plan` (prints the settings patch) and, only if the owner agrees to edit that file, `--apply <settings.json>` (backs up first, adds absent keys only).
