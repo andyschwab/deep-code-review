@@ -5,7 +5,6 @@ ledger line comes first and covers the frozen list, and that the committed per-m
 recompute from the committed outputs by the frozen keep rule."""
 import hashlib
 import json
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -94,13 +93,10 @@ class Results(unittest.TestCase):
         self.assertEqual(wq["models"], MODELS + ["Qwen3.5-397B-A17B"])
         self.assertNotIn("verdict", wq)
 
-    def test_skill_md_untouched_by_this_bench(self):
-        def norm(p):  # a release stamps metadata.version in the frontmatter; that line is not skill text
-            _, fm, body = (ROOT / p).read_text().split("---\n", 2)
-            return " ".join((re.sub(r'(?m)^\s*version: ".*"$', "", fm) + "---" + body).split())
-        skill = norm(".claude/skills/idea-critic/SKILL.md")
-        v0 = norm("docs/bench/idea-critic-v2-1019/prompts/skill_v0.txt")
-        self.assertEqual(skill, v0)
+    def test_shipped_skill_matches_pooled_verdict(self):
+        """The pooled LOSS means the V4 candidate line must not ship; the skill may otherwise keep evolving."""
+        skill = " ".join((ROOT / ".claude/skills/idea-critic/SKILL.md").read_text().split())
+        self.assertEqual("First call, before any attack" in skill, POOLED["new_models"]["verdict"] == "WIN", POOLED["new_models"]["verdict"])
 
 
 if __name__ == "__main__":
