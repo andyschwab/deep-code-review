@@ -126,6 +126,12 @@ PROJECT ROLLUP (--rollup DIR)
 and prints one status-update line (`spend: $X across N sessions, M lanes (main $A, lanes $B)`) plus the
 costliest sessions (`--top`, `--since`, `--json`). Merged per-model totals are priced once; a model without
 a rate is named UNPRICED, an all-unpriced project reads UNPRICED, never $0. Reads many large files: slow.
+`--by day|week` adds UTC buckets (week = Monday start): per bucket the raw tokens, priced spend, each model's
+token share, and the change vs the previous bucket when it is the calendar-adjacent one (a gap shows no delta,
+so a skipped week is never read as a fall to zero; the spend delta also needs both buckets to name the same
+unpriced models). A bucket with an unpriced model keeps it named UNPRICED; a turn is dated by its last block, so
+one crossing midnight UTC lands in the later day. Turns with no timestamp land in an `undated` bucket (dropped
+under `--since`, like the totals), so the buckets sum to the rollup total.
 
 ORCHESTRATION SHARE
 --------------------
@@ -462,7 +468,7 @@ def load_rates(path: str) -> dict:
     return rates
 
 
-def price(by_model: dict, rates):
+def price(by_model: dict, rates, ndigits: int | None = 4):
     """(USD, [unpriced models]) for a {model: totals} map; (None, []) without rates.
 
     USD covers the priced models only; it is None (never 0) when models exist
@@ -481,7 +487,7 @@ def price(by_model: dict, rates):
             missing.append(model)
             continue
         usd += sum(tot[k] * v for k, v in rates[match].items()) / 1e6
-    return (None if missing and len(missing) == len(by_model) else round(usd, 4), missing)
+    return (None if missing and len(missing) == len(by_model) else usd if ndigits is None else round(usd, ndigits), missing)
 
 
 def merge_by_model(maps: list) -> dict:
@@ -1001,7 +1007,7 @@ def startup_remainder(subagents: list, files: list):
 
 
 def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = BUDGET_METRICS["max_tool_calls"][0], project=None,
-                 seen: set | None = None, now=None, limit=None) -> dict:
+                 seen: set | None = None, now=None, limit=None, turns_out: list | None = None) -> dict:
     main_entries = list(read_jsonl(session_path))
     all_main = extract_turns(main_entries, main=True, seen=seen)
     main_turns = filter_since([t for t in all_main if not t.get("dup")], since)
@@ -1022,6 +1028,8 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
             elif rec is not None:
                 subagents.append(rec)
 
+    if turns_out is not None:  # the rollup's --by buckets: the same deduped, windowed turns the totals use
+        turns_out += main_turns + [t for s in subagents for t in s["_turns"]]
     sub_raw = sum(s["raw_tokens"] for s in subagents)
     sub_input_eq = sum(s["input_equivalent"] for s in subagents)
     sub_output = sum(s["output_tokens"] for s in subagents)
@@ -1800,26 +1808,61 @@ def render_advice(a: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _priced(by_model: dict, rates):
+def _priced(by_model: dict, rates, ndigits: int | None = 4):
     """`price`, but an empty map (no spend to price) is None, not $0, so it never reads as priced."""
-    return price(by_model, rates) if by_model else (None, [])
+    return price(by_model, rates, ndigits) if by_model else (None, [])
 
 
-def build_rollup(directory: str, since, rates=DEFAULT_RATES) -> dict:
+def bucket_turns(turns: list, by: str, rates) -> list:
+    """UTC day (or Monday-start week) buckets of deduped turns, oldest first, `undated` (no timestamp) last.
+
+    Row: bucket, raw_tokens, usd (None, never 0, when every model is unpriced), unpriced_models, per-model
+    raw_tokens/usd/share (of the bucket's model tokens), and `delta` vs the previous bucket (None unless that
+    one is calendar-adjacent; usd delta None unless both sides are priced and name the same unpriced models,
+    else it would compare different model sets). Buckets partition the turns, so tokens sum exactly to the
+    rollup's; usd and deltas stay unrounded (the renderer and JSON emit round), so they sum to the total.
+    A turn is dated by its last streamed block (extract_turns keeps the max-apiBlockIndex line), so a turn
+    that crosses midnight UTC lands in the later day.
+    """
+    groups: dict = {}
+    for t in turns:
+        d = t["timestamp"].astimezone(timezone.utc).date() if t["timestamp"] else None
+        groups.setdefault(d - timedelta(days=d.weekday()) if d and by == "week" else d, []).append(t)
+    step, out, prev = timedelta(days=7 if by == "week" else 1), [], None
+    for d in sorted(k for k in groups if k) + [k for k in groups if k is None]:
+        _m, _c, bm = model_stats(groups[d])
+        raw, (usd, miss) = sum_turns(groups[d])["raw_tokens"], _priced(bm, rates, None)
+        mt = sum(v["raw_tokens"] for v in bm.values())
+        row = {"bucket": d.isoformat() if d else "undated", "raw_tokens": raw, "usd": usd, "unpriced_models": miss,
+               "models": {m: {"raw_tokens": v["raw_tokens"], "usd": price({m: v}, rates, None)[0],
+                              "share": round(v["raw_tokens"] / mt, 4) if mt else 0.0} for m, v in bm.items()},
+               "delta": None}
+        if prev and d and d - prev[0] == step:
+            row["delta"] = {"raw_tokens": raw - prev[1]["raw_tokens"],
+                            "usd": None if usd is None or prev[1]["usd"] is None or miss != prev[1]["unpriced_models"]
+                            else usd - prev[1]["usd"]}
+        prev = (d, row) if d else None
+        out.append(row)
+    return out
+
+
+def build_rollup(directory: str, since, rates=DEFAULT_RATES, by: str | None = None) -> dict:
     """Per-project spend across every `<session>.jsonl` directly in `directory` (main + lanes).
 
     A requestId seen in an earlier file (a resumed session's copied turns, main or lane) counts once; the first
     file in name order wins, which assumes copies are whole (a partial first copy would under-bill). Sessions with no
     turns in the window are dropped. The dollar figures price the merged per-model
     totals once (a model with no rate stays UNPRICED, never estimated); `line` is the status-update summary.
+    `by` ("day" | "week") adds `buckets` (see `bucket_turns`) built from the same deduped turns.
     """
+    acc = [] if by else None
     rows, mains, subs, unreadable, bad_sessions, seen = [], [], [], 0, 0, set()
     for name in sorted(os.listdir(directory)):
         if not name.endswith(".jsonl"):
             continue
         path = os.path.join(directory, name)
         try:  # a transcript is read whole before any of its requestIds enter `seen`, and lane read errors are caught
-            r = build_report(path, since, 0, rates, seen=seen)
+            r = build_report(path, since, 0, rates, seen=seen, turns_out=acc)
         except (OSError, UnicodeError, ValueError):  # a non-UTF-8 or unreadable file must not hide the rest
             bad_sessions += 1
             continue
@@ -1847,13 +1890,18 @@ def build_rollup(directory: str, since, rates=DEFAULT_RATES) -> dict:
     rows.sort(key=lambda r: r["raw_tokens"], reverse=True)
     return {"dir": directory, "sessions": rows, "lanes": lanes, "main_usd": main_usd, "lanes_usd": sub_usd,
             "total_usd": total, "unpriced_models": miss, "unreadable_lanes": unreadable,
-            "unreadable_sessions": bad_sessions, "line": line}
+            "unreadable_sessions": bad_sessions, "line": line, **({"buckets": bucket_turns(acc, by, rates)} if by else {})}
 
 
 def render_rollup(roll: dict, top: int) -> str:
     out = [roll["line"]]
     for r in (roll["sessions"][:top] if top > 0 else roll["sessions"]):
         out.append(f"  {r['session'][:8]} {_usd(r['usd'], r['unpriced_models'])} lanes={r['lanes']} raw={r['raw_tokens']}")
+    for b in roll.get("buckets", ()):
+        d = b["delta"]
+        out.append(f"  {b['bucket']} {_usd(b['usd'], b['unpriced_models'])} raw={b['raw_tokens']}"
+                   + (f" ({d['raw_tokens']:+d} tok" + ("" if d["usd"] is None else f", {d['usd']:+.2f} USD") + ")" if d else "")
+                   + " " + " ".join(f"{m} {v['share']:.0%}" for m, v in b["models"].items()))
     return "\n".join(out)
 
 
@@ -1874,6 +1922,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rollup", metavar="DIR",
                    help="project rollup: price every <session>.jsonl in DIR (a ~/.claude/projects/<project> dir) "
                         "and print one summary line plus the costliest sessions (--top, --since, --json apply)")
+    p.add_argument("--by", choices=("day", "week"), help="with --rollup: add UTC day or week buckets (tokens, spend, per-model share, delta vs previous)")
     p.add_argument("--limit", type=float, metavar="N", help="your own weighted-token budget per 5h window; adds percent used and time to reach it to the active window")
     p.add_argument("--selftest", action="store_true")
     return p
@@ -1887,6 +1936,9 @@ def main(argv=None) -> int:
     if args.selftest:
         return _selftest()
 
+    if args.by and not args.rollup:
+        print("token_report.py: --by needs --rollup DIR", file=sys.stderr)
+        return ERROR
     if args.rollup:
         if not os.path.isdir(args.rollup):
             print(f"token_report.py: --rollup directory not found: {args.rollup}", file=sys.stderr)
@@ -1895,9 +1947,15 @@ def main(argv=None) -> int:
         if args.since and since is None:
             print(f"token_report.py: could not parse --since value: {args.since}", file=sys.stderr)
             return ERROR
-        roll = build_rollup(args.rollup, since)
+        roll = build_rollup(args.rollup, since, by=args.by)
         if args.json and args.top > 0:
             roll["sessions"] = roll["sessions"][:args.top]
+        r4 = lambda x: None if x is None else round(x, 4)  # noqa: E731  # buckets stay unrounded until emit
+        for b in roll.get("buckets", ()):
+            b["usd"] = r4(b["usd"])
+            b["delta"] = b["delta"] and {**b["delta"], "usd": r4(b["delta"]["usd"])}
+            for v in b["models"].values():
+                v["usd"] = r4(v["usd"])
         print(json.dumps(roll, indent=2, sort_keys=True) if args.json else render_rollup(roll, args.top))
         return OK
 
