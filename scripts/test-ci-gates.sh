@@ -3947,6 +3947,13 @@ else
   record 1 "train flake-on-base: a FLAKE lands only if the test also fails on the base, else CANT"; tail -8 "$WORK/train-flake-base.log"
 fi
 
+# train split on CANT: own per-feature file (scripts/test-train-split.sh), one case here.
+if bash "$ROOT/scripts/test-train-split.sh" >"$WORK/train-split.log" 2>&1; then
+  record 0 "train split: an unattributed red train re-gates halves, lands only green halves, leaves keep CANT"
+else
+  record 1 "train split: an unattributed red train re-gates halves, lands only green halves, leaves keep CANT"; tail -8 "$WORK/train-split.log"
+fi
+
 # peer pains: own per-feature file (scripts/test-peer-pains-2.sh), one case here.
 if bash "$ROOT/scripts/test-peer-pains-2.sh" >"$WORK/peer-pains-2.log" 2>&1; then
   record 0 "peer pains: train CANT rule, no unchecked-as-zero status, NOT CHECKED briefs"

@@ -251,6 +251,8 @@ def lease_dir() -> Path:
 
 
 def _alive(pid: int) -> bool:
+    if pid <= 0:  # kill(0|-n, 0) probes a process group: never a lease holder
+        return False
     try:
         os.kill(pid, 0)  # signal 0 only probes existence; nothing is signalled
     except ProcessLookupError:
@@ -406,6 +408,41 @@ def exclusive_release(d: Path, pid: int) -> None:
         (d.parent / "heavy.exclusive").unlink(missing_ok=True)
 
 
+def _ppid(pid: int) -> int:
+    """Parent pid of `pid`, or -1 when it cannot be read: /proc (Linux), then libproc via ctypes (macOS; works where a sandbox
+    denies `ps`), then one `ps -o ppid=` hop."""
+    try:
+        return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        import ctypes
+        import ctypes.util
+        import struct
+        buf = (ctypes.c_uint8 * 512)()  # proc_bsdinfo: flags, status, xstatus, pid, ppid, uid, ...
+        if ctypes.CDLL(ctypes.util.find_library("proc")).proc_pidinfo(pid, 3, 0, buf, 512) > 20:
+            return struct.unpack_from("5I", bytes(buf))[4]
+    except (OSError, TypeError, AttributeError, struct.error):
+        pass
+    try:
+        return int(subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return -1
+
+
+def holder_pid() -> int:
+    """Lease holder for the heavy-exclusive CLI: the calling shell (getppid()). A script that calls from a subshell may name
+    its own shell with env PERUN_HOLDER_PID, honored only when it is a positive integer equal to the parent or the
+    grandparent of this process (one _ppid hop); anything else (0, -1, text, a pid that is not an ancestor, an unreadable
+    process table) is ignored, so the variable can never release, renew or take another process's lease."""
+    pp = os.getppid()
+    try:
+        hp = int(os.environ.get("PERUN_HOLDER_PID", ""))
+    except ValueError:
+        return pp
+    return hp if hp > 0 and hp != pp and hp == _ppid(pp) else pp
+
+
 def main(argv: list) -> int:
     if argv[:1] == ["--selftest"]:
         return _selftest()
@@ -442,11 +479,12 @@ def main(argv: list) -> int:
             print(heavy_slots(cores or os.cpu_count() or 1, load1, pol["tokens"], host_probe.read_cpu_idle_pct()))
             return 0
         if argv in (["heavy-exclusive"], ["heavy-exclusive-release"], ["heavy-exclusive-renew"]):  # caller shell = holder
+            hp = holder_pid()
             if argv != ["heavy-exclusive"]:
-                (exclusive_release if argv[0].endswith("release") else exclusive_renew)(lease_dir(), os.getppid())
+                (exclusive_release if argv[0].endswith("release") else exclusive_renew)(lease_dir(), hp)
                 return 0
-            ok = exclusive_acquire(lease_dir(), os.getppid())
-            print(os.getppid() if ok else "HELD")
+            ok = exclusive_acquire(lease_dir(), hp)
+            print(hp if ok else "HELD")
             return 0 if ok else 1
         if argv == ["heavy-load"]:
             print(f"{lease_load(lease_dir()):g}")
@@ -520,6 +558,13 @@ def _selftest() -> int:
     exclusive_release(ld, os.getpid())
     assert exclusive_holder(ld) is None and exclusive_acquire(ld, os.getppid())
     exclusive_release(ld, os.getppid())
+    assert not _alive(0) and not _alive(-1) and _ppid(os.getpid()) == os.getppid()
+    for bad in ("0", "-1", "abc", ""):
+        os.environ["PERUN_HOLDER_PID"] = bad
+        assert holder_pid() == os.getppid(), bad
+    os.environ["PERUN_HOLDER_PID"] = str(os.getppid())
+    assert holder_pid() == os.getppid()
+    del os.environ["PERUN_HOLDER_PID"]
     print("perun_policy selftest ok")
     return 0
 
