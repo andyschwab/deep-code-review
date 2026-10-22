@@ -33,7 +33,7 @@ Each language family has its own file. Load the file for every language the targ
 | Shell — any shell run by CI (`run:`), hooks, Dockerfile `RUN`, Makefile recipes, or scripts | `lang-shell.md` |
 | SQL — any SQL string, ORM query, or migration | `lang-sql.md` |
 
-The cross-language sections below (denial of service, the reviewer's own verification shell) apply to every review. The control-flow and arithmetic patterns (switch/case fallthrough and unreachable code, hand-rolled delimiter scanning, a floor undone by a later clamp, partition / ring validity gates) live in `redflags-situational.md` — load it on its trigger.
+The cross-language sections below (denial of service, the reviewer's own verification shell) apply to every review. The control-flow and arithmetic patterns live in `redflags-situational.md` — load it on the trigger in `SKILL.md`'s Phase 1 row.
 
 ## Denial of service / resource amplification
 

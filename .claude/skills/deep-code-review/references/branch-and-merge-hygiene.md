@@ -8,10 +8,7 @@ cleanup was explicitly asked. Expands section **S** of `SKILL.md`: detection com
 tree, merge-strategy trade-offs, and safety rails for acting on the recommendation. The deliverable is a
 **triage of all open work**: one recommendation per branch, plus the exact command to carry it out.
 
-Standards this file tracks (verified URLs + dates in `docs/standards-index.md`): Trunk-Based Development,
-GitHub flow, GitLab flow, the git-flow branching model (Vincent Driessen), Martin Fowler's *Patterns for
-Managing Source Code Branches*, GitHub's merge-method and protected-branch docs, and the `git` reference
-manual for the enumeration commands below.
+Standards this file tracks (trunk-based, GitHub/GitLab flow, git-flow, merge methods): `docs/standards-index.md`.
 
 **Boundary with `docs-and-dx.md` (section O) — no overlap.** O owns *is branch protection configured*
 (required PR / reviews / status checks, no force-push, CODEOWNERS) as a repo-posture check. **This file owns
@@ -359,15 +356,3 @@ gate:
   `add` (a no-match glob silently no-ops the resolution).
 - A **force-push** used to update a branch checked out in another worktree (strands that lane's unpushed work
   on a diverged branch + discards its pushed commits) instead of a detached-HEAD fast-forward.
-
-## Cross-references
-
-- **`docs-and-dx.md` (section O)** — the branch-*protection* posture (required PR, reviews, checks, no
-  force-push, CODEOWNERS). This file reads that posture to decide "PR vs direct merge"; it does not restate
-  it.
-- **`SKILL.md` Phase 0** — the open-branch / open-PR inventory that feeds this triage. **Phase 5** — where the
-  triage table is emitted and where review fixes ride a branch + PR (security split off).
-- **`security-appsec.md`** — a branch carrying secrets/PII is rated by the exposure boundary there; the §6
-  rotation-not-deletion rule applies.
-- **`SKILL.md` severity rubric** — `latent`/consequence-scaled ratings; §7 mirrors the dependency-currency
-  severity discipline.
