@@ -21,7 +21,10 @@ Read `<skill>/SKILL.md` when its line matches the task. `<skill>/INDEX.md` lists
 ## Commands
 
 - /cost-retro: Report what this session spent and what would have been cheaper — [transcript path, optional]
+- /council: Convene the Veche council — <the decision, one sentence>
+- /critic: Run the idea-critic on a claim — <claim, plan, or path to the artifact>
 - /deliver: Deliver a change via the gated flow — [--auto] [change]
+- /idea: Turn an idea into a one-pager — <the idea, in your own words>
 - /perun-run: Start an owner-authorised autonomous run that works the task… — <goal>
 - /perun: Print the weekly value receipt (PRs landed, findings, tokens… — [--session JSONL] [--baseline N]…
 - /review: Run a deep code review of a diff, files, or the whole repo — [--high-stakes] [DIFF <base> | FULL |…
