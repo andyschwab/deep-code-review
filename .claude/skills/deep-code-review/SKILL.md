@@ -20,9 +20,9 @@ Overlays (`agentic-delivery`, `idea-critic`) are optional: install is
 **Run with repo access** (checkout + read/search tools). Measured: +28 pts recall, +21 pts precision vs diff-only; extra instructions did not help (docs/bench/bench90-results.md).
 
 This file is the map: scope, principles, gates, routing. Depth lives in
-`references/` and is loaded on demand. Lookup table: `INDEX.md`; read it
-instead of opening references blindly — except on the DIFF quick-path (below),
-which never opens it.
+`references/`, loaded on demand: route from this file's tables and "read it
+when" triggers; a match skips `INDEX.md` (generated fallback). The DIFF
+quick-path never opens it.
 
 ---
 

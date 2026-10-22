@@ -83,7 +83,9 @@ Read this when the target runs any shell — CI `run:` steps, hooks, Dockerfile 
   the tool's exit status, captured to a file — never a pipe (pipe-hides-exit-code
   hazard: `language-stack-redflags.md`'s verification-shell section); the
   mechanized form is `templates/pre-push-verify.sh`, which decides only on the
-  captured command's exit code and never greps a log. If a log must still be
+  captured command's exit code and never greps a log. Suites rerun at every gate
+  stage: `scripts/gate_map.py` reports the repeats, `scripts/gate_cache.py` is the shared
+  tree-keyed PASS cache. If a log must still be
   parsed, anchor on the runner's own summary line, copied from a **real passing
   run** — never written from memory: a bare `PASSED`/`FAILED` word also matches
   test *names*, so a failing run can quote a green test's name as its evidence.
