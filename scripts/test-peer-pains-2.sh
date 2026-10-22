@@ -30,7 +30,7 @@ chmod +x "$WORK/bin/gh"; export PATH="$WORK/bin:$PATH"
 echo 'case " $* " in *" 2 "*) echo "GREEN base=$B union=$U123" ;; *) echo "RED" ;; esac' >"$WORK/verify.sh"
 echo 'if [ "$UNION_SHA" = "$U123" ]; then echo "FAIL t1"; echo "FAIL t2"; echo "FAILURES 2"; exit 1; fi; exit 0' >"$WORK/browser.sh"
 cd "$R" || exit 2
-run() { : >"$WORK/merged.log"; VERIFY_CMD="bash $WORK/verify.sh \"\$@\"" UNION_DIRS="$R" LOG_DIR="$WORK" BROWSER_CMD="bash $WORK/browser.sh" RERUN_CMD="bash $WORK/rerun.sh" FLAKE_RUNS=3 FLAKE_REAL_AT=2 bash "$SC/train_land.sh" tt 1 2 3 2>&1; }
+run() { : >"$WORK/merged.log"; TRAIN_SPLIT_DEPTH=0 VERIFY_CMD="bash $WORK/verify.sh \"\$@\"" UNION_DIRS="$R" LOG_DIR="$WORK" BROWSER_CMD="bash $WORK/browser.sh" RERUN_CMD="bash $WORK/rerun.sh" FLAKE_RUNS=3 FLAKE_REAL_AT=2 bash "$SC/train_land.sh" tt 1 2 3 2>&1; }
 
 # (1a) both ids fail only with all three PRs present (union-only interaction), pass alone: flaky/interaction, no culprit -> CANT, no blame
 echo '[ ! -e f1 ] || [ ! -e f2 ] || [ ! -e f3 ]' >"$WORK/rerun.sh"
