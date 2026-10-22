@@ -23,8 +23,8 @@ the count stops at 100. When that count exceeds policy `wip_cap` (integer >= 0; 
 shares the same throttle, cache and CLI (`check` exits 1 for either line).
 
 Throttle: the remote is asked (one `git fetch` of the default branch, one `gh pr list`) at most once per 15 minutes
-per repo; the verdict is cached and replayed on each prompt in between, so a standing stall keeps showing without a
-network call. The cache is one small JSON file per repo under $PERUN_LANDING_DIR, else <cache>/perun/landing-watchdog
+per repo; the verdict is cached between probes, so a standing stall costs no network call; a prompt's line is emitted once per
+session and again when it changes or after an hour; a spawn always gets it, and a payload without session_id is not deduped. The cache is one small JSON file per repo under $PERUN_LANDING_DIR, else <cache>/perun/landing-watchdog
 (<cache> = $XDG_CACHE_HOME or ~/.cache, beside the other Perun hook state). The stamp is written before the calls, so a
 hanging or failing remote is not retried on every prompt.
 
@@ -45,6 +45,8 @@ import sys
 import time
 
 THROTTLE_S = 15 * 60
+STAMP_TTL_S = 60 * 60  # re-show a standing line after this long: a compaction may have dropped it
+PRUNE_S = 7 * 24 * 3600
 DEFAULT_MIN = 60
 DEFAULT_MODE = "warn"
 MODES = ("off", "warn")
@@ -149,7 +151,37 @@ def _event(data):
 
 
 def hook(data, now=None):
-    """The additionalContext line for this prompt, or None. Network at most once per THROTTLE_S per repo."""
+    """The additionalContext line for this event, or None. Network at most once per THROTTLE_S per repo.
+    A UserPromptSubmit with a session_id gets the line once and again only when it changes or after STAMP_TTL_S (so a
+    compaction that dropped it re-shows it); stamp `<cache>.<session>`, context_nudge's pattern; a cleared line resets
+    it so a recurrence shows. A spawn (PreToolUse) always gets the line: its "drain before spawning" is for that spawn."""
+    line = _line(data, now)
+    sid = str(data.get("session_id") or "").replace("/", "_")
+    if not sid or _event(data) != "UserPromptSubmit":
+        return line
+    try:
+        stamp = cache_file(data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()) + "." + sid
+        try:
+            with open(stamp) as f:
+                seen = f.read()
+            fresh = (now or time.time()) - os.path.getmtime(stamp) < STAMP_TTL_S
+        except OSError:
+            seen, fresh = "", False
+        if (line or "") == seen and fresh:
+            return None
+        with open(stamp, "w") as f:
+            f.write(line or "")
+        d = os.path.dirname(stamp)
+        for n in os.listdir(d):  # prune stamps of long-gone sessions
+            q = os.path.join(d, n)
+            if ".json." in n and time.time() - os.path.getmtime(q) > PRUNE_S:
+                os.remove(q)
+    except OSError:  # fail open: a stamp problem must not drop the warning
+        pass
+    return line
+
+
+def _line(data, now=None):
     mode, minutes = settings()
     if mode == "off" or not _event(data):
         return None
