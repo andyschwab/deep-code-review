@@ -433,6 +433,19 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       "fix the bench dir named above (checks: header of scripts/bench_check.py)" \
       in_tree python3 scripts/bench_check.py --changed "${fg_base}"
     fg_cleanup
+    # CI scans the whole tree (92K files, too slow here), so by default scan only the files this range adds or
+    # changes (deleted files excluded). Runs on the host tree, which this hook has already verified is clean and
+    # equal to the pushed commit (see the dirty-tree and HEAD-mismatch refusals above), so it scans the pushed
+    # content, and the gitignored .banlist.local.txt is present. Trade-off: a hit that pre-exists in an untouched
+    # file is left to CI. If this range edits .banlist.txt itself, the changed files no longer bound what the new
+    # patterns can match, so scan the whole tree. The banlist is always appended as a target (the gate skips it by
+    # name) so an empty diff still has one path, not a usage error.
+    [ -f .banlist.txt ] && fg "privacy (banned pattern in changed files)" \
+      "reword or remove the banned text in the file(s) named above; matched content is withheld, the patterns live in .banlist.txt and the gitignored .banlist.local.txt" \
+      bash -c 'set -o pipefail
+        if git diff --quiet "$1" "$2" -- .banlist.txt; then
+          { git diff -z --name-only --diff-filter=d "$1" "$2"; printf ".banlist.txt\0"; } | xargs -0 bash scripts/ci-gates.sh privacy --banlist .banlist.txt --
+        else bash scripts/ci-gates.sh privacy --banlist .banlist.txt .; fi' _ "${fg_base}" "${local_sha}"
     [ -f scripts/mustload-budgets.tsv ] && fg "mustload floor/ceiling pin" \
       "shrink the must-load read set, or update the pin in scripts/mustload-budgets.tsv in the same commit with the reason" \
       bash scripts/ci-gates.sh mustload --config scripts/mustload-budgets.tsv .
