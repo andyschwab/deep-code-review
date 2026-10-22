@@ -1,0 +1,1 @@
+python3 scripts/test_ceo_start_load.py
