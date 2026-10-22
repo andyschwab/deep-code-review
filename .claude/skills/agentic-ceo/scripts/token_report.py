@@ -92,6 +92,11 @@ lanes open at once, the top spender. For the costliest window it names the drive
 /clear + handoff; and only when that window is at least 2x the median of the others: one lane >= 40% -> split or trim it; no
 spender >= 40% with 3+ lanes open at once -> fewer lanes per wave. JSON key: `burn_blocks`.
 
+When the clock sits inside the newest window, `burn_blocks.active` adds the live view (what ccusage `blocks --active` shows, re-implemented): minutes
+left, burn per minute so far, projected total at the reset and, with `--limit N` (your own weighted-token budget per window; never guessed), the
+% used and minutes to reach it (no projection or lever in the first 15 minutes of a window). Pace past the limit (or, with no limit, 2x the earlier median) prints a `Lever:` line: /compact or /clear when
+main context drives it, trim the lane that drives it, else pause lanes and use a cheaper tier until the reset.
+
 PRICING (--rates TSV)
 ---------------------
 Without `--rates`, the built-in `DEFAULT_RATES` table (official pricing page,
@@ -641,6 +646,7 @@ COMPACT_RESTART_TOKENS = 30_000  # ASSUMPTION: context right after a compaction 
 TOOL_RESULT_MIN_CHARS, CHARS_PER_TOKEN = 10_000, 4  # CHARS_PER_TOKEN is a rough ASSUMPTION, which is why the carry is an estimate
 BURN_DRIVER_SHARE = 0.40  # a block gets advice only when one spender carries at least this share of it
 BURN_SPIKE_X = 2.0  # lane advice needs the peak window at least this multiple of the median of the others
+ACTIVE_MIN_ELAPSED = 15  # minutes into a window before its pace is projected: a rate over seconds of data is noise
 BURN_FANOUT_LANES = 3  # starting value: lanes open at once before a diffuse lane-driven window is called a fan-out
 BLOCK_S = 5 * 3600  # the 5-hour usage window ccusage "blocks" and Claude-Code-Usage-Monitor sessions model, started at the first turn's hour
 TAIL_LEVER_SHARE = 0.10  # lever fires when the beyond-cap tail is at least this share of lane input-eq
@@ -798,7 +804,38 @@ def compact_saving(turns: list, main_ie: float, window: int = AUTO_COMPACT_WINDO
     return out
 
 
-def burn_blocks(main_turns: list, lanes: list) -> dict:
+def _active_window(blk: dict, cur: dict, prior: list, now, limit) -> dict:
+    """The live-window figures and advice for `burn_blocks` (see its docstring). `blk` is the raw window, `cur` its summary."""
+    rem = (blk["end"] - now).total_seconds() / 60
+    elapsed = (now - blk["first"]).total_seconds() / 60
+    early = elapsed < ACTIVE_MIN_ELAPSED
+    rate = None if early else cur["weighted"] / elapsed
+    proj = None if early else cur["weighted"] + rate * rem
+    med = statistics.median(prior) if len(prior) >= 2 else 0
+    x = round(proj / med, 2) if med > 0 and not early else None
+    a = {"start": cur["start"], "remaining_min": round(rem, 1), "weighted": cur["weighted"], "early": early,
+         "burn_per_min": None if early else round(rate, 2), "projected": None if early else round(proj, 2),
+         "vs_median_x": x, "limit": limit, "pct_limit": None, "eta_min": None, "advice": None}
+    hot = not early and med > 0 and proj >= BURN_SPIKE_X * med
+    if limit:
+        a["pct_limit"] = round(cur["weighted"] / limit * 100, 1)
+        a["eta_min"] = None if early else 0.0 if cur["weighted"] >= limit else round((limit - cur["weighted"]) / rate, 1) if rate > 0 else None
+        hot = not early and proj > limit
+    if hot:
+        d = cur["driver"]
+        pace = (f"on pace for {a['projected']} weighted by the reset in {a['remaining_min']} min"
+                + (f", over your {limit} limit (reached in ~{a['eta_min']} min)" if limit else f", {x}x the median of earlier windows"))
+        if not d["lane"] and cur["main_ctx_avg"] > AUTO_COMPACT_WINDOW:
+            fix = f"main context averages {cur['main_ctx_avg']} (over the {AUTO_COMPACT_WINDOW} window): /compact at a task boundary, or /clear and resume from a handoff note"
+        elif d["lane"] and d["share"] >= BURN_DRIVER_SHARE:
+            fix = f"lane '{d['who']}' drives {d['share'] * 100:.0f}%: trim or split it before the next dispatch"
+        else:
+            fix = "pause new lanes and run routine turns on a cheaper tier (/model) until the window resets"
+        a["advice"] = f"active window {pace}; {fix}"
+    return a
+
+
+def burn_blocks(main_turns: list, lanes: list, now=None, limit=None) -> dict:
     """Spend per 5-hour window (UTC, opened at the first turn's hour) with burn rate and the window's top spender. Counts only; no text read.
 
     `lanes` is [(label, turns)]. Each block has `weighted` (input-eq + output, the tool's one measure), `burn_per_min` (weighted over the
@@ -810,6 +847,15 @@ def burn_blocks(main_turns: list, lanes: list) -> dict:
     BURN_DRIVER_SHARE or more -> split or trim it; no spender at BURN_DRIVER_SHARE with BURN_FANOUT_LANES+ lanes open at once ->
     dispatch fewer lanes per wave. `peak_lanes` counts lanes by their first-to-last turn inside the block only (idle lanes and lanes
     from other windows do not count).
+
+    `active` is set when `now` (default: the clock, UTC) falls inside the last window (the live-window view ccusage `blocks --active` also
+    offers; this is a model of the public tool, not its code): `remaining_min` to the window's end, `burn_per_min` (weighted over the window's
+    first turn to `now`, so an idle gap lowers it), `projected` (weighted so far plus that rate over the remaining time; None, with `early` true, until ACTIVE_MIN_ELAPSED minutes of the window have passed), `vs_median_x`
+    (projected over the median of the earlier windows, None with fewer than 2 earlier) and, only with a caller-supplied `limit` (weighted
+    tokens per window; no public figure exists, so it is never guessed), `pct_limit` and `eta_min` to reach it at the current rate (0 once
+    over). `advice` is set when the window is on pace past `limit`, or, with no limit, at BURN_SPIKE_X or more of the earlier median:
+    main-driven with context over AUTO_COMPACT_WINDOW -> /compact or /clear + handoff; one spender at BURN_DRIVER_SHARE or more in a lane ->
+    trim it; otherwise pause lanes and move routine turns to a cheaper tier until the reset.
     """
     live = lambda ts: [t for t in ts if t["timestamp"] and t.get("model") != "<synthetic>"]  # noqa: E731
     groups = [("main", live(main_turns))] + [(lb, live(ts)) for lb, ts in lanes]
@@ -835,7 +881,10 @@ def burn_blocks(main_turns: list, lanes: list) -> dict:
                     "peak_lanes": max((sum(lo <= p <= hi for lo, hi in spans) for p, _ in spans), default=0),
                     "main_ctx_avg": round(sum(ctx) / len(ctx)) if ctx else 0,
                     "driver": {"who": groups[top][0], "lane": top != 0, "share": round(w[top] / total, 4) if total else 0.0}})
-    res = {"window_s": BLOCK_S, "blocks": out, "peak": None, "spike_x": None, "advice": None}
+    res = {"window_s": BLOCK_S, "blocks": out, "peak": None, "spike_x": None, "advice": None, "active": None}
+    now = now or datetime.now(timezone.utc)
+    if blocks and blocks[-1]["first"] <= now < blocks[-1]["end"]:
+        res["active"] = _active_window(blocks[-1], out[-1], [b["weighted"] for b in out[:-1]], now, limit)
     if out:
         pk = res["peak"] = max(out, key=lambda b: b["weighted"])
         rest = sorted(b["weighted"] for b in out if b is not pk)
@@ -952,7 +1001,7 @@ def startup_remainder(subagents: list, files: list):
 
 
 def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = BUDGET_METRICS["max_tool_calls"][0], project=None,
-                 seen: set | None = None) -> dict:
+                 seen: set | None = None, now=None, limit=None) -> dict:
     main_entries = list(read_jsonl(session_path))
     all_main = extract_turns(main_entries, main=True, seen=seen)
     main_turns = filter_since([t for t in all_main if not t.get("dup")], since)
@@ -1009,7 +1058,7 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
         "tier_split": tier_split(main_by_model, sub_by_model, rates),
         "idle_rewrites": idle_rewrites(main_turns, main_totals["input_equivalent"]),
         "auto_compact": compact_saving(main_turns, main_totals["input_equivalent"]),
-        "burn_blocks": burn_blocks(main_turns, [(s["label"], s.pop("_turns")) for s in subagents]),
+        "burn_blocks": burn_blocks(main_turns, [(s["label"], s.pop("_turns")) for s in subagents], now, limit),
         "tool_results": {**all_tr, "main": mt, "lanes": lanes_tr, "share_of_session_ie": pct_ie(all_tr["carry_ie_upper"]),
                          "bash_share_of_session_ie": pct_ie(all_tr["by_tool"]["bash"]["carry_ie_upper"])},
         "lane_tail": lane_tail(subagents, cap, shipped_lane_cap()),
@@ -1323,6 +1372,14 @@ def render_text(report: dict) -> str:
                      + (f"; {bb['spike_x']}x the median of the other windows" if bb["spike_x"] else ""))
         if bb["advice"]:
             lines.append(f"Lever: {bb['advice']}")
+        ac = bb.get("active")
+        if ac:
+            lim = f"; {ac['pct_limit']}% of limit {ac['limit']}" if ac["limit"] else ""
+            pace = (f"too early to project (under {ACTIVE_MIN_ELAPSED} min of data)" if ac["early"]
+                    else f"at {ac['burn_per_min']}/min, projected {ac['projected']} at reset")
+            lines.append(f"Active window (opened {ac['start']}, {ac['remaining_min']} min left): {ac['weighted']} weighted {pace}{lim}")
+            if ac["advice"]:
+                lines.append(f"Lever: {ac['advice']}")
     x = report["main_context"]
     if report["main_turns"]:
         trend = f" first-third={x['first_third']} last-third={x['last_third']}" if x["first_third"] is not None else ""
@@ -1817,12 +1874,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rollup", metavar="DIR",
                    help="project rollup: price every <session>.jsonl in DIR (a ~/.claude/projects/<project> dir) "
                         "and print one summary line plus the costliest sessions (--top, --since, --json apply)")
+    p.add_argument("--limit", type=float, metavar="N", help="your own weighted-token budget per 5h window; adds percent used and time to reach it to the active window")
     p.add_argument("--selftest", action="store_true")
     return p
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    if args.limit is not None and not (math.isfinite(args.limit) and args.limit > 0):
+        print(f"token_report.py: --limit must be a finite number above 0, got {args.limit}", file=sys.stderr)
+        return ERROR
     if args.selftest:
         return _selftest()
 
@@ -1869,10 +1930,12 @@ def main(argv=None) -> int:
             print(f"token_report.py: bad --budget file {args.budget}: {exc}", file=sys.stderr)
             return ERROR
     report = build_report(args.session, since, max(args.top, 0), rates,
-                          int(budget["star"]["max_tool_calls"]) if budget else BUDGET_METRICS["max_tool_calls"][0], args.project)
+                          int(budget["star"]["max_tool_calls"]) if budget else BUDGET_METRICS["max_tool_calls"][0], args.project, limit=args.limit)
     if since and not report["main_turns"] and not report["subagents_count"]:
         print(f"token_report.py: warning: --since {since.isoformat()} matched no turns; "
               f"main transcript spans {report['main_span']}", file=sys.stderr)
+    if args.limit and not report["burn_blocks"]["active"]:
+        print("token_report.py: note: --limit ignored: no live 5-hour window now (the newest window has ended)", file=sys.stderr)
     if budget is not None:
         reasons = could_not_check(report, budget)
         if reasons:
