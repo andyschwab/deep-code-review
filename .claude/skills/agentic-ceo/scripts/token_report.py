@@ -102,8 +102,9 @@ PRICING (--rates TSV)
 Without `--rates`, the built-in `DEFAULT_RATES` table (official pricing page,
 read on `RATES_DATE`, logged in `docs/standards-index.md`) prices the report
 and the cost line says "priced with default rates as of <date>". Default rows
-match a model id exactly or with a `-YYYYMMDD` suffix; any other model (and
-tiered Haiku 5.5) stays UNPRICED, never guessed. `--rates` replaces the table.
+match a model id exactly or with a `-YYYYMMDD` suffix; any other model stays UNPRICED, never guessed.
+Haiku 5.5 is tiered per request: a turn whose prompt (input + cache writes + cache reads) is over 100,000
+tokens pays the higher rates, one at exactly 100,000 the lower ones. `--rates` replaces the table (flat, untiered).
 Rate card TSV, USD per 1M
 tokens, one row per model, `#` comments and blank lines skipped:
 
@@ -250,9 +251,12 @@ CACHE_READ_MULT = 0.1
 CACHE_WRITE_5M_MULT = 1.25
 CACHE_WRITE_1H_MULT = 2.0
 # Built-in USD-per-1M rates (input, 5m write, 1h write, cache read, output), read from the
-# official pricing page on RATES_DATE (see docs/standards-index.md). Haiku 5.5 (tiered by prompt
-# size) and retired models are omitted on purpose: no row = UNPRICED, never a guess. --rates overrides.
-RATES_DATE = "2026-10-15"
+# official pricing page on RATES_DATE (see docs/standards-index.md). Retired models are omitted on
+# purpose: no row = UNPRICED, never a guess. --rates overrides. Haiku 5.5 is tiered per request by
+# prompt size (input + cache write + cache read): a prompt over LONG_PROMPT tokens (exactly
+# LONG_PROMPT stays in the base tier) pays LONG_RATES instead; sum_turns books those turns under "long".
+RATES_DATE = "2026-10-22"
+LONG_PROMPT = 100_000
 DEFAULT_RATES = {
     m: dict(zip(("input_tokens", "cache_write_5m", "cache_write_1h", "cache_read", "output_tokens"), p))
     for m, p in {
@@ -262,9 +266,10 @@ DEFAULT_RATES = {
            ("claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5")},
         "claude-sonnet-5-5": (2, 2.5, 4, 0.1, 10), "claude-sonnet-5": (2, 2.5, 4, 0.2, 10),
         "claude-sonnet-4-6": (3, 3.75, 6, 0.3, 15), "claude-sonnet-4-5": (3, 3.75, 6, 0.3, 15),
-        "claude-haiku-4-5": (1, 1.25, 2, 0.1, 5),
+        "claude-haiku-4-5": (1, 1.25, 2, 0.1, 5), "claude-haiku-5-5": (0.1, 0.125, 0.2, 0.01, 0.5),
     }.items()
 }
+LONG_RATES = {"claude-haiku-5-5": dict(zip(DEFAULT_RATES["claude-haiku-5-5"], (0.5, 0.625, 1, 0.05, 2.5)))}
 ORCHESTRATION_FLAG_THRESHOLD = 0.20
 CONTEXT_HANDOFF_THRESHOLD = 400_000
 
@@ -411,11 +416,18 @@ def filter_since(turns: list, since):
     return [t for t in turns if t["timestamp"] is not None and t["timestamp"] >= since]
 
 
-def sum_turns(turns: list) -> dict:
-    totals = dict(ZERO_USAGE)
+def sum_turns(turns: list, tiered: bool = False) -> dict:
+    """Totals of turns. `tiered` (the model has LONG_RATES) books turns over LONG_PROMPT under "long"; only then does the key exist."""
+    totals, long = dict(ZERO_USAGE), dict(ZERO_USAGE)
     for t in turns:
+        # a totals dict (has raw_tokens) carries its own long part; a turn is long when its prompt is over LONG_PROMPT
+        prompt = sum(t.get(k, 0) for k in ZERO_USAGE if k != "output_tokens")
+        part = t.get("long", {}) if "raw_tokens" in t else t if tiered and prompt > LONG_PROMPT else {}
         for k in ZERO_USAGE:
             totals[k] += t.get(k, 0)
+            long[k] += part.get(k, 0)
+    if any(long.values()):
+        totals["long"] = long
     totals["input_equivalent"] = round(
         totals["input_tokens"]
         + totals["cache_write_5m"] * CACHE_WRITE_5M_MULT
@@ -440,7 +452,8 @@ def model_stats(turns: list):
 
     kept = [t for t in turns if name(t) != "<synthetic>"]
     counts = dict(Counter(name(t) for t in kept).most_common())
-    by_model = {m: sum_turns([t for t in kept if name(t) == m]) for m in counts}
+    tiered = lambda m: any(re.fullmatch(re.escape(k) + r"(-\d{8})?", m) for k in LONG_RATES)  # noqa: E731
+    by_model = {m: sum_turns([t for t in kept if name(t) == m], tiered(m)) for m in counts}
     return (next(iter(counts), None), counts, by_model)
 
 
@@ -486,7 +499,11 @@ def price(by_model: dict, rates, ndigits: int | None = 4):
         if match is None:
             missing.append(model)
             continue
-        usd += sum(tot[k] * v for k, v in rates[match].items()) / 1e6
+        base, long = dict(tot), tot.get("long") if rates is DEFAULT_RATES and match in LONG_RATES else None
+        for k, v in (long or {}).items():
+            base[k] -= v
+            usd += v * LONG_RATES[match][k] / 1e6
+        usd += sum(base[k] * v for k, v in rates[match].items()) / 1e6
     return (None if missing and len(missing) == len(by_model) else usd if ndigits is None else round(usd, ndigits), missing)
 
 
