@@ -1,6 +1,6 @@
 # Review method — situational checks
 
-Read this when `method.md` routes here: you review a `DIFF`, a gate verdict is disputed, a green, CI status, re-run, or coverage figure is cited as evidence, a gate changed in the diff, a finding is carried forward, the target has a suppression ratchet or a size/line-count/complexity ratchet a change passes via a file split, gates run per lane, a finding must be reproduced, local and CI disagree, the target is containerized, native, or built against an exported reference, or a premise claims something is missing or broken. Split from `method.md`; bare "above" / "below" cross-references point within this file, and every other method rule stays in `method.md`.
+Read this when `method.md` routes here (its "Situational Phase 1 checks" bullet and its perceived-absent-premise paragraph list the triggers; `SKILL.md`'s phase-1 row adds a cited or disputed verdict), or the target has a size/line-count/complexity ratchet a change passes via a file split. Split from `method.md`; bare "above" / "below" cross-references point within this file, and every other method rule stays in `method.md`.
 
 **Phase 1 — gate disputes and target-shape preflights.**
 

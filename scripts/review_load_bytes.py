@@ -5,6 +5,7 @@ usage: review_load_bytes.py [--skill-rev REV] COMMIT...   (default skill = worki
 
 Routing mirrors SKILL.md: a diff of <=300 changed lines takes the DIFF quick-path (SKILL.md + compact-mode.md); a larger diff takes the full DIFF method (SKILL.md + method.md). INDEX.md is added
 to either only when SKILL.md lacks the matching skip marker (a pre-skip SKILL.md, e.g. under --skill-rev). Blast-radius flags are NOT detected: a flagged small diff would take the full path.
+"real_*" (full route only) = bytes of REAL_FULL, the files one observed full-DIFF run actually opened, so routing-only duplicates in them show up as bytes.
 Tokens are chars/4, the repo's own estimate (skill-authoring-and-size.md). A model of the instructed load set,
 not a transcript measurement: an agent may read less (or more) than it is told to.
 Side effects: none (read-only git). Exit 1 on an unreadable commit or skill file."""
@@ -16,6 +17,11 @@ SKILL = ".claude/skills/deep-code-review"
 QUICK_MAX = 300
 EXEMPT = "never opens it"  # marker the SKILL.md sentence exempting the quick-path from INDEX.md carries
 SKIP = "a match skips `INDEX.md`"  # marker: SKILL.md routes by its own tables, so the full method skips INDEX.md too
+
+# Refs an observed full-DIFF run opened (INDEX.md excluded: a routing match skips it). Update when routing changes.
+REAL_FULL = ["SKILL.md"] + [f"references/{n}.md" for n in (
+    "method", "branch-and-merge-hygiene", "method-situational", "domain-checklists", "domain-j", "testing-and-evals",
+    "language-stack-redflags", "lang-python", "method-report", "report-format", "example-review-report", "security-appsec")]
 
 
 def git(*a):
@@ -41,7 +47,11 @@ def measure(commit, skill_rev=None):
     n = lines_changed(commit)
     route, files = load_set(read("SKILL.md"), n)
     b = sum(len(read(f).encode()) for f in files)
-    return {"commit": commit, "lines": n, "route": route, "files": files, "bytes": b, "tokens_est": b // 4}
+    out = {"commit": commit, "lines": n, "route": route, "files": files, "bytes": b, "tokens_est": b // 4}
+    if route == "full":
+        rb = sum(len(read(f).encode()) for f in REAL_FULL)
+        out.update(real_bytes=rb, real_tokens_est=rb // 4)
+    return out
 
 
 if __name__ == "__main__":

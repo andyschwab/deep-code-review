@@ -198,9 +198,9 @@ applicable domains. Language footguns:
 | J | Testing & evaluation | `domain-j.md`, `testing-and-evals.md`; `testing-ui.md` (UI, E2E), `testing-ai-evals.md` (model output), `testing-ml.md` (ML, notebooks), `testing-situational.md` (flaky, fuzz, mutation) |
 | K | Build, CI, supply chain, release | `domain-k.md`, `dependency-currency-and-upgrades.md` → `dependency-bulk-upgrades.md`, `release-engineering.md`, `delivery-speed.md` (CI/build time, review friction) |
 | L | Infra / IaC / containers / cloud / serverless | `domain-l.md`, `infra-iac-containers.md` (how-to-secure existing), `infra-evolution-by-stage.md` (when-to-add, by stage) |
-| M | Observability | `domain-m.md`, `observability.md`, `product-impact.md` (claimed outcome, analytics) |
+| M | Observability (logs, metrics, traces) | `domain-m.md`, `observability.md`, `product-impact.md` (claimed outcome, analytics) |
 | N | Config, secrets, environments | `domain-n.md` |
-| O | Docs & DX | `domain-o.md`, `docs-and-dx.md`, `docs-evolution-by-stage.md` (which-docs-when, by stage), `readme-authoring.md` (writing/reviewing an onboarding README) |
+| O | Documentation & developer experience | `domain-o.md`, `docs-and-dx.md`, `docs-evolution-by-stage.md` (which-docs-when, by stage), `readme-authoring.md` (writing/reviewing an onboarding README) |
 | P | Frontend / UI / a11y | `domain-p.md`, `frontend-a11y.md` → `a11y-aria.md`, `a11y-live.md`, `a11y-focus.md`, `a11y-color-motion.md`, `a11y-forms.md`, `frontend-security.md` (CSP/Referrer-Policy/URL-token), `web-fetch.md`, `web-render.md`; `product-ux-quality.md` → `ux-writes.md`, `ux-dataviz.md`, `ux-lists.md`, `ux-states.md`, `ux-components.md`, `ux-interaction.md`, `ux-sweep.md`, `ux-gates.md`; `rendered-parity.md` (design-parity port/restyle), `migration-parity.md` (matching a mockup/design-export); run `scripts/lint_ui_slop.py` and `scripts/design_drift.py --base <ref>` first on UI diffs (zero-token) |
 | Q | Privacy, compliance, licensing | `domain-q.md`, `privacy-compliance.md` (code layer), `privacy-by-design.md` (pre-code product artifacts) |
 | R | i18n, encoding, localization | `domain-r.md`, `i18n-l10n.md` (bidi/RTL, Unicode normalization, CLDR plurals) |
