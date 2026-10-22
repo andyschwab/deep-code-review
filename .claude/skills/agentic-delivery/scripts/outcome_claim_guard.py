@@ -107,7 +107,7 @@ DOC = re.compile(r"\.(?:md|txt|rst)$", re.I)
 UI_HEDGE = re.compile(r"\b(not (?:yet )?(?:visually|screenshotted|looked at|seen|eyeballed)|no screenshots?|"
                       r"visually (?:unchecked|unverified)|unchecked visually|haven['’]?t (?:looked|seen|screenshotted))", re.I)
 LOCAL = re.compile(r"localhost|127\.0\.0\.1", re.I)
-SERVER = re.compile(r"\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start)|next\s+dev|vite(?!\s+build)|turbo(?:\s+run)?\s+(?:dev|start|serve)|"
+SERVER = re.compile(r"\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start)|next\s+dev|vite(?![\w.-]|\s+build\b)|turbo(?:\s+run)?\s+(?:dev|start|serve)|"
                     r"docker[ -]compose\s+up|rails\s+s(?:erver)?|python3?\s+-m\s+http\.server)\b|"
                     r"(?:^|[;&|(]\s*)make(?:\s+[\w-]+)*?\s+(?:dev|start|serve|up)\b")
 SHOT_CMD = re.compile(r"\bplaywright\s+screenshot\b|\.screenshot\(|--screenshot|(?:^|[;&|(]\s*)screencapture\b")

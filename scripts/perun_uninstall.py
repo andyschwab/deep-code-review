@@ -268,11 +268,11 @@ def plan(repo):
             def unarm(f=repo / pol):
                 c = json.loads(f.read_text())
                 del c["role"]
-                if c or m["policy_role"] != "created":
+                if m["policy_role"] != "created":  # "created": install wrote the whole file (sha matches), so all of it goes
                     f.write_text(json.dumps(c, indent=2) + "\n")
                 else:
                     f.unlink()
-            ops.append((".perun/policy.json: undo the role=ceo install armed (the file too if install created it and nothing else is in it)", unarm))
+            ops.append((".perun/policy.json: undo the role=ceo install armed (the file too if install created it)", unarm))
     return ops, notes
 
 
