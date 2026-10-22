@@ -136,6 +136,23 @@ unpriced models). A bucket with an unpriced model keeps it named UNPRICED; a tur
 one crossing midnight UTC lands in the later day. Turns with no timestamp land in an `undated` bucket (dropped
 under `--since`, like the totals), so the buckets sum to the rollup total.
 
+OUTCOME (--outcome DIR)
+-----------------------
+`--outcome <transcript dir>` measures whether spend nudges moved anything, from main-thread turns only
+(usage, timestamp and model fields; never message text). Per UTC Monday-start week it reports turns,
+input-equivalent tokens per turn, cache-hit % (`cache_read / prompt`), and the share of sessions that
+passed a lever trigger and later applied it. Triggers (fixed, not the full --advise rules): the main
+context reached AUTO_COMPACT_WINDOW -> `compact`, applied by a later observed context drop of over 50%;
+a turn ran on a TOP_TIER model -> `downshift`, applied by a later turn on a non-top-tier model. A session
+counts toward the week of its first turn. `--since DATE` adds `before` / `after` rows (turns split by
+their own timestamp, sessions by their first turn); without it there is no split. A `--since` with no UTC
+offset is read in the machine's local zone (like every other --since here); `Z` or `+HH:MM` is exact, and
+the weeks stay UTC. A resumed session's copied turns count once, in the transcript with the most turns;
+nested advisor iterations are not turns; unreadable files are counted and named (file names only). Sessions
+that straddle --since stay whole on the side of their first turn and are counted in the output. The text header, JSON
+`proxy`/`note` and --help all say the triggers are proxies: correlation, not proof (weeks differ in work
+mix, so read a trend over several weeks, not one delta). Use it alone: combining it with other modes errors.
+
 ORCHESTRATION SHARE
 --------------------
 `main_raw_tokens / (main_raw_tokens + subagents_raw_tokens)`, where
@@ -2148,6 +2165,91 @@ def render_rollup(roll: dict, top: int) -> str:
     return "\n".join(out)
 
 
+def session_levers(turns: list) -> tuple:
+    """(triggered, applied) lever names for one session's time-ordered main turns; see the OUTCOME doc section."""
+    ctx, models = [_ctx(t) for t in turns], [t.get("model") or "" for t in turns]
+    is_top = lambda m: any(k in m for k in TOP_TIER)  # noqa: E731
+    hit, done = [], []
+    over = next((k for k, c in enumerate(ctx) if c >= AUTO_COMPACT_WINDOW), None)
+    if over is not None:
+        hit.append("compact")
+        done += ["compact"] * any(k > over for k in _drops(ctx))
+    top = next((k for k, m in enumerate(models) if is_top(m)), None)
+    if top is not None:
+        hit.append("downshift")
+        done += ["downshift"] * any(m and not is_top(m) for m in models[top + 1:])
+    return hit, done
+
+
+def _outcome_row(turns: list, sessions: list) -> dict:
+    t = sum_turns(turns)
+    hit = [s for s in sessions if s[1]]
+    ok = sum(1 for s in hit if s[2])
+    return {"turns": len(turns), "sessions": len(sessions),
+            "ie_per_turn": round(t["input_equivalent"] / len(turns), 1) if turns else None, "cache_hit": cache_hit(t),
+            "lever_sessions": len(hit), "applied_sessions": ok, "applied_share": round(ok / len(hit), 4) if hit else None}
+
+
+OUTCOME_NOTE = "proxy triggers (context reached the compact window; a top-tier turn), not the full --advise rules: correlation, not cause"
+
+
+def build_outcome(directory: str, since=None) -> dict:
+    """Weekly outcome metrics (and before/after `since` rows) over every `<session>.jsonl` in `directory`; main turns only.
+
+    A requestId copied into a resumed session's transcript counts once, in the transcript with the most turns (the
+    resume holds the whole conversation, so its lever check sees the context before and after); a copy left with no
+    turns of its own is dropped. Nested (advisor) iterations are not turns. `unreadable_sessions` counts files that
+    are unreadable or non-empty with no parsable line (`unreadable_files` names them). A session is credited, whole,
+    to the week and the before/after side of its FIRST turn; `straddling_sessions` counts those whose later turns
+    fall on the other side of `since`.
+    """
+    names, bad = [], []
+    for name in sorted(n for n in os.listdir(directory) if n.endswith(".jsonl")):
+        path = os.path.join(directory, name)
+        try:  # pass 1: turn count per file, so the longest copy of a resumed conversation owns the shared requestIds
+            entries = list(read_jsonl(path))
+            n = len(extract_turns(entries, main=True))
+        except (OSError, UnicodeError, ValueError):
+            bad.append(name)
+            continue
+        if not entries and os.path.getsize(path) > 0:
+            bad.append(name)
+        names.append((-n, name))
+    seen, turns, sessions = set(), [], []  # sessions: (first timestamp, triggered, applied, last timestamp)
+    for _n, name in sorted(names):
+        ts = [t for t in extract_turns(list(read_jsonl(os.path.join(directory, name))), main=True, seen=seen)
+              if t["timestamp"] and not t.get("dup") and not t.get("iter") and t.get("model") != "<synthetic>"]
+        if ts:
+            turns += ts
+            sessions.append((ts[0]["timestamp"], *session_levers(ts), ts[-1]["timestamp"]))
+
+    def week(ts):
+        d = ts.astimezone(timezone.utc).date()
+        return (d - timedelta(days=d.weekday())).isoformat()
+
+    rows = {w: _outcome_row([t for t in turns if week(t["timestamp"]) == w], [s for s in sessions if week(s[0]) == w])
+            for w in sorted({week(t["timestamp"]) for t in turns})}
+    out = {"dir": directory, "proxy": True, "note": OUTCOME_NOTE, "unreadable_sessions": len(bad), "unreadable_files": bad,
+           "weeks": [{"week": w, **r} for w, r in rows.items()]}
+    if since:
+        out["since"] = since.isoformat()
+        out["before"] = _outcome_row([t for t in turns if t["timestamp"] < since], [s for s in sessions if s[0] < since])
+        out["after"] = _outcome_row([t for t in turns if t["timestamp"] >= since], [s for s in sessions if s[0] >= since])
+        out["straddling_sessions"] = sum(1 for s in sessions if s[0] < since <= s[3])
+    return out
+
+
+def render_outcome(o: dict) -> str:
+    fmt = lambda r: (f"turns={r['turns']} sessions={r['sessions']} ie/turn={r['ie_per_turn']} cache_hit={_pct(r['cache_hit'])} "  # noqa: E731
+                     f"levers_applied={r['applied_sessions']}/{r['lever_sessions']} share={_pct(r['applied_share'])}")
+    out = ["outcome (proxy triggers — correlation, not cause)"]
+    out += [f"  {w['week']} {fmt(w)}" for w in o["weeks"]] or ["no turns"]
+    out += [f"{k} {o['since']}: " + (fmt(o[k]) if o[k]["turns"] else "no turns") for k in ("before", "after") if k in o]
+    if o.get("straddling_sessions"):
+        out.append(f"{o['straddling_sessions']} session(s) straddle --since: counted in before (first turn); their later turns are in after")
+    return "\n".join(out + ([f"{o['unreadable_sessions']} session(s) unreadable: {', '.join(o['unreadable_files'])}"] if o["unreadable_files"] else []))
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     p.add_argument("--session", help="path to <session>.jsonl")
@@ -2168,6 +2270,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "and print one summary line plus the costliest sessions (--top, --since, --json apply)")
     p.add_argument("--by", choices=("day", "week", "month"), help="with --rollup: add UTC day, week or month buckets (tokens, spend, cache hit, per-model share, delta vs previous)")
     p.add_argument("--group", choices=("project", "agent", "model"), help="with --rollup: rank spend by project, lane type (agentType; main = the main sessions) or model")
+    p.add_argument("--outcome", metavar="DIR",
+                   help="outcome metrics over a transcript dir (use alone): weekly ie/turn, cache-hit %%, share of lever-triggered sessions that applied it; "
+                        "PROXY triggers, correlation not cause; --since DATE (no UTC offset = local time) adds before/after rows, "
+                        "each session credited whole to the side of its first turn (straddlers are counted) (--json applies)")
     p.add_argument("--limit", type=float, metavar="N", help="your own weighted-token budget per 5h window; adds percent used and time to reach it to the active window")
     p.add_argument("--nudge", action="store_true",
                    help="print ONE line (top --advise lever, its at-stake USD, the command; plus the did-it-work receipt after an --apply), or nothing; "
@@ -2184,6 +2290,19 @@ def main(argv=None) -> int:
         return ERROR
     if args.selftest:
         return _selftest()
+
+    if args.outcome is not None:  # "" is a (bad) directory, not "off"
+        if (args.rollup or args.session or args.by or args.group or args.nudge or args.advise or args.fix_plan or args.apply
+                or args.budget is not None or args.limit is not None or args.rates or args.nudge_cache or args.project != "." or args.top != 5):
+            print("token_report.py: --outcome stands alone (only --since and --json are read)", file=sys.stderr)
+            return ERROR
+        since = parse_timestamp(args.since, local=True) if args.since else None
+        if not os.path.isdir(args.outcome) or (args.since and since is None):
+            print(f"token_report.py: --outcome needs a directory and a parsable --since: {args.outcome} {args.since}", file=sys.stderr)
+            return ERROR
+        o = build_outcome(args.outcome, since)
+        print(json.dumps(o, indent=2, sort_keys=True) if args.json else render_outcome(o))
+        return OK
 
     if args.nudge:  # fail-silent: a hook or a habit must never see an error from this
         key, line = None, ""
