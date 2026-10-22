@@ -166,9 +166,9 @@ def set_value(dim: str, value: str) -> dict:
 
 def _disown(path: Path) -> None:
     """An explicit `set` makes the file the user's: drop `policy_sha` from the install marker (if any) so uninstall keeps it,
-    even when the bytes equal what install wrote. install.sh's own writes set PERUN_POLICY_INSTALL and skip this.
+    even when the bytes equal what install wrote. install.sh's own writes set PERUN_POLICY_INSTALL=install.sh (exact match; any other value, e.g. a stray export, still disowns) and skip this.
     Best effort; an absent or unreadable marker is a no-op. The marker is replaced atomically (tmp file + os.replace)."""
-    if os.environ.get("PERUN_POLICY_INSTALL"):
+    if os.environ.get("PERUN_POLICY_INSTALL") == "install.sh":
         return
     marker = path.resolve().parent.parent / ".claude/.perun-install.json"
     try:

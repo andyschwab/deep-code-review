@@ -909,7 +909,7 @@ PERUN_POLICY_FILE="$(cd "${TARGET_DIR}" && pwd)/.perun/policy.json"
 [[ -f "${PERUN_POLICY_FILE}" ]] && POLICY_ROLE_WAS=added || POLICY_ROLE_WAS=created  # before --policy writes the file
 if [[ -n "${POLICY}" ]]; then
   for kv in "${_kv[@]}"; do  # PERUN_POLICY_INSTALL: install's own writes must not disown the file (only a user-run set does)
-    PERUN_POLICY_INSTALL=1 PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null || exit 2
+    PERUN_POLICY_INSTALL=install.sh PERUN_POLICY="${PERUN_POLICY_FILE}" python3 "${POLICY_PY}" set "${kv%%=*}" "${kv#*=}" >/dev/null || exit 2
   done
 fi
 # Operating layer arms the CEO-altitude guard (warn) unless the policy already has a role or PERUN_ROLE is set.
