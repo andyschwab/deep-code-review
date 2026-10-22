@@ -28,4 +28,6 @@ line gives the how (the 1h cache pin, auto-compact, the lane cap, the orchestrat
 `host-enforcement.md` and `model-tiering.md`. A dollar-only lever (the orchestrator tier) has no computed saving and
 lists after the ranked ones; lead with it only when it is the only lever fired. Say what you could not confirm.
 
+If the report has an `Active window` line, this session is inside a live 5-hour window: lead with its projection and `Lever:` before the lever ranking. Pass `--limit N` (your own weighted-token budget per window) for the percent used and the minutes to reach it; never guess a limit.
+
 To act on the mapped levers, run `token_report.py` again with `--fix-plan` (prints the settings patch) and, only if the owner agrees to edit that file, `--apply <settings.json>` (backs up first, adds absent keys only).

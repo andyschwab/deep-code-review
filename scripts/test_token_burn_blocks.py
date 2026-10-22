@@ -129,7 +129,7 @@ class BurnBlocks(unittest.TestCase):
 
     def test_empty_synthetic_and_untimed_turns_are_ignored(self):
         junk = [{**T(9, 0, 5), "model": "<synthetic>"}, {**T(9, 0, 5), "timestamp": None}]
-        self.assertEqual(tr.burn_blocks(junk, []), {"window_s": 18000, "blocks": [], "peak": None, "spike_x": None, "advice": None})
+        self.assertEqual(tr.burn_blocks(junk, []), {"window_s": 18000, "blocks": [], "peak": None, "spike_x": None, "advice": None, "active": None})
 
     def test_end_to_end_report_json_and_text(self):
         def line(ts, rid, usage):
