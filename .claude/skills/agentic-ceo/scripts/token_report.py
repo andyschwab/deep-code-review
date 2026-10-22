@@ -121,13 +121,15 @@ NESTED SPEND: `usage.iterations[]` entries whose type is not `message` (e.g.
 `advisor_message`, billed on their own model and absent from the top-level
 usage) are booked as extra turns on that model, in main and lanes alike.
 
-PROJECT ROLLUP (--rollup DIR)
------------------------------
-`--rollup <transcript dir>` (a `~/.claude/projects/<project>` dir) prices every `<session>.jsonl` in it
+PROJECT ROLLUP (--rollup DIR|auto)
+----------------------------------
+`--rollup <transcript dir>` (a `~/.claude/projects/<project>` dir, or that parent dir to cover every project under it; `auto` = the
+current directory's project dir, an error when it has none) prices every `<session>.jsonl` in it
 and prints one status-update line (`spend: $X across N sessions, M lanes (main $A, lanes $B)`) plus the
 costliest sessions (`--top`, `--since`, `--json`). Merged per-model totals are priced once; a model without
 a rate is named UNPRICED, an all-unpriced project reads UNPRICED, never $0. Reads many large files: slow.
-`--by day|week` adds UTC buckets (week = Monday start): per bucket the raw tokens, priced spend, each model's
+`--group project|agent|model` ranks spend by project dir, lane type (`agentType`; main sessions are `main`) or model.
+`--by day|week|month` adds UTC buckets (week = Monday start, month = calendar month): per bucket the raw tokens, priced spend, each model's
 token share, and the change vs the previous bucket when it is the calendar-adjacent one (a gap shows no delta,
 so a skipped week is never read as a fall to zero; the spend delta also needs both buckets to name the same
 unpriced models). A bucket with an unpriced model keeps it named UNPRICED; a turn is dated by its last block, so
@@ -524,6 +526,16 @@ def merge_by_model(maps: list) -> dict:
         for model, tot in mp.items():
             out.setdefault(model, []).append(tot)
     return {m: sum_turns(ts) for m, ts in out.items()}
+
+
+def cache_hit(*totals):
+    """cache_read / (input + cacheW5m + cacheW1h + cache_read) over totals dicts, 0..1; None (not 0) with no prompt tokens."""
+    den = sum(t[k] for t in totals for k in ("input_tokens", "cache_write_5m", "cache_write_1h", "cache_read"))
+    return round(sum(t["cache_read"] for t in totals) / den, 4) if den else None
+
+
+def _pct(x) -> str:
+    return "n/a" if x is None else f"{x:.1%}"
 
 
 def main_context(turns: list) -> dict:
@@ -1056,8 +1068,8 @@ def build_report(session_path: str, since, top: int = 5, rates=None, cap: int = 
             elif rec is not None:
                 subagents.append(rec)
 
-    if turns_out is not None:  # the rollup's --by buckets: the same deduped, windowed turns the totals use
-        turns_out += main_turns + [t for s in subagents for t in s["_turns"]]
+    if turns_out is not None:  # the rollup's --by buckets and --group rows: the same deduped, windowed turns the totals use, tagged by lane type
+        turns_out += [{**t, "agent": "main"} for t in main_turns] + [{**t, "agent": s["agent_type"]} for s in subagents for t in s["_turns"]]
     sub_raw = sum(s["raw_tokens"] for s in subagents)
     sub_input_eq = sum(s["input_equivalent"] for s in subagents)
     sub_output = sum(s["output_tokens"] for s in subagents)
@@ -1385,10 +1397,12 @@ def render_text(report: dict) -> str:
     m = report["main"]
     lines.append(f"MAIN       in={m['input_tokens']} cacheW5m={m['cache_write_5m']} "
                  f"cacheW1h={m['cache_write_1h']} cacheR={m['cache_read']} out={m['output_tokens']} "
-                 f"input-eq={m['input_equivalent']}")
+                 f"input-eq={m['input_equivalent']} hit={_pct(cache_hit(m))}")
     st = report["subagents_totals"]
+    lanes_t = list(report["subagents_by_model"].values())
     lines.append(f"SUBAGENTS(n={report['subagents_count']}) input-eq={st['input_equivalent']} "
-                 f"out={st['output_tokens']} raw={st['raw_tokens']}")
+                 f"out={st['output_tokens']} raw={st['raw_tokens']} hit={_pct(cache_hit(*lanes_t))}"
+                 f" session hit={_pct(cache_hit(m, *lanes_t))}")
     lines.append(_model_line("MAIN", report["main_by_model"]))
     lines.append(_model_line("SUBAGENTS", report["subagents_by_model"]))
     c = report["cost_usd"]
@@ -1945,10 +1959,12 @@ def receipt(session: str, project: str, now=None, max_bytes: int | None = None):
 def nudge(session: str, project: str = ".", rates=DEFAULT_RATES, now=None, max_bytes: int | None = None) -> str:
     """ONE line, or "" when there is nothing to say: the top `--advise` finding (its at-stake USD and the exact command) plus the receipt.
 
-    Silent when no rule fires (a rule whose settings key is already set never fires) and no recent apply backup exists. Reads usage,
-    timestamps, model ids, tool names and settings keys only (lane evidence names file stems, never descriptions); no network.
+    Silent when no rule fires (a rule whose settings key is already set never fires) and no recent apply backup exists. build_report
+    reads usage, timestamps, model ids, tool_use names, each lane's `.meta.json` description (its label) and its handback length; none
+    of the description or message text reaches the output line (lane evidence names file stems, never descriptions); no network.
     `max_bytes` makes a bigger transcript return "" unread and the receipt skip any bigger project transcript; the receipt is its own
-    try, so an error or an over-budget corpus there leaves the advise line intact.
+    try, so an error or an over-budget corpus there leaves the advise line intact. The advise line is published to the watchdog
+    (`_WATCH["line"]`) as soon as it exists, so a timeout during the receipt still caches it.
     """
     if max_bytes and os.path.getsize(session) > max_bytes:
         return ""
@@ -1960,6 +1976,8 @@ def nudge(session: str, project: str = ".", rates=DEFAULT_RATES, now=None, max_b
         flag = "--fix-plan" if adv["fix_plan"] else "--advise"  # a rule with no settings key has no patch to print
         parts.append(f"[{a['id']}] {a['evidence']}; at stake {_usd(a['at_stake_usd'], a['unpriced_models'])}; "
                      f"see: python3 {shlex.quote(os.path.abspath(__file__))} --session {shlex.quote(session)} {flag} --project {shlex.quote(project)}")
+    if "key" in _WATCH:  # a watchdog is armed: keep the advise line if the receipt below runs out of time
+        _WATCH["line"] = "spend: " + " | ".join(parts) if parts else ""
     try:
         r = receipt(session, project, now, max_bytes)
     except Exception:  # a receipt failure must not take the advise line down with it
@@ -1990,9 +2008,9 @@ def _priced(by_model: dict, rates, ndigits: int | None = 4):
 
 
 def bucket_turns(turns: list, by: str, rates) -> list:
-    """UTC day (or Monday-start week) buckets of deduped turns, oldest first, `undated` (no timestamp) last.
+    """UTC day (or Monday-start week, or calendar month) buckets of deduped turns, oldest first, `undated` (no timestamp) last.
 
-    Row: bucket, raw_tokens, usd (None, never 0, when every model is unpriced), unpriced_models, per-model
+    Row: bucket, raw_tokens, cache_hit (see `cache_hit`), usd (None, never 0, when every model is unpriced), unpriced_models, per-model
     raw_tokens/usd/share (of the bucket's model tokens), and `delta` vs the previous bucket (None unless that
     one is calendar-adjacent; usd delta None unless both sides are priced and name the same unpriced models,
     else it would compare different model sets). Buckets partition the turns, so tokens sum exactly to the
@@ -2003,17 +2021,19 @@ def bucket_turns(turns: list, by: str, rates) -> list:
     groups: dict = {}
     for t in turns:
         d = t["timestamp"].astimezone(timezone.utc).date() if t["timestamp"] else None
-        groups.setdefault(d - timedelta(days=d.weekday()) if d and by == "week" else d, []).append(t)
+        groups.setdefault(d - timedelta(days=d.weekday()) if d and by == "week" else d.replace(day=1) if d and by == "month" else d, []).append(t)
     step, out, prev = timedelta(days=7 if by == "week" else 1), [], None
+    adjacent = (lambda a, b: (a + timedelta(days=32)).replace(day=1) == b) if by == "month" else lambda a, b: b - a == step  # noqa: E731
     for d in sorted(k for k in groups if k) + [k for k in groups if k is None]:
         _m, _c, bm = model_stats(groups[d])
-        raw, (usd, miss) = sum_turns(groups[d])["raw_tokens"], _priced(bm, rates, None)
+        tot = sum_turns(groups[d])
+        raw, (usd, miss) = tot["raw_tokens"], _priced(bm, rates, None)
         mt = sum(v["raw_tokens"] for v in bm.values())
-        row = {"bucket": d.isoformat() if d else "undated", "raw_tokens": raw, "usd": usd, "unpriced_models": miss,
+        row = {"bucket": d.isoformat() if d else "undated", "raw_tokens": raw, "cache_hit": cache_hit(tot), "usd": usd, "unpriced_models": miss,
                "models": {m: {"raw_tokens": v["raw_tokens"], "usd": price({m: v}, rates, None)[0],
                               "share": round(v["raw_tokens"] / mt, 4) if mt else 0.0} for m, v in bm.items()},
                "delta": None}
-        if prev and d and d - prev[0] == step:
+        if prev and d and adjacent(prev[0], d):
             row["delta"] = {"raw_tokens": raw - prev[1]["raw_tokens"],
                             "usd": None if usd is None or prev[1]["usd"] is None or miss != prev[1]["unpriced_models"]
                             else usd - prev[1]["usd"]}
@@ -2022,26 +2042,66 @@ def bucket_turns(turns: list, by: str, rates) -> list:
     return out
 
 
-def build_rollup(directory: str, since, rates=DEFAULT_RATES, by: str | None = None) -> dict:
-    """Per-project spend across every `<session>.jsonl` directly in `directory` (main + lanes).
+def group_turns(turns: list, key: str, rates) -> list:
+    """Rows of deduped turns grouped by `key` (tag "project" | "agent" = main or a lane's agentType, or "model"), biggest spend first.
+
+    Row: group, raw_tokens, cache_hit, usd (4 dp; None, never 0, when every model of the group is unpriced),
+    unpriced_models, share (of the priced total, None for an UNPRICED row); UNPRICED rows sort last. Only
+    usage, timestamps, model ids and the agentType tag are read. `<synthetic>` placeholder turns carry no
+    spend and are skipped, so the rows partition the rollup's tokens.
+    """
+    groups: dict = {}
+    for t in turns:
+        if t.get("model") != "<synthetic>":
+            groups.setdefault(t.get("model") or "unknown" if key == "model" else t[key], []).append(t)
+    rows = []
+    for name, ts in groups.items():
+        usd, miss = _priced(model_stats(ts)[2], rates, None)
+        tot = sum_turns(ts)
+        rows.append({"group": name, "raw_tokens": tot["raw_tokens"], "cache_hit": cache_hit(tot),
+                     "usd": usd, "unpriced_models": miss, "share": None})
+    total = sum(r["usd"] or 0 for r in rows)
+    for r in rows:
+        r["share"] = round(r["usd"] / total, 4) if r["usd"] is not None and total else None
+        r["usd"] = None if r["usd"] is None else round(r["usd"], 4)
+    return sorted(rows, key=lambda r: (r["usd"] is None, -(r["usd"] or 0), -r["raw_tokens"], r["group"]))
+
+
+def rollup_dirs(path: str) -> list:
+    """`[path]` when it holds `<session>.jsonl` files itself (one project), else every subdirectory that does (a `~/.claude/projects` parent)."""
+    def has(d):
+        try:
+            return any(n.endswith(".jsonl") for n in os.listdir(d))
+        except PermissionError:  # an unreadable project dir is skipped, not fatal
+            return False
+    subs = [os.path.join(path, n) for n in sorted(os.listdir(path)) if os.path.isdir(os.path.join(path, n))]
+    return [path] if has(path) else [d for d in subs if has(d)] or [path]
+
+
+def build_rollup(directory: str, since, rates=DEFAULT_RATES, by: str | None = None, group: str | None = None) -> dict:
+    """Spend across every `<session>.jsonl` directly in `directory` (main + lanes), or in each project dir under a parent (see `rollup_dirs`).
 
     A requestId seen in an earlier file (a resumed session's copied turns, main or lane) counts once; the first
     file in name order wins, which assumes copies are whole (a partial first copy would under-bill). Sessions with no
     turns in the window are dropped. The dollar figures price the merged per-model
     totals once (a model with no rate stays UNPRICED, never estimated); `line` is the status-update summary.
-    `by` ("day" | "week") adds `buckets` (see `bucket_turns`) built from the same deduped turns.
+    `by` ("day" | "week" | "month") adds `buckets` (see `bucket_turns`) and `group` ("project" | "agent" | "model")
+    adds `groups` (see `group_turns`), both built from the same deduped turns (the requestId set spans projects).
     """
-    acc = [] if by else None
+    acc = [] if by or group else None
     rows, mains, subs, unreadable, bad_sessions, seen = [], [], [], 0, 0, set()
-    for name in sorted(os.listdir(directory)):
+    dirs = rollup_dirs(directory)
+    for d, name in [(d, n) for d in dirs for n in sorted(os.listdir(d))]:
         if not name.endswith(".jsonl"):
             continue
-        path = os.path.join(directory, name)
+        path, proj, mine = os.path.join(d, name), os.path.basename(os.path.normpath(d)), [] if acc is not None else None
         try:  # a transcript is read whole before any of its requestIds enter `seen`, and lane read errors are caught
-            r = build_report(path, since, 0, rates, seen=seen, turns_out=acc)
+            r = build_report(path, since, 0, rates, seen=seen, turns_out=mine)
         except (OSError, UnicodeError, ValueError):  # a non-UTF-8 or unreadable file must not hide the rest
             bad_sessions += 1
             continue
+        if acc is not None:
+            acc += [{**t, "project": proj} for t in mine]
         unreadable += len(r["unusable_subagents"])
         bad_sessions += not r["main_entries"] and os.path.getsize(path) > 0  # bytes but no parsable line
         if not r["main_turns"] and not r["subagents_count"]:
@@ -2049,8 +2109,8 @@ def build_rollup(directory: str, since, rates=DEFAULT_RATES, by: str | None = No
         mains.append(r["main_by_model"])
         subs.append(r["subagents_by_model"])
         usd, miss = _priced(merge_by_model([r["main_by_model"], r["subagents_by_model"]]), rates)
-        rows.append({"session": name[:-len(".jsonl")], "lanes": r["subagents_count"], "usd": usd,
-                     "unpriced_models": miss,
+        rows.append({"session": name[:-len(".jsonl")], "project": proj, "lanes": r["subagents_count"], "usd": usd,
+                     "unpriced_models": miss, "cache_hit": cache_hit(r["main"], *r["subagents_by_model"].values()),
                      "raw_tokens": r["main"]["raw_tokens"] + r["subagents_totals"]["raw_tokens"]})
     main_usd, main_miss = _priced(merge_by_model(mains), rates)
     sub_usd, sub_miss = _priced(merge_by_model(subs), rates)
@@ -2066,18 +2126,25 @@ def build_rollup(directory: str, since, rates=DEFAULT_RATES, by: str | None = No
     rows.sort(key=lambda r: r["raw_tokens"], reverse=True)
     return {"dir": directory, "sessions": rows, "lanes": lanes, "main_usd": main_usd, "lanes_usd": sub_usd,
             "total_usd": total, "unpriced_models": miss, "unreadable_lanes": unreadable,
-            "unreadable_sessions": bad_sessions, "line": line, **({"buckets": bucket_turns(acc, by, rates)} if by else {})}
+            "unreadable_sessions": bad_sessions, "line": line, "projects": len(dirs),
+            "cache_hit": cache_hit(*merge_by_model(mains + subs).values()),
+            **({"buckets": bucket_turns(acc, by, rates)} if by else {}),
+            **({"group": group, "groups": group_turns(acc, group, rates)} if group else {})}
 
 
 def render_rollup(roll: dict, top: int) -> str:
-    out = [roll["line"]]
+    out = [roll["line"] + f"; cache hit {_pct(roll['cache_hit'])}"]
     for r in (roll["sessions"][:top] if top > 0 else roll["sessions"]):
-        out.append(f"  {r['session'][:8]} {_usd(r['usd'], r['unpriced_models'])} lanes={r['lanes']} raw={r['raw_tokens']}")
+        out.append(f"  {r['session'][:8]} {_usd(r['usd'], r['unpriced_models'])} lanes={r['lanes']} raw={r['raw_tokens']} hit={_pct(r['cache_hit'])}")
+    if "groups" in roll:
+        out.append(f"by {roll['group']}:")
+        out += [f"  {g['group']} {_usd(g['usd'], g['unpriced_models'])}" + ("" if g["share"] is None else f" {g['share']:.0%}")
+                + f" raw={g['raw_tokens']} hit={_pct(g['cache_hit'])}" for g in roll["groups"]]
     for b in roll.get("buckets", ()):
         d = b["delta"]
         out.append(f"  {b['bucket']} {_usd(b['usd'], b['unpriced_models'])} raw={b['raw_tokens']}"
                    + (f" ({d['raw_tokens']:+d} tok" + ("" if d["usd"] is None else f", {d['usd']:+.2f} USD") + ")" if d else "")
-                   + " " + " ".join(f"{m} {v['share']:.0%}" for m, v in b["models"].items()))
+                   + " " + " ".join(f"{m} {v['share']:.0%}" for m, v in b["models"].items()) + f" hit={_pct(b['cache_hit'])}")
     return "\n".join(out)
 
 
@@ -2095,10 +2162,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="project whose .claude settings and .mcp.json --advise reads (default .)")
     p.add_argument("--fix-plan", action="store_true", help="print the minimal JSON settings patch for fired levers (implies --advise)")
     p.add_argument("--apply", metavar="PATH", help="merge the --fix-plan patch into settings file PATH: backup, absent keys only, idempotent")
-    p.add_argument("--rollup", metavar="DIR",
-                   help="project rollup: price every <session>.jsonl in DIR (a ~/.claude/projects/<project> dir) "
+    p.add_argument("--rollup", metavar="DIR|auto",
+                   help="project rollup: price every <session>.jsonl in DIR (a ~/.claude/projects/<project> dir, or the "
+                        "~/.claude/projects parent for every project; `auto` = this directory's project) "
                         "and print one summary line plus the costliest sessions (--top, --since, --json apply)")
-    p.add_argument("--by", choices=("day", "week"), help="with --rollup: add UTC day or week buckets (tokens, spend, per-model share, delta vs previous)")
+    p.add_argument("--by", choices=("day", "week", "month"), help="with --rollup: add UTC day, week or month buckets (tokens, spend, cache hit, per-model share, delta vs previous)")
+    p.add_argument("--group", choices=("project", "agent", "model"), help="with --rollup: rank spend by project, lane type (agentType; main = the main sessions) or model")
     p.add_argument("--limit", type=float, metavar="N", help="your own weighted-token budget per 5h window; adds percent used and time to reach it to the active window")
     p.add_argument("--nudge", action="store_true",
                    help="print ONE line (top --advise lever, its at-stake USD, the command; plus the did-it-work receipt after an --apply), or nothing; "
@@ -2139,9 +2208,16 @@ def main(argv=None) -> int:
         if line:
             print(line)
         return OK
-    if args.by and not args.rollup:
-        print("token_report.py: --by needs --rollup DIR", file=sys.stderr)
+    if (args.by or args.group) and not args.rollup:
+        print("token_report.py: --by needs --rollup DIR (so does --group)", file=sys.stderr)
         return ERROR
+    if args.rollup == "auto":
+        home = user_config_dir()
+        args.rollup = next((d for p in dict.fromkeys((os.path.abspath("."), os.path.realpath(".")))
+                            if home and os.path.isdir(d := os.path.join(home, "projects", re.sub(r"[^A-Za-z0-9]", "-", p)))), None)
+        if not args.rollup:
+            print(f"token_report.py: --rollup auto found no project directory for {os.path.abspath('.')}; pass --rollup DIR", file=sys.stderr)
+            return ERROR
     if args.rollup:
         if not os.path.isdir(args.rollup):
             print(f"token_report.py: --rollup directory not found: {args.rollup}", file=sys.stderr)
@@ -2150,7 +2226,7 @@ def main(argv=None) -> int:
         if args.since and since is None:
             print(f"token_report.py: could not parse --since value: {args.since}", file=sys.stderr)
             return ERROR
-        roll = build_rollup(args.rollup, since, by=args.by)
+        roll = build_rollup(args.rollup, since, by=args.by, group=args.group)
         if args.json and args.top > 0:
             roll["sessions"] = roll["sessions"][:args.top]
         r4 = lambda x: None if x is None else round(x, 4)  # noqa: E731  # buckets stay unrounded until emit
