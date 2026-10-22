@@ -106,8 +106,8 @@ keeps that load small:
 - **Lookup tables, not browsing.** `.claude/skills/INDEX.md` is the single
   generated entry point: one line per skill, slash command and script
   (`name: purpose — arguments`), under a frozen byte budget. Every skill also
-  ships a generated `INDEX.md` (file → when to read it → estimated tokens), so
-  an agent opens one file instead of scanning references. CI fails when an index
+  ships a generated `INDEX.md` (file → when to read it → estimated tokens), a
+  fallback lookup when the skill's own routing tables match nothing. CI fails when an index
   goes stale or leaves out a shipped script or command.
   `python3 scripts/skill_index.py --tokens` prints the always-loaded surface.
 - **Short handbacks.** The handback cap and one-line reporting default stop

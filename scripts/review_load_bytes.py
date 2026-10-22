@@ -3,9 +3,8 @@
 
 usage: review_load_bytes.py [--skill-rev REV] COMMIT...   (default skill = working tree)
 
-Routing mirrors SKILL.md: a diff of <=300 changed lines takes the DIFF quick-path (SKILL.md + compact-mode.md, plus
-INDEX.md only when SKILL.md does not exempt the quick-path from it); a larger diff takes the full DIFF method
-(SKILL.md + INDEX.md + method.md). Blast-radius flags are NOT detected: a flagged small diff would take the full path.
+Routing mirrors SKILL.md: a diff of <=300 changed lines takes the DIFF quick-path (SKILL.md + compact-mode.md); a larger diff takes the full DIFF method (SKILL.md + method.md). INDEX.md is added
+to either only when SKILL.md lacks the matching skip marker (a pre-skip SKILL.md, e.g. under --skill-rev). Blast-radius flags are NOT detected: a flagged small diff would take the full path.
 Tokens are chars/4, the repo's own estimate (skill-authoring-and-size.md). A model of the instructed load set,
 not a transcript measurement: an agent may read less (or more) than it is told to.
 Side effects: none (read-only git). Exit 1 on an unreadable commit or skill file."""
@@ -16,6 +15,7 @@ import sys
 SKILL = ".claude/skills/deep-code-review"
 QUICK_MAX = 300
 EXEMPT = "never opens it"  # marker the SKILL.md sentence exempting the quick-path from INDEX.md carries
+SKIP = "a match skips `INDEX.md`"  # marker: SKILL.md routes by its own tables, so the full method skips INDEX.md too
 
 
 def git(*a):
@@ -33,7 +33,7 @@ def lines_changed(commit):
 def load_set(skill_text, lines):
     if lines <= QUICK_MAX:
         return "quick", ["SKILL.md", "references/compact-mode.md"] + ([] if EXEMPT in skill_text else ["INDEX.md"])
-    return "full", ["SKILL.md", "INDEX.md", "references/method.md"]
+    return "full", ["SKILL.md"] + ([] if SKIP in skill_text else ["INDEX.md"]) + ["references/method.md"]
 
 
 def measure(commit, skill_rev=None):
