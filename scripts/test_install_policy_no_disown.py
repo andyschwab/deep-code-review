@@ -53,6 +53,12 @@ class NoDisown(unittest.TestCase):
         self.uninstall()
         self.assertEqual(json.loads((self.target / ".perun/policy.json").read_text())["statusline"], "off")
 
+    def test_stray_install_env_does_not_block_disown(self):
+        self.install()
+        subprocess.run(["python3", str(POLICY_PY), "set", "statusline", "off"], cwd=self.target,
+                       env={**self.env, "PERUN_POLICY_INSTALL": "1"}, check=True, capture_output=True)
+        self.assertNotIn("policy_sha", json.loads((self.target / ".claude/.perun-install.json").read_text()))
+
     def test_disown_leaves_no_tmp_marker(self):
         self.install()
         subprocess.run(["python3", str(POLICY_PY), "set", "statusline", "off"], cwd=self.target, env=self.env, check=True, capture_output=True)
