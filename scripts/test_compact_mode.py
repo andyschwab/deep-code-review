@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""compact-mode reference: routed from SKILL.md, under 2.5KB, bench data present."""
+"""compact-mode reference: routed from full-map.md (named by SKILL.md), under 2.5KB, bench data present."""
 import unittest
 from pathlib import Path
 
@@ -9,7 +9,7 @@ SK = ROOT / ".claude/skills/deep-code-review"
 
 class CompactMode(unittest.TestCase):
     def test_routed_with_trigger(self):
-        line = [l for l in (SK / "SKILL.md").read_text().splitlines() if "references/compact-mode.md" in l]
+        line = [l for l in (SK / "references/full-map.md").read_text().splitlines() if "references/compact-mode.md" in l]
         self.assertTrue(line and "Non-Claude" in line[0])
 
     def test_size_and_header(self):

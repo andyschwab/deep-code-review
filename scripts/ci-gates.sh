@@ -206,9 +206,10 @@ cmd_privacy() {
 # ---------------------------------------------------------------------------
 # routing — progressive disclosure integrity.
 #
-# Every references/*.md must be routed by basename from SKILL.md, and every
-# route named in SKILL.md must resolve to a file. An oversized SKILL.md FAILS the
-# gate against the documented byte budget, for every skill (no allowlist);
+# Every references/*.md must be routed by basename from SKILL.md (or, when the
+# skill has a references/full-map.md, from that map, which SKILL.md itself must
+# name), and every route named in either file must resolve to a file. An
+# oversized SKILL.md FAILS the gate against the documented byte budget, for every skill (no allowlist);
 # broken routing always fails.
 # ---------------------------------------------------------------------------
 cmd_routing() {
@@ -229,28 +230,36 @@ cmd_routing() {
   [ -f "$skill_md" ] || die "routing: SKILL.md not found: $skill_md (fail closed)"
 
   local fail=0 f base p
-  # 1) Every reference file is routed from SKILL.md.
+  # A skill may route its references through references/full-map.md; the map
+  # itself must then be routed from SKILL.md (checked by the loop below).
+  local -a route_srcs=("$skill_md")
+  if [ -f "$skill_dir/references/full-map.md" ]; then route_srcs+=("$skill_dir/references/full-map.md"); fi
+  # 1) Every reference file is routed from SKILL.md (or from full-map.md).
   if [ -d "$skill_dir/references" ]; then
     for f in "$skill_dir"/references/*.md; do
       [ -e "$f" ] || continue   # nullglob-safe: skip the literal when no matches
       base="$(basename "$f")"
       # Fixed-string (-F) so a literal '.' in the basename matches only a dot;
       # a regex match would let 'literal.md' spuriously match 'literalXmd'.
-      if ! grep -qF -e "$base" -- "$skill_md"; then
-        printf 'UNROUTED: references/%s\n' "$base" >&2
-        fail=1
+      # full-map.md never counts as routing itself: SKILL.md must name it.
+      if [ "$base" = full-map.md ]; then
+        grep -qF -e "$base" -- "$skill_md" && continue
+      elif grep -qF -e "$base" -- "${route_srcs[@]}"; then
+        continue
       fi
+      printf 'UNROUTED: references/%s\n' "$base" >&2
+      fail=1
     done
   fi
 
-  # 2) Every route named in SKILL.md resolves to a file.
+  # 2) Every route named in SKILL.md (and full-map.md) resolves to a file.
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     if [ ! -f "$skill_dir/$p" ]; then
       printf 'DANGLING ROUTE: %s\n' "$p" >&2
       fail=1
     fi
-  done < <(grep -oE 'references/[A-Za-z0-9._-]+\.md' "$skill_md" | sort -u)
+  done < <(grep -ohE 'references/[A-Za-z0-9._-]+\.md' "${route_srcs[@]}" | sort -u)
 
   # 3) Size budget — FAILS on bloat (the ratchet has teeth) for every skill, with
   #    no per-skill allowlist: an oversized SKILL.md moves depth into a routed
@@ -1035,7 +1044,9 @@ cmd_binaries() {
 # the table also names unconditionally, and a pin the table no longer names
 # all fail closed. Placeholders such as `lang-*.md` name no concrete file and
 # are not parsed at all. SKILL.md's own byte count is always included (it is
-# read to reach the table at all).
+# read to reach the table at all); when the tables live in references/full-map.md,
+# that file's byte count is counted instead (the slim SKILL.md is bounded by the
+# routing --max-bytes gate and scripts/test_slim_skill_fast_path.py).
 # Enforced against `phase-floor-light` / `phase-floor-full` rows in the same
 # config as an EXACT-EQUALITY ratchet: a floor above its pin fails (shrink the
 # refs), and a floor below its pin fails too (re-pin the row down), so every
@@ -1060,6 +1071,10 @@ cmd_mustload() {
   local skill_md="$root/.claude/skills/deep-code-review/SKILL.md"
   local refs_dir="$root/.claude/skills/deep-code-review/references"
   [ -f "$skill_md" ] || die "mustload: SKILL.md not found: $skill_md (fail closed)"
+  # The load-map and phase tables live in references/full-map.md when the skill ships one
+  # (SKILL.md is then the slim fast path); otherwise in SKILL.md itself.
+  local map_md="$skill_md"
+  if [ -f "$refs_dir/full-map.md" ]; then map_md="$refs_dir/full-map.md"; fi
 
   # Parse actionable config rows (archetype<TAB>ceiling-tokens); blank/comment
   # lines are skipped. Plain parallel arrays, aligned by index.
@@ -1115,7 +1130,7 @@ cmd_mustload() {
         archetype="$(printf '%s' "$rowline" | awk -F'|' '{print $2}' \
           | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
         refs_field="$(printf '%s' "$rowline" | awk -F'|' '{print $4}')"
-        [ -n "$archetype" ] || die "mustload: unparseable load-map row in $skill_md: $rowline"
+        [ -n "$archetype" ] || die "mustload: unparseable load-map row in $map_md: $rowline"
         disk_archetypes+=("$archetype")
 
         refs_list="$(printf '%s' "$refs_field" \
@@ -1136,9 +1151,9 @@ cmd_mustload() {
         ;;
       *) inrow=0 ;;
     esac
-  done < "$skill_md"
+  done < "$map_md"
   [ "${#disk_archetypes[@]}" -gt 0 ] \
-    || die "mustload: no Archetype -> load map table rows found in $skill_md (fail closed)"
+    || die "mustload: no Archetype -> load map table rows found in $map_md (fail closed)"
 
   # ---------------------------------------------------------------------------
   # Phase 0-2 mandatory floor: parse SKILL.md's "| Phase | Does | Load |"
@@ -1180,7 +1195,7 @@ cmd_mustload() {
         floor_reflist="$(printf '%s' "$load_field" \
           | grep -oE '`[A-Za-z0-9._-]+\.md`' | tr -d '`')"
         [ -n "$floor_reflist" ] \
-          || die "mustload: phase \"$phase_field\" has no backtick-quoted refs in $skill_md (fail closed)"
+          || die "mustload: phase \"$phase_field\" has no backtick-quoted refs in $map_md (fail closed)"
         # Classify each OCCURRENCE by the text that immediately follows it,
         # never the cell as a whole: a cell naming the same ref both plain and
         # "when"-qualified must count the plain occurrence (a whole-cell grep
@@ -1232,15 +1247,15 @@ cmd_mustload() {
         ;;
       *) inphase=0 ;;
     esac
-  done < "$skill_md"
+  done < "$map_md"
   [ "${#floor_light_refs[@]}" -gt 0 ] \
-    || die "mustload: no Phase 0-2 mandatory refs parsed from $skill_md's Load column (fail closed)"
+    || die "mustload: no Phase 0-2 mandatory refs parsed from $map_md's Load column (fail closed)"
   local missing_phases=""
   [ "$seen_p0" -eq 1 ] || missing_phases="$missing_phases 0"
   [ "$seen_p1" -eq 1 ] || missing_phases="$missing_phases 1"
   [ "$seen_p2" -eq 1 ] || missing_phases="$missing_phases 2"
   [ -z "$missing_phases" ] \
-    || die "mustload: Phase table in $skill_md is missing mandatory phase row(s):$missing_phases (expected rows starting \"0 \", \"1 \", \"2 \"; fail closed)"
+    || die "mustload: Phase table in $map_md is missing mandatory phase row(s):$missing_phases (expected rows starting \"0 \", \"1 \", \"2 \"; fail closed)"
 
   # Conditional refs are an explicit, pinned allow-list (`phase-conditional`
   # rows), never whatever the table happens to mark " when " -- otherwise
@@ -1335,6 +1350,11 @@ cmd_mustload() {
   # review's floor includes it.
   local skill_rc skill_tok
   skill_rc="$(LC_ALL=C wc -c < "$skill_md" | tr -d '[:space:]')"
+  # With a full-map.md the floor counts the map file (the file read to reach the tables); the slim SKILL.md
+  # is paid on every invocation and is bounded separately (routing --max-bytes, test_slim_skill_fast_path.py).
+  if [ "$map_md" != "$skill_md" ]; then
+    skill_rc="$(LC_ALL=C wc -c < "$map_md" | tr -d '[:space:]')"
+  fi
   skill_tok=$(( skill_rc / 4 ))
 
   local floor_light_total="$skill_tok" floor_full_total

@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import review_load_bytes as r  # noqa: E402
 
 D = ROOT / ".claude/skills/deep-code-review"
-SKILL = (D / "SKILL.md").read_text()
+SKILL = (D / "references/full-map.md").read_text()  # the full map holds the former SKILL.md body
 
 
 class LoadSet(unittest.TestCase):

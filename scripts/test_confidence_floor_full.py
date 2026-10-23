@@ -22,7 +22,7 @@ class ConfidenceFloorFull(unittest.TestCase):
         self.assertIn("`confidence_score`", t)
 
     def test_quick_path_batches_reads(self):
-        self.assertIn("batch all reads in one turn", (SK / "SKILL.md").read_text())
+        self.assertIn("batch all reads in one turn", (SK / "references/full-map.md").read_text())
 
     def test_string_tier_not_a_score(self):
         # a string tier must not collide with the numeric score; only confidence_score gates

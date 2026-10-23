@@ -23,7 +23,7 @@ class FullAuditField(unittest.TestCase):
                 self.assertIn(n, text, f"{f} lacks {n!r}")
 
     def test_new_refs_routed_with_trigger(self):
-        skill = (SK / "SKILL.md").read_text()
+        skill = (SK / "references/full-map.md").read_text()
         for ref in ("nextjs-app-router.md", "full-audit.md"):
             self.assertIn(ref, skill)
         self.assertRegex(skill, r"`nextjs-app-router\.md` when `next`")

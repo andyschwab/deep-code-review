@@ -13,7 +13,7 @@ def txt(p):
 
 class FastPath(unittest.TestCase):
     def test_quick_path_routes_compact_mode_only(self):
-        s = txt("deep-code-review/SKILL.md")
+        s = txt("deep-code-review/references/full-map.md")
         m = re.search(r"\*\*DIFF quick-path\*\*.*?(?=\n\n)", s, re.S)
         self.assertIsNotNone(m)
         self.assertIn("≤300", m.group(0))

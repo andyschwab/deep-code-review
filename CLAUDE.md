@@ -26,7 +26,8 @@ plugin manifest (`.claude-plugin/plugin.json`) ships every skill.
   definition. `SKILL.md` holds the map; each `references/` file holds depth
   `SKILL.md` doesn't. If you're tempted to restate a section, link to it instead.
 - **Every reference file must be routed.** Each skill's `SKILL.md` must name each
-  of its `references/*.md` by path with an explicit "read this when…" trigger.
+  of its `references/*.md` by path with an explicit "read this when…" trigger
+  (deep-code-review's slim `SKILL.md` names `references/full-map.md`, which routes the rest).
   Progressive disclosure only works if the parent routes to it; an unrouted
   reference is dead weight and fails review.
 - **Overlays stay public-safe.** No operator preferences, private intake
@@ -86,11 +87,12 @@ plugin manifest (`.claude-plugin/plugin.json`) ships every skill.
 # lead to triage, not necessarily a secret — but never commit an uncleared hit)
 grep -rInE '(^|[^A-Za-z0-9])(AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|[sr]k_live_[A-Za-z0-9]{24,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----' . \
   --exclude-dir=.git && echo "BLOCK: potential secret" || echo "clean"
-# every reference file is routed from SKILL.md
+# every reference file is routed from SKILL.md or, for deep-code-review, its full-map.md (which SKILL.md must name)
 for f in .claude/skills/deep-code-review/references/*.md; do
   grep -q "$(basename "$f")" .claude/skills/deep-code-review/SKILL.md \
-    || echo "UNROUTED: $f"
+    .claude/skills/deep-code-review/references/full-map.md || echo "UNROUTED: $f"
 done
+grep -q full-map.md .claude/skills/deep-code-review/SKILL.md || echo "UNROUTED: full-map.md"
 ```
 
 ## Adding or updating a reference file

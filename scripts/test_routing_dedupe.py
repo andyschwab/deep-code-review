@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import review_load_bytes as r  # noqa: E402
 
 D = ROOT / ".claude/skills/deep-code-review"
-SKILL = (D / "SKILL.md").read_text()
+SKILL = (D / "references/full-map.md").read_text()  # the Domain map lives in the map behind the slim SKILL.md
 REF = D / "references"
 REAL_BYTES_CEILING = 235400  # REAL_FULL bytes after the routing dedupe (was 237750); raise only with a stated reason
 
