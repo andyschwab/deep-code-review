@@ -27,3 +27,5 @@ Review notes (independent review of PR #1643; all numbers recomputed exactly fro
   seed files only.
 - Rival fixtures name the upstream default branch, not a commit; the recorded SHA-256 of the fetched text is the only pin.
 - Judge files store the verdict only; the judge's written reasoning was not kept.
+
+Note (positioning slim): the positioning arm was measured on .claude/skills/positioning/SKILL.md with SHA-256 78568f7a101c3f0c (the file at commit 6388e04163c7). Reproduce these win rates at that commit; since the slim, scripts/rival_eval.py reads the live, slimmer SKILL.md, so a re-run measures the slim text instead.
