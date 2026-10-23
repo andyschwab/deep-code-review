@@ -19,7 +19,7 @@ Copied as principles, not as anyone's private playbook:
 4. **Prove the gate can fail.** Plant, watch red, revert. Required for
    every new gate this project adds.
 5. **Skip loudly over absent input.** Missing fixture ≠ pass.
-6. **Union proof before a merge train.** G7.
+6. **Union proof only on overlap.** G7.
 7. **Test the failure, not only the feature.** Schema reject, authz deny,
    monotonic-quality overwrite.
 8. **Definitions, not live values**, in any public or compiled artifact.

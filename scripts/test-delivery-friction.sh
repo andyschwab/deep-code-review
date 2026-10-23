@@ -2,6 +2,7 @@
 # Tests for delivery-script field friction: gh_rest.py curl fallback (macOS-sandbox TLS), fail-closed gh
 # failures in land_train/train_land, lock-holder reporting, named crash causes. gh and curl are PATH stubs.
 set -uo pipefail
+export TRAIN_UNION=always  # these pin the union gate; the disjoint-path fast path is covered by test-train-disjoint.sh
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SC="$ROOT/.claude/skills/agentic-delivery/scripts"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-friction.XXXXXX")"

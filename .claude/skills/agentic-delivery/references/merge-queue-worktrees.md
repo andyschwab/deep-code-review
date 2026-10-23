@@ -140,7 +140,7 @@ verified-but-unlanded work and no single human-runnable unblock surfaced.
 
 ## An independent-PR-queue cascade is a cadence choice, not a new authority
 
-Gate epistemology principle 6 (union proof before a train) runs as `scripts/merge_train.py`. A related but
+Gate epistemology principle 6 (union proof only on overlap) runs as `scripts/merge_train.py`. A related,
 distinct situation: a **queue of PRs that are each already independently green**, with no known interaction
 between them (typically right after the single common blocker above is fixed and the whole queue needs to
 resync). Landing that queue does not need a new, lighter-weight merge authority — it needs **cadence**: run the

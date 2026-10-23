@@ -2,6 +2,7 @@
 # Tests for agentic-delivery/scripts/{land_train,train_land,reap_own}.sh. Plain bash; gh is a PATH stub.
 # Prints PASS/FAIL lines and "N passed, M failed"; exits non-zero on any failure. Writes only under $WORK.
 set -uo pipefail
+export TRAIN_UNION=always  # these pin the union gate; the disjoint-path fast path is covered by test-train-disjoint.sh
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SC="$ROOT/.claude/skills/agentic-delivery/scripts"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-train.XXXXXX")"

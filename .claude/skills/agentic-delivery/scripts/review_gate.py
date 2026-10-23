@@ -12,7 +12,8 @@ Evidence, either of:
 evidence, a same-account one logs "same-account review: run-id separation only". The gate proves an independent
 review RUN on the current head, not a different human. The reviewer must be non-empty and differ (case-insensitive) from the author (and from the GitHub PR author when
 the comment path is used), and `head` must match the PR head being merged (prefix match, 7+ chars), so a review
-of an older push never covers a newer one. This is an honest-process receipt, not a forgery-proof signature.
+of an older push covers a newer one only when the diff since the reviewed head touches no tier-1 path (tier_gate.py,
+templates/review-tiers.tsv; commit missing locally or any error = stale, re-review). This is an honest-process receipt, not a forgery-proof signature.
 
 Policy `review_gate` (`.perun/policy.json`): `warn` (default, this release: prints WARN, never blocks),
 `enforce` (a PR with no evidence exits 1), `off` (opt out; silent). A malformed policy or a failing `gh` is
@@ -30,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gh_rest  # noqa: E402
 import perun_policy  # noqa: E402
+import tier_gate  # noqa: E402
 
 MARKER = re.compile(r"<!--\s*perun-review\s+reviewer=(\S+)\s+author=(\S+)\s+head=([0-9a-f]{7,40})\s+diff=pass\s+evil-twin=pass\s*-->")
 
@@ -38,11 +40,36 @@ def _same_head(a: str, b: str) -> bool:
     return bool(a) and bool(b) and len(a) >= 7 and len(b) >= 7 and (a.startswith(b) or b.startswith(a))
 
 
+def _frontmatter(ref: str, path: str) -> str:
+    """The `---` block at the top of `path` at `ref` ("" when the file or block is absent)."""
+    out = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL).stdout
+    m = re.match(r"---\r?\n(.*?)\r?\n---", out, re.S)
+    return m.group(1) if m else ""
+
+
+def _tier1_free(old: str, new: str) -> bool:
+    """True when `git diff old new` touches no tier-1 path (templates/review-tiers.tsv) and leaves every changed SKILL.md's
+    frontmatter block identical (tool grants live there, as a `tools:` line or a list under `allowed-tools:`). --no-renames lists
+    a rename's old path too, so moving a tier-1 file into references/ stays tier 1. Any failure (non-hex ref, commit not local,
+    git or tiers file unreadable) is False: an unprovable delta needs a fresh review."""
+    if not (re.fullmatch(r"[0-9a-f]{7,40}", old or "") and re.fullmatch(r"[0-9a-f]{7,40}", new or "")):
+        return False
+    try:
+        rows = tier_gate.load_tiers(tier_gate.DEFAULT_TIERS)
+        out = subprocess.run(["git", "diff", "--no-renames", "--name-only", old, new], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        paths = [p for p in out.stdout.splitlines() if p]
+        return out.returncode == 0 and all(tier_gate.tier_of(p, rows) != 1 for p in paths) \
+            and all(_frontmatter(old, p) == _frontmatter(new, p) for p in paths if p.rsplit("/", 1)[-1] == "SKILL.md")
+    except (OSError, subprocess.SubprocessError, tier_gate.TierError):
+        return False
+
+
 def valid(reviewer: str, author: str, head: str, want_head: str, gh_author: str = "") -> bool:
-    """Independent (reviewer != author, != GitHub PR author) and covering the head being merged."""
+    """Independent (reviewer != author, != GitHub PR author) and covering the head being merged: the reviewed head itself, or
+    one pushed after it whose diff since the reviewed head touches no tier-1 path (a fix push needs no second review)."""
     r = (reviewer or "").strip().lower()
     return bool(r) and r != (author or "").strip().lower() and r != gh_author.lower() \
-        and _same_head(head, want_head)
+        and (_same_head(head, want_head) or _tier1_free(head, want_head))
 
 
 def has_evidence(pr: str, head: str = "", repo: str = "", review_dir: Path | None = None) -> bool:
