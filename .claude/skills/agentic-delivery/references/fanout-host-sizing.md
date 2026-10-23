@@ -11,7 +11,7 @@ that index.
 
 ## Environment probe procedure (host sizing before fan-out)
 
-`SKILL.md` **Environment probe** states the act-on rule — probe before sizing, and gate on free RAM and the swap
+`full-map.md` **Environment probe** states the act-on rule — probe before sizing, and gate on free RAM and the swap
 trend. This is the full procedure it points to.
 
 - **Probe:** free RAM and CPU cores (`memory_pressure`/`vm_stat` or `free -h`; `nproc` or `sysctl -n hw.ncpu`),
@@ -174,7 +174,7 @@ nothing landed for hours). It prints one line, `SPAWN`, `HOLD <reason,...>`, or
 `COULD_NOT_CHECK <what>`; a could-not-check never authorizes a spawn, same as a hold. `--selftest`
 exercises every branch with injected readings, no real sleeping or OS calls.
 
-The predicate with its probe commands, as `SKILL.md` **Environment probe** routes it here:
+The predicate with its probe commands, as `full-map.md` **Environment probe** routes it here:
 
 - **Free RAM and the swap *trend* are the primary gate — `load1` is not a
   reliable term.** Spawn another heavy lane only while free RAM >15% AND swap

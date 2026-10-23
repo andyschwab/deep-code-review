@@ -140,7 +140,7 @@ Each rung is a name and a pointer; the mechanism lives at the pointer.
    **A hard-to-write test must not hold a ready fix hostage**.
 5. **Fill to measured machine headroom** — free RAM + swap **trend**, not `load1`;
    spawn one, re-sample, keep a burst reserve; cheap read-only lanes effectively
-   unbounded. `SKILL.md` **Environment probe** + `fanout-host-sizing.md` **Gate
+   unbounded. `full-map.md` **Environment probe** + `fanout-host-sizing.md` **Gate
    on free RAM and the swap trend**.
 
 **Two sequencing rules over the rungs:**
@@ -232,14 +232,14 @@ closed):
   compaction or reset loses nothing (`project-state.md`; `unattended-trackers.md`
   **An unattended time budget is a work loop** and the ask-indexed read-first
   ledger bullet).
-- **Concurrency cap** — sized from a live environment probe, not habit (`SKILL.md`
+- **Concurrency cap** — sized from a live environment probe, not habit (`full-map.md`
   **Environment probe**).
 - **Held-lane roster** — before broadcasting any new rule or status update, list
   which lanes are currently held (a memory hold, a quota hold, a merge freeze);
   do not message them — any message resumes a held lane with its full context
   and last plan (`multi-session-coordination.md` **Bridge in-flight agents**).
 - **Wake model** — event-driven (task-notifications + a heartbeat), **no idle
-  polling**; a monitor emits on transition only (`SKILL.md` **Conductor operating
+  polling**; a monitor emits on transition only (`full-map.md` **Conductor operating
   rhythm**; `unattended-trackers.md` **A monitor emits on state-transition or
   terminal state only** and **A loop's own wake/poll cadence is not the work
   cadence**).

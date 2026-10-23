@@ -269,7 +269,7 @@ land every instance in one lane, one follow-up confirms none remain (its full in
 once, `deep-code-review` `method.md` Phase 4).
 
 **Another mis-fire: "one writer per file" reads a legitimate stacked pair as a collision.** A child lane
-branched off a parent's local ref (`SKILL.md` *A stacked/child lane branches off the parent's LOCAL ref*)
+branched off a parent's local ref (`full-map.md` *A stacked/child lane branches off the parent's LOCAL ref*)
 necessarily builds on files the parent already wrote and has not yet merged — read literally, "one writer per
 file" flags that as two writers on the same file and blocks it, even though the stack is an authorized,
 sequenced hand-off, not a race. Scope the rule to **concurrent, unordered** writers: a stacked child writing
@@ -375,7 +375,7 @@ orchestrator keeps dispatching lanes onto doomed fixes that collide the instant 
 
 ## Local environment — the five-step stack procedure
 
-The procedure behind `SKILL.md` **Local environment (own it)** and its G5 rule.
+The procedure behind `full-map.md` **Local environment (own it)** and its G5 rule.
 
 1. **Discover** the project's one-command path (`README` / `package.json` /
    `compose.yaml` / `.devcontainer` / `Makefile`) — prefer what the repo

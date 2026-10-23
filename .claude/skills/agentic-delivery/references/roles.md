@@ -84,7 +84,7 @@ role is active **and** at least one lane is in flight; in single-agent mode
 The tell: two consecutive Conductor turns that query, build, edit, or mutate
 the target instead of dispatching, reading a receipt, or deciding. On the
 signal: **stop**, **package** a lane brief (goal, scope, acceptance check,
-output contract), **dispatch** it (`SKILL.md` *Worktrees and occupancy*), **resume**
+output contract), **dispatch** it (`full-map.md` *Worktrees and occupancy*), **resume**
 status-reading. Exception: a step only the Conductor's session can perform (a
 connector, credential, or surface no lane holds), done minimally.
 
@@ -405,7 +405,7 @@ eleventh gate.
   removing it or making it non-blocking is both.
 - **Reporting a running lane as a finished one.** A spawned hat/worker is *work
   in progress*, not delivered value — report what is running, and report the
-  outcome only once it is verified (see `SKILL.md` *Worktrees and occupancy* and
+  outcome only once it is verified (see `full-map.md` *Worktrees and occupancy* and
   *Failure*).
 - **A second delivery OS.** This overlay composes with the review bar; do not run
   it next to another standing delivery pack on the same repo.

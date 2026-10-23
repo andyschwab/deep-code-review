@@ -646,7 +646,7 @@ lanes, re-checking on resume after an idle gap. This is a different use of "idle
 
 ## A context-inheriting fork is not a blank slate — a narrow brief does not erase the inherited wider one
 
-Moved from `SKILL.md` **Worktrees and occupancy**; "the tree-sharing risk above" in the rule below is that section's first bullet (a subagent or fork is not automatically a separate worktree).
+Moved from `full-map.md` **Worktrees and occupancy**; "the tree-sharing risk above" in the rule below is that section's first bullet (a subagent or fork is not automatically a separate worktree).
 
 - **A context-inheriting fork is not a blank slate — a narrow instruction to
   it is ambiguous by construction.** Distinct from the tree-sharing risk
