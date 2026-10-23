@@ -34,7 +34,7 @@ _num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa
 
 
 def _tail_turns(path, tr):
-    """Main-thread turns from the last TAIL bytes of the transcript, plus whether the tail was clipped. Reads usage/timestamp/model only."""
+    """Main-thread turns from the last TAIL bytes of the transcript, plus whether the tail was clipped. Reads only lines that mention "usage" and keeps their request/timestamp/sidechain/type keys plus message model and usage (what the window model needs)."""
     with open(path, "rb") as fh:
         size = os.fstat(fh.fileno()).st_size
         fh.seek(max(0, size - TAIL))

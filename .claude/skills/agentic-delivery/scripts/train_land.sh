@@ -14,7 +14,7 @@
 # Takes a per-worktree lock (<git-dir>/train-land.lock, pid-checked; a dead holder's lock is reclaimed), so two
 # trains cannot share this worktree or a log. UNION_DIRS: space-separated, or newline-separated when a path has a space.
 # Base-red guard: when BROWSER_CMD fails, BASELINE_FAILS is unset and RERUN_CMD is set, each failing id is re-run alone at BASE_SHA
-# (train_flake.sh --base: FLAKE_REAL_AT (default FLAKE_RUNS) of FLAKE_RUNS failures, each printing `FAIL <id>` so a test absent on the base is NOT excused); those are pre-existing ("BASE RED: <n> pre-existing: ids") and never block, only new failures do.
+# (train_flake.sh --base: a REAL id re-failed ≥FLAKE_REAL_AT (default FLAKE_RUNS) of FLAKE_RUNS solo re-runs, each printing `FAIL <id>` so a test absent on the base is NOT excused); those are pre-existing ("BASE RED: <n> pre-existing: ids") and never block, only new failures do.
 # A FLAKE-only red lands only when every flaked id also fails >= 1 of FLAKE_RUNS solo runs on the base; one that passes N of N there is CANT (exit 3).
 # FLAKE_LEDGER_DIR=<dir> (flake_ledger.py): an id on its active quarantine list that re-runs as a flake is reported `quarantined-flake`, does not block, and skips the base check.
 # Flake triage (see train_flake.sh; BROWSER_CMD must print `FAIL <id>` per failure and `FAILURES <n>`): RERUN_CMD (TEST=<id>), BASELINE_FAILS (ids failing on the base); LOCK_TIMEOUT_MIN (30), PUSH_WAIT_SECS and LEASE_WAIT_SECS (both default LOCK_TIMEOUT_MIN*60).
@@ -25,7 +25,7 @@
 # halves; each half re-runs the FULL gate stacked on the fresh base and lands only when its own gate is GREEN, a red half splits again until the depth is
 # spent, and a leaf keeps CANT/FLAKY exactly as before ("CANT leaf #..." in the log, nothing landed for it). 0 = never split (a non-number also means 0, with a WARN).
 # Every later half redoes the push-lock and lease waits first and lands only while the base is still the one it was gated on (else it is a CANT leaf). Only a CANT
-# leaf (exit 3, or BROWSER RED exit 1) continues the split; exit 2, 4 and >= 126 abort it. A split run always prints "SPLIT done: landed #<what land_train merged>;
+# leaf (exit 3, or BROWSER RED exit 1) continues the split; exit 2, 4 and >= 126 abort it (so 4 or 2 may follow halves that already landed: read the SPLIT done line). A split run always prints "SPLIT done: landed #<what land_train merged>;
 # CANT (not landed) #<every other PR, dropped culprits included>; gates=<n>" and exits 0 only when every PR landed, else 3 (or the abort code). Flake-on-base CANT never splits.
 # A split gives each half one more independent roll of the same full gate (a REAL id already re-failed every solo re-run at the union), never a retry-until-green of one verdict; each half
 # still lands only on its own green gate and the depth cap bounds the extra gates.

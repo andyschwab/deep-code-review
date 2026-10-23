@@ -15,7 +15,6 @@ Before running it, ask the user three things in plain words, one at a time, and 
    itself among them, each as an `--option`; "do-nothing" is added for them. veche.py refuses criteria without options.
 
 Then run `veche.py` with those flags, the decision as `--claim`, its strongest version (`--steelman`), `--twin`,
-`--max-calls 12`,
-and `--cmd` set as in the example run in `references/council.md` (a command that reads the prompt on stdin and prints
+`--max-calls 12`, and `--cmd` set as in the example run in `references/council.md` (a command that reads the prompt on stdin and prints
 the answer). If it prints `NOT_CONVENED`, say so and fall back to the inline `idea-critic` hats. Show the decision,
 kill criteria, leading metric and review date.
