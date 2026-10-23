@@ -19,3 +19,7 @@ The edit did not help and the second healthy judge scores it lower (the paired l
 ## Caveats
 
 Qwen3.5-397B-A17B generates every arm and the scenarios; judges are PCSS models; the rival is one public skill run without its reference files; the seed lines and scenarios come from one writer model; one run per arm. v0 and v1 were each judged against one shared set of rival answers. The harness was changed while drawing the held-out set, before any answer or judge call (see `PREREGISTERED.md`). One output (`results-held/outputs/v0/r4h44-*`) contained a fictional home-directory example path, redacted to `<home>/` here; the judge verdicts were computed on the unredacted text.
+
+## Repro note (2026-10-23)
+
+`scripts/eval-fixtures/rival/contribution/rival.json` reads the live `.claude/skills/contribution/SKILL.md`, which the slim-fast-path change shortened from 7495 to 5356 bytes and whose old body now lives in `references/full-map.md`. The text this bench scored as v0 is the pre-slim file: sha256 `7b7b86bc9a1ab9e7a91f879dfca0369d87a935aff1b4253ec2207096d2d383d3`, equal to `frozen/contribution.v0.md`, at parent commit `0cd954a38476b4d31efc90fd25efb858dfd2c077` (`git show 0cd954a38476b4d31efc90fd25efb858dfd2c077:.claude/skills/contribution/SKILL.md`). To rerun a live-fixture arm against the scored text, use that file, not the working tree. No frozen file here was edited.

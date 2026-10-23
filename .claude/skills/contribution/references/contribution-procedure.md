@@ -1,7 +1,7 @@
 # Contribution procedure: depth
 
 Read this when a lesson is borderline (project-specific or general?) or a leak is subtle
-(the contribution `SKILL.md` routes here). `SKILL.md` holds the flow and the block; this holds
+(the contribution `SKILL.md` routes here). `SKILL.md` holds the flow; this holds
 the worked tests and leak examples.
 
 **Where you work.** Prepare the change in a checkout of the *upstream* repository, where
