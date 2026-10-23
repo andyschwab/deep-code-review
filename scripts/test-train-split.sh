@@ -118,14 +118,14 @@ age() { python3 -c 'import os,sys,time;print(int(time.time()-os.path.getmtime(sy
 old() { python3 -c 'import os,sys,time;t=time.time()-3600;os.utime(sys.argv[1],(t,t))' "$LF"; }
 sleep 60 & fp=$!; echo "$fp $(date +%s)" >"$LF"; old; s=0
 for v in $fp 0 -1 abc; do
-  PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive-release >/dev/null; PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive-renew >/dev/null
-  PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive >/dev/null && s=1  # must stay HELD (rc 1), never a steal
+  PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive-release >/dev/null 2>&1; PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive-renew >/dev/null 2>&1
+  PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive >/dev/null 2>&1 && s=1  # must stay HELD (rc 1), never a steal
 done
 [ "$s" -eq 0 ] && [ "$(cut -d' ' -f1 "$LF")" = "$fp" ] && [ "$(age)" -gt 1000 ]
 ok $? "perun_policy: PERUN_HOLDER_PID (foreign pid, 0, -1, text) cannot release, renew or steal another process's lease"
 kill "$fp" 2>/dev/null; rm -f "$LF"; s=0
 for v in 0 -1 abc; do
-  o=$(PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive) && [ "$o" -gt 0 ] 2>/dev/null && [ "$(cut -d' ' -f1 "$LF")" = "$o" ] || s=1; rm -f "$LF"
+  o=$(PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive 2>/dev/null) && [ "$o" -gt 0 ] 2>/dev/null && [ "$(cut -d' ' -f1 "$LF")" = "$o" ] || s=1; rm -f "$LF"
 done
 ok $s "perun_policy: a bad PERUN_HOLDER_PID falls back to the caller's pid (never 0, -1 or a failure)"
 e=$(PERUN_HOLDER_PID=1 python3 "$PY" heavy-exclusive 2>&1 >/dev/null); rm -f "$LF"
