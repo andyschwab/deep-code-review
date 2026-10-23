@@ -7,6 +7,11 @@
 # Refuses the whole train when any PR's base is not BASE_BRANCH. Linked worktrees in UNION_DIRS are removed on
 # every exit (_clean_union.sh); the current worktree is kept.
 #
+# Union proof only when it can find something (path overlap only: a semantic clash between PRs touching different files is left to CI on the
+# exact heads; TRAIN_UNION=always restores the proof): PRs that touch pairwise-disjoint paths and at most one generated file (GEN_RE) are
+# drained back-to-back via land_train.sh (LAND_PRS), no VERIFY_CMD/BROWSER_CMD; CI on each exact head is their gate. Any overlap or gh failure
+# falls through to the union below; TRAIN_UNION=always forces the union.
+#
 # Run it from a detached tools worktree on the base branch; it re-detaches that worktree onto the fresh base.
 # Env: VERIFY_CMD (required; run via bash -c as `$VERIFY_CMD <tag> <pr...>`, must print a final line
 # "GREEN base=<sha> union=<sha>" on success, e.g. a merge_train.py wrapper), UNION_DIRS (required, passed on
@@ -104,6 +109,21 @@ done
 
 git fetch -q "$REMOTE" "$BASE_BRANCH"
 git checkout -q --detach "$REMOTE/$BASE_BRANCH"
+# One generated-file list: scripts/land-release.sh's GENERATED (the derived files whose conflicts it auto-resolves). Absent = unknown = union.
+GEN_RE=${GEN_RE:-$(sed -n "s/^GENERATED='\(.*\)'\$/\1/p" scripts/land-release.sh 2>/dev/null || true)}
+disjoint() { local n f all= gen=0  # 0 = no shared path and <= 1 PR touches a generated file
+  [ -n "$GEN_RE" ] || return 1
+  for n; do f=$("$GH" pr diff "$n" --name-only </dev/null) || return 1
+    all+=$(sort -u <<<"$f")$'\n'; ! grep -qE "^($GEN_RE)$" <<<"$f" || gen=$((gen + 1)); done
+  [ "$gen" -le 1 ] && [ -z "$(sort <<<"$all" | uniq -d | grep . || true)" ]; }
+if [ "${TRAIN_UNION:-auto}" != always ] && disjoint "$@"; then
+  PQ=$(git rev-parse --git-common-dir)/train-push.lock
+  echo "train_land: #$* touch disjoint paths and share no generated file; landing back-to-back, no union proof (CI on each exact head is the gate; TRAIN_UNION=always forces one)" >&2
+  lock_take "$PQ" "${PUSH_WAIT_SECS:-$((LT * 60))}" "$LT" || exit 1
+  python3 "$HERE/perun_policy.py" heavy-exclusive-release >/dev/null 2>&1 || true
+  lrc=0; LAND_PRS="$*" bash "$HERE/land_train.sh" "$(git rev-parse HEAD)" - || lrc=$?
+  lock_drop "$PQ"; exit "$lrc"
+fi
 GC="$HERE/../../deep-code-review/scripts/gate_cache.py"  # shared tree-keyed PASS cache (gate_cache.py): absent = run uncached
 audit=(bash -c "${BASE_AUDIT_CMD:-}"); [ ! -f "$GC" ] || audit=(python3 "$GC" run --stage train --no-pipefail --ignore 'train*.log*' -c "${BASE_AUDIT_CMD:-}")
 if [ -n "${BASE_AUDIT_CMD:-}" ] && ! "${audit[@]}" >"$LOG.base" 2>&1 </dev/null; then

@@ -140,9 +140,9 @@ making it non-blocking is (`pipeline-optimizer.md`).
 | G2 Plan | Spec | Acyclic work graph | Role triggers, one writer per worktree; **every lane with a paid model call names a per-lane token/dollar budget before G4 starts — no budget set is blocked, not unlimited** (a cap that defaults to off is not a cap); in a multi-repo plan, classify each item provider vs consumer before cutting lanes (`references/roles.md` *No scope creep*) |
 | G3 Design | Graph | ADRs / contracts | Interfaces, NFR budgets, data/security decisions explicit. Shape: `references/template-adr.md` |
 | G4 Implement | Work packets | Patch/commit per lane | Tests before or with the change; packet names review skill + immutable base SHA |
-| G5 Verify | Exact revision | Test receipts | **Local stack up** then build, lint, type, unit, and applicable integration/E2E **green at that SHA**; a gate that never started the app is `UNVERIFIED`. **UI change (domain P):** headed-browser evidence on the exact route after the action. Unit tests alone are not a UI gate; UI DONE needs `journey: <page> <steps> PASS` (`verification-handback.md`) |
+| G5 Verify | Exact revision | Test receipts | **Local = affected tests** (a gate that never started the app is `UNVERIFIED`); **CI on the exact SHA is the receipt**, not re-run locally. **UI change (domain P):** headed-browser evidence on the exact route after the action. Unit tests alone are not a UI gate; UI DONE needs `journey: <page> <steps> PASS` (`verification-handback.md`) |
 | G6 Review | Exact revision + receipts | `deep-code-review` + QA + security verdicts | Independent of the builder; applies the `deep-code-review` severity rubric — Blocker/Critical block, High needs a named owner's acceptance, Medium is tracked and non-blocking |
-| G7 Integrate | Accepted lanes | Integration receipt + `deep-code-review DIFF` | One integration owner; rerun affected gates on the exact final SHA |
+| G7 Integrate | Accepted lanes | Integration receipt + `deep-code-review DIFF` | One integration owner; affected tests; CI on the exact final SHA |
 | G8 Release | Exact integrated SHA | Release manifest | Rollback proven; **owner approves** outward/production action |
 | G9 Production verify | Deployed SHA | Verification receipt + `postdeploy-logs:` | Served behaviour and SLOs; rollback on breach |
 | G10 Learn | Receipts | Retrospective | Escaped gap → regression test in this repo. Reusable lessons are generalized, third-party identifiers stripped, before leaving the project (`contribution` overlay proposes them upstream). Triggers, blameless shape, action-item closure: `references/retrospective.md` + `references/template-postmortem.md` |
@@ -234,8 +234,8 @@ and name G8 as downstream and pending.
 Every technical packet names `deep-code-review` + the required scope (`FULL` /
 `DIFF <base>` / `FILE <paths>`) and the immutable base SHA (G1/G4) or exact
 reviewed SHA (G6/G7). QA and security receive the **final SHA**, not the
-builder's narrative; a stale SHA fails closed. Several green PRs still need one
-throwaway integration SHA plus one aggregate gate before a merge train (G7).
+builder's narrative; a stale SHA fails closed. Union proof (G7) only when PRs overlap on
+paths or generated files; else drain green PRs back-to-back (`train_land.sh`).
 
 ---
 

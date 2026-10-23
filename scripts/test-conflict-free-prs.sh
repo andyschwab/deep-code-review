@@ -99,7 +99,6 @@ bgrun() { echo "$1" >"$BG/scripts/ci-tests.d/z.bg.sh"; rt="$(mktemp -d "$BG/rt.X
 bgrun 'echo bg-ran'; { [ $? -eq 0 ] && grep -q bg-ran "$BG/log" && grep -q fast "$BG/log"; }; ok $? "a *.bg.sh test runs from the background slot, its log printed, serial tests still run"
 bgrun 'echo bg-failed; exit 3'; { [ $? -ne 0 ] && grep -q bg-failed "$BG/log"; }; ok $? "a failing *.bg.sh test fails the Per-PR step with its log"
 bgrun 'sleep 6' 1; { [ $? -ne 0 ] && grep -q 'did not finish in time' "$BG/log"; }; ok $? "a *.bg.sh test past the wait deadline fails the step instead of hanging"
-grep -qF 'regen-unlanded.sh --check "${fg_base}"' "$ROOT/.claude/skills/deep-code-review/templates/pre-push-verify.sh"; ok $? "pre-push hook decides landed-vs-unlanded against the merge-base"
 
 echo "Tests: $pass/$((pass + fail))"
 [ "$fail" -eq 0 ]

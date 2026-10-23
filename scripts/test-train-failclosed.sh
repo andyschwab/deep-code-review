@@ -2,6 +2,7 @@
 # Tests that train test-result parsing fails closed: a missing failed-ids list is not "no failures" (train_flake.sh),
 # and a GREEN log line from a verify step that exited non-zero is not a pass (train_land.sh). Plain bash; writes under $WORK.
 set -uo pipefail
+export TRAIN_UNION=always  # these pin the union gate; the disjoint-path fast path is covered by test-train-disjoint.sh
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SC="$ROOT/.claude/skills/agentic-delivery/scripts"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/dcr-test-train-fc.XXXXXX")"

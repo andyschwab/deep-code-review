@@ -75,18 +75,20 @@ def load_tiers(path):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         parts = line.split("\t")
-        if len(parts) < 2 or parts[1].strip() not in ("1", "2", "3"):
-            raise TierError(f"{path}:{n}: expected <glob>\\t<1|2|3>\\t<why>, got {line!r}")
-        rows.append((parts[0].strip(), int(parts[1])))
+        if len(parts) < 2 or parts[1].strip().rstrip("!") not in ("1", "2", "3"):
+            raise TierError(f"{path}:{n}: expected <glob>\\t<1|2|3>[!]\\t<why>, got {line!r}")
+        t = int(parts[1].strip().rstrip("!"))
+        rows.append((parts[0].strip(), -t if parts[1].strip().endswith("!") else t))  # negative = pinned
     if not rows:
         raise TierError(f"{path}: no tier rows (fail closed)")
     return rows
 
 
 def tier_of(path, rows):
-    """Strictest (lowest) tier among matching globs; DEFAULT_TIER when none match."""
+    """Strictest (lowest) tier among matching globs, a pinned row (`2!`/`1!`) winning outright, the strictest among pins; DEFAULT_TIER when none match."""
     hits = [t for g, t in rows if fnmatch.fnmatchcase(path, g) or fnmatch.fnmatchcase("/" + path, g)]
-    return min(hits) if hits else DEFAULT_TIER
+    pins = [-t for t in hits if t < 0]
+    return min(pins) if pins else min(hits) if hits else DEFAULT_TIER
 
 
 def _gh(args):
@@ -275,11 +277,25 @@ def _selftest():
 
     rows = load_tiers(DEFAULT_TIERS)
     for path, want in [
-        (".claude/skills/agentic-delivery/SKILL.md", 1),
-        (".claude/skills/agentic-delivery/INDEX.md", 1),
-        (".claude/skills/deep-code-review/references/method.md", 1),
+        (".claude/skills/agentic-delivery/SKILL.md", 2),
+        (".claude/skills/agentic-delivery/INDEX.md", 2),
+        (".claude/skills/deep-code-review/references/method.md", 2),
+        (".claude/skills/deep-code-review/references/merge-operations.md", 2),
+        (".claude/skills/deep-code-review/evals/evals.json", 2),
         (".claude/agents/reviewer.md", 1),
         (".claude/commands/ship.md", 1),
+        # nested: a pinned 2! row beats an unpinned name glob, a 1! row beats a pinned 2!
+        (".claude/skills/x/references/merge-ops.md", 2),
+        (".claude/skills/x/references/gate-notes.md", 2),
+        (".claude/skills/x/evals/scripts/gate.py", 1),
+        (".claude/skills/x/references/templates/lane.md", 1),
+        (".claude/skills/x/references/AGENTS.md", 1),
+        (".claude/skills/x/references/install.sh", 1),
+        (".claude/skills/x/references/probe.py", 2),
+        (".claude/skills/x/evals/runner.sh", 2),
+        (".claude/skills/x/references/sub/CLAUDE.md", 1),
+        ("CODEOWNERS", 1),
+        (".claude/skills/agentic-delivery/scripts/review_gate.py", 1),
         (".github/workflows/ci.yml", 1),
         (".claude/hooks/caveman.js", 1),
         ("db/migrations/0001_init.py", 1),
@@ -337,7 +353,7 @@ def _selftest():
             return _git(repo, "rev-parse", "HEAD").strip()
 
         strong = {"opus"}
-        t1 = ".claude/skills/demo/SKILL.md"
+        t1 = ".claude/hooks/demo.sh"
         ok_rev = "Reviewed-By: reviewer-bot receipt:reviews/r1.md"
         cases = [
             ("tier1-no-trailers-fails", t1, "edit", 2),

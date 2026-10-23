@@ -48,21 +48,18 @@
 # installed: skipping is intended there) or DCR_PREPUSH_ALLOW_SKIP_CI=1
 # disables the check.
 #
-# MECHANISM GATE (refs #1380): CI's "Fix commits carry a pinned test" and
-# "Prose lessons carry a mechanism" steps judge the WHOLE PR range, so a
-# follow-up commit that edits a SKILL.md/reference without a test/eval in
-# the same commit fails CI even when the lane's earlier gate run was green.
-# When the repo has .github/workflows/ci.yml, this hook extracts those two
-# steps' `run:` blocks (single source: the globs are never copied here, so
-# they cannot drift) and runs them over merge-base(default branch)..HEAD,
-# not just the pushed delta. No ci.yml: skipped.
+# NO CI RE-RUNS: this hook deliberately does not re-run CI steps (fix-class,
+# mechanism, size-ratchet, bench-check, mustload, evals, INDEX/SHA256SUMS,
+# changelog). CI on the exact pushed sha is the single blocking gate for those;
+# a local copy only made agents wait. Kept here: conflict markers, skip-token, privacy,
+# the cache-backed DCR_PREPUSH_CMD (affected tests, lint), and warn-only lints.
 #
 # VERDICT CACHE (issue #1153; shared and tree-keyed since the gate-cache
 # change): under heavy concurrent load (many agent lanes committing and
 # pushing on one host), re-running DCR_PREPUSH_CMD every time the identical
 # push is retried or re-invoked -- or again after pre-commit, a precheck
 # script and the train gate already ran it on the same tree -- pays the full
-# gate's cost again (13-16 minutes per push). Before running DCR_PREPUSH_CMD
+# gate's cost again. Before running DCR_PREPUSH_CMD
 # this hook asks scripts/gate_cache.py, the one PASS cache every stage
 # shares. Its header owns the mechanism: key = (git tree of the pushed
 # commit, gate-set version, config hash), stored under
@@ -89,7 +86,7 @@
 #
 # This cache never replaces CI: CI runs the reviewed SHA independently
 # regardless of any local entry (see "Self-report ≠ control" above). The
-# conflict-marker, mechanism and fast CI-parity checks below are range- or
+# conflict-marker and skip-token checks below are range- or
 # commit-message-based and cheap: they run on every push, never from cache.
 # Without python3 or gate_cache.py the command simply runs uncached.
 #
@@ -351,120 +348,23 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
   fi
 
-  # Mechanism gate (#1380): CI's fix-class steps over the whole branch range.
-  ci_yml=".github/workflows/ci.yml"
-  if [ -f "${ci_yml}" ]; then
-    mg_base="${base_sha}"
-    default_ref="refs/remotes/${remote_name}/$(resolve_default_branch)"
-    if git rev-parse --verify -q "${default_ref}" >/dev/null 2>&1; then
-      mg_base="$(git merge-base "${default_ref}" "${local_sha}" 2>/dev/null || printf '%s' "${base_sha}")"
-    fi
-    if ! command -v python3 >/dev/null 2>&1 || [ ! -f .claude/skills/deep-code-review/scripts/fix_class_gate.py ]; then
-      die "pre-push: python3 (or fix_class_gate.py) missing — cannot verify mechanism rule; install python3 or push with --no-verify knowingly"
-    fi
-    mg_fail=0
-    for mg_step in "Fix commits carry a pinned test" "Prose lessons carry a mechanism"; do
-      # awk-v-ok: one CI step name
-      mg_script="$(awk -v n="- name: ${mg_step}" 'index($0,n){f=1;next} f&&/run: \|/{r=1;next} r&&/^ {0,9}[^ ]/{exit} r' "${ci_yml}")"
-      [ -n "${mg_script}" ] || continue
-      if ! BASE_SHA="${mg_base}" HEAD_SHA="${local_sha}" bash -c "${mg_script}" </dev/null >&2; then
-        printf 'pre-push-verify: FAIL -- "%s" would fail CI for %s..%s. Fix: add the test/eval to the same commit, or squash onto %s.\n' \
-          "${mg_step}" "${mg_base}" "${local_sha}" "${default_ref}" >&2
-        mg_fail=1
-      fi
-    done
-    [ "${mg_fail}" -eq 0 ] || { fail=1; continue; }
-  fi
-
-  # Fast CI-parity gates (each <1s; only when this repo ships them): the cheap deterministic CI steps lanes
-  # kept skipping because the full scripts/test-ci-gates.sh is slow. Each failure names the exact fix.
-  if [ -f scripts/ci-gates.sh ] && command -v python3 >/dev/null 2>&1; then
-    fg_base="${base_sha}"
-    fg_ref="refs/remotes/${remote_name}/$(resolve_default_branch)"
-    git rev-parse --verify -q "${fg_ref}" >/dev/null 2>&1 && fg_base="$(git merge-base "${fg_ref}" "${local_sha}" 2>/dev/null || printf '%s' "${base_sha}")"
-    fg_fail=0
-    fg() { # fg <name> <fix> <cmd...>: run quietly, print output only on failure
-      fg_name="$1"; fg_fix="$2"; shift 2
-      if ! fg_out="$("$@" 2>&1 </dev/null)"; then
-        printf '%s\npre-push-verify: FAIL -- %s. Fix: %s\n' "${fg_out}" "${fg_name}" "${fg_fix}" >&2
-        fg_fail=1
-      fi
-    }
-    in_tree() { (cd "${fg_tree}" && unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE && "$@"); }
-    # Removes this gate's throwaway worktree and mktemp dir. Runs on every exit path (EXIT, INT, TERM, failed
-    # worktree add, normal end). Guarded: deletes only a non-empty fg_tmp under ${TMPDIR:-/tmp} with the dcr-prepush. prefix.
-    fg_cleanup() {
-      case "${fg_tmp:-}" in "${TMPDIR:-/tmp}"/dcr-prepush.*) git worktree remove --force "${fg_tmp}/t" >/dev/null 2>&1 || :; rm -rf "${fg_tmp}" ;; esac
-      fg_tmp=""; fg_tree="${PWD}"
-    }
-    # Derived files (INDEX.md, SHA256SUMS) are not committed by lane PRs: they are rebuilt at land time
-    # (VERSION moved vs the base) and checked there. Unlanded, CI rebuilds them, so skip the stale checks.
-    derived=1; [ -f scripts/regen-unlanded.sh ] && bash scripts/regen-unlanded.sh --check "${fg_base}" && derived=0
-    # Unlanded, CI regenerates derived files (INDEX.md, size rows) BEFORE size-ratchet and bench-check, so run
-    # both on a throwaway checkout of the pushed commit after the same regen: the user's tree is never touched.
-    fg_tree="${PWD}"; fg_tmp=""
-    if [ "${derived}" -eq 0 ] && { [ -f scripts/size-budgets.tsv ] || [ -f scripts/bench_check.py ]; }; then
-      fg_tmp="$(mktemp -d "${TMPDIR:-/tmp}/dcr-prepush.XXXXXX")"
-      trap fg_cleanup EXIT
-      trap 'fg_cleanup; exit 130' INT TERM
-      # A sandbox that denies writes under .git/worktrees still allows a shared clone in TMPDIR: fall back to it,
-      # so a host restriction never turns into "the gate cannot run" (the pressure that ends in --no-verify).
-      if git worktree add -q --detach "${fg_tmp}/t" "${local_sha}" >/dev/null 2>&1 \
-        || { printf 'pre-push-verify: note -- git worktree add denied; using a shared clone instead.\n' >&2
-             # Own git env (an inherited GIT_DIR would point checkout at the host); copy the host's remote-tracking
-             # refs so origin/<default> in the clone is the host's, as in a worktree, not the host's local branch.
-             (unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-              git clone -q --shared --no-checkout "${PWD}" "${fg_tmp}/t" \
-                && git -C "${fg_tmp}/t" fetch -q "${PWD}" '+refs/remotes/*:refs/remotes/*' \
-                && git -C "${fg_tmp}/t" checkout -q --detach "${local_sha}") >/dev/null 2>&1; }; then
-        fg_tree="${fg_tmp}/t"
-        fg "regen-unlanded.sh (CI runs it before the ratchet)" "run 'bash scripts/regen-unlanded.sh ${fg_base}' on a clean checkout and fix what it prints" \
-          in_tree bash scripts/regen-unlanded.sh "${fg_base}"
-      else
-        printf 'pre-push-verify: FAIL -- cannot create a throwaway checkout of %s. Fix: free disk or TMPDIR, then push again.\n' "${local_sha}" >&2
-        fg_fail=1
-        fg_cleanup
-      fi
-    fi
-    [ -f scripts/size-budgets.tsv ] && fg "size-ratchet vs ${fg_base}" \
-      "add the marker line quoted in the RATCHET FAIL above ('size-budget-raise: <path> <old>→<new> <reason>') to a commit message in this range; CI rebuilds derived files first, so growth of INDEX.md or any skill file counts" \
-      in_tree bash scripts/ci-gates.sh size-ratchet --base "${fg_base}" --config scripts/size-budgets.tsv .
-    [ -f scripts/bench_check.py ] && fg "bench_check --changed ${fg_base}" \
-      "fix the bench dir named above (checks: header of scripts/bench_check.py)" \
-      in_tree python3 scripts/bench_check.py --changed "${fg_base}"
-    fg_cleanup
-    # CI scans the whole tree (92K files, too slow here), so by default scan only the files this range adds or
-    # changes (deleted files excluded). Runs on the host tree, which this hook has already verified is clean and
-    # equal to the pushed commit (see the dirty-tree and HEAD-mismatch refusals above), so it scans the pushed
-    # content, and the gitignored .banlist.local.txt is present. Trade-off: a hit that pre-exists in an untouched
-    # file is left to CI. If this range edits .banlist.txt itself, the changed files no longer bound what the new
-    # patterns can match, so scan the whole tree. The banlist is always appended as a target (the gate skips it by
-    # name) so an empty diff still has one path, not a usage error.
-    [ -f .banlist.txt ] && fg "privacy (banned pattern in changed files)" \
-      "reword or remove the banned text in the file(s) named above; matched content is withheld, the patterns live in .banlist.txt and the gitignored .banlist.local.txt" \
-      bash -c 'set -o pipefail
+  # Privacy scan (CI's privacy gate over the files this range adds or changes; the one CI gate kept here, because
+  # a leaked identifier is not undone by a green re-run). Runs on the host tree, which this hook has already verified
+  # is clean and equal to the pushed commit, so the gitignored .banlist.local.txt is present. Trade-off: a hit that
+  # pre-exists in an untouched file is left to CI. If this range edits .banlist.txt itself, scan the whole tree. The
+  # banlist is always appended as a target (the gate skips it by name) so an empty diff is not a usage error.
+  if [ -f .banlist.txt ] && [ -f scripts/ci-gates.sh ] && command -v python3 >/dev/null 2>&1; then
+    pv_base="${base_sha}"
+    pv_ref="refs/remotes/${remote_name}/$(resolve_default_branch)"
+    git rev-parse --verify -q "${pv_ref}" >/dev/null 2>&1 && pv_base="$(git merge-base "${pv_ref}" "${local_sha}" 2>/dev/null || printf '%s' "${base_sha}")"
+    if ! pv_out="$(bash -c 'set -o pipefail
         if git diff --quiet "$1" "$2" -- .banlist.txt; then
           { git diff -z --name-only --diff-filter=d "$1" "$2"; printf ".banlist.txt\0"; } | xargs -0 bash scripts/ci-gates.sh privacy --banlist .banlist.txt --
-        else bash scripts/ci-gates.sh privacy --banlist .banlist.txt .; fi' _ "${fg_base}" "${local_sha}"
-    [ -f scripts/mustload-budgets.tsv ] && fg "mustload floor/ceiling pin" \
-      "shrink the must-load read set, or update the pin in scripts/mustload-budgets.tsv in the same commit with the reason" \
-      bash scripts/ci-gates.sh mustload --config scripts/mustload-budgets.tsv .
-    [ -f scripts/run-evals.py ] && fg "run-evals --selftest" \
-      "tag any chat-unanswerable expectation (e.g. an untagged 'Loads ...') with [needs_files] in the skill's evals/evals.json" \
-      python3 scripts/run-evals.py --selftest
-    [ "${derived}" -eq 1 ] && [ -f scripts/skill_index.py ] && fg "INDEX.md stale" \
-      "run 'bash scripts/land-release.sh --regen' and commit the result (land commits only)" \
-      python3 scripts/skill_index.py --check
-    [ "${derived}" -eq 1 ] && [ -f scripts/write-checksums.sh ] && fg "SHA256SUMS stale" \
-      "run 'bash scripts/land-release.sh --regen' (it pins SHA256SUMS last) and commit the result (land commits only)" \
-      bash -c 'o="$(git rev-parse --git-common-dir)/dcr-sums.tmp"; bash scripts/write-checksums.sh "$o" >/dev/null && cmp -s "$o" SHA256SUMS'
-    [ -f CHANGELOG.md ] && [ -f scripts/ci-gates.sh ] && fg "CHANGELOG version heading" \
-      "put unreleased notes in changelog.d/<slug>.md, not CHANGELOG.md; land-release.sh stamps the heading at land time" \
-      bash scripts/ci-gates.sh version .
-    [ -d changelog.d ] && [ -f scripts/size-budgets.tsv ] && fg "changelog fragments" \
-      "fix the fragment named above (rules: the 'fragments' header in scripts/ci-gates.sh)" \
-      bash scripts/ci-gates.sh fragments --config scripts/size-budgets.tsv changelog.d
-    [ "${fg_fail}" -eq 0 ] || { fail=1; continue; }
+        else bash scripts/ci-gates.sh privacy --banlist .banlist.txt .; fi' _ "${pv_base}" "${local_sha}" 2>&1 </dev/null)"; then
+      printf '%s\npre-push-verify: FAIL -- privacy (banned pattern in changed files). Fix: reword or remove the banned text in the file(s) named above; matched content is withheld, the patterns live in .banlist.txt and the gitignored .banlist.local.txt\n' "${pv_out}" >&2
+      fail=1
+      continue
+    fi
   fi
 
   # Warn-only scope-creep report (new files/deps/single-impl types); never fails the push.

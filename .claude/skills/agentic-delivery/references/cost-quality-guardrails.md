@@ -8,7 +8,7 @@ touches, or when judging whether a past cost cut let a defect escape.
 **Bottom line.** Cut spend where it buys nothing; never cut the checks that
 catch defects. Every cost cut ships with a deterministic mechanism that proves
 quality held, and any escaped Blocker traced to a cut reverts that cut. The
-four mechanisms below are free to run (git, grep, and hooks; no paid calls).
+four mechanisms below are free to run (git, grep, hooks; no paid calls).
 
 | Guardrail | Mechanism | Fails when |
 |---|---|---|
@@ -24,29 +24,26 @@ incentive to call it minor. So the tier comes from paths, not judgment: one
 checked-in file, `templates/review-tiers.tsv`, maps path globs to tiers. The
 dispatch step and the review step both read it; no second list exists.
 
-- **Tier 1** — security, enforcement, gates, hooks, skill prose (in a skill
-  repo the prose *is* the behavior), agent instructions, merge-ready logic,
-  data-loss paths. Runs on the strongest allowed model and needs an
+- **Tier 1** — security, enforcement, gates, hooks, settings, install, auth,
+  migrations, CODEOWNERS, agent definitions and slash commands (tool grants),
+  merge-ready logic, data-loss paths. Strongest allowed model and an
   independent reviewer.
-- **Tier 2** — feature code, and any path no row matches. Default model tier;
-  independent reviewer.
+- **Tier 2** — feature code, skill prose and evals (CI on the exact sha gates
+  them), and any path no row matches. Default model tier; independent reviewer.
 - **Tier 3** — documentation outside the skill and hook directories. The
   author may self-review.
 
-A path matching several rows takes the strictest tier, so a skill reference
-that also matches `*.md` stays tier 1. Globs for short words are anchored to a
-boundary (`/`, `_`, `-`, `.`), so `gate` does not catch `delegate`, `auth` does
-not catch `author`, and `merge` does not catch `emergency`. Agent definitions
-(`.claude/agents/`), slash commands (`.claude/commands/`), and each skill's
-`INDEX.md` routing table are tier 1 too. Dispatch: run
+Strictest row wins, except a pinned row (`2!`/`1!`): `references/` stay
+tier 2 though `*/merge*` matches; nested `scripts/`, `templates/` stay tier 1. Short-word globs are boundary-anchored: `gate` misses `delegate`, `auth` misses `author`, `merge` misses
+`emergency`. A later push needs no re-review unless the diff since
+the reviewed head touches tier 1 or changes a `SKILL.md`'s
+frontmatter (`review_gate.py`). Dispatch: run
 `python3 scripts/tier_gate.py --classify <changed paths>` and pick the model
-from the `strictest` line. Review: the commit (or squash) carries the
+from the `strictest` line. Review: the commit carries the
 trailers, and `python3 scripts/tier_gate.py <base>..<head>` gates every
 first-parent commit in the range, merge commits included (judged by their diff
 against the first parent) — exit 1 on any failing commit, exit 2 when the tiers
-file or range is unreadable (fail closed); `--advisory` prints the same
-findings and exits 0. `TIER_STRONG_MODELS` (comma-separated, default `opus`)
-names the models that satisfy tier 1.
+file or range is unreadable (fail closed); `--advisory` exits 0. `TIER_STRONG_MODELS` (default `opus`) names the tier-1 models.
 
 The reviewer trailer is `Reviewed-By: <id> receipt:<ref>`. The id (with any
 `<email>` removed) must differ from both the author and the committer, and no

@@ -56,9 +56,6 @@ replace hand-reading and hand-posting a board issue:
   lease, owner and agents alike: a second one queues (a `queued Ns` line every 2 min) instead of colliding,
   and `PERUN_RUN_SUFFIX` / `job_lease.py suffix` makes per-run names (databases, ports) unique.
 
-A coordination lesson closes only when a script or gate enforcing it lands
-with an eval exercising it; prose alone leaves it open.
-
 ## A prose claim doesn't scale or machine-check — commit a structured registry instead
 
 "I'm taking X, Y, Z" in a shared thread forces every peer to *semantically

@@ -6,7 +6,9 @@
 # name, so a name is not a handle). Members are read from the union's merge commits, subject
 # "merge-train: #N" (what merge_train.py writes; override the number regex with PR_RE).
 #
-# Env: UNION_DIRS (required; space-separated worktree paths, or newline-separated when a path contains a space), BASE_BRANCH (default main), REMOTE
+# LAND_PRS="<n> <n>" (set by train_land.sh for members with disjoint paths): no union exists, so skip the union lookup and land
+# each listed PR at its current head back-to-back (pass any <union-sha>, e.g. -); CI on that exact head is the gate.
+# Env: UNION_DIRS (required unless LAND_PRS; space-separated worktree paths, or newline-separated when a path contains a space), BASE_BRANCH (default main), REMOTE
 # (default origin), CHANGELOG_DIR (default changelog.d: a PR touching no file under it is appended to
 # BACKFILL_FILE as a backfill list, not skipped), BACKFILL_FILE (default ./changelog_backfill.txt),
 # PR_RE (sed -E regex with one group, default 'merge-train: #([0-9]+)'), GH (default gh),
@@ -22,7 +24,7 @@ set -euo pipefail
 [ $# -eq 2 ] || { echo "usage: land_train.sh <base-sha> <union-sha>" >&2; exit 2; }
 BASE=$1 U=$2
 echo "land_train: this lands to ${BASE_BRANCH:-main}: if the host classifier denies the merge, park THAT merge for the owner (do not retry or route around it) and keep every other lane, review and build going." >&2
-: "${UNION_DIRS:?set UNION_DIRS}"
+: "${UNION_DIRS:=}"; [ -n "$UNION_DIRS" ] || [ -n "${LAND_PRS:-}" ] || { echo "set UNION_DIRS" >&2; exit 2; }
 BASE_BRANCH=${BASE_BRANCH:-main} REMOTE=${REMOTE:-origin} CHANGELOG_DIR=${CHANGELOG_DIR:-changelog.d}
 BACKFILL_FILE=${BACKFILL_FILE:-./changelog_backfill.txt} PR_RE=${PR_RE:-merge-train: #([0-9]+)} GH=${GH:-$(dirname "$0")/gh_rest.py}  # gh with a curl fallback for the macOS-sandbox TLS failure
 export GH
@@ -40,17 +42,21 @@ WAIT_TRIES=${WAIT_TRIES:-10} WAIT_SECS=${WAIT_SECS:-8}
 
 git fetch -q "$REMOTE" "$BASE_BRANCH"
 [ "$(git rev-parse "$REMOTE/$BASE_BRANCH")" = "$(git rev-parse "$BASE")" ] || echo "WARN $BASE_BRANCH moved past $BASE"
-W=""
-while IFS= read -r d; do
-  [ -d "$d" ] || { echo "WARN UNION_DIRS entry is not a directory: '$d' (a path with a space needs newline-separated UNION_DIRS)" >&2; continue; }
-  git -C "$d" cat-file -e "$U^{commit}" 2>/dev/null && W=$d
-done < <(union_dirs)
-[ -n "$W" ] || { echo "no worktree holds $U"; exit 2; }
+if [ -n "${LAND_PRS:-}" ]; then
+  members=""; for n in $LAND_PRS; do members+="$n $("$GH" pr view "$n" --json headRefOid -q .headRefOid </dev/null)"$'\n'; done; members=${members%$'\n'}
+else
+  W=""
+  while IFS= read -r d; do
+    [ -d "$d" ] || { echo "WARN UNION_DIRS entry is not a directory: '$d' (a path with a space needs newline-separated UNION_DIRS)" >&2; continue; }
+    git -C "$d" cat-file -e "$U^{commit}" 2>/dev/null && W=$d
+  done < <(union_dirs)
+  [ -n "$W" ] || { echo "no worktree holds $U"; exit 2; }
 
-# Each merge's 2nd parent is the member head the union proved; first-parent keeps member-internal merges out.
-members=$(git -C "$W" log --merges --first-parent --reverse --format='%s %P' "$BASE..$U" \
-  | sed -nE "s/^$PR_RE [0-9a-f]+ ([0-9a-f]+).*/\1 \2/p")
-[ -n "$members" ] || { echo "no members found in $BASE..$U"; exit 2; }
+  # Each merge's 2nd parent is the member head the union proved; first-parent keeps member-internal merges out.
+  members=$(git -C "$W" log --merges --first-parent --reverse --format='%s %P' "$BASE..$U" \
+    | sed -nE "s/^$PR_RE [0-9a-f]+ ([0-9a-f]+).*/\1 \2/p")
+  [ -n "$members" ] || { echo "no members found in $BASE..$U"; exit 2; }
+fi
 fails=0
 LAST=$(printf '%s\n' "$members" | tail -1 | cut -d' ' -f1)
 
