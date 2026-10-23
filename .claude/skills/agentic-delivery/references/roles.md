@@ -80,7 +80,7 @@ lens does not hold; the rest are one-line pointers on purpose — restating
 **Catch and reverse your own drift into a lane's work** — the completeness
 fix applied to *action*, not only attention. Scope: only while the Conductor
 role is active **and** at least one lane is in flight; in single-agent mode
-(`agentic-ceo` **Size effort to the project**) the agent does the work itself.
+(ceo `full-map.md` **Size effort to the project**) the agent does the work.
 The tell: two consecutive Conductor turns that query, build, edit, or mutate
 the target instead of dispatching, reading a receipt, or deciding. On the
 signal: **stop**, **package** a lane brief (goal, scope, acceptance check,

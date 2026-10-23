@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ceo_altitude_guard.py — PreToolUse + UserPromptSubmit hook: keep the MAIN session at CEO altitude.
 
-WHY: the doctrine says the conductor specs, delegates and verifies while lanes type (agentic-ceo **Stay strategic**;
+WHY: the doctrine says the conductor specs, delegates and verifies while lanes type (agentic-ceo `references/full-map.md` **Stay strategic**;
 roles.md "The Conductor self-executes under pressure"). As prose it did not hold: the main session kept hand-editing
 source. This hook counts that drift (always, silently) and, when armed, warns or blocks.
 

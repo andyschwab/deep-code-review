@@ -1224,7 +1224,7 @@ from `references/migration-parity.md`'s check-order paragraph. Each row fetched 
 ## Verified by direct fetch (2026-09-23) — orchestration-to-execution token ratio (`token_report.py`)
 
 Sourced for `agentic-ceo/scripts/token_report.py`'s orchestration-share flag and the
-one-line doctrine addition in `agentic-ceo/SKILL.md` ("Stay strategic").
+one-line doctrine addition in `agentic-ceo/references/full-map.md` ("Stay strategic").
 
 | Standard / source | URL | What was confirmed |
 |---|---|---|
@@ -1233,7 +1233,7 @@ one-line doctrine addition in `agentic-ceo/SKILL.md` ("Stay strategic").
 ## Verified by direct fetch (2026-09-24) — lane token budget (`token_report.py --budget`)
 
 Sourced for `agentic-ceo/scripts/token_report.py`'s `--budget` gate and the lane-dispatch
-bullets in `agentic-ceo/SKILL.md` ("Stay strategic"). Each row fetched 2026-09-24. The
+bullets in `agentic-ceo/references/full-map.md` ("Stay strategic"). Each row fetched 2026-09-24. The
 gate's default caps are not taken from these sources: they are starting values set near
 the 90th percentile of three local sessions measured with `token_report.py --json` on
 2026-09-24, per `deep-code-review/references/model-tiering.md` lever 5.

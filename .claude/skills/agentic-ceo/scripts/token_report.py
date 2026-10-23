@@ -9,7 +9,7 @@ this, a conductor's only signal that a wave over-spent on orchestration
 chatter instead of subagent execution is a vague feeling. This script reads
 one Claude Code session transcript plus its subagent transcripts and prints
 totals, a weighted cost proxy, and an orchestration-share flag — run it at
-wave end and in the morning handoff (`SKILL.md` "Stay strategic").
+wave end and in the morning handoff (`references/full-map.md` "Stay strategic").
 
 HONESTY NOTE (read before quoting a number from this tool)
 -------------------------------------------------------------
