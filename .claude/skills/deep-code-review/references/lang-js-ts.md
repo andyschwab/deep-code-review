@@ -39,7 +39,7 @@ Read this when the target contains JavaScript or TypeScript. Split from `languag
   **every** placeholder, present or future, to the end by construction, with no list to keep complete.
   If you must enumerate them, enumerate the **whole** set from the one enum/type that defines it and
   add a test that fails when a member is added with no rule — a pinned handled-subset proves
-  non-regression, not completeness (`method.md`). A one-sided special-case (`return 1` with no
+  non-regression, not completeness (`method-diff.md`). A one-sided special-case (`return 1` with no
   mirrored `return -1`) also breaks antisymmetry. The cross-version sibling of the same completeness
   question — a consumer's exhaustive-`switch` outgrown by a **producer's** newly-added enum member —
   is the added-enum-member breaking-change note in `api-contracts.md`.

@@ -202,39 +202,11 @@ as documented is a Blocker until proven otherwise.
 each, produce findings with `file:line` + impact + fix. Load the domain's
 `references/*.md` for detection procedures. Domains that don't apply are marked
 N/A with a one-line reason. Start from Phase 0's triage-first hits and blast-
-radius order. **On a `DIFF`, classify each changed hunk by *kind* before walking
-domains — the PR's title and line-count are not the review's depth budget.** Bucket
-the change into **mechanical** (a rename, a format-only reflow), **behavioral** (logic
-changed on an *existing* path), and
-**new-surface** (a brand-new route / endpoint / handler / consumer / permission — a new
-trust boundary), and route each at matched depth: a mechanical hunk gets a fast
-*confirm-it-is-mechanical* read (no behavior rode in on the rename — a moved guard, a
-flipped default, a widened type); a behavioral hunk gets the full domain audit for the
-paths it touches; and a **new-surface hunk gets the full Phase 3 adversarial opener set
-(below) — every opener, not a subset (the dual-surface caller check is the one most
-easily skipped) — regardless of the PR's stated size or title** — a new endpoint buried
-in a PR titled "refactor" is both the highest-risk change and the easiest to wave through
-at the diff's face value. The bucket, not the PR's framing, sets the depth. A hunk that
-fits none cleanly — a pure deletion, a test-only or config-only change — defaults to the
-**behavioral** read (toward more scrutiny, not less). (Distinct from Phase 0's blast-radius
-*ordering*, which ranks what to review *first*; this sets what *depth* each hunk earns.)
-**Multi-file or contract-changing `DIFF`: out-of-diff tracing is mandatory** (`method-situational.md`:
-`impact_map.py`, `context_pack.py`).
+radius order.
 
-**Intent-conformance — a lens distinct from correctness.** Besides "is the
-code right," ask "does the change do what it *claimed*": does the diff satisfy its PR
-description, linked issue, or stated acceptance criteria? A flawless implementation that does
-X while the ticket asked for Y, or silently drops a stated requirement, is a finding — cited
-to the **stated intent** available in context (the PR / issue text), and where no intent is
-stated, say so rather than infer one. This is the review-side counterpart to the delivery
-spec gate (`agentic-delivery` G1); it catches a whole class the domain audits, which ask only
-"is it correct," miss. **Count-invariant for a claimed add/remove:** a diff that says it
-*adds* an item — a list entry, a `case`, a config key, a test — is falsified by an unchanged
-count. `git show <base>:<file> | grep -cE '<item shape>'` against the working copy must move by
-the number claimed; a delta of **zero on an "add"** means the new text was spliced into an
-existing item and silently **replaced** it (two items fused into one), and the mirror case
-falsifies a claimed removal. The bytes stay valid, so lint, format, and checksums pass over the
-fusion — only the count delta or a human read catches it (this review's own worked near-miss). **Stated invariant / landed guard → bypass census:** when a module
+**On a `DIFF` or `FILE`, read `method-diff.md` before walking domains:** hunk-kind depth, the intent-conformance lens, the count-invariant for a claimed add or remove, the sweep-scope-issue diff, the retired-coverage check for a rewritten browser spec, and the fix-completeness sweeps. Skip it on a `FULL` review of a whole repo.
+
+**Stated invariant / landed guard → bypass census:** when a module
 states an invariant or a guard lands on one path, inventory callers/entry points
 that can skip it (procedure: `references/security-appsec.md` for untrusted egress;
 `references/data-quality.md` for artifact→consumer). When the target is large,
@@ -255,78 +227,9 @@ pinned-ref contract — and note the substitution. Never let a harness's prompt
 contract stall **A01/domain B**; the fallback is the audit, not a skip. Depth:
 `references/parallel-audit.md`.
 
-**Mine the code's own comments for admitted deviations — a class of finding a
-structural search cannot reach.** The drift searches elsewhere in this method key on
-*structure*: a duplicated component, a copied string or markup block, a repeated
-scaffolding cluster (`ux-components.md`'s *one component per concept*
-twin-search), or the inverse sweep that greps a hand-rolled `aria-modal` / skeleton and
-diffs it against the shared primitive's importers (`a11y-focus.md`, `a11y-live.md`). All of them are
-blind to a call site that **reimplemented** a shared component/helper/guard from
-scratch and therefore shares no literal with it. But a developer who deliberately
-bypassed a shared abstraction often **says so in a comment** — *"not using the shared
-`<Select>`, it can't do X"*, *"hand-rolled instead of the DS modal because …"*,
-*"inlined the fetch, the shared client doesn't fit here."* Grep those admissions as
-their own pass — the phrasings cluster around a small set of tells (`instead of`, `not
-using` / `not the shared`, `can't use`, `rather than`, `hand-rolled`, `workaround`)
-sitting next to an import or a shared symbol's name — because each hit is worth **two**
-findings at once: (1) this call site has drifted from the shared abstraction and may
-have shed whatever correctness the shared version bakes in — an a11y behavior, a guard,
-a dedup — the exact regression `a11y-live.md`'s bypass-the-shared-component family
-names; and (2) the shared abstraction has a **real gap** its author already hit, so the
-root-cause fix (principle 9) is usually to close that gap at the source rather than
-bless the workaround. It is higher-confidence than a cold duplicate search because the
-author **pre-verified** the deviation for you: the comment is a first-party admission
-that the shared path did not fit. **Opposite polarity from the two other
-comment-as-claim rules in this method** — the carried-forward suppression-reason (Phase
-1, `method-situational.md`) and the incident-narrating comment (Phase 4) warn you *not to over-trust* a comment
-as still-true; this *harvests* a class of comment that **is** a finding you would
-otherwise miss. And distinct from `ux-components.md`'s adoption-is-total move,
-which reads the **shared component's own** doc-comment (it names the call sites it
-fixed) to hunt stragglers — this reads the **call site's** comment to find the bespoke
-bypass that never touched the shared component at all. Treat a match as a finding to
-confirm at source (read the workaround; confirm it still bypasses the shared thing at
-HEAD), not as proof on its face — the comment may itself have drifted, per the Phase 1
-rule (`method-situational.md`).
-
-**Diff every ad-hoc re-derivation of a *canonical* predicate against the canonical — a
-partial reimplementation reads real fields yet tests a *subset* of the conditions.** A
-specific, high-frequency case both the comment-mining pass above and the copyable-idiom
-sweep (Phase 4) miss: the project **correctly centralizes** a boolean — *is this fully
-configured / wired / eligible / complete* — in one shared helper that legitimately requires
-**A and B** (`isWired = x => x.hasKey && x.hasWebhook`), but somewhere else a **count,
-filter, badge, or percentage** re-derives the *same* concept inline and implements only
-**part** of it (`items.filter(x => x.hasKey).length`, dropping `hasWebhook`). Every field it
-reads is genuine and the code looks right in isolation; the only symptom is that a
-**user-facing count/percentage silently disagrees with the canonical predicate** — the
-dashboard says "8 of 10 configured" while the helper that actually gates behaviour counts 6.
-A grep for the *idiom* (Phase 4) will not find it — the re-derivation shares no literal with
-the helper — and no comment admits the bypass (the comment-mining pass above), because the
-author did not think they were bypassing anything; they re-expressed a "simple" check.
-**Technique: start from the canonical predicate, not from a duplicated string.** Enumerate
-the fields/conditions the shared helper reads (`hasKey`, `hasWebhook`), then grep every site
-that reads **any** of them in a boolean/count/filter context and diff its condition set
-against the canonical's — a site that tests a **proper subset** is the finding. **Fix: call
-the shared predicate; never reimplement a subset of it** — a count over
-`items.filter(isWired)` cannot drift from the gate. **Adjudication vs the nearest rules:**
-distinct from `testing-situational.md`'s *diff-the-guard-conditions-across-N-sibling-copies*
-(that has **no** canonical — N peer copies drifting from one another, fixed by reconciling or
-extracting them; here a **designated canonical exists** and the bug is one **narrower**
-re-derivation of it, fixed by calling it); distinct from a **value-set** subset (a data set
-missing members, not a predicate missing a conjunct); and distinct from the
-**audit-every-implementation** sweep (Phase 4, which fans a fix across every call site of one
-function — here the re-derivation is **not** a call site of the helper at all, which is
-exactly why a call-site audit skips it). It is the **structural-search complement** to the
-comment-mining pass above: that pass catches a bespoke reimplementation via the developer's
-*admission comment*; this catches one that shares neither a literal nor a comment, by keying
-on the **fields the canonical predicate reads**.
-
-**Sweep-scope issue → enumerate the target set, diff it against the files touched.** When an issue's
-scope is a sweep ("every page", "all mentions", "each handler"), do not accept "closes #N" on the
-author's say-so: enumerate the target set yourself (a route list, a directory glob, a grep) and diff it
-against the files the change touched. Any target not touched is a finding, or an explicit,
-reasoned exclusion in the PR; the issue stays open for the remainder. A lane that covers 7 of roughly 20
-pages and reports "done" is the failure this catches. Same discipline as **audit-every-implementation**
-(Phase 4), applied to the issue's stated scope instead of one function's call sites.
+**Lenses: read `method-lenses.md` when** a call site may have bypassed or re-derived a shared helper, component or predicate, or a new or changed correctness-bearing unit (a calculation, state transition, parser or boundary) has no test that reaches it (the Phase 3 disposable probe). Two stubs fire without a prior suspicion, because the lens cannot trigger itself:
+- Comment-mining: on a `FULL` or `FILE` review where the repo has a shared `components/`, `ui/` or `lib/` dir, grep `instead of|not using|hand-rolled|workaround` next to an import or shared symbol; each hit is a bypass finding. Procedure in `method-lenses.md`.
+- Canonical predicate: whenever the repo has a shared boolean helper (`isX`, `hasX`, `canX`), grep for a count, badge or percentage that re-derives it inline from a subset of its fields. Procedure in `method-lenses.md`.
 
 **Product UI (domain P) → rendered route sweep.** On a `FULL` or broad-`DIFF`
 review of a product UI, enumerate every route and rule domain P on each across the
@@ -334,13 +237,6 @@ render matrix, reporting coverage as a ledger — the domain-P analogue of Phase
 anonymous-GET sweep, and the step that turns per-route rules into whole-product
 coverage. Procedure and the matrix: `references/ux-sweep.md` (*Rendered
 route sweep*). A route not rendered is `unverified`, not clean.
-
-**Rewritten browser spec → account for the retired coverage.** When a `DIFF` rewrites an
-existing browser/E2E spec because its target surface became unreachable in the test
-environment, do not pass the rewrite on its new-surface green: check that the coverage
-the old spec provided is named as a gap and pinned by a source-level structural fallback,
-and flag its absence as a finding. Procedure: `references/testing-ui.md` (*A
-rewritten browser spec names its retired coverage*).
 
 **Phase 3 — Adversarial / red-team pass.** Switch to attacker mindset (the
 openers below). For any networked app, work these **openers in order** before the
@@ -359,31 +255,7 @@ Procedures for all four are in `references/security-appsec.md`. Then actively tr
 to break auth, inject, exfiltrate, exhaust, poison, and to find useless/costly
 work. Assume a hostile user **and** a hostile upstream.
 
-**Beyond the security openers, author a disposable probe test to *discover* an
-unsuspected defect in changed logic — do not stop at the tests that already exist.**
-Each dynamic move so far leans on something already present: the planted-defect
-probe (Phase 1) mutates code to prove a *gate* catches a *known, injected* defect;
-fix-verification (Phase 4 below) runs the *existing* suite against a *suspected*
-finding; the openers above attack a *running* security surface. None exercises a
-new or changed **correctness-bearing** unit — a calculation, a state transition, a
-parser/validator, an off-by-one boundary — when no test reaches it. For such logic,
-write a **minimal, disposable** test that calls it at its stated boundary conditions
-in the same throwaway worktree at `START_SHA` the planted-defect probe uses — the
-same transient-worktree-probe mechanism principle 7 permits, never the working tree.
-As Phase 1 reverts and confirms its planted defect, **delete the probe and confirm it
-is gone** when done, so no unprompted write is left standing. A
-**red** result is a finding with a real repro attached — a stronger claim than a
-static read. A **green** result records only *"no defect at the inputs probed,"*
-with the probe and its inputs; it is **not** an invariant, and is promoted to a
-`checked_sound` / *Invariants verified to hold* row (`report-format.md`) **only if
-the test pins the property** across the input class, not one example. **Bound the
-blast radius before you run it:** the throwaway worktree contains *filesystem*
-effects, not *outbound* ones — if the unit cannot be exercised without a network,
-paid, or stateful call (a payment or model-calling handler, a live DB write),
-**stub that boundary or skip**, and record `could-not-check` (distinct from
-found-nothing) rather than fire a real side effect to get a result. The
-confirm-before-billable-or-shared-state caution and the could-not-check-vs-found-nothing
-discipline bind the reviewer's own probe, not only the target's gates.
+For untested correctness-bearing logic, author a disposable probe in the throwaway worktree: procedure in `method-lenses.md`.
 
 **Phase 4 — Synthesize & rank.** Deduplicate, assign severity, separate blocking
 from non-blocking. Note systemic patterns (one root cause behind many symptoms)
@@ -396,48 +268,9 @@ never the first callsite alone. Stopping at one site under-scopes the finding an
 second fix into a later increment — the review analogue of the *one component per concept*
 duplicate-twin sweep (`ux-components.md`), for a bug pattern rather than a duplicated
 component; after the fix, a re-grep of the idiom confirms none remain (the class is closed
-only when that search returns clean — a zero-survivor check, principle 2). `scripts/fix_class_gate.py` gates only a pinned test per fix commit (or a `No-Test-Reason:` trailer), never class completeness. **A fix that already scoped itself to an
-enumerated list is judged against that list — but a green test pinning the list proves
-non-regression, not completeness.** The same class discipline runs in reverse when the
-fix is the review *target*: a change that lands as *apply treatment T to instances
-[named list]* — the routes a bug report named, the handlers an investigation walked —
-ships a regression test over exactly those entries, and that test can only prove the
-**named** instances do not regress; it is structurally incapable of proving the list
-complete against the rest of the tree (the *a green gate clears only the surface it
-enumerated* rule above, at remediation scope). The report enumerates the symptoms
-someone hit — a **sample** of the qualifying shape, not its population — so re-derive the
-shape precisely (a shared wrapper, a fetch shape, a missing guard) and run the same
-independent sweep this bullet prescribes, then **diff the full match set against the
-fix's named list**: whatever the sweep finds that the list omits is the gap, named. Such
-a fix passes intent-conformance against the ticket and is still incomplete against the
-code — the Phase 2 / Phase 4 seam. Separate an **acknowledged** boundary from a
-**silent** one: a *category X stays a follow-up* note is legitimate when drawn after a
-full enumeration, a real gap only when the search never left the ticket; and an
-**easier**-to-fix sibling skipped while harder ones were fixed is the tell of an
-accidental miss, not a deliberate deferral. (The field-shape version — patching a shared
-request-body builder only where reported — is `domain-h.md`.) **The same completeness discipline also runs *inward*, into the file the
-fix just landed in.** The sweeps above go *outward*, across the tree — grepping the fixed idiom (or the
-re-derived shape) to land every instance, then re-grepping to confirm none survive. Two routine ways
-of *verifying* a hardening fix defeat that check while leaving the fixed file's own other
-paths unswept — paths that hold **no instance of the fixed idiom for a grep to reach**. A
-fix justified by **parity with a sibling/twin file** (*"the other handler already guards
-this; this one now matches it"*) supplies no idiom to grep at all, and proves only that
-the fixed file is *as broad as* that sibling — never that it lacks a **second path to the
-same data or sink**: an inner helper, a self-recursive branch, or another function
-independently interpreting the same untrusted input, for which a flatter sibling has no
-counterpart to match. A fix justified by a **top-level/outermost guard** (an
-`isinstance`/type/auth/escaping check on the whole input) closes only the outer layer —
-every `.get`/subscript/`for ... in`/decode on a *field beneath* it, in **any other
-function of the same file**, is a separate, still-unguarded read of that value (not the
-one-function rule in `reliability-error-handling.md`, which is other throwing calls
-*inside a single function*; this is other functions across the file). So after matching
-the twin or landing the outer check, **sweep the fixed file itself**: grep it for every
-function, branch, and nested access reaching the same sink over the same input, name each,
-and confirm the new guard's *actual scope* reaches it — the class is closed only when the
-fixed file's own remaining paths are accounted for, not when the diff reaches parity with
-a sibling or an outer check goes green. This is the **inward companion** to the outward
-instance-set/named-list sweep: that one lands the siblings a fix skipped; this lands the
-fixed file's own deeper paths the *verification method* skipped. Also identify
+only when that search returns clean — a zero-survivor check, principle 2). `scripts/fix_class_gate.py` gates only a pinned test per fix commit (or a `No-Test-Reason:` trailer), never class completeness.
+When the target is a fix scoped to a named list or justified by parity with a sibling, `method-diff.md` holds the completeness sweeps.
+Also identify
 **compounds** — findings from
 different domains where one disables another's safeguard; a compound's severity
 is the joint effect, which can exceed either part, so state it as one finding
@@ -462,10 +295,10 @@ the diff itself ships): a **pre-existing** test enshrining the behavior means it
 by design (the fix is wrong, not the code), so it is `REFUTED`, not a defect. But a test the
 **diff itself adds** that encodes off-spec behavior does **not** REFUTE — a self-certifying
 test is re-checked at its base (principle 2), and a diff shipping tests for the wrong
-requirement is the intent-conformance finding (Phase 2), not a refutation of it.
+requirement is the intent-conformance finding (Phase 2, `method-diff.md`), not a refutation of it.
 Re-reading the source the finder read cannot catch this class — the source looks
 exactly as described; only the tests and the suite encode **design** intent (the
-*stated-request* intent lives in the PR/issue — the Phase 2 intent-conformance lens), so locate the
+*stated-request* intent lives in the PR/issue — the intent-conformance lens in `method-diff.md`), so locate the
 tests that exercise the finding, and for a change to security/cost/concurrency
 logic apply the fix in a throwaway worktree and run the suite before confirming
 (`references/parallel-audit.md` §4). **Weigh the failure direction** (fail-open vs

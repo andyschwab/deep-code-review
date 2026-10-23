@@ -139,7 +139,7 @@ not one representative check the issue's other criteria then ride on. A multi-cr
 confirmed criterion silently drops the rest: they are now neither open (visible as a to-do) nor done (actually
 shipped). If any criterion is unmet, leave the issue open with a named per-criterion gap ("1 and 3 shipped at
 `file:line`; 2 not yet") or split it. This is the close-side companion to the review method's
-*Intent-conformance* lens (`deep-code-review` `method.md`) and to grep-the-tree-not-the-claim
+*Intent-conformance* lens (`deep-code-review` `method-diff.md`) and to grep-the-tree-not-the-claim
 (`branch-and-merge-hygiene.md`). Verifying the criteria settles *whether* to close; it does not override *when*
 — "done" still means merged to the **default branch** (the inert-keyword section above), so a fix that landed
 only on an off-default integration branch stays open even with every criterion met.

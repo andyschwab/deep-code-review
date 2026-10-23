@@ -25,7 +25,7 @@ text escaping, `rel` / `target` hardening), enumerate the *other* implementation
 guard; a fix that hardens one and leaves a sibling bare is an incomplete fix, not a closed class. Prefer collapsing
 them to **one shared, audited** linker (as the idempotency bullet above urges) so the guard has a single home; until
 then the divergence is the finding. This is the **security, transform-enumeration** face of the completeness sweeps in
-`method.md` (the outward instance-set / named-list sweep and its inward companion) — narrowed to "same transform, same
+`method-diff.md` (the outward instance-set / named-list sweep and its inward companion) — narrowed to "same transform, same
 security guard" and keyed on transform *behavior* because the siblings share no idiom to grep — and it's broader than
 the single is-relative-regex twin in the client-side-open-redirect bullet above (A01) (that diffs one guard against its
 twin filter; this enumerates *all* implementations of one transform against a whole vuln class).
