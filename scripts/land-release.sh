@@ -2,7 +2,7 @@
 # land-release.sh [--regen] — stamp a release at merge time so parallel lanes never collide on a version.
 #
 # Lanes do NOT bump. A lane adds changelog.d/<slug>.md (the body that goes under the release heading,
-# e.g. "### Added" + bullets) and commits no generated artifact (INDEX.md files incl. docs/INDEX.md, SHA256SUMS, size-budgets.tsv
+# e.g. "### Added" + bullets) and commits no generated artifact (INDEX.md and INDEX-scripts.md files incl. docs/INDEX.md, SHA256SUMS, size-budgets.tsv
 # rows): committing them makes any two lanes conflict. CI rebuilds them for an unlanded tree with
 # `scripts/regen-unlanded.sh` (which calls `--regen`); the land commit below carries them, checked byte-for-byte.
 #
@@ -81,14 +81,14 @@ LOCK="$(git rev-parse --git-common-dir)/land-release.lock"
 mkdir "$LOCK" 2>/dev/null || { echo "land-release: lock held ($LOCK); another land is running" >&2; exit 1; }
 trap 'rmdir "$LOCK"' EXIT
 
-GENERATED='SHA256SUMS|scripts/size-budgets.tsv|docs/INDEX\.md|\.claude/skills/(.*/)?INDEX\.md'
+GENERATED='SHA256SUMS|scripts/size-budgets.tsv|docs/INDEX\.md|\.claude/skills/(.*/)?INDEX(-scripts)?\.md'
 SKILLS="deep-code-review agentic-delivery idea-critic"
 
 regen() {
   python3 scripts/skill_index.py >/dev/null   # first: the entry index's own size row below must see the regenerated file
   # Rewrite size rows in place (comments, order and the hand-kept README.md row survive): existing skill
   # rows and the generated entry index's row take the current size, rows of deleted files drop, new files append.
-  git ls-files -co --exclude-standard .claude/skills | grep -E '(^|/)(SKILL\.md|references/[^/]*\.md)$|^\.claude/skills/INDEX\.md$' | LC_ALL=C sort |
+  git ls-files -co --exclude-standard .claude/skills | grep -E '(^|/)(SKILL\.md|references/[^/]*\.md)$|^\.claude/skills/((agentic-delivery|deep-code-review)/INDEX(-scripts)?|INDEX)\.md$' | LC_ALL=C sort |
     while IFS= read -r f; do printf '%s\t%s\n' "$f" "$(LC_ALL=C wc -c <"$f" | tr -d '[:space:]')"; done >sizes.new
   awk -F'\t' -v OFS='\t' 'NR==FNR{sz[$1]=$2; next}
     /^#/||/^$/{print; next}

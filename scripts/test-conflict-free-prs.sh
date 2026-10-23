@@ -40,7 +40,7 @@ g merge --abort 2>/dev/null; g checkout -q main
 lane a deep-code-review a
 lane b idea-critic b
 g checkout -q a; g merge -q --no-edit b >/dev/null 2>&1; ok $? "two PRs on different skills merge cleanly"
-changed=$(git -C "$R" diff --name-only main HEAD | grep -E '^(SHA256SUMS|scripts/size-budgets\.tsv|\.github/|\.claude/skills/(.*/)?INDEX\.md|CHANGELOG\.md)' | wc -l | tr -d ' ')
+changed=$(git -C "$R" diff --name-only main HEAD | grep -E '^(SHA256SUMS|scripts/size-budgets\.tsv|\.github/|\.claude/skills/(.*/)?INDEX(-scripts)?\.md|CHANGELOG\.md)' | wc -l | tr -d ' ')
 [ "$changed" -eq 0 ]; ok $? "the merged lanes touch no derived or shared file"
 
 # Unlanded tree: the CI step rebuilds the derived files, so every gate reads them current.
