@@ -33,7 +33,7 @@ class ReviewSkipsIndex(unittest.TestCase):
             self.assertIn(script, shell)
 
     def test_full_method_load_drops_index_only_with_marker(self):
-        self.assertEqual(r.load_set(SKILL, 301), ("full", ["SKILL.md", "references/full-map.md", "references/method.md"]))
+        self.assertEqual(r.load_set(SKILL, 301), ("full", ["SKILL.md", "references/full-map.md", "references/method.md", "references/method-diff.md"]))
         self.assertEqual(r.load_set("no marker", 301)[1], ["SKILL.md", "INDEX.md", "references/method.md"])
         slim = "references/full-map.md"
         self.assertEqual(r.load_set(slim, 301)[1], ["SKILL.md", slim, "INDEX.md", "references/method.md"])

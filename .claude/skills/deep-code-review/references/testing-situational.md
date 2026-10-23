@@ -199,7 +199,7 @@ Read this when `testing-and-evals.md` routes here: a doc-comment promises a fall
   into **one parameterized check** (the no-duplication cure — then there is one guard set, not
   N to keep in sync); if they must stay separate, restore the missing guard and add a test that
   pins the shared precondition across all of them. Distinct from the outward/inward completeness
-  sweeps in `method.md` (those propagate or verify **one fix** across the tree or within the
+  sweeps in `method-diff.md` (those propagate or verify **one fix** across the tree or within the
   fixed file, greppable by a shared idiom; this cross-diffs **N pre-existing parallel copies**
   whose only shared signal is their *structure*, driven by no fix), from the coherence test
   in `testing-and-evals.md` (which runs one fixture through mirrored paths asserting *identical* output —

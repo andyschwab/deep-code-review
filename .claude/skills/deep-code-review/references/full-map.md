@@ -135,6 +135,7 @@ Principles 4-6, 10 and 11 (do no harm, respect the existing design, rank, outcom
 Work phases in order. Skip only when it provably does not apply, and say so.
 **Full procedure:** `method.md` — **read it when** executing a
 review after the first-response block.
+Lazy phase files, read only on their trigger: `method-diff.md` on a `DIFF` or `FILE`; `method-lenses.md` when a call site may bypass or re-derive a shared helper or predicate, or a changed unit has no covering test.
 
 | Phase | Does | Load |
 |---|---|---|

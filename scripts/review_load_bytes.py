@@ -42,7 +42,7 @@ SLIM = "references/full-map.md"  # slim SKILL.md names it: the quick path is SKI
 
 def load_set(skill_text, lines):
     if SLIM in skill_text:  # skill_text = SKILL.md + the map, so the map's INDEX-skip marker is honoured
-        return ("quick", ["SKILL.md"]) if lines <= QUICK_MAX else ("full", ["SKILL.md", SLIM] + ([] if SKIP in skill_text else ["INDEX.md"]) + ["references/method.md"])
+        return ("quick", ["SKILL.md"]) if lines <= QUICK_MAX else ("full", ["SKILL.md", SLIM] + ([] if SKIP in skill_text else ["INDEX.md"]) + ["references/method.md"] + (["references/method-diff.md"] if "method-diff.md" in skill_text else []))  # a >300-line DIFF reads the DIFF lens file
     if lines <= QUICK_MAX:
         return "quick", ["SKILL.md", "references/compact-mode.md"] + ([] if EXEMPT in skill_text else ["INDEX.md"])
     return "full", ["SKILL.md"] + ([] if SKIP in skill_text else ["INDEX.md"]) + ["references/method.md"]
@@ -58,7 +58,7 @@ def measure(commit, skill_rev=None):
     b = sum(len(read(f).encode()) for f in files)
     out = {"commit": commit, "lines": n, "route": route, "files": files, "bytes": b, "tokens_est": b // 4}
     if route == "full":
-        rb = sum(len(read(f).encode()) for f in REAL_FULL + ([SLIM] if SLIM in text else []))
+        rb = sum(len(read(f).encode()) for f in REAL_FULL + ([SLIM] if SLIM in text else []) + (["references/method-diff.md"] if "method-diff.md" in text else []))
         out.update(real_bytes=rb, real_tokens_est=rb // 4)
     return out
 
