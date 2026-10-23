@@ -27,7 +27,7 @@ def commit_tag(r: Path, t: str, sums_ok=True, force=False):
             for f in ("TAGNAME", "scripts/update-installed.sh")]
     (r / "SHA256SUMS").write_text("\n".join(rows) + "\n")
     sh("git", "add", "-A", cwd=r)
-    sh("git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", t, cwd=r)
+    sh("git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", t, cwd=r)
     sh("git", "tag", *(["-f"] if force else []), t, cwd=r)
 
 
@@ -90,7 +90,7 @@ class AutoUpdateTests(unittest.TestCase):
         s = self.proj / ".claude/settings.local.json"
         s.write_text("{}\n")
         sh("git", "add", "-f", ".claude/settings.local.json", cwd=self.proj)
-        sh("git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "s", cwd=self.proj)
+        sh("git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "s", cwd=self.proj)
         s.write_text('{"model": "opus"}\n')
         self.assertEqual(au.run(self.proj), 0)
         self.assertFalse((self.proj / ".claude/ran").exists())

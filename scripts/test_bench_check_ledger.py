@@ -27,7 +27,7 @@ def test_ledger_scales_linearly_and_keeps_verdicts(tmp):
 
 
 def test_unsafe_ref_is_one_line_error(tmp):
-    g = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(tmp), *a],
+    g = lambda *a: subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(tmp), *a],
                                   check=True, capture_output=True)
     g("init", "-q", "-b", "main")
     (tmp / "docs/bench/x").mkdir(parents=True)

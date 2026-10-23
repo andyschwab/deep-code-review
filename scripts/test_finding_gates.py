@@ -34,7 +34,7 @@ with tempfile.TemporaryDirectory() as t:
     assert g.parse("a:1:2") == ("a:1", 2, 2) and g.parse("a:3-5") == ("a", 3, 5) and g.parse("a") is None
 
     # --ref reads the git tree, not the working tree
-    subprocess.run("git init -q . && git add . && git -c user.name=t -c user.email=t@example.com commit -qm x", shell=True, cwd=t, check=True)
+    subprocess.run("git init -q . && git add . && git -c gc.auto=0 -c maintenance.auto=false -c user.name=t -c user.email=t@example.com commit -qm x", shell=True, cwd=t, check=True)
     with open(os.path.join(t, "src", "a.py"), "w") as fh:
         fh.write("changed\n")
     assert g.check(row("src/a.py:10"), t) == (False, "line out of range"), "working tree is the changed file"

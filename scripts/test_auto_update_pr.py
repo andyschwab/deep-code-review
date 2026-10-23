@@ -28,7 +28,7 @@ def sh(*a, cwd=None):
 
 def commit(r, msg):
     sh("git", "add", "-A", cwd=r)
-    sh("git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", msg, cwd=r)
+    sh("git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", msg, cwd=r)
 
 
 class AutoUpdatePrTests(unittest.TestCase):

@@ -26,7 +26,7 @@ def run(args, cwd=None):
 class Receipt(unittest.TestCase):
     def repo(self, changed):
         d = tempfile.mkdtemp(dir=os.environ.get("TMPDIR"))
-        g = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+        g = lambda *a: subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
                                       cwd=d, check=True, capture_output=True, text=True).stdout.strip()
         g("init", "-q", "-b", "main")
         write(os.path.join(d, "a.txt"), "x")

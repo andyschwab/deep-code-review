@@ -152,7 +152,7 @@ class GateRunnerWiring(unittest.TestCase):
         subprocess.run(["cp", GATES, os.path.join(d, "scripts/dcr-gates.sh")], check=True)
         Path(d, "README.md").write_text("<!-- derived: files *.zzz -->3 tests\n")
         Path(d, ".gitignore").write_text("__pycache__/\n")  # CI leaves .pyc in the copied scripts dir
-        for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x"]):
+        for c in (["init", "-q"], ["add", "-A"], ["-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x"]):
             subprocess.run(["git", "-C", d, *c], check=True, capture_output=True)
         env = {**os.environ, "BASE_SHA": "", "HEAD_SHA": ""}
         p = subprocess.run(["bash", os.path.join(d, "scripts/dcr-gates.sh")], capture_output=True, text=True, env=env)

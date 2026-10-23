@@ -156,7 +156,7 @@ with tempfile.TemporaryDirectory() as td:
     # --base: only files changed since the merge-base are scanned
     g = tmp / "repo"
     g.mkdir()
-    git = lambda *a: subprocess.run(["git", "-c", "user.name=Jane Smith", "-c", "user.email=jane@example.com", "-c", "commit.gpgsign=false", *a],
+    git = lambda *a: subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=Jane Smith", "-c", "user.email=jane@example.com", "-c", "commit.gpgsign=false", *a],
                                     cwd=g, capture_output=True, text=True, check=True)
     git("init", "-q", "-b", "main")
     (g / "tokens.css").write_text(CSS_TOKENS)

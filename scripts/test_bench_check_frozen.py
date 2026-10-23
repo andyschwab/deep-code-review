@@ -105,7 +105,7 @@ def test_root_relative_entry(tmp):
 def git_repo(tmp):
     """Init tmp as a git repo; return a runner that commits with a fixed identity."""
     import subprocess
-    g = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(tmp), *a],
+    g = lambda *a: subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(tmp), *a],
                                   check=True, capture_output=True)
     g("init", "-q", "-b", "main")
     g("commit", "-qm", "base", "--allow-empty")

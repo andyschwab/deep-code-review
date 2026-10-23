@@ -44,7 +44,7 @@ class EnvLint(unittest.TestCase):
     def test_base_selects_changed_test_files(self):
         with tempfile.TemporaryDirectory() as d:
             def git(*a):
-                subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+                subprocess.run(["git", "-C", d, "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
                                check=True, capture_output=True)
             git("init", "-q")
             open(os.path.join(d, "test_old.py"), "w").write(BAD)
