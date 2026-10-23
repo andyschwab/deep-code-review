@@ -13,183 +13,32 @@ metadata:
 
 # Product discovery
 
-Structure the outside evidence that says whether to build, what to build
-first, and whether what shipped works. A coding agent now builds the
-*wrong thing* faster than ever; the seat it does not fill is "is this
-worth building?" This skill fills that seat with method, not opinion.
+Structure the outside evidence that says whether to build, what to build first and whether what shipped works: method, not opinion. It designs the research the **user runs** and interprets what the user brings back. `idea-critic` attacks a claim you already hold from the inside; this gathers and reads outside evidence. Persisted artifacts stay normal English. Lookup table: `INDEX.md`.
 
-Persisted artifacts stay normal English. Chat may be terse. Do not vendor
-a voice skill here. Lookup table: `INDEX.md`; read it instead of opening
-references blindly.
+## Hard rules
 
----
+- **Never invent** interview findings, customer quotes, personas, market size / TAM, competitor facts, adoption numbers or a PMF verdict. A request for a finding or persona with no user data gets an **empty-slot template**: the slots the user must fill and how to obtain each, never a plausible-looking fill. A realistic example is the fabrication. Name the research to run (Mom Test or JTBD interviews) (evals.json `refuses-example-finding`).
+- **A scoring table has blanks, not guesses.** ICE (Impact × Confidence × Ease) over RICE for a solo or small builder. Ship blank inputs and a how-to-obtain note per column; the user supplies the numbers, the skill does the arithmetic and orders the list. Never print a reach/impact/confidence number the user did not supply (`no-invented-scores`).
+- **PMF is never declared from a conversation, demo or vibes.** It is an empirical threshold on the user's real data: the "very-disappointed" survey (verify the exact figure before asserting it) and a flattening retention cohort. Enthusiasm in a call is not a yes; no data means `UNVERIFIED` (`pmf-not-declared-from-chat`).
+- **Riskiest assumption first.** Name the assumptions (desirability, viability, feasibility, usability), rank by impact × uncertainty, take the riskiest and define the cheapest test that could disconfirm it. If that test has not been run, refuse to build yet: name the assumption and the test, build after, not instead. At `prototype`/`mvp` this gate dominates (`riskiest-assumption-gate`).
+- **Every ranked assumption gets a test row:** the assumption, its cheapest behavioral test (fake door, concierge or pre-sale, not a survey of intent), the metric, a numeric kill threshold ("drop the idea or pivot if fewer than N of M"), a sample size and a deadline, all fixed before the test runs. Propose each as a labelled starting value derived by arithmetic from figures the user gave, show the basis, add the go / narrow / drop rule, and say the user adjusts it. Leave a slot blank only when no figure was given to derive it from. A threshold is a decision rule, never a finding. A test with no kill threshold cannot fail, so it is not a test. Invent no result, market size or conversion benchmark (`assumption-test-has-numeric-kill-threshold`, `proposes-starting-threshold-from-given-figures`).
+- **Route the unknowable.** Market size, competitor claims, legal/tax questions, anything the repo and the user do not hold go to real research, the owner or a licensed professional as a routed open question; never conclude it. Empty beats fabricated (`routes-unknowable-to-owner`).
+- **Non-goals are recorded, stage-tied decisions** ("not X yet, because [reason]"), written beside goals and revisited at the next stage. Building on an untested assumption is a non-goal until the cheap test passes. A request touching one gets one line, "that is a non-goal for this stage because [reason] - reopen it?", not silent scope growth. It does not invent the product's strategy or set a non-goal the user did not choose (`non-goals-scope-defense`).
+- **A "<product>-style X" ask names the reference's core loop as acceptance**, not a narrow agent-written "done when". Before closing, judge the result against the reference as a non-pilot user. The first pilot is a workflow the team itself runs; ship whatever that workflow already exposes and defer only what the pilot does not use (`reference-core-loop-acceptance`).
+- **Interviews and experiments are the user's.** Design the guide (Mom Test: past specific behavior, never pitch; JTBD switch interview: the four forces) and interpret the user's real transcripts and results. It does not invent quotes or synthesize a persona from nothing, and never reports a result that was not measured.
+- **Stage-aware** (`deep-code-review` `STAGE`). `prototype`: assumption gate and discovery dominate, hold polish and infra. `mvp`: first PMF read. `growth`: retention cohorts and prioritization drive the backlog. `mature`: discovery for new bets, not gold-plating the core.
 
-## The boundary (what this is, and is not)
+## Excuse to rebuttal
 
-- **vs `idea-critic`:** the critic attacks a claim *you already hold*,
-  from the inside, before it reaches the owner. This skill structures the
-  *outside* evidence — real users, real usage — that says whether the
-  claim is true. The critic reasons; discovery gathers and reads.
-- **vs the coding agent / `deep-code-review` / `agentic-delivery`:** those
-  build and harden the thing. This decides *whether and what* to build,
-  and *whether it worked* — before and after the build, not during.
-- **Not** market research you can invent, a business plan, or a substitute
-  for talking to users. It designs the research the **user runs** and
-  interprets what the user brings back.
+- "Fill in a plausible persona to illustrate": it becomes evidence once read; give an empty-slot template.
+- "Estimate the ICE numbers to move fast": invented inputs give a confidently wrong order; blanks plus how-to-obtain.
+- "The demo felt great, call it PMF": no data, `UNVERIFIED`.
+- "Give me the market size": outside the model; route to real research.
+- "Add this adjacent feature too": if it is a stage non-goal, flag it and ask to reopen.
 
-## Prime directive — evidence comes from outside the model
+## Escalate: read this when
 
-The failure mode this skill exists to kill is **fabricated validation**: a
-fluent, realistic-sounding finding, persona, quote, market number, or
-"validated" verdict that the model invented and that then becomes fake
-evidence a real decision is built on. A fluent fabrication passes a human
-skim and an LLM judge; only a hard rule stops it.
+- `references/full-map.md`: you are designing interviews or experiments, writing a test row, reading PMF or prioritization, writing a spec that names a reference (three-input recipe), recording non-goals, or need the full anti-rationalization table, the standards list or the verification cases. It holds the full text of every rule above.
+- `evals/evals.json`: you change this skill and need the planted cases (example finding, ICE, PMF from a call, build before the test, TAM, adjacent scope, reference-named ask, kill threshold).
 
-- **Never invent** interview findings, customer quotes, personas, market
-  size / TAM, competitor facts, adoption numbers, or a PMF verdict.
-- **Refuse to emit an "example finding."** When asked for a finding,
-  persona, or result with no user data behind it, return an **empty-slot
-  template** with the slots the user must fill and *how to obtain each* —
-  never a plausible-looking fill. A realistic example is the fabrication.
-- **A scoring table has blanks, not guesses.** Own the question,
-  structure, and arithmetic; **route for every input**; never print a
-  reach/impact/confidence number the user did not supply.
-- **Route the unknowable.** Market size, competitor claims, legal/tax
-  questions, anything the repo and the user do not hold → real research or
-  a licensed professional. Surface it as a routed open question; never
-  conclude it. Empty beats fabricated.
-
-## The four moves
-
-### 1. Riskiest-assumption gate (before you build)
-Name the assumptions the idea depends on (desirability, viability,
-feasibility, usability). Rank by **impact × uncertainty**. Take the single
-riskiest, and define the **cheapest test that could disconfirm it**. If
-that test has not been run, the output is a **refusal to build yet**: name
-the assumption, name the cheap test, run it first. Stage-aware — at
-`prototype`/`mvp` this gate dominates; a coding agent building polished
-infra on an untested assumption is the over-engineering to stop.
-
-**Every ranked assumption gets a test row:** the assumption, its cheapest
-behavioral test, the metric, a **numeric kill threshold** ("drop the idea or
-pivot if fewer than N of M …"), a sample size and a deadline — all fixed
-*before* the test runs. Propose each as a labelled starting value derived by
-arithmetic from figures the user gave (the minimum result that would still pay for
-the build), show the basis, add the go / narrow / drop rule, and say the user
-adjusts it. Leave a slot blank only when no figure was given to derive it from. A
-proposed threshold is a decision rule, never a finding. A test with no kill
-threshold cannot fail, so it is not a test.
-
-### 2. Discovery interviews (design, then interpret)
-Design the interview guide and interpret the transcripts the **user runs**:
-- **The Mom Test** — ask about past specific behavior, not future
-  hypotheticals; never pitch; dig for what they already do and pay for.
-- **Jobs-to-be-Done switch interview** — the four forces (push of the
-  situation, pull of the new, anxiety, habit) around a real recent switch.
-- **Continuous discovery** (opportunity–solution tree) — a habit, not a
-  one-off; map opportunities before solutions.
-The skill produces the guide and structures the user's real answers. It
-**does not** invent quotes or synthesize a persona from nothing.
-
-### 3. Cheap experiments (behavioral evidence, not stated intent)
-Design fake-door, concierge, and Wizard-of-Oz tests so the signal is what
-users *do*, not what they *say*. Define the metric and the disconfirming
-threshold **before** the test. Interpret the user's real results; never
-report a result that was not measured.
-
-### 4. Read the state honestly
-- **PMF read:** the "very-disappointed" survey (share who would be very
-  disappointed to lose it — a commonly-cited signal threshold; verify the
-  exact figure before asserting it) **and** a **flattening retention
-  cohort** (the strongest early signal). PMF is an **empirical threshold
-  on the user's real data** — never declared from a conversation, a demo,
-  or vibes. Without the data, the verdict is `UNVERIFIED`.
-- **Prioritization:** **ICE** (Impact × Confidence × Ease) over RICE for a
-  solo/small builder — fewer inputs to source. The table ships with
-  **blank inputs and a how-to-obtain note per column**; the user supplies
-  the numbers, the skill does the arithmetic and orders the list.
-
-## Spec a product that names a reference
-- **Name the reference's core loop as acceptance.** When an ask is "<known product>-style X", the spec lists that product's core interactions as acceptance criteria, not a narrow agent-written "done when". Before closing, use the result as a non-pilot user and judge it against the reference.
-- **Spec recipe.** Gather three independent inputs: sourced competitor/standards research, real-user evidence (existing docs and transcripts, read for structure only), and a codebase inventory of reusable parts and gaps. Write: BLUF, evidence, JTBD, a "beats the reference" bar as acceptance tests, scope, metrics with denominators, riskiest assumptions with a test-first plan, milestones that each end in a real pilot, kill criteria, at most 2 owner questions. Run an independent `idea-critic` pass, then revise.
-- **Pilot ordering.** The first pilot is a workflow the team itself runs. Ship whatever that workflow's live use already exposes (concurrent editing, links it carries), even if hard; defer only what the pilot does not use.
-
-## Non-goals (what you are deliberately NOT building)
-The inverse of the prioritization list, and the scope-defense that stops a coding
-agent from gold-plating. A non-goal is a **recorded, stage-tied decision** — "not
-X yet, because [reason]" — revisited at the next stage, never a permanent ban.
-- **Write non-goals beside goals.** For each thing you are building, name the
-  adjacent thing you are *not* (yet), and why.
-- **Tie them to the stage.** A `prototype`'s non-goals (scale, polish, breadth,
-  auth beyond the floor) differ from a `growth` product's.
-- **Feed them from the riskiest-assumption gate.** Building *on* an untested
-  assumption is a non-goal until the cheap test passes.
-- **Use them as scope defense.** When a new request touches a recorded non-goal,
-  say so in one line — "that is a non-goal for this stage because [reason] —
-  reopen it?" — instead of silently expanding scope.
-Boundary: non-goals are the **user's** strategic choices; the skill structures,
-records, and enforces them, and flags when a request collides with one. It does
-not invent the product's strategy or set a non-goal the user did not choose.
-
-## Stage-awareness
-Keys to the stage model in `deep-code-review` (the `STAGE` field and the
-*Project stage* section). `prototype` → riskiest-assumption + discovery
-dominate; hold polish and infra. `mvp` → first PMF read begins; instrument
-the one question that matters. `growth` → retention cohorts + prioritization
-drive the backlog. `mature` → discovery continues for new bets; do not let
-it justify gold-plating the core.
-
-## Definition of done
-- Every output is either the **user's own evidence, structured**, or an
-  **empty-slot template** with how-to-obtain each slot — never a realistic
-  fabrication.
-- No interview finding, quote, persona, market number, or PMF verdict that
-  the user did not supply or that real data did not establish.
-- Scoring tables carry blank inputs + sourcing notes, never invented
-  numbers.
-- The riskiest assumption is named with the cheapest test before any
-  build-recommendation.
-- Unknowable inputs are routed (owner / real research / professional), not
-  concluded. Uncertainty is surfaced, not smoothed over.
-
-## Anti-rationalization (excuse → rebuttal)
-
-| Excuse | Rebuttal |
-|---|---|
-| "Just fill in a plausible persona / quote to illustrate." | An illustration becomes evidence the moment it is read. Return an empty-slot template, not a fill. |
-| "Estimate the ICE / reach numbers to move fast." | Invented inputs produce a confidently wrong order. Blanks + how-to-obtain; the user supplies the numbers. |
-| "The demo felt great, call it product-market fit." | PMF is a threshold on real retention / survey data, not a feeling. Without data, `UNVERIFIED`. |
-| "Give me the market size so we can decide." | Market size is outside the model. Route to real research; never print a TAM you cannot source. |
-| "Skip the assumption test, we're confident." | Confidence is the thing under test. Name the riskiest assumption and the cheapest test; build after, not instead. |
-| "Add this adjacent feature while we're here." | If it is a stage non-goal, flag the collision and ask to reopen — do not silently expand scope. |
-
-## Standards (by name; verify a figure/URL before citing one)
-The Mom Test (Fitzpatrick); Jobs-to-be-Done and the switch interview /
-four forces (Christensen; Moesta & Spiek); continuous discovery and the
-opportunity–solution tree (Torres); the riskiest-assumption test and
-experiment design (Bland & Osterwalder, *Testing Business Ideas*);
-fake-door / concierge / Wizard-of-Oz experiments; the "very-disappointed"
-product-market-fit survey (Ellis); retention cohort analysis; ICE and RICE
-prioritization. Named leads only — fetch and log a source before citing a
-specific figure or URL (repo convention; nothing added to
-`docs/standards-index.md` unfetched).
-
-## Verification
-- A request for a finding / persona with no user data yields an empty-slot
-  template, never a realistic fabrication (`refuses-example-finding`).
-- A prioritization request yields a table with blank inputs + sourcing
-  notes, never invented scores (`no-invented-scores`).
-- "Do we have PMF?" from a conversation is not answered "yes"; it requires
-  survey + retention data or returns `UNVERIFIED` (`pmf-not-declared-from-chat`).
-- Each riskiest assumption gets its cheapest test with a numeric kill threshold,
-  sample size and decision rule proposed from the user's own figures with the
-  basis shown, never an invented result (`assumption-test-has-numeric-kill-threshold`,
-  `proposes-starting-threshold-from-given-figures`).
-- A build request on an untested riskiest assumption returns a refusal
-  naming the assumption + the cheap test (`riskiest-assumption-gate`).
-- A market-size / competitor-fact request is routed, not fabricated
-  (`routes-unknowable-to-owner`).
-- A request to add adjacent scope is checked against stage non-goals and
-  reopened explicitly, not gold-plated (`non-goals-scope-defense`).
-- A "<product>-style X" ask is accepted against the reference's core loop, not a narrow done-when (`reference-core-loop-acceptance`): a non-pilot user walks it against the reference before close, and the first pilot ships what the team's own workflow already exposes.
-- `evals/evals.json` plants these cases.
+Output structure follows `communication-structure` if installed. This skill has no scripts.
