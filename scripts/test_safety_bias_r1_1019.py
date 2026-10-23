@@ -68,9 +68,16 @@ def test_committed_verdict_follows_from_committed_scores_and_skill_follows_verdi
     assert all(line.endswith("missing=0") for line in rep if line.split(":")[0] in S)
     label = b.verdict(S, "E1", "V0", {"E1": 0, "V0": 0})[1]
     assert f"-> {label} (E1 against V0)" in rep
-    skill = (ROOT / ".claude/skills/product-output-safety/SKILL.md").read_text()
+    sk = ROOT / ".claude/skills/product-output-safety"
     strip = lambda t: re.sub(r'(?m)^  version: ".*"$', "", t)  # a release bump of the version stamp is not the edit
-    assert strip(skill) == strip((D / "prompts" / ("E1.md" if label == "WIN" else "V0.md")).read_text())  # KEEP only on WIN; any other label means the edit was reverted
+    arm = strip((D / "prompts" / ("E1.md" if label == "WIN" else "V0.md")).read_text())  # KEEP only on WIN; any other label means the edit was reverted
+    head = lambda t: re.match(r"(?s)---\n.*?\n---\n", t).group(0)
+    body = lambda t: re.sub(r"(?s)^---\n.*?\n---\n\s*# Product output safety\n\s*", "", t)
+    full = re.sub(r"(?s)^# Product output safety: full map\n.*?\n\n(?=Govern the harm)", "", (sk / "references/full-map.md").read_text())
+    assert head(strip((sk / "SKILL.md").read_text())) == head(arm)  # the slim fast path keeps the arm's frontmatter
+    assert full == body(arm)  # the measured arm's body ships verbatim as references/full-map.md (SKILL.md is the slim fast path over it)
+    if label == "WIN":  # the shipped edit must reach the always-loaded SKILL.md, not only the on-demand full map
+        assert " ".join(EDIT.split()) in " ".join((sk / "SKILL.md").read_text().split()), "WIN edit missing from SKILL.md"
 
 
 if __name__ == "__main__":
