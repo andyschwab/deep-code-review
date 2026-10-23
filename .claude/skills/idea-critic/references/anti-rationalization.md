@@ -1,6 +1,6 @@
 # Anti-rationalization (excuse → rebuttal)
 
-**Read this when** you are about to emit `PASS_TO_USER`, skip a hat, or accept a shortcut (see SKILL.md, Anti-rationalization).
+**Read this when** you are about to emit `PASS_TO_USER`, skip a hat, or accept a shortcut (see SKILL.md, Escalate).
 
 Pre-written rebuttals to shortcuts the critic — or the parent — has not
 yet taken. Close the shortcut before it is taken.
