@@ -14,8 +14,8 @@ git clone -q --no-hardlinks "$ROOT" "$R" 2>/dev/null
 cp "$ROOT/.claude/skills/deep-code-review/templates/pre-push-verify.sh" "$R/.claude/skills/deep-code-review/templates/"
 g add -A; g commit -q --allow-empty -m base; g update-ref refs/remotes/origin/main HEAD
 B=$(g rev-parse HEAD)
-run() { # run: hook over the current HEAD as a new branch; sets rc, log in $WORK/log
-  (cd "$R" && printf 'refs/heads/b %s refs/heads/b 0000000000000000000000000000000000000000\n' "$(git rev-parse HEAD)" |
+run() { # run [sha]: hook over sha (default HEAD) as a new branch; sets rc, log in $WORK/log
+  (cd "$R" && printf 'refs/heads/b %s refs/heads/b 0000000000000000000000000000000000000000\n' "${1:-$(git rev-parse HEAD)}" |
     DCR_PREPUSH_CMD=true DCR_PREPUSH_DEFAULT_BRANCH=main bash .claude/skills/deep-code-review/templates/pre-push-verify.sh origin) >"$WORK/log" 2>&1
   rc=$?
 }
@@ -59,6 +59,34 @@ mkdir -p "$R/docs/bench/zz-plant"; echo '[{"id": "a", "prompt": "planted"}]' >"$
 red bench-check 'bench_check --changed'
 awk -F'\t' 'BEGIN{OFS=FS} $1=="phase-floor-light"{$2=1} {print}' "$R/scripts/mustload-budgets.tsv" >"$WORK/t" && cp "$WORK/t" "$R/scripts/mustload-budgets.tsv"
 red mustload 'mustload'
+# privacy: CI scans the whole tree; the hook scans changed files and must name the file, never the matched text
+tok="AKIA""ABCDEFGHIJKLMNOP"; echo "k = $tok" >"$R/zz-secret.txt"
+red privacy 'privacy'
+! grep -q "$tok" "$WORK/log"; ok $? "privacy refusal withholds the matched content"
+g reset -q --hard "$B"
+# a hit added then deleted inside the range is not a scan target (no grep-on-missing-path error); the hook itself
+# refuses a dirty or mismatched host tree, so the host tree scanned here is always the pushed commit
+echo "k = $tok" >"$R/zz-secret.txt"; g add -A; g commit -q -m "plant hit"; g rm -q zz-secret.txt; g commit -q -m "delete the hit"; run
+ok $rc "privacy ignores a deleted file"
+g reset -q --hard "$B"
+# a range that edits .banlist.txt scans the whole tree: a pre-existing hit in an untouched file is caught
+echo "k = $tok" >"$R/zz-old.txt"; g add -A; g commit -q -m "old hit"; g update-ref refs/remotes/origin/main HEAD
+echo "# note" >>"$R/.banlist.txt"; g add -A; g commit -q -m "touch banlist"; run
+{ [ "$rc" -ne 0 ] && grep -q 'FAIL -- privacy' "$WORK/log" && grep -q 'zz-old.txt' "$WORK/log"; }; ok $? "banlist edit in range scans the whole tree"
+g update-ref refs/remotes/origin/main "$B"; g reset -q --hard "$B"
+# Every CI gate in "Enforce documented gates" needs a pre-push counterpart in the hook, or an exemption with a reason here.
+# CI-only today (no fast parity gate yet): routing loops over every skill dir; enumeration, binaries and check-leader-doc
+# scan or parse the whole tree; rules diffs a baseline; size enforces the absolute per-file budgets (the hook runs only
+# size-ratchet, which refuses raises vs the base, not the absolute check).
+EXEMPT='scripts/ci-gates.sh routing|scripts/ci-gates.sh enumeration|scripts/ci-gates.sh size|scripts/ci-gates.sh binaries|scripts/ci-gates.sh rules|scripts/check-leader-doc.sh'
+missing=""
+HOOK_CODE="$(grep -v '^ *#' "$ROOT/.claude/skills/deep-code-review/templates/pre-push-verify.sh")"
+for k in $(awk '/- name: Enforce documented gates/{f=1;next} f&&/^      - name:/{exit} f' "$ROOT/.github/workflows/ci.yml" |
+  grep -v '^ *#' | grep -oE 'scripts/[A-Za-z0-9_-]+\.(sh|py)( [a-z][a-z0-9-]*)?' | sed 's/ /@/' | sort -u); do
+  k="${k/@/ }"; re="$(printf '%s' "$k" | sed 's/[.[\*^$]/\\&/g')"
+  printf '%s\n' "$HOOK_CODE" | grep -qE "$re( |\$)" || printf '%s\n' "|$EXEMPT|" | grep -qF "|$k|" || missing="$missing [$k]"
+done
+[ -z "$missing" ]; ok $? "every CI 'Enforce documented gates' step has a pre-push counterpart or exemption${missing:+ -- missing:$missing}"
 python3 - "$R/$F/evals/evals.json" <<'PY'
 import sys; p = sys.argv[1]; s = open(p).read(); open(p, "w").write(s.replace("[needs_files] Loads", "Loads", 1))
 PY
