@@ -112,7 +112,7 @@ ok $? "train_land: a non-numeric TRAIN_SPLIT_DEPTH warns and disables splitting"
 out=$(AGEIT=1 PRSARG="1 2" run); rc=$?
 [ $rc -eq 0 ] && [ "$(landed)" = "1 2 " ] && [ "$(wc -l <"$WORK/age.log" | tr -d ' ')" = 1 ] && [ "$(cat "$WORK/age.log")" -lt 600 ]
 ok $? "train_land: heavy-exclusive-renew from the train subshell refreshes the lease"
-# (12) PERUN_HOLDER_PID names only an ancestor: it can never release, renew or take a lease held by another process, and a bad value falls back to the caller
+# (12) PERUN_HOLDER_PID names only an ancestor within two hops: it cannot release, renew or take a lease held by another process, and a bad value falls back to the caller
 PY="$SC/perun_policy.py" LF="$WORK/hv/heavy.exclusive"
 age() { python3 -c 'import os,sys,time;print(int(time.time()-os.path.getmtime(sys.argv[1])))' "$LF"; }
 old() { python3 -c 'import os,sys,time;t=time.time()-3600;os.utime(sys.argv[1],(t,t))' "$LF"; }
@@ -128,6 +128,12 @@ for v in 0 -1 abc; do
   o=$(PERUN_HOLDER_PID=$v python3 "$PY" heavy-exclusive) && [ "$o" -gt 0 ] 2>/dev/null && [ "$(cut -d' ' -f1 "$LF")" = "$o" ] || s=1; rm -f "$LF"
 done
 ok $s "perun_policy: a bad PERUN_HOLDER_PID falls back to the caller's pid (never 0, -1 or a failure)"
+e=$(PERUN_HOLDER_PID=1 python3 "$PY" heavy-exclusive 2>&1 >/dev/null); rm -f "$LF"
+case $e in *"ignoring PERUN_HOLDER_PID='1'"*) s=0;; *) s=1;; esac
+ok $s "perun_policy: a rejected PERUN_HOLDER_PID (pid 1) warns on stderr"
+e=$(sh -c 'PERUN_HOLDER_PID=$$ python3 "$0" heavy-exclusive >/dev/null; :' "$PY" 2>&1); rm -f "$LF"  # python's direct parent is this sh, so hp == ppid exactly (not the grandparent branch)
+[ -z "$e" ]
+ok $? "perun_policy: PERUN_HOLDER_PID equal to the direct parent (valid) prints no warning"
 python3 "$PY" heavy-exclusive >/dev/null; old
 ( python3 "$PY" heavy-exclusive-renew; true ); a1=$(age)
 ( PERUN_HOLDER_PID=$$ python3 "$PY" heavy-exclusive-renew; true ); a2=$(age)

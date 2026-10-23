@@ -158,15 +158,15 @@ or equivalent) that opens one reviewable PR per update — Dependabot "raises a
 pull request to update the manifest to the latest version" even when there is no
 vulnerability — turns currency from a periodic manual audit into a steady stream
 that each passes review + the aggregate gate. Recommend one where it is absent
-(it is what OpenSSF Scorecard's `Dependency-Update-Tool` check rewards). The bot
-does not replace the gate or the changelog read — it *feeds* them.
+(OpenSSF Scorecard's `Dependency-Update-Tool` check rewards it). The bot
+*feeds* the gate and the changelog read, never replaces them.
 
 ---
 
 ## 3 — Severity discipline (do not turn currency into noise)
 
 Rank a dependency finding by **exploitable consequence today**, exactly like any
-other (`SKILL.md` severity rubric). This is what stops a currency pass from
+other (`SKILL.md` severity rubric). This stops a currency pass
 burying a real Critical under a wall of "bump me":
 
 - **Known-exploited (or high-CVSS) vulnerability, on a reachable code path** →
@@ -180,7 +180,7 @@ burying a real Critical under a wall of "bump me":
 - **Merely behind latest-stable, no known vuln** → Low or `Nit:` — "currency
   debt," non-blocking. Report it as a batch with the recommendation to adopt an
   update bot, **not** as N separate findings. Never let this class outrank a real
-  defect.
+  defect. Branches too: `branch-and-merge-hygiene.md` §7.
 
 **Determining "known-exploited" — name the instrument, don't guess.** A finding
 that turns on "known-exploited" must name its source, per principle 2
@@ -191,14 +191,13 @@ data-driven probability a CVE "will be exploited in the wild in the next 30
 days." Read them **alongside** CVSS, not instead of it: KEV / EPSS answer *how
 likely*, CVSS answers *how bad* (severity). But both bodies frame KEV and EPSS
 as *inputs* to prioritization, so they **raise and rank, never lower the bar** —
-a low EPSS,
-or a CVE's absence from KEV, does **not** disarm a reachable-path finding
+a low EPSS, or a CVE's absence from KEV, does **not** disarm a reachable-path finding
 (absence of exploitation evidence is not proof of safety, and EPSS is a 30-day
 probability, not a verdict).
 
 And never recommend a bump you have not shown is gate-green — a fix that breaks
-the build is a regression, not an improvement (principle 4). If you could not run
-the gate on the bumped tree, mark the recommendation `unverified` and name what
+the build is a regression (principle 4). If the gate was not run
+on the bumped tree, mark the recommendation `unverified` and name what
 would confirm it.
 
 ---

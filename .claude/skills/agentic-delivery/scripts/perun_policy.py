@@ -432,15 +432,22 @@ def _ppid(pid: int) -> int:
 
 def holder_pid() -> int:
     """Lease holder for the heavy-exclusive CLI: the calling shell (getppid()). A script that calls from a subshell may name
-    its own shell with env PERUN_HOLDER_PID, honored only when it is a positive integer equal to the parent or the
-    grandparent of this process (one _ppid hop); anything else (0, -1, text, a pid that is not an ancestor, an unreadable
-    process table) is ignored, so the variable can never release, renew or take another process's lease."""
+    its own shell with env PERUN_HOLDER_PID, honored only when it is an integer > 1 (pid 1 is where an orphan is
+    reparented, so it must never hold the lease) that is the grandparent of this process (one _ppid hop); anything else
+    (0, 1, -1, text, a pid that is not that ancestor, an unreadable process table) is ignored, so the variable can name
+    only an ancestor within two hops and cannot release, renew or take another process's lease. A rejected non-empty
+    value prints a warning on stderr."""
     pp = os.getppid()
+    raw = os.environ.get("PERUN_HOLDER_PID", "")
     try:
-        hp = int(os.environ.get("PERUN_HOLDER_PID", ""))
+        hp = int(raw)
     except ValueError:
-        return pp
-    return hp if hp > 0 and hp != pp and hp == _ppid(pp) else pp
+        hp = 0
+    if hp > 1 and hp != pp and hp == _ppid(pp):
+        return hp
+    if raw and hp != pp:  # hp == pp is a valid direct call, not a rejection
+        print(f"perun_policy: ignoring PERUN_HOLDER_PID={raw!r} (not an ancestor within two hops); holder is pid {pp}", file=sys.stderr)
+    return pp
 
 
 def main(argv: list) -> int:
@@ -559,11 +566,21 @@ def _selftest() -> int:
     assert exclusive_holder(ld) is None and exclusive_acquire(ld, os.getppid())
     exclusive_release(ld, os.getppid())
     assert not _alive(0) and not _alive(-1) and _ppid(os.getpid()) == os.getppid()
-    for bad in ("0", "-1", "abc", ""):
-        os.environ["PERUN_HOLDER_PID"] = bad
-        assert holder_pid() == os.getppid(), bad
-    os.environ["PERUN_HOLDER_PID"] = str(os.getppid())
-    assert holder_pid() == os.getppid()
+    import contextlib, io
+    with contextlib.redirect_stderr(io.StringIO()) as warn:  # rejected values warn; keep that out of the selftest output
+        for bad in ("0", "1", "-1", "abc", ""):
+            os.environ["PERUN_HOLDER_PID"] = bad
+            assert holder_pid() == os.getppid(), bad
+        os.environ["PERUN_HOLDER_PID"] = str(os.getppid())
+        assert holder_pid() == os.getppid()
+        n = warn.getvalue().count("ignoring PERUN_HOLDER_PID")
+        real, os.environ["PERUN_HOLDER_PID"] = _ppid, "1"
+        globals()["_ppid"] = lambda _p: 1  # an orphan whose parent was reparented to pid 1 must not let pid 1 hold the lease
+        try:
+            assert holder_pid() == os.getppid()
+        finally:
+            globals()["_ppid"] = real
+    assert n == 4 and warn.getvalue().count("ignoring PERUN_HOLDER_PID") == 5, "each rejected value warns once; the valid parent value stays silent"
     del os.environ["PERUN_HOLDER_PID"]
     print("perun_policy selftest ok")
     return 0
