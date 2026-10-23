@@ -285,7 +285,7 @@ class MemoryLintTests(Tmp):
             self.skipTest("git needed")
         main = self.tmp / "my.repo"
         main.mkdir()
-        git = ["git", "-C", str(main), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        git = ["git", "-C", str(main), "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com"]
         subprocess.run([*git, "init", "-q"], check=True, capture_output=True)
         subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "x"], check=True, capture_output=True)
         wt = self.tmp / "wt"

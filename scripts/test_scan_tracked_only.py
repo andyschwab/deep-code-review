@@ -16,7 +16,7 @@ SKILL = ".claude/skills/demo/SKILL.md"
 
 
 def git(cwd, *a):
-    subprocess.run(["git", "-C", str(cwd), "-c", "user.email=a@example.com", "-c", "user.name=A", *a],
+    subprocess.run(["git", "-C", str(cwd), "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.email=a@example.com", "-c", "user.name=A", *a],
                    check=True, capture_output=True)
 
 

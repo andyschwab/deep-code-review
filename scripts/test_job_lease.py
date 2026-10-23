@@ -147,7 +147,7 @@ class QueueLines(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             repo = Path(t) / "repo"
             repo.mkdir()
-            git = ["git", "-c", "user.email=t@example.com", "-c", "user.name=T"]
+            git = ["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.email=t@example.com", "-c", "user.name=T"]
             subprocess.run(git + ["init", "-q"], cwd=repo, check=True, env=ENV)
             subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "base"], cwd=repo, check=True, env=ENV)
             hv = Path(t) / "hv"

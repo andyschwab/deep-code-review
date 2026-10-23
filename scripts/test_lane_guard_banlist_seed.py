@@ -20,7 +20,7 @@ PRIVATE = "Acme Capital\nJane Smith\n"
 
 
 def git(cwd, *a):
-    subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@example.com",
+    subprocess.run(["git", "-C", str(cwd), "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com",
                     "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + os.devnull, *a],
                    check=True, capture_output=True)
 

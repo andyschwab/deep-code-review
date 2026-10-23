@@ -98,7 +98,7 @@ class SkipCiSigpipe(unittest.TestCase):
         fn = sh("sed", "-n", "/^skip_ci_marker_in_range() {/,/^}/p",
                 str(ROOT / ".claude/skills/deep-code-review/templates/integrator-gate.sh")).stdout
         with tempfile.TemporaryDirectory() as d:
-            g = lambda *a, **kw: sh("git", "-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", *a, **kw)  # noqa: E731
+            g = lambda *a, **kw: sh("git", "-C", d, "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=T", "-c", "user.email=t@example.com", *a, **kw)  # noqa: E731
             g("init", "-q")
             g("commit", "-q", "--allow-empty", "-m", "base")
             for i, body in enumerate(("plain", "[skip ci] first\n\n" + "x" * 400000, "tail")):

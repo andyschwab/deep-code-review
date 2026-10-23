@@ -39,7 +39,7 @@ class TrainCache(unittest.TestCase):
         self.git("init", "-q", "-b", "main")
         (self.repo / "a.txt").write_text("one\n")
         self.git("add", "-A")
-        self.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "base")
+        self.git("-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "base")
         self.base = self.git("rev-parse", "HEAD")
         self._cwd = os.getcwd()
         os.chdir(self.repo)

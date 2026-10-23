@@ -61,7 +61,7 @@ class Terse(unittest.TestCase):
 
 
 def sh(d, *a):
-    subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+    subprocess.run(["git", "-C", d, "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
                    check=True, capture_output=True)
 
 

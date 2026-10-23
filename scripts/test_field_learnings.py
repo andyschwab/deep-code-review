@@ -16,7 +16,7 @@ def sh(*a, cwd=None, env=None):
 
 
 def git(cwd, *a):
-    r = sh("git", "-c", "user.email=a@example.com", "-c", "user.name=T", *a, cwd=cwd)
+    r = sh("git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.email=a@example.com", "-c", "user.name=T", *a, cwd=cwd)
     assert r.returncode == 0, r.stderr
     return r.stdout.strip()
 

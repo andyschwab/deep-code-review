@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_auto_update import au, sh, fake_remote, fake_installed  # noqa: E402
 
-COMMIT = ("git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm")
+COMMIT = ("git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm")
 SKILL = ".claude/skills/deep-code-review/SKILL.md"
 NEW = b"name: deep-code-review\nnew\n"
 

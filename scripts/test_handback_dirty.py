@@ -17,7 +17,7 @@ import handback_cap as hc  # noqa: E402
 
 
 def git(cwd, *a):
-    subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.com", *a], cwd=cwd, check=True, capture_output=True)
+    subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=T", "-c", "user.email=t@example.com", *a], cwd=cwd, check=True, capture_output=True)
 
 
 def check(cwd, mode="warn", agent_type=None):

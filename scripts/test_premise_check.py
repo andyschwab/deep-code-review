@@ -50,7 +50,7 @@ class PremiseCheck(unittest.TestCase):
         (Path(r) / "changelog.d").mkdir()
         (Path(r) / "changelog.d/f.txt").write_text("frag_only_fn\n")
         (Path(r) / "Makefile").write_text("all:\n")
-        for cmd in (["init", "-q"], ["add", "."], ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qm", "i"]):
+        for cmd in (["init", "-q"], ["add", "."], ["-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-qm", "i"]):
             subprocess.run(["git", "-C", r, *cmd], check=True, capture_output=True)
         self.old = pc.sc._gh
         pc.sc._gh = fake_gh

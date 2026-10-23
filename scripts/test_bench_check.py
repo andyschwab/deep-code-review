@@ -183,7 +183,7 @@ try:
     (new / "PREREGISTERED.md").write_text(PREREG)  # earlier cases rewrote it; the CLI run re-hashes it (rule e)
     r = Path(tempfile.mkdtemp())
     try:
-        g = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+        g = lambda *a: subprocess.run(["git", "-C", str(r), "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
                                       check=True, capture_output=True)
         g("init", "-q", "-b", "main")
         (r / "scripts").mkdir()

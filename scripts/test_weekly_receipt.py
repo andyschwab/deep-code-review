@@ -18,7 +18,7 @@ def receipt(*args):
 
 
 def git(repo, *a):
-    subprocess.run(["git", "-C", str(repo), "-c", "user.name=Jane Smith", "-c", "user.email=jane@example.com", *a],
+    subprocess.run(["git", "-C", str(repo), "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=Jane Smith", "-c", "user.email=jane@example.com", *a],
                    check=True, capture_output=True)
 
 

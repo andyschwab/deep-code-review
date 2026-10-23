@@ -13,7 +13,7 @@ import impact_map as im  # noqa: E402
 
 
 def git(d, *a):
-    subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.com", *a], cwd=d, check=True, capture_output=True)
+    subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=T", "-c", "user.email=t@example.com", *a], cwd=d, check=True, capture_output=True)
 
 
 class T(unittest.TestCase):

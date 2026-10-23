@@ -39,7 +39,7 @@ class LoadSet(unittest.TestCase):
 class Counter(unittest.TestCase):
     def test_lines_changed_counts_added_plus_deleted_ignoring_binary(self):
         with tempfile.TemporaryDirectory() as t:
-            g = lambda *a: subprocess.run(["git", "-C", t, "-c", "user.name=a", "-c", "user.email=a@example.com", *a], check=True, capture_output=True)
+            g = lambda *a: subprocess.run(["git", "-C", t, "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=a", "-c", "user.email=a@example.com", *a], check=True, capture_output=True)
             g("init", "-q")
             Path(t, "a.txt").write_text("1\n2\n3\n")
             Path(t, "b.bin").write_bytes(b"\0\1\2")

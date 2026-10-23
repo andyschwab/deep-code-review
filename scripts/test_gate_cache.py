@@ -38,7 +38,7 @@ class Base(unittest.TestCase):
         self.commit("first")
 
     def git(self, *a, cwd=None, check=True):
-        p = subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.com", *a], cwd=cwd or self.repo,
+        p = subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=T", "-c", "user.email=t@example.com", *a], cwd=cwd or self.repo,
                            env=self.env, capture_output=True, text=True)
         if check and p.returncode:
             raise AssertionError(f"git {a}: {p.stderr}")

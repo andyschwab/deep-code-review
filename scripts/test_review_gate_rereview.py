@@ -27,7 +27,7 @@ class T(unittest.TestCase):
         self.t.cleanup()
 
     def git(self, *a):
-        return subprocess.run(["git", "-c", "user.email=t@example.com", "-c", "user.name=T", *a], cwd=self.repo, env=self.env,
+        return subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.email=t@example.com", "-c", "user.name=T", *a], cwd=self.repo, env=self.env,
                               capture_output=True, text=True, check=True).stdout.strip()
 
     def commit(self, path):

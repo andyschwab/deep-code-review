@@ -53,7 +53,7 @@ class ClockLint(unittest.TestCase):
         self.assertIn("COULD_NOT_CHECK", out)
 
     def test_base_mode_only_changed_files(self):
-        g = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+        g = lambda *a: subprocess.run(["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
                                       cwd=self.d, check=True, capture_output=True, text=True)
         g("init", "-q")
         self.put("test_old.py", "time.time()\n")

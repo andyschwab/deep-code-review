@@ -21,7 +21,7 @@ class Parity(unittest.TestCase):
     def test_same_tokens_per_pr(self):
         with tempfile.TemporaryDirectory() as t:
             repo = Path(t)
-            g = ["git", "-C", t, "-c", "user.name=Jane Smith", "-c", "user.email=jane@example.com"]
+            g = ["git", "-C", t, "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "user.name=Jane Smith", "-c", "user.email=jane@example.com"]
             subprocess.run([*g, "init", "-q"], check=True)
             for n in (1, 2, 3):
                 subprocess.run([*g, "commit", "-q", "--allow-empty", "-m", f"Merge pull request #{n} from acme/x"], check=True)
