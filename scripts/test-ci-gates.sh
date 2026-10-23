@@ -2517,6 +2517,8 @@ fi
 # line): backticked refs in phase rows 0/1/2's Load cell that carry neither
 # the " on FULL" nor the " when " qualifier. An independent re-derivation of
 # cmd_mustload's parse (a test oracle, not a call into the gate under test).
+# map_file <skill_dir> — the file holding the load-map and phase tables: references/full-map.md when present, else SKILL.md.
+map_file() { if [ -f "$1/references/full-map.md" ]; then printf '%s' "$1/references/full-map.md"; else printf '%s' "$1/SKILL.md"; fi; }
 floor_light_refs() {
   awk -F'|' '
     $0 == "| Phase | Does | Load |" { on = 1; next }
@@ -2534,7 +2536,7 @@ floor_light_refs() {
         print ref
       }
     }
-  ' "$1/SKILL.md" | sort -u
+  ' "$(map_file "$1")" | sort -u
 }
 
 # py_only_leaks <skill_dir> — print every line of a family file other than
@@ -2552,7 +2554,7 @@ py_only_leaks() {
     esac
     printf '%s\n' "$sd/references/$f" >>"$set_list"
   done < <(floor_light_refs "$sd")
-  printf '%s\n' "$sd/SKILL.md" "$sd/references/lang-python.md" "$sd/references/lang-shell.md" >>"$set_list"
+  printf '%s\n' "$sd/SKILL.md" "$(map_file "$sd")" "$sd/references/lang-python.md" "$sd/references/lang-shell.md" >>"$set_list"
   for f in "$sd"/references/lang-*.md; do
     case "$(basename "$f")" in
       lang-python.md|lang-shell.md) continue ;;
@@ -2598,7 +2600,7 @@ lang_unrouted=""
 for f in "$dcr_sd"/references/lang-*.md; do
   b="$(basename "$f")"
   grep -qF "\`$b\`" "$dcr_sd/references/language-stack-redflags.md" || lang_unrouted="$lang_unrouted $b(parent)"
-  grep -qF "\`$b\`" "$dcr_sd/SKILL.md" || lang_unrouted="$lang_unrouted $b(SKILL.md)"
+  grep -qF "\`$b\`" "$dcr_sd/SKILL.md" "$(map_file "$dcr_sd")" || lang_unrouted="$lang_unrouted $b(SKILL.md)"
 done
 if [ -z "$lang_unrouted" ] && [ "$(ls "$dcr_sd"/references/lang-*.md | wc -l | tr -d ' ')" -ge 2 ]; then
   record 0 "language isolation: every lang-*.md is routed from language-stack-redflags.md and SKILL.md"
@@ -3030,7 +3032,7 @@ web_mustload_refs() {
         cell = substr(cell, RSTART + RLENGTH)
       }
     }
-  ' "$1/SKILL.md" | sort -u
+  ' "$(map_file "$1")" | sort -u
 }
 
 # web_plain_leaks <skill_dir> — print every content line (>= 25 chars, after
@@ -3048,7 +3050,7 @@ web_plain_leaks() {
     esac
     printf '%s\n' "$sd/references/$f" >>"$set_list"
   done < <({ floor_light_refs "$sd"; web_mustload_refs "$sd"; } | sort -u)
-  printf '%s\n' "$sd/SKILL.md" "$sd/references/domain-p.md" >>"$set_list"
+  printf '%s\n' "$sd/SKILL.md" "$(map_file "$sd")" "$sd/references/domain-p.md" >>"$set_list"
   for f in a11y-forms.md ux-writes.md ux-dataviz.md; do
     [ -f "$sd/references/$f" ] || { printf 'MISSING SUB-FILE: %s (fail closed)\n' "$f"; continue; }
     awk 'NR > 4 && length($0) >= 25' "$sd/references/$f" >>"$pats"
@@ -3072,7 +3074,7 @@ web_index_unrouted() {
       *) parent="frontend-a11y.md" ;;
     esac
     grep -qF "\`$b\`" "$sd/references/$parent" || printf 'UNROUTED %s (parent %s)\n' "$b" "$parent"
-    grep -qF "\`$b\`" "$sd/SKILL.md" || printf 'UNROUTED %s (SKILL.md)\n' "$b"
+    grep -qF "\`$b\`" "$sd/SKILL.md" "$(map_file "$sd")" || printf 'UNROUTED %s (SKILL.md)\n' "$b"
   done
   grep -E '^\| `a11y-forms\.md` \|' "$sd/references/frontend-a11y.md" | grep -qi 'form' \
     || printf 'TRIGGERLESS a11y-forms.md index row\n'
@@ -3213,7 +3215,7 @@ archetype_mustload_refs() {
         cell = substr(cell, RSTART + RLENGTH)
       }
     }
-  ' "$1/SKILL.md" | sort -u
+  ' "$(map_file "$1")" | sort -u
 }
 
 # appsec_plain_leaks <skill_dir> — print every content line (>= 25 chars,
@@ -3231,7 +3233,7 @@ appsec_plain_leaks() {
     esac
     printf '%s\n' "$sd/references/$f" >>"$set_list"
   done < <({ floor_light_refs "$sd"; archetype_mustload_refs "$sd" "api / service"; } | sort -u)
-  printf '%s\n' "$sd/SKILL.md" "$sd/references/domain-b.md" "$sd/references/domain-i.md" >>"$set_list"
+  printf '%s\n' "$sd/SKILL.md" "$(map_file "$sd")" "$sd/references/domain-b.md" "$sd/references/domain-i.md" >>"$set_list"
   for f in appsec-files.md appsec-ssti.md; do
     [ -f "$sd/references/$f" ] || { printf 'MISSING SUB-FILE: %s (fail closed)\n' "$f"; continue; }
     awk 'NR > 4 && length($0) >= 25' "$sd/references/$f" >>"$pats"
@@ -3252,7 +3254,7 @@ appsec_index_unrouted() {
     [ -e "$f" ] || continue
     b="$(basename "$f")"
     grep -qF "| \`$b\` |" "$sd/references/security-appsec.md" || printf 'UNROUTED %s (parent security-appsec.md)\n' "$b"
-    grep -qF "\`$b\`" "$sd/SKILL.md" || printf 'UNROUTED %s (SKILL.md)\n' "$b"
+    grep -qF "\`$b\`" "$sd/SKILL.md" "$(map_file "$sd")" || printf 'UNROUTED %s (SKILL.md)\n' "$b"
   done
   grep -E '^\| `appsec-files\.md` \|' "$sd/references/security-appsec.md" | grep -qi 'upload' \
     || printf 'TRIGGERLESS appsec-files.md index row\n'
@@ -3462,7 +3464,7 @@ data_plain_leaks() {
     esac
     printf '%s\n' "$sd/references/$f" >>"$set_list"
   done < <({ floor_light_refs "$sd"; archetype_mustload_refs "$sd" "data / ETL"; } | sort -u)
-  printf '%s\n' "$sd/SKILL.md" >>"$set_list"
+  printf '%s\n' "$sd/SKILL.md" "$(map_file "$sd")" >>"$set_list"
   for f in domain-a.md domain-d.md domain-e.md domain-f.md domain-g.md domain-j.md; do
     printf '%s\n' "$sd/references/$f" >>"$set_list"
   done
@@ -3488,7 +3490,7 @@ data_index_unrouted() {
     b="$(basename "$f")"
     [ "$b" = "data-quality.md" ] && continue
     grep -qF "| \`$b\` |" "$sd/references/data-quality.md" || printf 'UNROUTED %s (parent data-quality.md)\n' "$b"
-    grep -qF "\`$b\`" "$sd/SKILL.md" || printf 'UNROUTED %s (SKILL.md)\n' "$b"
+    grep -qF "\`$b\`" "$sd/SKILL.md" "$(map_file "$sd")" || printf 'UNROUTED %s (SKILL.md)\n' "$b"
   done
   grep -E '^\| `data-ml\.md` \|' "$sd/references/data-quality.md" | grep -qi 'vector index' \
     || printf 'TRIGGERLESS data-ml.md index row\n'
@@ -3782,19 +3784,19 @@ fi
 # Planted defects: a body phrase gutted from its rule, and an empty anchor,
 # must each be reported (the check can go red).
 fa_plant="$WORK/floor-anchors-plant.tsv"
-printf '.claude/skills/deep-code-review/SKILL.md\t1. **Evidence over opinion.**\tthis body phrase was cut\tplanted\n' > "$fa_plant"
+printf '.claude/skills/deep-code-review/references/full-map.md\t1. **Evidence over opinion.**\tthis body phrase was cut\tplanted\n' > "$fa_plant"
 if [ -n "$(floor_anchor_misses "$fa_plant")" ]; then
   record 0 "floor-anchors: a gutted rule body is detected (planted defect)"
 else
   record 1 "floor-anchors: a gutted rule body is detected (planted defect)"
 fi
-printf '.claude/skills/deep-code-review/SKILL.md\t1. **Evidence over opinion.**\t\tplanted\n' > "$fa_plant"
+printf '.claude/skills/deep-code-review/references/full-map.md\t1. **Evidence over opinion.**\t\tplanted\n' > "$fa_plant"
 if [ -n "$(floor_anchor_misses "$fa_plant")" ]; then
   record 0 "floor-anchors: an empty anchor is a failure, not a match-everything pass (planted defect)"
 else
   record 1 "floor-anchors: an empty anchor is a failure, not a match-everything pass (planted defect)"
 fi
-printf '.claude/skills/deep-code-review/SKILL.md\t1. **Evidence over opinion.**\n' > "$fa_plant"
+printf '.claude/skills/deep-code-review/references/full-map.md\t1. **Evidence over opinion.**\n' > "$fa_plant"
 if [ -n "$(floor_anchor_misses "$fa_plant")" ]; then
   record 0 "floor-anchors: a row missing its body column is a failure (planted defect)"
 else

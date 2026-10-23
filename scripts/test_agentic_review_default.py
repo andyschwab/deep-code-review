@@ -14,7 +14,7 @@ checks = [
     ("workflow: grants Read,Grep,Glob", '--allowedTools "Read,Grep,Glob"' in wf),
     ("workflow: minimal prompt", rule in wf),
     ("SKILL.md: repo-access line with measured numbers",
-     bool(re.search(r"Run with repo access.*\+28 pts recall.*\+21 pts precision.*did not help.*bench90-results\.md", (S / "SKILL.md").read_text()))),
+     bool(re.search(r"Run with repo access.*\+28 pts recall.*\+21 pts precision.*did not help.*bench90-results\.md", (S / "references/full-map.md").read_text()))),  # ex-SKILL.md body,
 ]
 bad = [n for n, ok in checks if not ok]
 for n, ok in checks:

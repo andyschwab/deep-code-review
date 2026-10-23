@@ -117,9 +117,15 @@ def section(md, heading):
     return m.group(0).strip() + "\n"
 
 
+def _dcr_map():
+    """The file holding deep-code-review's principles and Definition of done: references/full-map.md, or SKILL.md in an older tree."""
+    f = SKILLS / "deep-code-review/references/full-map.md"
+    return f if f.exists() else SKILLS / "deep-code-review/SKILL.md"
+
+
 def perun_text(skip=()):
     """The full perun arm; skip=(block, ...) from BLOCKS drops those pieces (ablation)."""
-    dcr = (SKILLS / "deep-code-review/SKILL.md").read_text()
+    dcr = _dcr_map().read_text()
     parts = {"delivery": (SKILLS / "agentic-delivery/SKILL.md").read_text(), "principles": section(dcr, "Operating principles"),
              "dod": section(dcr, "Definition of done"), "testing": (SKILLS / "deep-code-review/references/testing-and-evals.md").read_text()}
     return "\n\n".join(v for k, v in parts.items() if k not in skip)
@@ -134,7 +140,7 @@ def perun_lean_text():
     rows = pick(gates, r"^\| Gate \| .*$|^\|---\|---\|---\|---\|$|^\| G[45] .*$")
     rule = pick(gates, r"^\*\*Missing evidence is.*?(?=\n\n)", re.M | re.S)
     retry = pick(gates, r"^- After two equivalent failures.*$")
-    dcr = (SKILLS / "deep-code-review/SKILL.md").read_text()
+    dcr = _dcr_map().read_text()
     principles = pick(section(dcr, "Operating principles"), r"^(?:1|2|3|9)\. \*\*.*?(?=^\d+\. \*\*|\Z)", re.M | re.S)
     if (len(rows), len(rule), len(principles), len(retry)) != (4, 1, 4, 1):
         raise ValueError("perun-lean sources changed")

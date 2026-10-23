@@ -5,6 +5,7 @@ usage: review_load_bytes.py [--skill-rev REV] COMMIT...   (default skill = worki
 
 Routing mirrors SKILL.md: a diff of <=300 changed lines takes the DIFF quick-path (SKILL.md + compact-mode.md); a larger diff takes the full DIFF method (SKILL.md + method.md). INDEX.md is added
 to either only when SKILL.md lacks the matching skip marker (a pre-skip SKILL.md, e.g. under --skill-rev). Blast-radius flags are NOT detected: a flagged small diff would take the full path.
+A slim SKILL.md (one that names references/full-map.md) is the whole quick path; a larger diff adds full-map.md, whose skip marker counts.
 "real_*" (full route only) = bytes of REAL_FULL, the files one observed full-DIFF run actually opened, so routing-only duplicates in them show up as bytes.
 Tokens are chars/4, the repo's own estimate (skill-authoring-and-size.md). A model of the instructed load set,
 not a transcript measurement: an agent may read less (or more) than it is told to.
@@ -36,7 +37,12 @@ def lines_changed(commit):
     return n
 
 
+SLIM = "references/full-map.md"  # slim SKILL.md names it: the quick path is SKILL.md alone, a bigger diff reads the map first
+
+
 def load_set(skill_text, lines):
+    if SLIM in skill_text:  # skill_text = SKILL.md + the map, so the map's INDEX-skip marker is honoured
+        return ("quick", ["SKILL.md"]) if lines <= QUICK_MAX else ("full", ["SKILL.md", SLIM] + ([] if SKIP in skill_text else ["INDEX.md"]) + ["references/method.md"])
     if lines <= QUICK_MAX:
         return "quick", ["SKILL.md", "references/compact-mode.md"] + ([] if EXEMPT in skill_text else ["INDEX.md"])
     return "full", ["SKILL.md"] + ([] if SKIP in skill_text else ["INDEX.md"]) + ["references/method.md"]
@@ -45,11 +51,14 @@ def load_set(skill_text, lines):
 def measure(commit, skill_rev=None):
     read = (lambda f: git("show", f"{skill_rev}:{SKILL}/{f}")) if skill_rev else (lambda f: open(f"{SKILL}/{f}", encoding="utf-8").read())
     n = lines_changed(commit)
-    route, files = load_set(read("SKILL.md"), n)
+    text = read("SKILL.md")
+    if SLIM in text:
+        text += read(SLIM)
+    route, files = load_set(text, n)
     b = sum(len(read(f).encode()) for f in files)
     out = {"commit": commit, "lines": n, "route": route, "files": files, "bytes": b, "tokens_est": b // 4}
     if route == "full":
-        rb = sum(len(read(f).encode()) for f in REAL_FULL)
+        rb = sum(len(read(f).encode()) for f in REAL_FULL + ([SLIM] if SLIM in text else []))
         out.update(real_bytes=rb, real_tokens_est=rb // 4)
     return out
 

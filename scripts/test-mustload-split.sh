@@ -15,10 +15,10 @@ grep -q '^\*\*Phase 5' "$D/references/method-report.md" && grep -q '^\*\*Phase 6
   && ! grep -q '^\*\*Phase 6 — Imprint standards' "$D/references/method.md"
 ok $? "Phase 5/6 procedure lives in method-report.md only"
 for r in redflags-situational.md method-report.md; do
-  grep -qF "\`$r\`" "$D/SKILL.md" && sed -n 3p "$D/references/$r" | grep -q '^Read this when'
-  ok $? "$r is routed from SKILL.md and carries a Read-this-when trigger"
+  grep -qF "\`$r\`" "$D/references/full-map.md" && sed -n 3p "$D/references/$r" | grep -q '^Read this when'
+  ok $? "$r is routed from full-map.md and carries a Read-this-when trigger"
 done
-grep -qF '`redflags-situational.md` when' "$D/SKILL.md" && grep -q '^phase-conditional.redflags-situational.md$' "$ROOT/scripts/mustload-budgets.tsv"
+grep -qF '`redflags-situational.md` when' "$D/references/full-map.md" && grep -q '^phase-conditional.redflags-situational.md$' "$ROOT/scripts/mustload-budgets.tsv"
 ok $? "redflags-situational.md is a pinned conditional floor ref"
 ! grep -q 'Headings' "$D/INDEX.md" "$ROOT/.claude/skills/agentic-delivery/INDEX.md"
 ok $? "INDEX.md files carry no Headings column"

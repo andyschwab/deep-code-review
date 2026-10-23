@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import review_load_bytes as r  # noqa: E402
 
 D = ROOT / ".claude/skills/deep-code-review"
-SKILL = (D / "SKILL.md").read_text()
+MAP = (D / "references/full-map.md").read_text()
+SKILL = (D / "SKILL.md").read_text() + MAP  # slim fast path + the map it routes to
 
 
 class ReviewSkipsIndex(unittest.TestCase):
@@ -32,8 +33,10 @@ class ReviewSkipsIndex(unittest.TestCase):
             self.assertIn(script, shell)
 
     def test_full_method_load_drops_index_only_with_marker(self):
-        self.assertEqual(r.load_set(SKILL, 301), ("full", ["SKILL.md", "references/method.md"]))
+        self.assertEqual(r.load_set(SKILL, 301), ("full", ["SKILL.md", "references/full-map.md", "references/method.md"]))
         self.assertEqual(r.load_set("no marker", 301)[1], ["SKILL.md", "INDEX.md", "references/method.md"])
+        slim = "references/full-map.md"
+        self.assertEqual(r.load_set(slim, 301)[1], ["SKILL.md", slim, "INDEX.md", "references/method.md"])
 
     def test_shipped_load_sets_exclude_index(self):
         for n in (10, 300, 301, 5000):
