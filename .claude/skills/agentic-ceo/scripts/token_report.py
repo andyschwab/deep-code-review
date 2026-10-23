@@ -2221,7 +2221,7 @@ def build_outcome(directory: str, since=None) -> dict:
               if t["timestamp"] and not t.get("dup") and not t.get("iter") and t.get("model") != "<synthetic>"]
         if ts:
             turns += ts
-            sessions.append((ts[0]["timestamp"], *session_levers(ts), ts[-1]["timestamp"]))
+            sessions.append((ts[0]["timestamp"], *session_levers(ts), max(t["timestamp"] for t in ts)))
 
     def week(ts):
         d = ts.astimezone(timezone.utc).date()
@@ -2257,10 +2257,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="print the full report as JSON")
     p.add_argument("--budget", nargs="?", const="", metavar="TSV",
                    help="gate mode: exit 1 with one line per breached cap (optional TSV overrides defaults)")
-    p.add_argument("--top", type=int, default=5, metavar="N", help="lanes to list (default 5, 0 = all)")
+    p.add_argument("--top", type=int, metavar="N", help="lanes to list (default 5, 0 = all)")
     p.add_argument("--rates", metavar="TSV", help="USD-per-1M rates TSV; overrides the built-in default rate table")
     p.add_argument("--advise", action="store_true", help="add usage-optimization advice (rule table in the ADVISE section)")
-    p.add_argument("--project", default=".", metavar="DIR",
+    p.add_argument("--project", metavar="DIR",
                    help="project whose .claude settings and .mcp.json --advise reads (default .)")
     p.add_argument("--fix-plan", action="store_true", help="print the minimal JSON settings patch for fired levers (implies --advise)")
     p.add_argument("--apply", metavar="PATH", help="merge the --fix-plan patch into settings file PATH: backup, absent keys only, idempotent")
@@ -2292,8 +2292,8 @@ def main(argv=None) -> int:
         return _selftest()
 
     if args.outcome is not None:  # "" is a (bad) directory, not "off"
-        if (args.rollup or args.session or args.by or args.group or args.nudge or args.advise or args.fix_plan or args.apply
-                or args.budget is not None or args.limit is not None or args.rates or args.nudge_cache or args.project != "." or args.top != 5):
+        if (args.nudge or args.advise or args.fix_plan or any(v is not None for v in (  # None sentinels: "" / 5 / "." given explicitly still count
+                args.rollup, args.session, args.by, args.group, args.apply, args.budget, args.limit, args.rates, args.nudge_cache, args.project, args.top))):
             print("token_report.py: --outcome stands alone (only --since and --json are read)", file=sys.stderr)
             return ERROR
         since = parse_timestamp(args.since, local=True) if args.since else None
@@ -2304,6 +2304,8 @@ def main(argv=None) -> int:
         print(json.dumps(o, indent=2, sort_keys=True) if args.json else render_outcome(o))
         return OK
 
+    args.project = "." if args.project is None else args.project
+    args.top = 5 if args.top is None else args.top
     if args.nudge:  # fail-silent: a hook or a habit must never see an error from this
         key, line = None, ""
         try:

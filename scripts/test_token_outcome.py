@@ -109,6 +109,10 @@ class Outcome(unittest.TestCase):
         self.assertEqual(o["straddling_sessions"], 1)
         self.assertIn("1 session(s) straddle --since: counted in before (first turn)", tr.render_outcome(o))
 
+    def test_straddle_uses_latest_timestamp_not_last_line(self):
+        rows = [turn("s1", "2026-03-08T23:00:00Z", OPUS, 100, 0), turn("s2", "2026-03-09T01:00:00Z", OPUS, 100, 0), turn("s3", "2026-03-08T23:30:00Z", OPUS, 100, 0)]
+        self.assertEqual(outcome(datetime(2026, 3, 9, tzinfo=UTC), sessions={"s": rows})["straddling_sessions"], 1)
+
     def test_resumed_copy_counts_once_in_the_longest_transcript(self):
         # "a" sorts first but holds only the prefix; "b" is the resume (same two requestIds + one new turn). By name order
         # a = compact triggered not applied, b = r3 alone; the longest-owns rule keeps one session whose drop is seen.
@@ -149,6 +153,13 @@ class Outcome(unittest.TestCase):
                 self.assertEqual(tr.main(["--outcome", d, *extra]), tr.ERROR, extra)
                 self.assertIn("stands alone", err.getvalue(), extra)
             self.assertEqual(tr.main(["--outcome", ""]), tr.ERROR)  # empty DIR is an error, not "mode off"
+
+    def test_outcome_refuses_other_modes_even_with_default_or_empty_values(self):
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stderr(io.StringIO()) as err:
+            for extra in (["--top", "5"], ["--project", "."], ["--rollup", ""], ["--session", ""], ["--rates", ""], ["--nudge-cache", ""], ["--apply", ""]):
+                err.truncate(0)
+                self.assertEqual(tr.main(["--outcome", d, *extra]), tr.ERROR, extra)
+                self.assertIn("stands alone", err.getvalue(), extra)
 
     def test_cli_json_and_text_never_echo_content(self):
         with tempfile.TemporaryDirectory() as d:
