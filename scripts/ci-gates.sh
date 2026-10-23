@@ -75,7 +75,8 @@ EOF
 # does it fall back to `find`. A plain file argument is returned as-is.
 scan_files() {
   local p="$1" top f
-  if [ ! -d "$p" ]; then printf '%s\0' "$p"; return 0; fi
+  # a symlink target is skipped like a symlink found under a directory (a dangling one would make grep exit 2)
+  if [ ! -d "$p" ]; then [ -L "$p" ] || printf '%s\0' "$p"; return 0; fi
   if top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)" \
     && [ "$(cd "$top" && pwd -P)" = "$(cd "$p" && pwd -P)" ]; then
     git -C "$p" ls-files -z -co --exclude-standard | while IFS= read -r -d '' f; do

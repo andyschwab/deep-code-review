@@ -12,6 +12,7 @@ g() { git -C "$R" -c user.email=t@example.com -c user.name=T "$@"; }
 git clone -q --no-hardlinks "$ROOT" "$R" 2>/dev/null
 # the clone holds HEAD; overlay the working-tree hook + gates under test, then pin that as the push base
 cp "$ROOT/.claude/skills/deep-code-review/templates/pre-push-verify.sh" "$R/.claude/skills/deep-code-review/templates/"
+cp "$ROOT/scripts/ci-gates.sh" "$R/scripts/"
 g add -A; g commit -q --allow-empty -m base; g update-ref refs/remotes/origin/main HEAD
 B=$(g rev-parse HEAD)
 run() { # run [sha]: hook over sha (default HEAD) as a new branch; sets rc, log in $WORK/log
@@ -36,6 +37,10 @@ g reset -q --hard "$B"
 # refuses a dirty or mismatched host tree, so the host tree scanned here is always the pushed commit
 echo "k = $tok" >"$R/zz-secret.txt"; g add -A; g commit -q -m "plant hit"; g rm -q zz-secret.txt; g commit -q -m "delete the hit"; run
 ok $rc "privacy ignores a deleted file"
+g reset -q --hard "$B"
+# a dangling symlink added in the range is skipped, as CI skips symlinks (grep on it would exit 2 and block the push)
+ln -s no-such-target "$R/zz-link"; g add -A; g commit -q -m "dangling link"; run
+ok $rc "privacy skips a dangling symlink"
 g reset -q --hard "$B"
 # a range that edits .banlist.txt scans the whole tree: a pre-existing hit in an untouched file is caught
 echo "k = $tok" >"$R/zz-old.txt"; g add -A; g commit -q -m "old hit"; g update-ref refs/remotes/origin/main HEAD
