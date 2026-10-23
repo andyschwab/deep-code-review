@@ -32,3 +32,5 @@ earlier confirm.py hash, SHA256-frozen.txt the final one):
 Limits: one generator family wrote the scenarios and all answers; one judge scored all three skills; scenarios are fictional. PASS means
 "beats this rival on this synthetic distribution under this judge", not a claim about real users. There is no machine timestamp
 for the prereg hash (ledger.jsonl line 1 is the frozen-set hash and its time).
+
+Note (positioning slim): the positioning arm was measured on .claude/skills/positioning/SKILL.md with SHA-256 78568f7a101c3f0c (the file at commit 6388e04163c7). Reproduce these win rates at that commit; since the slim, scripts/rival_eval.py reads the live, slimmer SKILL.md, so a re-run measures the slim text instead.
