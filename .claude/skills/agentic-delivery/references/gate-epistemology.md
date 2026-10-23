@@ -1,6 +1,6 @@
 # Gate epistemology — the twelve public principles, with full statements of 3, 9, 11, 12
 
-Read this when: adding a gate (4); a publish boundary (1, 2); a check flips, can't run, or lacks input (3, 5); a merge train or revert (6, 10); tests (7); public artifacts (8); closing shared state (9); done (11); invariant forks (12). In detail: a gate flips, a count jumps, or a check could not run and you must call it defect, flake, or `UNVERIFIED` (3); before closing, deduplicating, or deleting shared state (9); before reporting a change as visible or done (11); before shaping a choice as an owner gate when a ratified invariant may already decide it (12). `SKILL.md` **Gate epistemology** routes here; the numbering is shared, so "principle N" resolves in either file.
+Read this when: adding a gate (4); a publish boundary (1, 2); a check flips, can't run, or lacks input (3, 5); a merge train or revert (6, 10); tests (7); public artifacts (8); closing shared state (9); done (11); invariant forks (12). In detail: a gate flips, a count jumps, or a check could not run and you must call it defect, flake, or `UNVERIFIED` (3); before closing, deduplicating, or deleting shared state (9); before reporting a change as visible or done (11); before shaping a choice as an owner gate when a ratified invariant may already decide it (12). `full-map.md` **Gate epistemology** routes here; the numbering is shared, so "principle N" resolves in either file.
 
 ---
 

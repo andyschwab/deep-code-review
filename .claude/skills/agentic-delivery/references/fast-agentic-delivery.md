@@ -67,13 +67,13 @@ Fetched fresh for this file (entries 1–5 verified 2026-09-09; entry 6, 2026-09
 
 ## Cross-references
 
-- `SKILL.md` **Environment probe** — states the act-on predicate (free RAM + swap trend); this file holds the
+- `full-map.md` **Environment probe** — states the act-on predicate (free RAM + swap trend); this file holds the
   full probe procedure and the load-average mechanism.
-- `SKILL.md` **Conductor operating rhythm** — the event-driven attention model this file's queue-sweep and
+- `full-map.md` **Conductor operating rhythm** — the event-driven attention model this file's queue-sweep and
   fan-out-sizing sections extend.
-- `SKILL.md` **Gate epistemology**, principles 3 and 6 — the two existing cases this file adds a third case to,
+- `full-map.md` **Gate epistemology**, principles 3 and 6 — the two existing cases this file adds a third case to,
   and the union-proof rule the cascade section stays subordinate to.
-- `SKILL.md` **Worktrees and occupancy** / **Local environment (own it)** — where the worktree-provisioning
+- `full-map.md` **Worktrees and occupancy** / **Local environment (own it)** — where the worktree-provisioning
   gotcha's two fixes belong in practice.
 - `deep-code-review`'s `release-engineering.md` — the review-time audit of a *target's* release pipeline
   (feature flags, canary, DORA); this file is the authoring-time counterpart for the project's own fleet, not a
