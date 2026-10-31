@@ -7,12 +7,15 @@
 # Tools (linters, gitleaks, osv-scanner, semgrep, trivy): see references/method-situational.md. Each runs only when
 # installed and only on matching changed files. Secrets are redacted and never printed; osv-scanner needs env
 # REVIEW_OSV=1 (network); semgrep uses repo rules, else the bundled taint rules plus p/default (never `--config auto`); trivy is offline.
+# REVIEW_PRECOMPUTED=<dir>: read semgrep's result from the <dir>/semgrep.json envelope (references/machine-report.md) and start
+# no semgrep process; status ran is parsed like a live run, failed/skipped/missing/malformed read as not-run, never clean.
 # Tool hub: zizmor, bandit, gosec, grype, checkov, hadolint (snyk-agent-scan is unverified, skipped) run from one registry
 # (`hub=`); a matching changed file with the tool missing prints "NOT CHECKED: <tool> (install: <hint>)" on stderr, never a silent clean.
 # `--history` also runs gitleaks over BASE..HEAD (`--full-history`: the whole history). node_modules, vendor, build
 # dirs and .claude/worktrees are never scanned; each heavy scanner takes the heavy lease only when it runs (waits
 # REVIEW_LEASE_WAIT s, default 120, else skipped) and releases it afterwards.
-# A summary "N findings; N files excluded; analyzers ran: ...; skipped (not installed): ..." goes to stderr. `--tests` also runs the command
+# A summary "N findings; N files excluded; analyzers ran: ...; skipped (not installed): ...; precomputed: ..." goes to stderr,
+# after one "review_checks: analyzer <tool>: ran | partial (<why>) | not-run (<why>) | precomputed (<what>)" line per analyzer. `--tests` also runs the command
 # declared in env REVIEW_TEST_CMD (opt-in; it executes project code). Never installs anything. A missing tool
 # or a timeout prints "review_checks: not run: <tool> (<why>)" on stderr and is not a failure.
 # Each tool is timeboxed (default 60s). Exit 0 even with findings; 2 on usage/unresolvable base.
@@ -37,7 +40,8 @@ cd "$(git rev-parse --show-toplevel)"
 raw=$(mktemp "${TMPDIR:-/tmp}/review-raw.XXXXXX") out=$(mktemp "${TMPDIR:-/tmp}/review-out.XXXXXX") tsv=$(mktemp "${TMPDIR:-/tmp}/review-tsv.XXXXXX")
 sgh=$(mktemp -d "${TMPDIR:-/tmp}/review-sg.XXXXXX") # semgrep HOME: the macOS agent sandbox denies writes to ~/.semgrep
 rep=$(mktemp "${TMPDIR:-/tmp}/review-gl.XXXXXX") gla=$(mktemp "${TMPDIR:-/tmp}/review-gla.XXXXXX") # mktemp files are mode 600
-trap 'rm -rf "$raw" "$out" "$tsv" "$sgh" "$rep" "$gla"' EXIT INT TERM HUP
+anl=$(mktemp "${TMPDIR:-/tmp}/review-anl.XXXXXX") # per-analyzer events: status<TAB>tool<TAB>why
+trap 'rm -rf "$raw" "$out" "$tsv" "$sgh" "$rep" "$gla" "$anl"' EXIT INT TERM HUP
 # Vendored, build and worktree dirs are never scanned (a changed file under them is dropped here, for every tool).
 XRE='(^|/)(node_modules|\.claude/worktrees|vendor|dist|build|\.git|\.venv|venv|target|__pycache__)/'
 all=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD)
@@ -48,7 +52,9 @@ rc=0
 # Existing changed files matching extended regex $1, one per line.
 changed() { { printf '%s\n' "$files" | grep -E "$1" || true; } | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done; true; }
 # Inside the tool hub ($hubtool set) a skip also lands in the JSON as a not-checked row, so `[]` never hides a tool that did not run.
-skip() { echo "review_checks: not run: $1 ($2)" >&2; [ -z "${hubtool:-}" ] || add "$hubtool" "" 0 not-checked "$2"; }
+skip() { echo "review_checks: not run: $1 ($2)" >&2; ev not-run "$1" "$2"; [ -z "${hubtool:-}" ] || add "$hubtool" "" 0 not-checked "$2"; }
+# ev STATUS TOOL [WHY]: one per-analyzer event (ran | not-run | precomputed), folded into the analyzer lines at the end.
+ev() { local w=${3:-}; w=${w//[$'\t\r\n']/ }; printf '%s\t%s\t%s\n' "$1" "$2" "$w" >>"$anl"; }
 # Run "$@" under a timebox; stdout+stderr -> $out. perl alarm when no timeout(1) (stock macOS).
 tbox() {
   if command -v timeout >/dev/null; then timeout "$tmo" "$@" >"$out" 2>&1
@@ -85,7 +91,7 @@ add() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" >>"$raw"; }
 # run_one TOOL CMD... : sets rc; returns 1 (with a not-run line) on timeout.
 run_one() {
   local tool=$1; shift; rc=0
-  [ -n "${hubtool:-}" ] || case " $ran " in *" $tool "*) ;; *) ran+=" $tool" ;; esac # hub tools count as ran only after a good parse
+  [ -n "${hubtool:-}" ] || case " $ran " in *" $tool "*) ;; *) ran+=" $tool"; ev ran "$tool" ;; esac # hub tools count as ran only after a good parse
   tbox "$@" || rc=$?
   case "$rc" in 124|142) skip "$tool" "timeout ${tmo}s"; return 1 ;; esac
   return 0
@@ -315,7 +321,40 @@ if [ -z "$sgc" ]; then # no repo rules: bundled taint rules, plus the p/default 
   sgc=$here/../templates/semgrep-taint; sgcfg=(--config "$sgc")
   [ "${REVIEW_SEMGREP_REGISTRY:-1}" = 0 ] || sgcfg+=(--config p/default)
 fi
-if [ ! -e "$sgc" ]; then
+if [ -n "${REVIEW_PRECOMPUTED:-}" ]; then # read the consumer's envelope; never start semgrep, never fall back to a live run
+  pf=${REVIEW_PRECOMPUTED%/}/semgrep.json pst=
+  if ! command -v python3 >/dev/null; then skip semgrep "precomputed: python3 not installed"
+  # Envelope -> "ran" (the report string written to $out) or "not-run<TAB>why"; anything malformed is not-run.
+  elif pst=$(python3 - "$pf" "$out" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except FileNotFoundError:
+    sys.exit(print(f"not-run\tprecomputed envelope missing at {sys.argv[1]}"))
+except (OSError, ValueError):
+    sys.exit(print("not-run\tprecomputed envelope invalid: not readable JSON"))
+st = d.get("status") if isinstance(d, dict) else None
+if not isinstance(d, dict) or d.get("envelope") != 1 or d.get("tool") != "semgrep" or st not in ("ran", "failed", "skipped"):
+    sys.exit(print("not-run\tprecomputed envelope invalid: needs envelope 1, tool semgrep, status ran|failed|skipped"))
+why = " ".join(str(d.get("reason") or "no reason given").split())[:200]
+if st != "ran":
+    sys.exit(print(f"not-run\tprecomputed {st}: {why}"))
+if not isinstance(d.get("report"), str) or type(d.get("exit")) is not int:
+    sys.exit(print("not-run\tprecomputed envelope invalid: status ran needs a report string and an integer exit"))
+if d["exit"] != 0:  # the live path's scan_ok: any non-zero semgrep exit is a crash, not findings
+    sys.exit(print(f"not-run\tprecomputed exit {d['exit']}"))
+open(sys.argv[2], "w", encoding="utf-8").write(d["report"])
+print("ran")
+PY
+  ); [ "$pst" = ran ]; then
+    e=0; sjson semgrep "$out" >"$tsv" || e=$?
+    if [ "$e" = 0 ] || [ "$e" = 3 ]; then
+      ev precomputed semgrep "read $pf"
+      while IFS=$'\t' read -r p l r m; do p=${p#./}; printf '%s\n' "$files" | grep -qxF -- "$p" && add semgrep "$p" "$l" "$r" "$m"; done <"$tsv"
+      [ "$e" = 0 ] || skip semgrep "precomputed partial scan: semgrep reported errors"
+    else skip semgrep "precomputed report unparseable"; fi
+  else [ -n "$pst" ] || pst=$'not-run\tprecomputed envelope unreadable'; skip semgrep "${pst#*$'\t'}"; fi
+elif [ ! -e "$sgc" ]; then
   if [ -z "${REVIEW_SEMGREP_CONFIG:-}" ] && [ "$sgc" = "$here/../templates/semgrep-taint" ]; then skip semgrep "bundled rules missing at $sgc (reinstall the skill)"
   else skip semgrep "REVIEW_SEMGREP_CONFIG must be an existing local path"; fi
 elif have semgrep; then
@@ -343,7 +382,7 @@ if [ -n "$files" ] && have trivy; then
   tk=trivy
   if run_one trivy "${tv[@]}" --scanners vuln,misconfig . && { [ "$rc" = 0 ] || {
     if grep -Eqi 'dial |no such host|connection (refused|reset)|unreachable|x509|TLS|failed to download|download.*(bundle|check)|(bundle|check).*download' "$out"; then
-      echo "review_checks: trivy: secret-only (misconfig bundle unreachable)" >&2; tk=trivy-secret; ran+=" trivy(secret-only)"
+      echo "review_checks: trivy: secret-only (misconfig bundle unreachable)" >&2; tk=trivy-secret; ran+=" trivy(secret-only)"; ev not-run trivy "misconfig and vuln scan: bundle unreachable; secret-only"
       run_one trivy "${tv[@]}" --skip-check-update --scanners secret .
     fi; }; } && scan_ok trivy; then
     if sjson "$tk" "$out" >"$tsv"; then
@@ -378,7 +417,7 @@ hubcmd() {
 }
 while IFS=';' read -r hn hs hm hre _ hh; do
   hf=$(changed "$hre"); [ -n "$hf" ] || continue
-  nc() { echo "NOT CHECKED: $hn ($1)" >&2; add "$hn" "" 0 not-checked "$1"; }
+  nc() { echo "NOT CHECKED: $hn ($1)" >&2; add "$hn" "" 0 not-checked "$1"; ev not-run "$hn" "$1"; }
   if [ "$hs" != verified ]; then nc "$hs flags: skipped by default"; continue; fi
   command -v "$hn" >/dev/null || { nc "install: $hh"; missing+=" $hn"; continue; }
   hubtool=$hn
@@ -394,7 +433,7 @@ while IFS=';' read -r hn hs hm hre _ hh; do
     run_one "$hn" "${cmd[@]}" || { [ "$hm" = batch ] && break; continue; }
     scan_ok "$hn" $okrc || { [ "$hm" = batch ] && break; continue; }
     if sjson "$hn" "$jf" >"$tsv"; then
-      case " $ran " in *" $hn "*) ;; *) ran+=" $hn" ;; esac
+      case " $ran " in *" $hn "*) ;; *) ran+=" $hn"; ev ran "$hn" ;; esac
       if [ "$hm" = batch ]; then
         while IFS=$'\t' read -r p l r m; do printf '%s\n' "$hf" | grep -qxF -- "$p" && add "$hn" "$p" "$l" "$r" "$m"; done <"$tsv"
       else while IFS=$'\t' read -r _ l r m; do add "$hn" "$f" "$l" "$r" "$m"; done <"$tsv"; fi
@@ -413,11 +452,24 @@ if [ "$tests" = 1 ]; then
   fi
 fi
 
-python3 - "$raw" "$ran" "$missing" "$nex" <<'PY'
+python3 - "$raw" "$ran" "$missing" "$nex" "$anl" <<'PY'
 import json, sys
+an = {}  # tool -> {status: first why}, in first-seen order
+for l in open(sys.argv[5], encoding="utf-8", errors="replace"):
+    s, _, rest = l.rstrip("\n").partition("\t")
+    t, _, why = rest.partition("\t")
+    an.setdefault(t, {}).setdefault(s, why)
+for t, e in an.items():
+    if "precomputed" in e:
+        st = f"precomputed ({e['precomputed']})" if "not-run" not in e else f"partial ({e['precomputed']}; {e['not-run']})"
+    elif "ran" in e:
+        st = "ran" if "not-run" not in e else f"partial ({e['not-run']})"
+    else:
+        st = f"not-run ({e['not-run']})"
+    print(f"review_checks: analyzer {t}: {st}", file=sys.stderr)
 rows = [l.rstrip("\n").split("\t") for l in open(sys.argv[1], encoding="utf-8", errors="replace")]
 print(json.dumps([{"file": t[1], "line": int(t[2]) if t[2].isdigit() else 0, "rule": t[3], "message": t[4],
                    "text": f"{t[3]}: {t[4]}", "tool": t[0]} for t in rows if len(t) == 5], indent=1))
 n = sum(len(t) == 5 for t in rows)
-print(f"review_checks: {n} findings; {sys.argv[4]} files excluded; analyzers ran: {', '.join(sys.argv[2].split()) or 'none'}; skipped (not installed): {', '.join(sys.argv[3].split()) or 'none'}", file=sys.stderr)
+print(f"review_checks: {n} findings; {sys.argv[4]} files excluded; analyzers ran: {', '.join(sys.argv[2].split()) or 'none'}; skipped (not installed): {', '.join(sys.argv[3].split()) or 'none'}; precomputed: {', '.join(t for t, e in an.items() if 'precomputed' in e) or 'none'}", file=sys.stderr)
 PY
