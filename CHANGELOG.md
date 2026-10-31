@@ -3,6 +3,34 @@
 All notable changes to this repository are documented here. Format loosely
 follows Keep a Changelog; versioning follows Semantic Versioning.
 
+## [1.610.0] — 2026-10-31
+
+### Added
+- deep-code-review: `review_checks.sh` reads a precomputed semgrep result. With `REVIEW_PRECOMPUTED=<dir>` it starts no semgrep process and reads `<dir>/semgrep.json`, an envelope (`envelope` 1, `scanner`, `tool`, `status` ran|failed|skipped, `exit`, `version`, `rules`, `report` as a `semgrep --json` string, `reason`). `ran` with exit 0 goes through the existing `sjson semgrep` parser (changed files only, rule ids as given); `failed`, `skipped`, a non-zero exit, or a missing or malformed envelope reads as not-run with the reason, never clean. Every run now prints one `review_checks: analyzer <tool>: ran | partial (<why>) | not-run (<why>) | precomputed (<what>)` line per analyzer, and the summary adds `precomputed: ...`; `machine-report.md` gains `ground_truth.analyzers`, one row per analyzer, so a consumer reads "not measured" per analyzer instead of inferring it from `lint_type_scan`. Without the env var, behaviour is unchanged. Test: `scripts/test-review-checks-precomputed.sh`.
+size-budget-raise: .claude/skills/deep-code-review/references/machine-report.md 13064→14309 one field rule: per-analyzer ground_truth rows and the precomputed envelope
+size-budget-raise: .claude/skills/deep-code-review/references/method-situational.md 43869→43957 one clause routing REVIEW_PRECOMPUTED to machine-report.md
+
+### Added
+- agentic-delivery: `stage_run.py --run-dir DIR` refuses (exit 1) a run dir that already exists; `lkg.py verdict FILE` exits 1 with "rerun" unless the receipt is a pass for HEAD with matching runner blob (`run-ci-tests.sh` reads its own receipt back and honors `PERUN_RUN_DIR`); `wired_check.py --strict --runs FILE` (now the CI step) fails a new script with no caller or no exact-name run in the registered tests; new `vendor_drift.py TARGET` lists vendored skill files that differ from canonical (sha256) and exits 1 on drift or zero overlap (`--skills` flags deleted copies; `update-installed.sh` runs it).
+- agentic-delivery: a merge train that parks a PR posts a `perun-train-refused: <head sha>` comment on it; admission skips a PR with that line for its current head, so a dropped PR is not re-ridden until a new push (invariant in `references/merge-queue-worktrees.md`).
+
+size-budget-raise: .claude/skills/agentic-delivery/references/full-map.md 23891→24381 one routing line for the four wave-AE mechanisms
+size-budget-raise: .claude/skills/INDEX.md 14569→14671 generated index row for vendor_drift.py
+size-budget-raise: .claude/skills/agentic-delivery/INDEX-scripts.md 15097→15241 generated index row for vendor_drift.py
+size-budget-raise: .claude/skills/agentic-delivery/references/merge-queue-worktrees.md 43476→44819 one paragraph: head-bound train refusal invariant (author filter, clear, neutralized reason)
+
+### Added
+- agentic-delivery: `scripts/admission_check.py` flags a per-PR admission config that omits a test class the batch runs (e.g. browser/e2e) and a stale or ownerless spec-selection map. `scripts/host_accept.py` is the merge-host acceptance checklist (operator reset without extra IAM, auto-reset on missed heartbeats, per-slice memory caps with sshd/agent reserve). `train_land.sh` runs both (rc != 0 refuses the train) whenever the base branch carries their config. The landing watchdog now surfaces the existing `red_main.py` uncovered/oldest-red alarm, and `flake_ledger.py serial-move` records tests moved to the serial project (never quarantined, failure there is BLOCKING as a real bug).
+
+size-budget-raise: .claude/skills/agentic-delivery/references/red-gate-triage.md 25417→27186 one paragraph: admission completeness and map owner, plus watchdog and serial-move notes
+size-budget-raise: .claude/skills/agentic-delivery/references/fanout-host-sizing.md 48845→49827 one paragraph: merge-host acceptance checklist
+
+### Added
+- agentic-ceo, agentic-delivery: a send to a remote peer session has no read receipt, so the conductor verifies pickup from the peer's durable trail after a bounded wait and never re-sends on silence alone (`multi-session-coordination.md`, linked from the agentic-ceo hard rules, scoped to bare sends so the board ACK rule keeps winning for board directives). `incident-response.md` now says to read the subject's last 2 comments or events before relaying an automated alarm. One eval case each; `scripts/test_peer_send_alarm_relay.py` pins the wording.
+size-budget-raise: .claude/skills/agentic-ceo/SKILL.md 7332→7477 one short rule added: bare peer-send pickup check and read-before-relay alarm rule
+size-budget-raise: .claude/skills/agentic-delivery/references/incident-response.md 12693→13056 one short rule added: bare peer-send pickup check and read-before-relay alarm rule
+size-budget-raise: .claude/skills/agentic-delivery/references/multi-session-coordination.md 72883→73901 one short rule added: bare peer-send pickup check and read-before-relay alarm rule
+
 ## [1.609.0] — 2026-10-28
 
 ### Added
