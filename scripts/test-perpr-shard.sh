@@ -15,7 +15,7 @@ pass=0 total=0
 ok() { total=$((total + 1)); if [ "$1" -eq 0 ]; then pass=$((pass + 1)); echo "PASS  $2"; else echo "FAIL  $2"; fi; }
 slice() { env -u SHARD SHARD="$1" bash "${2:-$H}"; }  # <i/N> [helper]: the dry listing of one slice
 
-# The real tree: 3 slices, disjoint, covering every registration (serial and .bg.sh), spread evenly.
+# The real tree: 3 slices, disjoint, covering every registration (serial and .bg.sh); their time balance is in scripts/test-perpr-shard-balance.sh.
 all="$(cd "$ROOT" && printf '%s\n' scripts/ci-tests.d/*.sh | LC_ALL=C sort)"
 s1="$(slice 1/3)"; s2="$(slice 2/3)"; s3="$(slice 3/3)"
 joined="$(printf '%s\n%s\n%s\n' "$s1" "$s2" "$s3")"
@@ -23,8 +23,7 @@ joined="$(printf '%s\n%s\n%s\n' "$s1" "$s2" "$s3")"
 [ "$(LC_ALL=C sort <<<"$joined")" = "$all" ]; ok $? "slices 1/3, 2/3 and 3/3 together cover every registration"
 [ "$(env -u SHARD bash "$H")" = "$all" ] && [ "$(slice 1/1)" = "$all" ]; ok $? "SHARD unset or 1/1 lists every registration"
 n1=$(grep -c . <<<"$s1"); n2=$(grep -c . <<<"$s2"); n3=$(grep -c . <<<"$s3")
-[ "$n1" -gt 0 ] && [ $((n1 - n2)) -le 2 ] && [ $((n2 - n1)) -le 2 ] && [ $((n1 - n3)) -le 2 ] && [ $((n3 - n1)) -le 2 ] && [ $((n2 - n3)) -le 2 ] && [ $((n3 - n2)) -le 2 ]
-ok $? "the 3 slices differ by at most 2 registrations ($n1/$n2/$n3)"
+[ "$n1" -gt 0 ] && [ "$n2" -gt 0 ] && [ "$n3" -gt 0 ]; ok $? "the 3 slices are all non-empty ($n1/$n2/$n3 registrations)"
 [ "$s1" = "$(LC_ALL=C sort <<<"$s1")" ]; ok $? "a slice is listed sorted"
 
 # Fail closed: a bad SHARD is exit 2 with nothing on stdout, never an empty or full list a leg would run on.
@@ -84,6 +83,8 @@ for i in 1 2 3; do
   [ "$(sed -n 's/^== \([^ ]*\).*/\1/p' "$WORK/leg$i.out" | LC_ALL=C sort)" = "$(slice $i/3 "$FX/scripts/ci-tests-shard.sh")" ] || good=1
 done
 [ "$good" -eq 0 ]; ok $? "each leg runs exactly the registrations its dry listing names"
+el=0; for i in 1 2 3; do [ "$(grep -cE '^bg elapsed: [a-z]\.bg\.sh [0-9]+ s$' "$WORK/leg$i.out")" -eq 1 ] || el=1; done
+[ "$el" -eq 0 ]; ok $? "each leg's wait for its background test logs one 'bg elapsed: <test> <seconds> s' line (the end time is written before the .rc the wait polls)"
 body "Per-PR tests (scripts/ci-tests.d)" >"$WORK/solo.sh"; : >"$WORK/log"   # the per-PR step without the start step before it: no list
 solo=0; (cd "$FX" && PATH="$WORK/bin:$PATH" PERPR_LOG="$WORK/log" RUNNER_TEMP="$(mktemp -d "$WORK/rt.XXXXXX")" bash -e "$WORK/solo.sh") >"$WORK/solo.out" 2>&1 || solo=1
 [ "$solo" -eq 1 ] && [ ! -s "$WORK/log" ] && grep -q 'wrote no test list' "$WORK/solo.out"
