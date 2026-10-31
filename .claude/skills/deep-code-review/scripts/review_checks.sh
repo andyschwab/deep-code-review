@@ -14,6 +14,9 @@
 # If that pack errors or hangs to the timeout, that 200-file chunk reruns with the bundled rules alone (the later chunks too, unless an earlier pack run succeeded) and the run says so, so it never reads as a
 # full clean: `semgrep(bundled-only)` under analyzers ran (and under partial and fixable in the closing line), `semgrep p/default pack (<why>)` under NOT RUN and a not-checked row, with the fix named (a warm
 # snapshot: provision_tools.sh --print). That is the only report of the gap: no separate "missing tools" row.
+# REVIEW_PRECOMPUTED=<dir>: start no semgrep process; read its result from the <dir>/semgrep.json envelope (references/machine-report.md). status ran is parsed like a live
+# run (changed files only, rule ids as given) and listed as "semgrep (precomputed)" under analyzers ran and "precomputed: semgrep" in the closing line; failed, skipped, a non-zero
+# exit or a missing or malformed envelope is NOT RUN with the reason and a not-checked row, never clean, and never falls back to a live run.
 # Tool hub: zizmor, actionlint, bandit, gosec, grype, checkov, hadolint (snyk-agent-scan is unverified, skipped) run from one registry
 # (`hub=`); a matching changed file with the tool missing prints "NOT CHECKED: <tool> (install: <hint>)" on stderr, never a silent clean.
 # Built-in, always on, no install: invisible_chars.py flags NUL/C0 control characters and bidi/zero-width/tag characters in changed text files (tool `invisible-chars`, with line and col;
@@ -53,7 +56,7 @@ set -euo pipefail
 lb=${DCR_USER_BIN-${HOME:-/nonexistent}/.local/bin}
 case ":$PATH:" in *":$lb:"*) ;; *) [ -z "$lb" ] || [ ! -d "$lb" ] || PATH=$PATH:$lb ;; esac
 
-repo=. base=origin/main tests=0 hist=0 tmo=60 ran="" nr="" failed="" missing="" gap="" dg="" w1="" nice19=0 lease=ok leased=0 full=0 wr=0 cov="" wired="" wiredx=""
+repo=. base=origin/main tests=0 hist=0 tmo=60 ran="" nr="" failed="" missing="" gap="" dg="" w1="" nice19=0 lease=ok leased=0 full=0 wr=0 cov="" wired="" wiredx="" pre=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) base=${2:?--base needs a ref}; case "$base" in -*) echo "review_checks: --base must not start with '-'" >&2; exit 2 ;; esac; shift 2 ;;
@@ -531,7 +534,41 @@ if [ -z "$sgc" ]; then # no repo rules: bundled taint rules, plus the p/default 
   [ "${REVIEW_SEMGREP_REGISTRY:-1}" = 0 ] || { sgsnap=$(bash "$here/provision_tools.sh" --cache semgrep 2>/dev/null || echo p/default); sgcfg+=(--config "$sgsnap"); }
 fi
 sgnorm=$sgc; [ ! -f "$sgsnap" ] || sgnorm+=$'\n'$sgsnap # semgrep prefixes rule ids with each local config's directory (the bundled rules, a warm snapshot): sjson strips every one listed
-if [ ! -e "$sgc" ]; then
+if [ -n "${REVIEW_PRECOMPUTED:-}" ]; then # read semgrep's result from the envelope: never start semgrep, never fall back to a live run
+  # Envelope -> exit 0 with the report written to $out, else the not-run reason on stdout. Anything malformed is not run.
+  pf=${REVIEW_PRECOMPUTED%/}/semgrep.json
+  if [ -z "$files" ]; then :
+  elif pwhy=$(python3 - "$pf" "$out" <<'PY'
+import json, sys
+def no(why): print(" ".join(str(why).split())[:200]); sys.exit(1)
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except FileNotFoundError:
+    no("precomputed envelope missing")
+except (OSError, ValueError):
+    no("precomputed envelope invalid: not readable JSON")
+st = d.get("status") if isinstance(d, dict) else None
+if st not in ("ran", "failed", "skipped") or d.get("envelope") != 1 or d.get("tool") != "semgrep":
+    no("precomputed envelope invalid: needs envelope 1, tool semgrep, status ran|failed|skipped")
+if st != "ran":
+    no(f"precomputed {st}: {d.get('reason') or 'no reason given'}")
+if not isinstance(d.get("report"), str) or type(d.get("exit")) is not int:
+    no("precomputed envelope invalid: status ran needs a report string and an integer exit")
+if d["exit"] != 0:  # as scan_ok semgrep: any non-zero exit is a failed scan, not findings
+    no(f"precomputed exit {d['exit']}")
+open(sys.argv[2], "w", encoding="utf-8").write(d["report"])
+PY
+  ); then
+    e=0; SG_CFG= sjson semgrep "$out" >"$tsv" || e=$? # no SG_CFG: rule ids stay as the producer wrote them
+    if [ "$e" = 0 ] || [ "$e" = 3 ]; then
+      ran+=" semgrep" pre+=" semgrep"
+      # the producer scanned the whole target: keep the rows on changed files only, as a live run scans only those
+      while IFS=$'\t' read -r p l r m; do p=${p#./}; ! grep -qxF -- "$p" "$td/files" || add semgrep "$p" "$l" "$r" "$m"; done <"$tsv"
+      [ "$e" = 0 ] || { echo "review_checks: partial: precomputed semgrep reported errors (coverage incomplete; findings above are real)" >&2; ran+=" semgrep(errors)"; }
+    elif [ "$e" = 4 ]; then skip semgrep "precomputed report: errors on every scanned file, no findings"
+    else skip semgrep "precomputed report unparseable"; fi
+  else skip semgrep "${pwhy:-precomputed envelope unreadable}"; fi
+elif [ ! -e "$sgc" ]; then
   if [ -z "${REVIEW_SEMGREP_CONFIG:-}" ] && [ "$sgc" = "$here/../templates/semgrep-taint" ]; then skip semgrep "bundled rules missing at $sgc (reinstall the skill)"
   else skip semgrep "REVIEW_SEMGREP_CONFIG must be an existing local path"; fi
 elif have semgrep; then
@@ -861,7 +898,7 @@ r=; for t in $ran; do case " $failed " in *" ${t%%(*} "*) ;; *) r+=" $t" ;; esac
 # Most rows read the working tree but the diff reads commits (sibling-sweep reads HEAD, so for it null is only cautious), so a row in a file whose working copy differs from HEAD (edited, staged or not, or untracked) is flagged null, not a guessed true/false: $td/dirty is `git status --porcelain -z` (an "XY path" entry per file; --no-renames lists both sides of a rename, -uall every untracked file). --no-optional-locks keeps it a pure read: `git diff HEAD` rewrote .git/index for a file that only changed its mtime even with that flag (git 2.50.1). If a git read here fails, "new" is omitted from every row and stderr says so.
 # ponytail: ignored untracked files and assume-unchanged/skip-worktree edits are not listed (add --ignored if a row ever needs the first); a file staged different from HEAD but reverted in the working tree is listed too, where null is only cautious.
 ud=; if [ "$wr" = 0 ] && [ "$hist" = 0 ]; then ud=$td/udiff; { git -c core.quotePath=false diff -U0 --inter-hunk-context=0 -M -a --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base"...HEAD >"$ud" && git --no-optional-locks status --porcelain -z --no-renames -uall >"$td/dirty"; } || { ud=; echo 'review_checks: could not list files that differ from HEAD; "new" omitted' >&2; }; fi
-REVIEW_STATE="$(git rev-parse --git-common-dir)/review-checks-last.json" HERE="$here" python3 - "$raw" "$ran" "$missing" "$nex" "$dg" "$w1" "$nice19" "$wired" "$gap" "$wiredx" "$ud" "$td/dirty" <<'PY'
+REVIEW_STATE="$(git rev-parse --git-common-dir)/review-checks-last.json" HERE="$here" python3 - "$raw" "$ran" "$missing" "$nex" "$dg" "$w1" "$nice19" "$wired" "$gap" "$wiredx" "$ud" "$td/dirty" "$pre" <<'PY'
 import json, os, re, shlex, sys, time
 rows = [l.rstrip("\n").split("\t") for l in open(sys.argv[1], encoding="utf-8", errors="replace")]
 rows = [t for i, t in enumerate(rows) if t[3:4] != ["not-checked"] or t not in rows[:i]]  # a tool failing on N files is one not-checked row
@@ -912,9 +949,11 @@ if ud:
         r["new"] = None if f in dirty else r["line"] > 0 and f is not None and any(a <= r["line"] < a + c for a, c in adds.get(f, ()))
 print(json.dumps(out, indent=1))
 n = len(out)
+pre = sys.argv[13].split()  # analyzers whose result was read from REVIEW_PRECOMPUTED, not run here
 dg, w1 = sys.argv[5].split(), sys.argv[6].split()  # lease full: "1 worker" only for tools whose single-worker flag ran; "nice 19" only when nice worked
 def lab(t):
     b = t.split("(")[0]
+    if t in pre: return t + " (precomputed)"  # read from REVIEW_PRECOMPUTED's envelope: no local process, so never degraded
     return t + (f" (degraded: lease full{', nice 19' if sys.argv[7] == '1' else ''}{', 1 worker' if b in w1 else ''})" if b in dg else "")
 print(f"review_checks: {n} findings; {sys.argv[4]} files excluded; analyzers ran: {', '.join(lab(t) for t in sys.argv[2].split()) or 'none'}; skipped (not installed): {', '.join(sys.argv[3].split()) or 'none'}", file=sys.stderr)
 if ud:
@@ -933,10 +972,10 @@ fixable = [t for t in wired if t in fixset]
 # a DIR makes the provision re-download the osv DB for this repo's ecosystems: a bare --print sees any one ecosystem's zip as warm and may emit nothing
 prov = f"bash {os.environ['HERE']}/provision_tools.sh --print" + (f" {shlex.quote(os.getcwd())}" if "osv-scanner" in fixable else "")
 print(f"review_checks: ran {len(allw) - len(notrun)} / wired {len(allw)} scanners" + (f"; not run: {', '.join(notrun)}" if notrun else "")
-      + (f"; partial: {', '.join(partial)}" if partial else "") + (f"; fixable: {', '.join(fixable)} (run: {prov})" if fixable else ""), file=sys.stderr)
+      + (f"; partial: {', '.join(partial)}" if partial else "") + (f"; precomputed: {', '.join(pre)}" if pre else "") + (f"; fixable: {', '.join(fixable)} (run: {prov})" if fixable else ""), file=sys.stderr)
 try:  # best effort: the sandbox may deny the write; perun_doctor.py reads this record
     with open(os.environ["REVIEW_STATE"], "w") as f:
-        json.dump({"ts": int(time.time()), "wired": allw, "not_run": notrun, "fixable": fixable, "partial": partial}, f)
+        json.dump({"ts": int(time.time()), "wired": allw, "not_run": notrun, "fixable": fixable, "partial": partial, **({"precomputed": pre} if pre else {})}, f)
 except OSError:
     pass
 PY

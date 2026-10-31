@@ -67,12 +67,16 @@ ground_truth:                  # each: ok | failed | not-run, with a note on any
   host_ci: unverified          # pass | failed | no-ci | unverified
   gate_self_test: not-run      # proven-red | not-proven | not-run  (skip caps only this claim)
   lint_type_scan: ok
+  analyzers:                   # one row per wired analyzer, from review_checks.sh's summary lines: ran | partial | not-run | precomputed
+    semgrep: precomputed       # read from the REVIEW_PRECOMPUTED envelope; this session ran no semgrep
+    gitleaks: not-run
   authz_posture: "9 entry points · anon probed 9 · two-principal 6 · untested: /export"
   parity_coverage: "N/A"       # UI/parity target: "N/M screens verified · unverified: …" (report-format.md); caps the verdict below Approve while any screen is unverified or no correspondence table exists
   pipeline_run: not-run
   notes:
     - "gate_self_test: live tree occupied; no dedicated worktree — probe not run"
     - "pipeline_run: needs live credentials; read-only engagement"
+    - "analyzers.gitleaks: not installed"
 
 coverage:                      # ONE ROW PER ASSIGNED DOMAIN (A–T and W). No row = not clean.
   A:
@@ -148,6 +152,13 @@ Field rules, beyond the comments above:
   fan-out, `finder` and `lead_read` carry the unit manifest's attribution
   (`parallel-audit.md`); a unit whose finder never completed is `unverified`
   in the note, never `scanned`.
+- **`ground_truth.analyzers` has one row per analyzer `review_checks.sh` wired**, read off its stderr: `ran` (under
+  "analyzers ran"), `partial` (the closing line's `partial:`), `not-run` (`NOT RUN` or "skipped (not installed)", reason in `notes`)
+  and `precomputed` (the closing line's `precomputed:`). No row, or `not-run`, is **not measured**, never clean; `lint_type_scan`
+  stays the aggregate. With `REVIEW_PRECOMPUTED=<dir>` the script starts no semgrep and reads `<dir>/semgrep.json`:
+  `envelope` 1, `scanner`, `tool` `semgrep`, `status` `ran|failed|skipped`, `exit`, `version`, `rules`, `report` (plain
+  `semgrep --json` as a string, null unless `ran`), `reason`. `ran` with `exit` 0 is parsed like a live run (changed files
+  only, rule ids as given); anything else, or a missing or malformed file, is `NOT RUN` with the reason.
 - **Contract change with zero out-of-diff files opened is a warning.** On a `DIFF` that changes a
   contract (signature, return shape, error, default, exported name), `ground_truth.notes` must carry
   `out_of_diff_opened: <N> of <M> (impact_map.py)`. `N = 0` with `M > 0`, or no such line, means callers
